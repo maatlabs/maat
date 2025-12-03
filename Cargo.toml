@@ -20,3 +20,4 @@ members = []
 [workspace.dependencies]
 
 [dependencies]
+unicode-xid = "0.2"

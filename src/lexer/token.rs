@@ -50,7 +50,7 @@ impl TokenKind {
     /// Maps the given input to a valid keyword,
     /// defaulting to `Self::Ident` if no match is found.
     #[inline]
-    pub fn lookup_keyword(k: &str) -> Self {
+    pub fn keyword_or_ident(k: &str) -> Self {
         match k {
             "let" => Self::Let,
             "if" => Self::If,
@@ -70,8 +70,8 @@ impl<'a> Token<'a> {
     }
 }
 
-impl<'a> std::fmt::Display for Token<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl<'a> core::fmt::Display for Token<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         match self.kind {
             TokenKind::Ident => write!(f, "{}", self.literal),
             _ => write!(f, "{:?}", self.kind),
