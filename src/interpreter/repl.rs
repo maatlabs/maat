@@ -1,29 +1,10 @@
 use std::io::{self, BufRead, Write};
 
-use crate::lexer::{Lexer, TokenKind};
+use crate::{Lexer, Parser};
 
 const PROMPT: &str = ">> ";
 
 /// Starts the REPL (Read-Eval-Print Loop) for interactive Maat sessions.
-///
-/// The REPL reads lines of source code from the input reader, tokenizes them using
-/// the lexer, and prints each token to the output writer. This provides an interactive
-/// environment for exploring the language's lexical structure.
-///
-/// # Type Parameters
-///
-/// * `R` - A buffered reader implementing [`BufRead`], typically [`std::io::Stdin`].
-/// * `W` - A writer implementing [`Write`], typically [`std::io::Stdout`].
-///
-/// # Parameters
-///
-/// * `reader` - The input source for reading user commands.
-/// * `writer` - The output destination for printing tokens and prompts.
-///
-/// # Returns
-///
-/// Returns `Ok(())` when the session ends normally (EOF), or an [`io::Error`] if
-/// I/O operations fail.
 ///
 /// # Examples
 ///
@@ -42,8 +23,8 @@ const PROMPT: &str = ">> ";
 ///
 /// 1. Displays the prompt (`>> `)
 /// 2. Reads a line of input
-/// 3. Tokenizes the input using the lexer
-/// 4. Prints each token in debug format
+/// 3. Parses the input into an AST
+/// 4. Reports syntax errors if any, otherwise prints the parsed AST
 /// 5. Repeats
 ///
 /// The session terminates when the reader returns EOF (e.g., Ctrl+D on Unix,
@@ -62,14 +43,16 @@ pub fn start<R: BufRead, W: Write>(mut reader: R, writer: &mut W) -> io::Result<
         }
 
         let line = source.trim_end();
-        let mut lexer = Lexer::new(line);
+        let lexer = Lexer::new(line);
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
 
-        loop {
-            let token = lexer.next_token();
-            if token.kind == TokenKind::Eof {
-                break;
+        if !parser.errors().is_empty() {
+            for err in parser.errors() {
+                writeln!(writer, "  {err}")?;
             }
-            writeln!(writer, "{token:?}")?;
+        } else {
+            writeln!(writer, "{program}")?;
         }
     }
 
@@ -81,36 +64,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn basic_tokenization() {
+    fn parse_let_statement() {
         let input = b"let x = 5;\n";
         let mut output = Vec::new();
 
         start(&input[..], &mut output).expect("REPL failed");
 
         let result = String::from_utf8(output).expect("Invalid UTF-8");
-
-        assert!(result.contains("Token"));
-        assert!(result.contains("Let"));
-        assert!(result.contains("Ident"));
-        assert!(result.contains("Assign"));
-        assert!(result.contains("Int"));
-        assert!(result.contains("Semicolon"));
+        assert!(result.contains(PROMPT));
+        assert!(result.contains("let x = 5;"));
     }
 
     #[test]
-    fn multiple_lines() {
+    fn parse_multiple_statements() {
         let input = b"let x = 5;\nlet y = 10;\n";
         let mut output = Vec::new();
 
         start(&input[..], &mut output).expect("REPL failed");
 
         let result = String::from_utf8(output).expect("Invalid UTF-8");
-        let prompt_count = result.matches(PROMPT).count();
-        assert_eq!(prompt_count, 3);
+        assert_eq!(result.matches(PROMPT).count(), 3);
+        assert!(result.contains("let x = 5;"));
+        assert!(result.contains("let y = 10;"));
     }
 
     #[test]
-    fn empty_line() {
+    fn parse_empty_line() {
         let input = b"\n";
         let mut output = Vec::new();
 
@@ -121,7 +100,7 @@ mod tests {
     }
 
     #[test]
-    fn eof_handling() {
+    fn handle_eof() {
         let input = b"";
         let mut output = Vec::new();
 
@@ -132,55 +111,48 @@ mod tests {
     }
 
     #[test]
-    fn complex_expression() {
+    fn parse_function_literal() {
         let input = b"let add = fn(x, y) { x + y; };\n";
         let mut output = Vec::new();
 
         start(&input[..], &mut output).expect("REPL failed");
 
         let result = String::from_utf8(output).expect("Invalid UTF-8");
-        assert!(result.contains("Function"));
-        assert!(result.contains("LParen"));
-        assert!(result.contains("RParen"));
-        assert!(result.contains("LBrace"));
-        assert!(result.contains("RBrace"));
+        assert!(result.contains("fn(x, y)"));
+        assert!(result.contains("(x + y)"));
     }
 
     #[test]
-    fn operators() {
+    fn parse_expression() {
         let input = b"5 + 10 == 15;\n";
         let mut output = Vec::new();
 
         start(&input[..], &mut output).expect("REPL failed");
 
         let result = String::from_utf8(output).expect("Invalid UTF-8");
-        assert!(result.contains("Plus"));
-        assert!(result.contains("Equal"));
+        assert!(result.contains("((5 + 10) == 15)"));
     }
 
     #[test]
-    fn whitespace() {
-        let input = b"   let   x   =   5   ;   \n";
+    fn report_syntax_errors() {
+        let input = b"let x = ;\n";
         let mut output = Vec::new();
 
         start(&input[..], &mut output).expect("REPL failed");
 
         let result = String::from_utf8(output).expect("Invalid UTF-8");
-        assert!(result.contains("Let"));
-        assert!(result.contains("Ident"));
-        assert!(result.contains("Assign"));
-        assert!(result.contains("Int"));
-        assert!(result.contains("Semicolon"));
+        assert!(result.contains("no prefix parse function"));
     }
 
     #[test]
-    fn invalid_tokens() {
-        let input = b"@#$\n";
+    fn format_multiple_errors() {
+        let input = b"let = fn(x + y);\n";
         let mut output = Vec::new();
 
         start(&input[..], &mut output).expect("REPL failed");
 
         let result = String::from_utf8(output).expect("Invalid UTF-8");
-        assert!(result.contains("Invalid"));
+        assert!(result.contains("expected next token"));
+        assert!(result.contains("\n"));
     }
 }

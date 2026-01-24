@@ -393,14 +393,14 @@ impl<'a> Parser<'a> {
 
     fn peek_error(&mut self, kind: TokenKind) {
         let msg = format!(
-            "expected next token to be {:?}, got {:?} instead",
+            "expected next token to be `{:?}`, got `{:?}` instead",
             kind, self.peek.kind
         );
         self.errors.push(msg);
     }
 
     fn prefix_parse_error(&mut self, kind: TokenKind) {
-        let msg = format!("no prefix parse function for {:?} found", kind);
+        let msg = format!("no prefix parse function for `{:?}` found", kind);
         self.errors.push(msg);
     }
 }
