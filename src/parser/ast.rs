@@ -194,7 +194,7 @@ impl fmt::Display for ConditionalExpr {
 
 impl fmt::Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "fn({}) {{ {} }}", self.params.join(", "), self.body)
+        write!(f, "fn({}) {{\n{}\n}}", self.params.join(", "), self.body)
     }
 }
 
