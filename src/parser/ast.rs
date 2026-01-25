@@ -2,6 +2,14 @@
 
 use std::fmt;
 
+/// Top-level AST node wrapper for all language items.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Node {
+    Program(Program),
+    Statement(Statement),
+    Expression(Expression),
+}
+
 /// A complete program in Maat.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Program {
@@ -97,6 +105,16 @@ pub struct Function {
 pub struct CallExpr {
     pub function: Box<Expression>,
     pub arguments: Vec<Expression>,
+}
+
+impl fmt::Display for Node {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Program(p) => p.fmt(f),
+            Self::Statement(s) => s.fmt(f),
+            Self::Expression(e) => e.fmt(f),
+        }
+    }
 }
 
 impl fmt::Display for Program {
