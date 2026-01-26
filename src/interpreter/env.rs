@@ -1,42 +1,52 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use super::Object;
 
 /// Represents the execution environment of the interpreter.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default)]
 pub struct Env {
+    inner: Rc<RefCell<EnvInner>>,
+}
+
+#[derive(Debug, Default)]
+struct EnvInner {
     store: HashMap<String, Object>,
-    outer: Option<Box<Env>>,
+    outer: Option<Env>,
 }
 
 impl Env {
-    /// Creates an enclosed environment for use within
-    /// function calls.
+    /// Creates an enclosed environment for use within function calls.
+    ///
+    /// The enclosed environment can access bindings from the outer environment
+    /// while maintaining its own local bindings.
     pub fn new_enclosed(outer: &Self) -> Self {
         Self {
-            outer: Some(Box::new(outer.clone())),
-            ..Default::default()
+            inner: Rc::new(RefCell::new(EnvInner {
+                store: HashMap::new(),
+                outer: Some(outer.clone()),
+            })),
         }
     }
 
-    /// Returns the object associated with a `name` if found,
-    /// or None, otherwise.
-    pub fn get(&self, name: &str) -> Option<&Object> {
-        match (self.store.get(name), &self.outer) {
-            // binding found in inner env,
-            // return object.
-            (Some(obj), _) => Some(obj),
-            // binding not found in inner env,
-            // try the outer env.
-            (None, Some(outer)) => outer.get(name),
-            // no binding found in inner env, and
-            // no outer env.
-            (None, _) => None,
+    /// Returns a clone of the object associated with a `name` if found.
+    pub fn get(&self, name: &str) -> Option<Object> {
+        let inner = self.inner.borrow();
+        match inner.store.get(name) {
+            Some(obj) => Some(obj.clone()),
+            None => inner.outer.as_ref().and_then(|outer| outer.get(name)),
         }
     }
 
     /// Binds the `object` in the environment with the `name`.
-    pub fn set(&mut self, name: String, object: &Object) {
-        self.store.insert(name, object.clone());
+    pub fn set(&self, name: String, object: &Object) {
+        self.inner.borrow_mut().store.insert(name, object.clone());
+    }
+}
+
+impl PartialEq for Env {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.inner, &other.inner)
     }
 }
