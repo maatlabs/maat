@@ -1,3 +1,9 @@
+//! Evaluation engine.
+//!
+//! This module implements a tree-walking interpreter that evaluates the AST nodes
+//! into runtime objects. It supports integers, booleans, functions, conditionals,
+//! and lexically-scoped environments.
+
 pub mod env;
 pub mod object;
 pub mod repl;
@@ -16,7 +22,29 @@ const TRUE: Object = Object::Boolean(true);
 const FALSE: Object = Object::Boolean(false);
 const NULL: Object = Object::Null;
 
-pub fn eval(node: Node, env: &mut Env) -> Result<Object> {
+/// Evaluates an AST node in the given environment.
+///
+/// This is the main entry point for the interpreter. It recursively traverses
+/// the AST, evaluating expressions and executing statements, producing runtime
+/// objects as results.
+///
+/// # Examples
+///
+/// ```
+/// use maat::{Lexer, Parser, Env};
+/// use maat::interpreter::{eval, Object};
+/// use maat::parser::ast::Node;
+///
+/// let input = "5 + 10";
+/// let lexer = Lexer::new(input);
+/// let mut parser = Parser::new(lexer);
+/// let program = parser.parse_program();
+/// let env = Env::default();
+///
+/// let result = eval(Node::Program(program), &env).unwrap();
+/// assert_eq!(result, Object::Int64(15));
+/// ```
+pub fn eval(node: Node, env: &Env) -> Result<Object> {
     match node {
         Node::Program(prog) => eval_program(prog, env),
 
@@ -51,7 +79,7 @@ pub fn eval(node: Node, env: &mut Env) -> Result<Object> {
     }
 }
 
-fn eval_program(prog: Program, env: &mut Env) -> Result<Object> {
+fn eval_program(prog: Program, env: &Env) -> Result<Object> {
     let mut result = NULL;
 
     for stmt in &prog.statements {
@@ -65,7 +93,7 @@ fn eval_program(prog: Program, env: &mut Env) -> Result<Object> {
     Ok(result)
 }
 
-fn eval_block_statement(block: BlockStatement, env: &mut Env) -> Result<Object> {
+fn eval_block_statement(block: BlockStatement, env: &Env) -> Result<Object> {
     let mut result = NULL;
 
     for stmt in &block.statements {
@@ -79,7 +107,7 @@ fn eval_block_statement(block: BlockStatement, env: &mut Env) -> Result<Object> 
     Ok(result)
 }
 
-fn eval_expressions(exprs: &[Expression], env: &mut Env) -> Result<Vec<Object>> {
+fn eval_expressions(exprs: &[Expression], env: &Env) -> Result<Vec<Object>> {
     let mut result = Vec::new();
 
     for expr in exprs {
@@ -89,7 +117,7 @@ fn eval_expressions(exprs: &[Expression], env: &mut Env) -> Result<Vec<Object>> 
     Ok(result)
 }
 
-fn eval_prefix_expression(expr: PrefixExpr, env: &mut Env) -> Result<Object> {
+fn eval_prefix_expression(expr: PrefixExpr, env: &Env) -> Result<Object> {
     let operand = eval(Node::Expression(*expr.operand), env)?;
     let operator = &expr.operator;
 
@@ -112,7 +140,7 @@ fn eval_prefix_expression(expr: PrefixExpr, env: &mut Env) -> Result<Object> {
     }
 }
 
-fn eval_infix_expression(expr: InfixExpr, env: &mut Env) -> Result<Object> {
+fn eval_infix_expression(expr: InfixExpr, env: &Env) -> Result<Object> {
     let lhs = eval(Node::Expression(*expr.lhs), env)?;
     let rhs = eval(Node::Expression(*expr.rhs), env)?;
     let operator = &expr.operator;
@@ -155,7 +183,7 @@ fn eval_infix_bool(operator: &str, lhs: bool, rhs: bool) -> Result<Object> {
     }
 }
 
-fn eval_conditional_expression(expr: ConditionalExpr, env: &mut Env) -> Result<Object> {
+fn eval_conditional_expression(expr: ConditionalExpr, env: &Env) -> Result<Object> {
     let condition = eval(Node::Expression(*expr.condition), env)?;
 
     if is_truthy(condition) {
@@ -171,14 +199,14 @@ fn is_truthy(obj: Object) -> bool {
     !(obj == NULL || obj == FALSE)
 }
 
-fn eval_identifier(ident: String, env: &mut Env) -> Result<Object> {
+fn eval_identifier(ident: String, env: &Env) -> Result<Object> {
     match env.get(&ident) {
         Some(obj) => Ok(obj.clone()),
         None => Err(EvalError::Identifier(format!("unknown identifier: {ident}")).into()),
     }
 }
 
-fn eval_function_call(expr: CallExpr, env: &mut Env) -> Result<Object> {
+fn eval_function_call(expr: CallExpr, env: &Env) -> Result<Object> {
     let function = eval(Node::Expression(*expr.function), env)?;
     let arguments = eval_expressions(&expr.arguments, env)?;
     apply_function(function, arguments)
@@ -187,13 +215,13 @@ fn eval_function_call(expr: CallExpr, env: &mut Env) -> Result<Object> {
 fn apply_function(f: Object, args: Vec<Object>) -> Result<Object> {
     match f {
         Object::Function(func) => {
-            let mut env = Env::new_enclosed(&func.env);
+            let env = Env::new_enclosed(&func.env);
 
             func.params.iter().enumerate().for_each(|(i, param)| {
                 env.set(param.to_owned(), &args[i]);
             });
 
-            let evaluated = eval(Node::Statement(Statement::Block(func.body)), &mut env)?;
+            let evaluated = eval(Node::Statement(Statement::Block(func.body)), &env)?;
 
             if let Object::ReturnValue(val) = evaluated {
                 Ok(*val)
@@ -202,5 +230,223 @@ fn apply_function(f: Object, args: Vec<Object>) -> Result<Object> {
             }
         }
         obj => Err(EvalError::NotAFunction(format!("expected {obj} to be a function")).into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Lexer, Parser};
+
+    fn test_eval(input: &str) -> Result<Object> {
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+        assert!(
+            parser.errors().is_empty(),
+            "parser errors: {:?}",
+            parser.errors()
+        );
+        let env = Env::default();
+        eval(Node::Program(program), &env)
+    }
+
+    #[test]
+    fn eval_int64_expression() {
+        [
+            ("5", 5),
+            ("10", 10),
+            ("-5", -5),
+            ("-10", -10),
+            ("5 + 5 + 5 + 5 - 10", 10),
+            ("2 * 2 * 2 * 2 * 2", 32),
+            ("-50 + 100 + -50", 0),
+            ("5 * 2 + 10", 20),
+            ("5 + 2 * 10", 25),
+            ("20 + 2 * -10", 0),
+            ("50 / 2 * 2 + 10", 60),
+            ("2 * (5 + 10)", 30),
+            ("3 * 3 * 3 + 10", 37),
+            ("3 * (3 * 3) + 10", 37),
+            ("(5 + 10 * 2 + 15 / 3) * 2 + -10", 50),
+        ]
+        .iter()
+        .for_each(|(input, expected)| {
+            let result = test_eval(input).unwrap();
+            assert_eq!(result, Object::Int64(*expected), "input: {}", input);
+        });
+    }
+
+    #[test]
+    fn eval_boolean_expression() {
+        [
+            ("true", true),
+            ("false", false),
+            ("1 < 2", true),
+            ("1 > 2", false),
+            ("1 < 1", false),
+            ("1 > 1", false),
+            ("1 == 1", true),
+            ("1 != 1", false),
+            ("1 == 2", false),
+            ("1 != 2", true),
+            ("true == true", true),
+            ("false == false", true),
+            ("true == false", false),
+            ("true != false", true),
+            ("false != true", true),
+            ("(1 < 2) == true", true),
+            ("(1 < 2) == false", false),
+            ("(1 > 2) == true", false),
+            ("(1 > 2) == false", true),
+        ]
+        .iter()
+        .for_each(|(input, expected)| {
+            let result = test_eval(input).unwrap();
+            assert_eq!(result, Object::Boolean(*expected), "input: {}", input);
+        });
+    }
+
+    #[test]
+    fn eval_bang_operator() {
+        [
+            ("!true", false),
+            ("!false", true),
+            ("!5", false),
+            ("!!true", true),
+            ("!!false", false),
+            ("!!5", true),
+        ]
+        .iter()
+        .for_each(|(input, expected)| {
+            let result = test_eval(input).unwrap();
+            assert_eq!(result, Object::Boolean(*expected), "input: {}", input);
+        });
+    }
+
+    #[test]
+    fn eval_if_else_expressions() {
+        [
+            ("if (true) { 10 }", Some(10)),
+            ("if (false) { 10 }", None),
+            ("if (1) { 10 }", Some(10)),
+            ("if (1 < 2) { 10 }", Some(10)),
+            ("if (1 > 2) { 10 }", None),
+            ("if (1 > 2) { 10 } else { 20 }", Some(20)),
+            ("if (1 < 2) { 10 } else { 20 }", Some(10)),
+        ]
+        .iter()
+        .for_each(|(input, expected)| {
+            let result = test_eval(input).unwrap();
+            match expected {
+                Some(val) => assert_eq!(result, Object::Int64(*val), "input: {}", input),
+                None => assert_eq!(result, Object::Null, "input: {}", input),
+            }
+        });
+    }
+
+    #[test]
+    fn eval_return_statements() {
+        [
+            ("return 10;", 10),
+            ("return 10; 9;", 10),
+            ("return 2 * 5; 9;", 10),
+            ("9; return 2 * 5; 9;", 10),
+            ("if (10 > 1) { return 10; }", 10),
+            ("if (10 > 1) { if (10 > 1) { return 10; } return 1; }", 10),
+        ]
+        .iter()
+        .for_each(|(input, expected)| {
+            let result = test_eval(input).unwrap();
+            assert_eq!(result, Object::Int64(*expected), "input: {}", input);
+        });
+    }
+
+    #[test]
+    fn eval_let_statements() {
+        [
+            ("let a = 5; a;", 5),
+            ("let a = 5 * 5; a;", 25),
+            ("let a = 5; let b = a; b;", 5),
+            ("let a = 5; let b = a; let c = a + b + 5; c;", 15),
+        ]
+        .iter()
+        .for_each(|(input, expected)| {
+            let result = test_eval(input).unwrap();
+            assert_eq!(result, Object::Int64(*expected), "input: {}", input);
+        });
+    }
+
+    #[test]
+    fn eval_function_object() {
+        let input = "fn(x) { x + 2; };";
+        let result = test_eval(input).unwrap();
+        match result {
+            Object::Function(func) => {
+                assert_eq!(func.params.len(), 1);
+                assert_eq!(func.params[0], "x");
+                assert_eq!(func.body.statements.len(), 1);
+            }
+            _ => panic!("expected Function object, got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn eval_function_application() {
+        [
+            ("let identity = fn(x) { x; }; identity(5);", 5),
+            ("let identity = fn(x) { return x; }; identity(5);", 5),
+            ("let double = fn(x) { x * 2; }; double(5);", 10),
+            ("let add = fn(x, y) { x + y; }; add(5, 5);", 10),
+            ("let add = fn(x, y) { x + y; }; add(5 + 5, add(5, 5));", 20),
+            ("fn(x) { x; }(5)", 5),
+        ]
+        .iter()
+        .for_each(|(input, expected)| {
+            let result = test_eval(input).unwrap();
+            assert_eq!(result, Object::Int64(*expected), "input: {}", input);
+        });
+    }
+
+    #[test]
+    fn eval_closures() {
+        let input = "
+            let newAdder = fn(x) {
+                fn(y) { x + y };
+            };
+            let addTwo = newAdder(2);
+            addTwo(2);
+        ";
+        let result = test_eval(input).unwrap();
+        assert_eq!(result, Object::Int64(4));
+    }
+
+    #[test]
+    fn error_handling() {
+        [
+            ("5 + true;", "invalid infix expression"),
+            ("5 + true; 5;", "invalid infix expression"),
+            ("-true", "cannot be negated"),
+            ("true + false;", "invalid boolean operation"),
+            ("5; true + false; 5", "invalid boolean operation"),
+            ("if (10 > 1) { true + false; }", "invalid boolean operation"),
+            (
+                "if (10 > 1) { if (10 > 1) { return true + false; } return 1; }",
+                "invalid boolean operation",
+            ),
+            ("foobar", "unknown identifier"),
+        ]
+        .iter()
+        .for_each(|(input, expected_msg)| {
+            let result = test_eval(input);
+            assert!(result.is_err(), "expected error for input: {}", input);
+            let err = result.unwrap_err();
+            assert!(
+                err.to_string().contains(expected_msg),
+                "expected error containing '{}', got '{}'",
+                expected_msg,
+                err
+            );
+        });
     }
 }
