@@ -34,8 +34,12 @@ pub enum TokenKind {
 
     /// A user-defined identifier (variable, function name, etc.).
     Ident,
+    /// A string literal.
+    String,
     /// A 64-bit signed integer literal.
     Int64,
+    /// A 64-bit floating-point number.
+    Float64,
 
     /// The assignment operator `=`.
     Assign,
@@ -73,6 +77,10 @@ pub enum TokenKind {
     LBrace,
     /// The right brace `}`.
     RBrace,
+    /// The left bracket `[`.
+    LBracket,
+    /// The right bracket `]`.
+    RBracket,
 
     /// An invalid or unrecognized token.
     Invalid,

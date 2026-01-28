@@ -75,6 +75,7 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
                 env: env.clone(),
             })),
             Expression::Call(call_expr) => eval_function_call(call_expr, env),
+            _ => todo!(),
         },
     }
 }

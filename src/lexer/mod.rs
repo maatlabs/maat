@@ -23,7 +23,7 @@ pub use token::{Token, TokenKind};
 /// assert_eq!(lexer.next_token().kind, TokenKind::Let);
 /// assert_eq!(lexer.next_token().kind, TokenKind::Ident);
 /// assert_eq!(lexer.next_token().kind, TokenKind::Assign);
-/// assert_eq!(lexer.next_token().kind, TokenKind::Int);
+/// assert_eq!(lexer.next_token().kind, TokenKind::Int64);
 /// assert_eq!(lexer.next_token().kind, TokenKind::Semicolon);
 /// assert_eq!(lexer.next_token().kind, TokenKind::Eof);
 /// ```
@@ -107,6 +107,9 @@ impl<'a> Lexer<'a> {
             b')' => self.yield_token(start, TokenKind::RParen),
             b'{' => self.yield_token(start, TokenKind::LBrace),
             b'}' => self.yield_token(start, TokenKind::RBrace),
+            b'[' => self.yield_token(start, TokenKind::LBracket),
+            b']' => self.yield_token(start, TokenKind::RBracket),
+            b'"' => self.yield_string(start),
 
             b if b.is_ascii_alphabetic() || b == b'_' => self.yield_ident(start),
             b if b >= 0x80 => self.yield_ident(start),
@@ -156,6 +159,10 @@ impl<'a> Lexer<'a> {
     #[inline]
     fn peek_char(&self) -> Option<char> {
         self.source[self.pos..].chars().next()
+    }
+
+    fn yield_string(&mut self, _start: usize) -> Token<'a> {
+        todo!()
     }
 
     fn yield_ident(&mut self, start: usize) -> Token<'a> {
