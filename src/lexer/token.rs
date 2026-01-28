@@ -34,8 +34,8 @@ pub enum TokenKind {
 
     /// A user-defined identifier (variable, function name, etc.).
     Ident,
-    /// An integer literal.
-    Int,
+    /// A 64-bit signed integer literal.
+    Int64,
 
     /// The assignment operator `=`.
     Assign,

@@ -198,7 +198,7 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        Token::new(TokenKind::Int, &self.source[start..self.pos])
+        Token::new(TokenKind::Int64, &self.source[start..self.pos])
     }
 }
 
@@ -233,12 +233,12 @@ if (5 < 10) {
             (TokenKind::Let, "let"),
             (TokenKind::Ident, "five"),
             (TokenKind::Assign, "="),
-            (TokenKind::Int, "5"),
+            (TokenKind::Int64, "5"),
             (TokenKind::Semicolon, ";"),
             (TokenKind::Let, "let"),
             (TokenKind::Ident, "ten"),
             (TokenKind::Assign, "="),
-            (TokenKind::Int, "10"),
+            (TokenKind::Int64, "10"),
             (TokenKind::Semicolon, ";"),
             (TokenKind::Let, "let"),
             (TokenKind::Ident, "add"),
@@ -270,19 +270,19 @@ if (5 < 10) {
             (TokenKind::Minus, "-"),
             (TokenKind::Slash, "/"),
             (TokenKind::Asterisk, "*"),
-            (TokenKind::Int, "5"),
+            (TokenKind::Int64, "5"),
             (TokenKind::Semicolon, ";"),
-            (TokenKind::Int, "5"),
+            (TokenKind::Int64, "5"),
             (TokenKind::Less, "<"),
-            (TokenKind::Int, "10"),
+            (TokenKind::Int64, "10"),
             (TokenKind::Greater, ">"),
-            (TokenKind::Int, "5"),
+            (TokenKind::Int64, "5"),
             (TokenKind::Semicolon, ";"),
             (TokenKind::If, "if"),
             (TokenKind::LParen, "("),
-            (TokenKind::Int, "5"),
+            (TokenKind::Int64, "5"),
             (TokenKind::Less, "<"),
-            (TokenKind::Int, "10"),
+            (TokenKind::Int64, "10"),
             (TokenKind::RParen, ")"),
             (TokenKind::LBrace, "{"),
             (TokenKind::Return, "return"),
@@ -295,13 +295,13 @@ if (5 < 10) {
             (TokenKind::False, "false"),
             (TokenKind::Semicolon, ";"),
             (TokenKind::RBrace, "}"),
-            (TokenKind::Int, "10"),
+            (TokenKind::Int64, "10"),
             (TokenKind::Equal, "=="),
-            (TokenKind::Int, "10"),
+            (TokenKind::Int64, "10"),
             (TokenKind::Semicolon, ";"),
-            (TokenKind::Int, "10"),
+            (TokenKind::Int64, "10"),
             (TokenKind::NotEqual, "!="),
-            (TokenKind::Int, "9"),
+            (TokenKind::Int64, "9"),
             (TokenKind::Semicolon, ";"),
             (TokenKind::Eof, ""),
         ];
@@ -410,13 +410,13 @@ if (5 < 10) {
     }
 
     #[test]
-    fn integers() {
+    fn int64() {
         let source = "0 1 42 1234567890";
         let expected = [
-            (TokenKind::Int, "0"),
-            (TokenKind::Int, "1"),
-            (TokenKind::Int, "42"),
-            (TokenKind::Int, "1234567890"),
+            (TokenKind::Int64, "0"),
+            (TokenKind::Int64, "1"),
+            (TokenKind::Int64, "42"),
+            (TokenKind::Int64, "1234567890"),
             (TokenKind::Eof, ""),
         ];
 
@@ -462,7 +462,7 @@ if (5 < 10) {
             (TokenKind::Let, "let"),
             (TokenKind::Ident, "x"),
             (TokenKind::Assign, "="),
-            (TokenKind::Int, "5"),
+            (TokenKind::Int64, "5"),
             (TokenKind::Eof, ""),
         ];
 

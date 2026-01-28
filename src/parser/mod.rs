@@ -159,7 +159,7 @@ impl<'a> Parser<'a> {
     fn parse_expression(&mut self, prec: u8) -> Option<Expression> {
         let mut lhs = match self.current.kind {
             TokenKind::Ident => self.parse_identifier()?,
-            TokenKind::Int => self.parse_int64()?,
+            TokenKind::Int64 => self.parse_int64()?,
             TokenKind::Bang | TokenKind::Minus => self.parse_prefix_expression()?,
             TokenKind::True | TokenKind::False => self.parse_boolean()?,
             TokenKind::LParen => self.parse_grouped_expression()?,
