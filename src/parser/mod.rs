@@ -160,11 +160,15 @@ impl<'a> Parser<'a> {
         let mut lhs = match self.current.kind {
             TokenKind::Ident => self.parse_identifier()?,
             TokenKind::Int64 => self.parse_int64()?,
+            TokenKind::Float64 => self.parse_float64()?,
+            TokenKind::String => self.parse_string_literal()?,
             TokenKind::Bang | TokenKind::Minus => self.parse_prefix_expression()?,
             TokenKind::True | TokenKind::False => self.parse_boolean()?,
             TokenKind::LParen => self.parse_grouped_expression()?,
             TokenKind::If => self.parse_conditional_expression()?,
             TokenKind::Function => self.parse_function()?,
+            TokenKind::LBracket => self.parse_array_literal()?,
+            TokenKind::LBrace => self.parse_hash_literal()?,
             kind => {
                 self.prefix_parse_error(kind);
                 return None;
@@ -186,6 +190,7 @@ impl<'a> Parser<'a> {
                     self.next_token();
                     lhs = match kind {
                         TokenKind::LParen => self.parse_call_expression(lhs)?,
+                        TokenKind::LBracket => self.parse_index_expression(lhs)?,
                         _ => self.parse_infix_expression(lhs)?,
                     };
                 }
@@ -229,6 +234,65 @@ impl<'a> Parser<'a> {
                 None
             }
         }
+    }
+
+    fn parse_float64(&mut self) -> Option<Expression> {
+        match self.current.literal.parse::<u64>() {
+            Ok(value) => Some(Expression::Float64(Float64(value))),
+            Err(_) => {
+                let msg = format!("could not parse {:?} as `Float64`", self.current.literal);
+                self.errors.push(msg);
+                None
+            }
+        }
+    }
+
+    fn parse_string_literal(&mut self) -> Option<Expression> {
+        Some(Expression::String(self.current.literal.to_owned()))
+    }
+
+    fn parse_array_literal(&mut self) -> Option<Expression> {
+        Some(Expression::Array(ArrayLiteral {
+            elements: self.parse_expression_list(TokenKind::RBracket)?,
+        }))
+    }
+
+    fn parse_index_expression(&mut self, expr: Expression) -> Option<Expression> {
+        let expr = Box::new(expr);
+        self.next_token();
+        let index = Box::new(self.parse_expression(LOWEST)?);
+
+        if !self.expect_peek(TokenKind::RBracket) {
+            return None;
+        }
+        Some(Expression::Index(IndexExpr { expr, index }))
+    }
+
+    fn parse_hash_literal(&mut self) -> Option<Expression> {
+        let mut pairs = Vec::new();
+
+        while !self.peek_token_is(TokenKind::RBrace) {
+            self.next_token();
+            let key = self.parse_expression(LOWEST)?;
+
+            if !self.expect_peek(TokenKind::Colon) {
+                return None;
+            }
+
+            self.next_token();
+            let value = self.parse_expression(LOWEST)?;
+            pairs.push((key, value));
+
+            if !self.peek_token_is(TokenKind::RBrace) && !self.expect_peek(TokenKind::Comma) {
+                return None;
+            }
+        }
+
+        if !self.expect_peek(TokenKind::RBrace) {
+            return None;
+        }
+
+        Some(Expression::Hash(HashLiteral { pairs }))
     }
 
     fn parse_grouped_expression(&mut self) -> Option<Expression> {
@@ -326,14 +390,14 @@ impl<'a> Parser<'a> {
     fn parse_call_expression(&mut self, func: Expression) -> Option<Expression> {
         Some(Expression::Call(CallExpr {
             function: Box::new(func),
-            arguments: self.parse_call_args()?,
+            arguments: self.parse_expression_list(TokenKind::RParen)?,
         }))
     }
 
-    fn parse_call_args(&mut self) -> Option<Vec<Expression>> {
+    fn parse_expression_list(&mut self, end: TokenKind) -> Option<Vec<Expression>> {
         let mut arguments = Vec::new();
 
-        if self.peek_token_is(TokenKind::RParen) {
+        if self.peek_token_is(end) {
             self.next_token();
             return Some(arguments);
         }
@@ -347,7 +411,7 @@ impl<'a> Parser<'a> {
             arguments.push(self.parse_expression(LOWEST)?);
         }
 
-        if !self.expect_peek(TokenKind::RParen) {
+        if !self.expect_peek(end) {
             return None;
         }
 

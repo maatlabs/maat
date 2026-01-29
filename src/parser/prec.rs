@@ -17,6 +17,8 @@ pub const PRODUCT: u8 = 5;
 pub const PREFIX: u8 = 6;
 /// Function calls: `f(x)`
 pub const CALL: u8 = 7;
+/// Array indexing and index expressions: `expr[i]`
+pub const INDEX: u8 = 8;
 
 pub struct Precedence;
 
@@ -31,6 +33,7 @@ impl Precedence {
             TokenKind::Plus | TokenKind::Minus => Some(SUM),
             TokenKind::Asterisk | TokenKind::Slash => Some(PRODUCT),
             TokenKind::LParen => Some(CALL),
+            TokenKind::LBracket => Some(INDEX),
             _ => None,
         }
     }
