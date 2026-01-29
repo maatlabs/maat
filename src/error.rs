@@ -14,6 +14,7 @@ pub enum EvalError {
     Boolean(String),
     Number(String),
     NotAFunction(String),
+    NotHashable(String),
     ValueNotFound,
 }
 
@@ -50,6 +51,7 @@ impl fmt::Display for EvalError {
             Self::Boolean(msg) => write!(f, "{msg}"),
             Self::Number(msg) => write!(f, "{msg}"),
             Self::NotAFunction(msg) => write!(f, "{msg}"),
+            Self::NotHashable(msg) => write!(f, "unusable as hash key: {msg}"),
             Self::ValueNotFound => write!(f, "value not found"),
         }
     }
