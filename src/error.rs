@@ -9,6 +9,7 @@ pub enum Error {
 #[derive(Debug)]
 pub enum EvalError {
     Identifier(String),
+    IndexExpression(String),
     PrefixExpression(String),
     InfixExpression(String),
     Boolean(String),
@@ -46,6 +47,7 @@ impl fmt::Display for EvalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Identifier(msg) => write!(f, "{msg}"),
+            Self::IndexExpression(msg) => write!(f, "{msg}"),
             Self::PrefixExpression(msg) => write!(f, "{msg}"),
             Self::InfixExpression(msg) => write!(f, "{msg}"),
             Self::Boolean(msg) => write!(f, "{msg}"),

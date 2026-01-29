@@ -23,7 +23,7 @@ pub enum Object {
     /// A string literal.
     String(String),
     /// An array literal.
-    Array(Box<[Object]>),
+    Array(Vec<Object>),
     /// A hashable object.
     Hash(HashObject),
     /// A function object with parameters, body, and closure environment.
@@ -62,7 +62,7 @@ impl PartialEq for Object {
             (Float64(a), Float64(b)) => a == b,
             (Boolean(a), Boolean(b)) => a == b,
             (String(a), String(b)) => a == b,
-            (Array(a1), Array(a2)) => a1.as_ref() == a2.as_ref(),
+            (Array(a1), Array(a2)) => a1 == a2,
             (Hash(h1), Hash(h2)) => h1 == h2,
             (Function(f1), Function(f2)) => f1 == f2,
             (ReturnValue(o1), ReturnValue(o2)) => o1 == o2,

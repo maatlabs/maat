@@ -8,14 +8,16 @@ pub mod env;
 pub mod object;
 pub mod repl;
 
+use std::collections::HashMap;
+
 pub use env::Env;
-pub use object::{Function, Object};
+pub use object::{Function, HashObject, Hashable, Object};
 
 use crate::Result;
 use crate::error::EvalError;
 use crate::parser::ast::{
-    BlockStatement, CallExpr, ConditionalExpr, Expression, InfixExpr, Node, PrefixExpr, Program,
-    Statement,
+    BlockStatement, CallExpr, ConditionalExpr, Expression, HashLiteral, IndexExpr, InfixExpr, Node,
+    PrefixExpr, Program, Statement,
 };
 
 const TRUE: Object = Object::Boolean(true);
@@ -64,7 +66,15 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
 
         Node::Expression(expr) => match expr {
             Expression::Int64(int64) => Ok(Object::Int64(int64.value)),
+            Expression::Float64(float64) => Ok(Object::Float64(float64.into())),
             Expression::Boolean(boolean) => Ok(Object::Boolean(boolean)),
+            Expression::String(string) => Ok(Object::String(string)),
+            Expression::Array(array_lit) => {
+                let elements = eval_expressions(&array_lit.elements, env)?;
+                Ok(Object::Array(elements))
+            }
+            Expression::Index(index_expr) => eval_index_expression(index_expr, env),
+            Expression::Hash(hash_literal) => eval_hash_literal(hash_literal, env),
             Expression::Prefix(prefix_expr) => eval_prefix_expression(prefix_expr, env),
             Expression::Infix(infix_expr) => eval_infix_expression(infix_expr, env),
             Expression::Conditional(cond_expr) => eval_conditional_expression(cond_expr, env),
@@ -75,7 +85,6 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
                 env: env.clone(),
             })),
             Expression::Call(call_expr) => eval_function_call(call_expr, env),
-            _ => todo!(),
         },
     }
 }
@@ -118,18 +127,55 @@ fn eval_expressions(exprs: &[Expression], env: &Env) -> Result<Vec<Object>> {
     Ok(result)
 }
 
+fn eval_index_expression(idx_expr: IndexExpr, env: &Env) -> Result<Object> {
+    let expr = eval(Node::Expression(*idx_expr.expr), env)?;
+    let expr_type = expr.type_name();
+    let index = eval(Node::Expression(*idx_expr.index), env)?;
+
+    match (expr, index) {
+        (Object::Array(arr), Object::Int64(idx)) => {
+            if arr.is_empty() || idx < 0 || idx as usize >= arr.len() {
+                return Ok(NULL);
+            }
+            Ok(arr[idx as usize].clone())
+        }
+        (Object::Hash(hash), key) => {
+            let key_hash = Hashable::try_from(key)?;
+            Ok(hash.pairs.get(&key_hash).cloned().unwrap_or(NULL))
+        }
+        _ => Err(EvalError::IndexExpression(format!(
+            "index expression not supported for {expr_type}"
+        ))
+        .into()),
+    }
+}
+
+fn eval_hash_literal(expr: HashLiteral, env: &Env) -> Result<Object> {
+    let mut pairs = HashMap::new();
+
+    for (key_expr, val_expr) in &expr.pairs {
+        let key = eval(Node::Expression(key_expr.clone()), env)?;
+        let key = Hashable::try_from(key)?;
+        let value = eval(Node::Expression(val_expr.clone()), env)?;
+        pairs.insert(key, value);
+    }
+
+    Ok(Object::Hash(HashObject { pairs }))
+}
+
 fn eval_prefix_expression(expr: PrefixExpr, env: &Env) -> Result<Object> {
     let operand = eval(Node::Expression(*expr.operand), env)?;
     let operator = &expr.operator;
 
     match operator.as_str() {
         "!" => match operand {
-            obj if obj == NULL || obj == FALSE => Ok(TRUE),
+            obj if !is_truthy(&obj) => Ok(TRUE),
             _ => Ok(FALSE),
         },
 
         "-" => match operand {
             Object::Int64(int64) => Ok(Object::Int64(-int64)),
+            Object::Float64(float64) => Ok(Object::Float64(-float64)),
 
             _ => Err(EvalError::PrefixExpression(format!(
                 "{operand} is of type that cannot be negated"
@@ -148,7 +194,11 @@ fn eval_infix_expression(expr: InfixExpr, env: &Env) -> Result<Object> {
 
     match (&lhs, &rhs) {
         (Object::Int64(left), Object::Int64(right)) => eval_infix_int64(operator, *left, *right),
+        (Object::Float64(left), Object::Float64(right)) => {
+            eval_infix_float64(operator, *left, *right)
+        }
         (Object::Boolean(left), Object::Boolean(right)) => eval_infix_bool(operator, *left, *right),
+        (Object::String(left), Object::String(right)) => eval_infix_string(operator, left, right),
         _ => Err(EvalError::InfixExpression(format!(
             "invalid infix expression: `{lhs} {operator} {rhs}`"
         ))
@@ -168,9 +218,27 @@ fn eval_infix_int64(operator: &str, lhs: i64, rhs: i64) -> Result<Object> {
         "==" => Ok(Object::Boolean(lhs == rhs)),
         "!=" => Ok(Object::Boolean(lhs != rhs)),
 
-        _ => {
-            Err(EvalError::Number(format!("invalid i64 operation: {lhs} {operator} {rhs}")).into())
-        }
+        _ => Err(
+            EvalError::Number(format!("invalid i64 operation: `{lhs} {operator} {rhs}`")).into(),
+        ),
+    }
+}
+
+fn eval_infix_float64(operator: &str, lhs: f64, rhs: f64) -> Result<Object> {
+    match operator {
+        "+" => Ok(Object::Float64(lhs + rhs)),
+        "-" => Ok(Object::Float64(lhs - rhs)),
+        "*" => Ok(Object::Float64(lhs * rhs)),
+        "/" => Ok(Object::Float64(lhs / rhs)),
+
+        "<" => Ok(Object::Boolean(lhs < rhs)),
+        ">" => Ok(Object::Boolean(lhs > rhs)),
+        "==" => Ok(Object::Boolean(lhs == rhs)),
+        "!=" => Ok(Object::Boolean(lhs != rhs)),
+
+        _ => Err(
+            EvalError::Number(format!("invalid f64 operation: `{lhs} {operator} {rhs}`")).into(),
+        ),
     }
 }
 
@@ -178,16 +246,27 @@ fn eval_infix_bool(operator: &str, lhs: bool, rhs: bool) -> Result<Object> {
     match operator {
         "==" => Ok(Object::Boolean(lhs == rhs)),
         "!=" => Ok(Object::Boolean(lhs != rhs)),
-        _ => Err(
-            EvalError::Boolean(format!("invalid boolean operation: {lhs} {operator} {rhs}")).into(),
-        ),
+        _ => Err(EvalError::Boolean(format!(
+            "invalid boolean operation: `{lhs} {operator} {rhs}`"
+        ))
+        .into()),
     }
+}
+
+fn eval_infix_string(operator: &str, lhs: &str, rhs: &str) -> Result<Object> {
+    if operator != "+" {
+        return Err(EvalError::InfixExpression(format!(
+            "invalid concat operation: `{lhs} {operator} {rhs}`"
+        ))
+        .into());
+    }
+    Ok(Object::String(format!("{lhs}{rhs}")))
 }
 
 fn eval_conditional_expression(expr: ConditionalExpr, env: &Env) -> Result<Object> {
     let condition = eval(Node::Expression(*expr.condition), env)?;
 
-    if is_truthy(condition) {
+    if is_truthy(&condition) {
         eval(Node::Statement(Statement::Block(expr.consequence)), env)
     } else if let Some(alt) = expr.alternative {
         eval(Node::Statement(Statement::Block(alt)), env)
@@ -196,8 +275,8 @@ fn eval_conditional_expression(expr: ConditionalExpr, env: &Env) -> Result<Objec
     }
 }
 
-fn is_truthy(obj: Object) -> bool {
-    !(obj == NULL || obj == FALSE)
+fn is_truthy(obj: &Object) -> bool {
+    !(*obj == NULL || *obj == FALSE)
 }
 
 fn eval_identifier(ident: String, env: &Env) -> Result<Object> {
