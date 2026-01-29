@@ -68,7 +68,8 @@ pub enum TokenKind {
     Comma,
     /// The semicolon delimiter `;`.
     Semicolon,
-
+    /// The colon delimiter `:`.
+    Colon,
     /// The left parenthesis `(`.
     LParen,
     /// The right parenthesis `)`.

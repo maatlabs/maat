@@ -103,6 +103,7 @@ impl<'a> Lexer<'a> {
 
             b',' => self.yield_token(start, TokenKind::Comma),
             b';' => self.yield_token(start, TokenKind::Semicolon),
+            b':' => self.yield_token(start, TokenKind::Colon),
             b'(' => self.yield_token(start, TokenKind::LParen),
             b')' => self.yield_token(start, TokenKind::RParen),
             b'{' => self.yield_token(start, TokenKind::LBrace),
