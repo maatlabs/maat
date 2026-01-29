@@ -6,6 +6,12 @@ use crate::error::EvalError;
 use crate::parser::ast::BlockStatement;
 use crate::{Error, Result};
 
+pub type BuiltinFn = fn(&[Object]) -> Result<Object>;
+
+pub const TRUE: Object = Object::Boolean(true);
+pub const FALSE: Object = Object::Boolean(false);
+pub const NULL: Object = Object::Null;
+
 /// Runtime value representation in the interpreter.
 ///
 /// Objects are the evaluated results of expressions and can be integers,
@@ -30,6 +36,8 @@ pub enum Object {
     Function(Function),
     /// Wraps a return value for early function/block termination.
     ReturnValue(Box<Object>),
+    /// A builtin function.
+    Builtin(BuiltinFn),
 }
 
 impl Object {
@@ -45,6 +53,7 @@ impl Object {
             Self::Hash(_) => "Hashable",
             Self::Function(_) => "Function",
             Self::ReturnValue(_) => "ReturnValue",
+            Self::Builtin(_) => "BuiltinFn",
         }
     }
 
@@ -66,6 +75,7 @@ impl PartialEq for Object {
             (Hash(h1), Hash(h2)) => h1 == h2,
             (Function(f1), Function(f2)) => f1 == f2,
             (ReturnValue(o1), ReturnValue(o2)) => o1 == o2,
+            (Builtin(f1), Builtin(f2)) => std::ptr::fn_addr_eq(*f1, *f2),
             _ => false,
         }
     }
@@ -126,6 +136,7 @@ impl fmt::Display for Object {
             Self::Hash(hash) => hash.fmt(f),
             Self::Function(func) => func.fmt(f),
             Self::ReturnValue(ret_val) => ret_val.fmt(f),
+            Self::Builtin(_) => write!(f, "builtin function"),
         }
     }
 }

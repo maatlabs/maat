@@ -4,14 +4,16 @@
 //! into runtime objects. It supports integers, booleans, functions, conditionals,
 //! and lexically-scoped environments.
 
+pub mod builtins;
 pub mod env;
 pub mod object;
 pub mod repl;
 
 use std::collections::HashMap;
 
+use builtins::get_builtin;
 pub use env::Env;
-pub use object::{Function, HashObject, Hashable, Object};
+pub use object::{BuiltinFn, FALSE, Function, HashObject, Hashable, NULL, Object, TRUE};
 
 use crate::Result;
 use crate::error::EvalError;
@@ -19,10 +21,6 @@ use crate::parser::ast::{
     BlockStatement, CallExpr, ConditionalExpr, Expression, HashLiteral, IndexExpr, InfixExpr, Node,
     PrefixExpr, Program, Statement,
 };
-
-const TRUE: Object = Object::Boolean(true);
-const FALSE: Object = Object::Boolean(false);
-const NULL: Object = Object::Null;
 
 /// Evaluates an AST node in the given environment.
 ///
@@ -282,7 +280,10 @@ fn is_truthy(obj: &Object) -> bool {
 fn eval_identifier(ident: String, env: &Env) -> Result<Object> {
     match env.get(&ident) {
         Some(obj) => Ok(obj.clone()),
-        None => Err(EvalError::Identifier(format!("unknown identifier: {ident}")).into()),
+        None => match get_builtin(&ident) {
+            Some(func) => Ok(Object::Builtin(func)),
+            None => Err(EvalError::Identifier(format!("unknown identifier: {ident}")).into()),
+        },
     }
 }
 
