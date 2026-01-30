@@ -17,10 +17,7 @@ pub use object::{BuiltinFn, FALSE, Function, HashObject, Hashable, NULL, Object,
 
 use crate::Result;
 use crate::error::EvalError;
-use crate::parser::ast::{
-    BlockStatement, CallExpr, ConditionalExpr, Expression, HashLiteral, IndexExpr, InfixExpr, Node,
-    PrefixExpr, Program, Statement,
-};
+use crate::parser::ast::*;
 
 /// Evaluates an AST node in the given environment.
 ///
@@ -310,6 +307,7 @@ fn apply_function(f: Object, args: Vec<Object>) -> Result<Object> {
                 Ok(evaluated)
             }
         }
+        Object::Builtin(builtin_fn) => builtin_fn(&args),
         obj => Err(EvalError::NotAFunction(format!("expected {obj} to be a function")).into()),
     }
 }
@@ -500,6 +498,338 @@ mod tests {
         ";
         let result = test_eval(input).unwrap();
         assert_eq!(result, Object::Int64(4));
+    }
+
+    #[test]
+    fn eval_string_literals() {
+        [
+            (r#""Hello World!""#, "Hello World!"),
+            (r#""foo bar""#, "foo bar"),
+            (r#""""#, ""),
+        ]
+        .iter()
+        .for_each(|(input, expected)| {
+            let result = test_eval(input).unwrap();
+            assert_eq!(
+                result,
+                Object::String(expected.to_string()),
+                "input: {}",
+                input
+            );
+        });
+    }
+
+    #[test]
+    fn eval_string_concatenation() {
+        [
+            (r#""Hello" + " " + "World!""#, "Hello World!"),
+            (r#""foo" + "bar""#, "foobar"),
+        ]
+        .iter()
+        .for_each(|(input, expected)| {
+            let result = test_eval(input).unwrap();
+            assert_eq!(
+                result,
+                Object::String(expected.to_string()),
+                "input: {}",
+                input
+            );
+        });
+    }
+
+    #[test]
+    fn eval_array_literals() {
+        let result = test_eval("[1, 2 * 2, 3 + 3]").unwrap();
+        match result {
+            Object::Array(arr) => {
+                assert_eq!(arr.len(), 3);
+                assert_eq!(arr[0], Object::Int64(1));
+                assert_eq!(arr[1], Object::Int64(4));
+                assert_eq!(arr[2], Object::Int64(6));
+            }
+            _ => panic!("expected array"),
+        }
+    }
+
+    #[test]
+    fn eval_array_index_expressions() {
+        [
+            ("[1, 2, 3][0]", Some(1)),
+            ("[1, 2, 3][1]", Some(2)),
+            ("[1, 2, 3][2]", Some(3)),
+            ("let i = 0; [1][i];", Some(1)),
+            ("[1, 2, 3][1 + 1];", Some(3)),
+            ("let myArray = [1, 2, 3]; myArray[2];", Some(3)),
+            (
+                "let myArray = [1, 2, 3]; myArray[0] + myArray[1] + myArray[2];",
+                Some(6),
+            ),
+            (
+                "let myArray = [1, 2, 3]; let i = myArray[0]; myArray[i]",
+                Some(2),
+            ),
+            ("[1, 2, 3][3]", None),
+            ("[1, 2, 3][-1]", None),
+        ]
+        .iter()
+        .for_each(|(input, expected)| {
+            let result = test_eval(input).unwrap();
+            match expected {
+                Some(val) => assert_eq!(result, Object::Int64(*val), "input: {}", input),
+                None => assert_eq!(result, NULL, "input: {}", input),
+            }
+        });
+    }
+
+    #[test]
+    fn eval_hash_literals() {
+        let input = r#"
+            let two = "two";
+            {
+                "one": 10 - 9,
+                two: 1 + 1,
+                "thr" + "ee": 6 / 2,
+                4: 4,
+                true: 5,
+                false: 6
+            }
+        "#;
+        let result = test_eval(input).unwrap();
+        match result {
+            Object::Hash(hash) => {
+                assert_eq!(hash.pairs.len(), 6);
+
+                let expected = [
+                    (Hashable::String("one".to_string()), Object::Int64(1)),
+                    (Hashable::String("two".to_string()), Object::Int64(2)),
+                    (Hashable::String("three".to_string()), Object::Int64(3)),
+                    (Hashable::Int64(4), Object::Int64(4)),
+                    (Hashable::Boolean(true), Object::Int64(5)),
+                    (Hashable::Boolean(false), Object::Int64(6)),
+                ];
+
+                for (key, value) in expected {
+                    assert_eq!(hash.pairs.get(&key), Some(&value));
+                }
+            }
+            _ => panic!("expected hash"),
+        }
+    }
+
+    #[test]
+    fn eval_hash_index_expressions() {
+        [
+            (r#"{"foo": 5}["foo"]"#, Some(5)),
+            (r#"{"foo": 5}["bar"]"#, None),
+            (r#"let key = "foo"; {"foo": 5}[key]"#, Some(5)),
+            (r#"{}["foo"]"#, None),
+            (r#"{5: 5}[5]"#, Some(5)),
+            (r#"{true: 5}[true]"#, Some(5)),
+            (r#"{false: 5}[false]"#, Some(5)),
+        ]
+        .iter()
+        .for_each(|(input, expected)| {
+            let result = test_eval(input).unwrap();
+            match expected {
+                Some(val) => assert_eq!(result, Object::Int64(*val), "input: {}", input),
+                None => assert_eq!(result, NULL, "input: {}", input),
+            }
+        });
+    }
+
+    #[test]
+    fn eval_builtin_len() {
+        [
+            (r#"len("")"#, Some(0)),
+            (r#"len("four")"#, Some(4)),
+            (r#"len("hello world")"#, Some(11)),
+            ("len([1, 2, 3])", Some(3)),
+            ("len([])", Some(0)),
+            ("len(1)", None),
+        ]
+        .iter()
+        .for_each(|(input, expected)| match expected {
+            Some(val) => {
+                let result = test_eval(input).unwrap();
+                assert_eq!(result, Object::Int64(*val), "input: {}", input);
+            }
+            None => {
+                assert!(test_eval(input).is_err(), "expected error for: {}", input);
+            }
+        });
+    }
+
+    #[test]
+    fn eval_builtin_first() {
+        [
+            ("first([1, 2, 3])", Some(1)),
+            ("first([10, 20])", Some(10)),
+            ("first([])", None),
+        ]
+        .iter()
+        .for_each(|(input, expected)| {
+            let result = test_eval(input).unwrap();
+            match expected {
+                Some(val) => assert_eq!(result, Object::Int64(*val), "input: {}", input),
+                None => assert_eq!(result, NULL, "input: {}", input),
+            }
+        });
+    }
+
+    #[test]
+    fn eval_builtin_last() {
+        [
+            ("last([1, 2, 3])", Some(3)),
+            ("last([10, 20])", Some(20)),
+            ("last([])", None),
+        ]
+        .iter()
+        .for_each(|(input, expected)| {
+            let result = test_eval(input).unwrap();
+            match expected {
+                Some(val) => assert_eq!(result, Object::Int64(*val), "input: {}", input),
+                None => assert_eq!(result, NULL, "input: {}", input),
+            }
+        });
+    }
+
+    #[test]
+    fn eval_builtin_rest() {
+        [
+            ("rest([1, 2, 3])", Some(vec![2, 3])),
+            ("rest([10, 20])", Some(vec![20])),
+            ("rest([])", None),
+        ]
+        .iter()
+        .for_each(|(input, expected)| {
+            let result = test_eval(input).unwrap();
+            match expected {
+                Some(vals) => match result {
+                    Object::Array(arr) => {
+                        assert_eq!(arr.len(), vals.len());
+                        for (i, val) in vals.iter().enumerate() {
+                            assert_eq!(arr[i], Object::Int64(*val));
+                        }
+                    }
+                    _ => panic!("expected array for: {}", input),
+                },
+                None => assert_eq!(result, NULL, "input: {}", input),
+            }
+        });
+    }
+
+    #[test]
+    fn eval_builtin_push() {
+        let result = test_eval("push([1, 2], 3)").unwrap();
+        match result {
+            Object::Array(arr) => {
+                assert_eq!(arr.len(), 3);
+                assert_eq!(arr[0], Object::Int64(1));
+                assert_eq!(arr[1], Object::Int64(2));
+                assert_eq!(arr[2], Object::Int64(3));
+            }
+            _ => panic!("expected array"),
+        }
+
+        let result = test_eval("push([], 1)").unwrap();
+        match result {
+            Object::Array(arr) => {
+                assert_eq!(arr.len(), 1);
+                assert_eq!(arr[0], Object::Int64(1));
+            }
+            _ => panic!("expected array"),
+        }
+    }
+
+    #[test]
+    fn eval_float_arithmetic() {
+        [
+            ("3.14 + 2.86", 6.0),
+            ("10.5 - 5.5", 5.0),
+            ("2.5 * 4.0", 10.0),
+            ("10.0 / 2.0", 5.0),
+        ]
+        .iter()
+        .for_each(|(input, expected)| {
+            let result = test_eval(input).unwrap();
+            match result {
+                Object::Float64(val) => {
+                    assert!((val - expected).abs() < 1e-10, "input: {}", input);
+                }
+                _ => panic!("expected float for: {}", input),
+            }
+        });
+    }
+
+    #[test]
+    fn eval_binary_literals() {
+        [
+            ("0b1010", 10),
+            ("0B1111", 15),
+            ("0b0", 0),
+            ("0b11111111", 255),
+        ]
+        .iter()
+        .for_each(|(input, expected)| {
+            let result = test_eval(input).unwrap();
+            assert_eq!(result, Object::Int64(*expected), "input: {}", input);
+        });
+    }
+
+    #[test]
+    fn eval_octal_literals() {
+        [("0o755", 493), ("0O644", 420), ("0o0", 0), ("0o10", 8)]
+            .iter()
+            .for_each(|(input, expected)| {
+                let result = test_eval(input).unwrap();
+                assert_eq!(result, Object::Int64(*expected), "input: {}", input);
+            });
+    }
+
+    #[test]
+    fn eval_hex_literals() {
+        [("0xff", 255), ("0xFF", 255), ("0xDEAD", 57005), ("0x0", 0)]
+            .iter()
+            .for_each(|(input, expected)| {
+                let result = test_eval(input).unwrap();
+                assert_eq!(result, Object::Int64(*expected), "input: {}", input);
+            });
+    }
+
+    #[test]
+    fn eval_rust_style_suffixes() {
+        [("123i64", 123), ("456i64", 456), ("0i64", 0)]
+            .iter()
+            .for_each(|(input, expected)| {
+                let result = test_eval(input).unwrap();
+                assert_eq!(result, Object::Int64(*expected), "input: {}", input);
+            });
+
+        [("3.14f64", 3.14), ("0.5f64", 0.5)]
+            .iter()
+            .for_each(|(input, expected)| {
+                let result = test_eval(input).unwrap();
+                match result {
+                    Object::Float64(val) => {
+                        assert!((val - expected).abs() < 1e-10, "input: {}", input);
+                    }
+                    _ => panic!("expected float for: {}", input),
+                }
+            });
+    }
+
+    #[test]
+    fn eval_radix_arithmetic() {
+        [
+            ("0b1010 + 0o12", 20),    // 10 + 10 = 20
+            ("0xff - 0b11111111", 0), // 255 - 255 = 0
+            ("0x10 * 2", 32),         // 16 * 2 = 32
+        ]
+        .iter()
+        .for_each(|(input, expected)| {
+            let result = test_eval(input).unwrap();
+            assert_eq!(result, Object::Int64(*expected), "input: {}", input);
+        });
     }
 
     #[test]
