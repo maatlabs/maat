@@ -72,7 +72,16 @@ pub enum Expression {
 /// Signed 64-bit integer type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Int64 {
+    pub radix: Radix,
     pub value: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Radix {
+    Bin,
+    Oct,
+    Dec,
+    Hex,
 }
 
 /// Represents a float literal (stored as raw bits).
@@ -227,7 +236,12 @@ impl fmt::Display for Expression {
 
 impl fmt::Display for Int64 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.value)
+        match self.radix {
+            Radix::Bin => write!(f, "0b{:b}", self.value),
+            Radix::Oct => write!(f, "0o{:o}", self.value),
+            Radix::Dec => write!(f, "{}", self.value),
+            Radix::Hex => write!(f, "0x{:x}", self.value),
+        }
     }
 }
 

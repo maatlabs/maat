@@ -186,7 +186,8 @@ impl<'a> Parser<'a> {
                 | TokenKind::NotEqual
                 | TokenKind::Less
                 | TokenKind::Greater
-                | TokenKind::LParen => {
+                | TokenKind::LParen
+                | TokenKind::LBracket => {
                     self.next_token();
                     lhs = match kind {
                         TokenKind::LParen => self.parse_call_expression(lhs)?,
@@ -226,19 +227,81 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_int64(&mut self) -> Option<Expression> {
-        match self.current.literal.parse::<i64>() {
-            Ok(value) => Some(Expression::Int64(Int64 { value })),
-            Err(_) => {
-                let msg = format!("could not parse {:?} as `Int64`", self.current.literal);
-                self.errors.push(msg);
-                None
+        let literal = self.current.literal;
+
+        let literal = literal
+            .strip_suffix("_i64")
+            .or_else(|| literal.strip_suffix("i64"))
+            .unwrap_or(literal);
+
+        let (radix, value) = if let Some(bin) = literal
+            .strip_prefix("0b")
+            .or_else(|| literal.strip_prefix("0B"))
+        {
+            match i64::from_str_radix(bin, 2) {
+                Ok(v) => (Radix::Bin, v),
+                Err(_) => {
+                    self.errors.push(format!(
+                        "could not parse {:?} as binary integer",
+                        self.current.literal
+                    ));
+                    return None;
+                }
             }
-        }
+        } else if let Some(oct) = literal
+            .strip_prefix("0o")
+            .or_else(|| literal.strip_prefix("0O"))
+        {
+            match i64::from_str_radix(oct, 8) {
+                Ok(v) => (Radix::Oct, v),
+                Err(_) => {
+                    self.errors.push(format!(
+                        "could not parse {:?} as octal integer",
+                        self.current.literal
+                    ));
+                    return None;
+                }
+            }
+        } else if let Some(hex) = literal
+            .strip_prefix("0x")
+            .or_else(|| literal.strip_prefix("0X"))
+        {
+            match i64::from_str_radix(hex, 16) {
+                Ok(v) => (Radix::Hex, v),
+                Err(_) => {
+                    self.errors.push(format!(
+                        "could not parse {:?} as hexadecimal integer",
+                        self.current.literal
+                    ));
+                    return None;
+                }
+            }
+        } else {
+            match literal.parse::<i64>() {
+                Ok(v) => (Radix::Dec, v),
+                Err(_) => {
+                    self.errors.push(format!(
+                        "could not parse {:?} as `Int64`",
+                        self.current.literal
+                    ));
+                    return None;
+                }
+            }
+        };
+
+        Some(Expression::Int64(Int64 { radix, value }))
     }
 
     fn parse_float64(&mut self) -> Option<Expression> {
-        match self.current.literal.parse::<u64>() {
-            Ok(value) => Some(Expression::Float64(Float64(value))),
+        let literal = self.current.literal;
+
+        let literal = literal
+            .strip_suffix("_f64")
+            .or_else(|| literal.strip_suffix("f64"))
+            .unwrap_or(literal);
+
+        match literal.parse::<f64>() {
+            Ok(value) => Some(Expression::Float64(Float64::from(value))),
             Err(_) => {
                 let msg = format!("could not parse {:?} as `Float64`", self.current.literal);
                 self.errors.push(msg);
@@ -540,7 +603,7 @@ mod tests {
     fn parse_integer_literal_expression() {
         let program = parse("5;");
         let Statement::Expression(ExpressionStatement {
-            value: Expression::Int64(Int64 { value }),
+            value: Expression::Int64(Int64 { value, .. }),
         }) = expect_single_stmt(&program)
         else {
             panic!("expected Int64 expression");
@@ -616,6 +679,207 @@ mod tests {
             assert_eq!(infix.operator, *op);
             assert_eq!(infix.rhs.to_string(), *rhs);
         });
+    }
+
+    #[test]
+    fn parse_string_literal() {
+        [
+            (r#""hello world""#, "hello world"),
+            (r#""foo bar""#, "foo bar"),
+            (r#""""#, ""),
+        ]
+        .iter()
+        .for_each(|(input, expected)| {
+            let program = parse(input);
+            let Statement::Expression(ExpressionStatement {
+                value: Expression::String(s),
+            }) = expect_single_stmt(&program)
+            else {
+                panic!("expected string literal");
+            };
+            assert_eq!(s, *expected);
+        });
+    }
+
+    #[test]
+    fn parse_float_literal() {
+        [
+            ("3.14;", 3.14),
+            ("0.5;", 0.5),
+            ("123.456;", 123.456),
+            ("1e10;", 1e10),
+            ("1.5E-3;", 1.5E-3),
+        ]
+        .iter()
+        .for_each(|(input, expected)| {
+            let program = parse(input);
+            let Statement::Expression(ExpressionStatement {
+                value: Expression::Float64(float),
+            }) = expect_single_stmt(&program)
+            else {
+                panic!("expected float literal");
+            };
+            let value: f64 = (*float).into();
+            assert!((value - expected).abs() < 1e-10, "input: {}", input);
+        });
+    }
+
+    #[test]
+    fn parse_array_literal() {
+        let program = parse("[1, 2 * 2, 3 + 3]");
+        let Statement::Expression(ExpressionStatement {
+            value: Expression::Array(array),
+        }) = expect_single_stmt(&program)
+        else {
+            panic!("expected array literal");
+        };
+        assert_eq!(array.elements.len(), 3);
+        assert_eq!(array.elements[0].to_string(), "1");
+        assert_eq!(array.elements[1].to_string(), "(2 * 2)");
+        assert_eq!(array.elements[2].to_string(), "(3 + 3)");
+    }
+
+    #[test]
+    fn parse_empty_array() {
+        let program = parse("[]");
+        let Statement::Expression(ExpressionStatement {
+            value: Expression::Array(array),
+        }) = expect_single_stmt(&program)
+        else {
+            panic!("expected array literal");
+        };
+        assert_eq!(array.elements.len(), 0);
+    }
+
+    #[test]
+    fn parse_index_expression() {
+        let program = parse("myArray[1 + 1]");
+        let Statement::Expression(ExpressionStatement {
+            value: Expression::Index(index),
+        }) = expect_single_stmt(&program)
+        else {
+            panic!("expected index expression");
+        };
+        assert!(matches!(&*index.expr, Expression::Identifier(id) if id == "myArray"));
+        assert_eq!(index.index.to_string(), "(1 + 1)");
+    }
+
+    #[test]
+    fn parse_hash_literal() {
+        let program = parse(r#"{"one": 1, "two": 2, "three": 3}"#);
+        let Statement::Expression(ExpressionStatement {
+            value: Expression::Hash(hash),
+        }) = expect_single_stmt(&program)
+        else {
+            panic!("expected hash literal");
+        };
+        assert_eq!(hash.pairs.len(), 3);
+
+        let expected = [("one", "1"), ("two", "2"), ("three", "3")];
+        for (key, value) in expected {
+            let found = hash
+                .pairs
+                .iter()
+                .any(|(k, v)| k.to_string() == key && v.to_string() == value);
+            assert!(found, "expected key-value pair: {} => {}", key, value);
+        }
+    }
+
+    #[test]
+    fn parse_empty_hash() {
+        let program = parse("{}");
+        let Statement::Expression(ExpressionStatement {
+            value: Expression::Hash(hash),
+        }) = expect_single_stmt(&program)
+        else {
+            panic!("expected hash literal");
+        };
+        assert_eq!(hash.pairs.len(), 0);
+    }
+
+    #[test]
+    fn parse_hash_with_expressions() {
+        let program = parse(r#"{"one": 0 + 1, "two": 10 - 8}"#);
+        let Statement::Expression(ExpressionStatement {
+            value: Expression::Hash(hash),
+        }) = expect_single_stmt(&program)
+        else {
+            panic!("expected hash literal");
+        };
+        assert_eq!(hash.pairs.len(), 2);
+    }
+
+    #[test]
+    fn parse_binary_literals() {
+        [("0b1010;", 10), ("0B1111;", 15), ("0b0;", 0)]
+            .iter()
+            .for_each(|(input, expected)| {
+                let program = parse(input);
+                let Statement::Expression(ExpressionStatement {
+                    value: Expression::Int64(int64),
+                }) = expect_single_stmt(&program)
+                else {
+                    panic!("expected Int64 expression");
+                };
+                assert_eq!(int64.radix, ast::Radix::Bin);
+                assert_eq!(int64.value, *expected, "input: {}", input);
+            });
+    }
+
+    #[test]
+    fn parse_octal_literals() {
+        [("0o755;", 493), ("0O644;", 420), ("0o0;", 0)]
+            .iter()
+            .for_each(|(input, expected)| {
+                let program = parse(input);
+                let Statement::Expression(ExpressionStatement {
+                    value: Expression::Int64(int64),
+                }) = expect_single_stmt(&program)
+                else {
+                    panic!("expected Int64 expression");
+                };
+                assert_eq!(int64.radix, ast::Radix::Oct);
+                assert_eq!(int64.value, *expected, "input: {}", input);
+            });
+    }
+
+    #[test]
+    fn parse_hex_literals() {
+        [("0xff;", 255), ("0xFF;", 255), ("0xDEAD;", 57005)]
+            .iter()
+            .for_each(|(input, expected)| {
+                let program = parse(input);
+                let Statement::Expression(ExpressionStatement {
+                    value: Expression::Int64(int64),
+                }) = expect_single_stmt(&program)
+                else {
+                    panic!("expected Int64 expression");
+                };
+                assert_eq!(int64.radix, ast::Radix::Hex);
+                assert_eq!(int64.value, *expected, "input: {}", input);
+            });
+    }
+
+    #[test]
+    fn parse_rust_style_suffixes() {
+        let program = parse("123i64;");
+        let Statement::Expression(ExpressionStatement {
+            value: Expression::Int64(int64),
+        }) = expect_single_stmt(&program)
+        else {
+            panic!("expected Int64 expression");
+        };
+        assert_eq!(int64.value, 123);
+
+        let program = parse("3.14f64;");
+        let Statement::Expression(ExpressionStatement {
+            value: Expression::Float64(float64),
+        }) = expect_single_stmt(&program)
+        else {
+            panic!("expected Float64 expression");
+        };
+        let value: f64 = (*float64).into();
+        assert!((value - 3.14).abs() < 1e-10);
     }
 
     #[test]
