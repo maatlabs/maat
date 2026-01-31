@@ -1,4 +1,4 @@
-use maat::interpreter::{Hashable, NULL, Object, eval};
+use maat::eval::{Hashable, NULL, Object, eval};
 use maat::parser::ast::*;
 use maat::{Env, Lexer, Parser, Result};
 

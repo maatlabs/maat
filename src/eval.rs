@@ -4,9 +4,9 @@
 //! into runtime objects. It supports integers, booleans, functions, conditionals,
 //! and lexically-scoped environments.
 
-pub mod builtins;
-pub mod env;
-pub mod object;
+mod builtins;
+mod env;
+mod object;
 pub mod repl;
 
 use std::collections::HashMap;
@@ -29,7 +29,7 @@ use crate::parser::ast::*;
 ///
 /// ```
 /// use maat::{Lexer, Parser, Env};
-/// use maat::interpreter::{eval, Object};
+/// use maat::eval::{eval, Object};
 /// use maat::parser::ast::Node;
 ///
 /// let input = "5 + 10";
