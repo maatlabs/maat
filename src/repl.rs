@@ -1,8 +1,7 @@
 use std::io::{self, BufRead, Write};
 
-use crate::eval::{Env, eval};
-use crate::parser::ast::Node;
-use crate::{Lexer, Parser};
+use crate::ast::Node;
+use crate::{Env, Lexer, Parser, eval};
 
 const PROMPT: &str = ">> ";
 
@@ -12,7 +11,7 @@ const PROMPT: &str = ">> ";
 ///
 /// ```no_run
 /// use std::io;
-/// use maat::eval::repl;
+/// use maat::repl;
 ///
 /// let stdin = io::stdin().lock();
 /// let mut stdout = io::stdout().lock();

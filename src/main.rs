@@ -17,5 +17,5 @@ fn main() -> Result<()> {
     let reader = io::stdin().lock();
     let mut writer = io::stdout().lock();
 
-    maat::eval::repl::start(reader, &mut writer)
+    maat::repl::start(reader, &mut writer)
 }

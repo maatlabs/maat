@@ -108,7 +108,7 @@ impl TokenKind {
     /// # Examples
     ///
     /// ```
-    /// # use maat::lexer::TokenKind;
+    /// # use maat::TokenKind;
     /// assert_eq!(TokenKind::keyword_or_ident("let"), TokenKind::Let);
     /// assert_eq!(TokenKind::keyword_or_ident("fn"), TokenKind::Function);
     /// assert_eq!(TokenKind::keyword_or_ident("myvar"), TokenKind::Ident);

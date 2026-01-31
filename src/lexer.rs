@@ -16,7 +16,7 @@ pub use token::{Token, TokenKind};
 /// # Examples
 ///
 /// ```
-/// # use maat::lexer::{Lexer, TokenKind};
+/// # use maat::{Lexer, TokenKind};
 /// let source = "let x = 42;";
 /// let mut lexer = Lexer::new(source);
 ///

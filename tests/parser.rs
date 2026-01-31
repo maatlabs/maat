@@ -1,4 +1,4 @@
-use maat::parser::ast::*;
+use maat::ast::*;
 use maat::{Lexer, Parser};
 
 fn parse(input: &str) -> Program {

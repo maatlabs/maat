@@ -7,7 +7,6 @@
 mod builtins;
 mod env;
 mod object;
-pub mod repl;
 
 use std::collections::HashMap;
 
@@ -15,9 +14,8 @@ use builtins::get_builtin;
 pub use env::Env;
 pub use object::{BuiltinFn, FALSE, Function, HashObject, Hashable, NULL, Object, TRUE};
 
-use crate::Result;
-use crate::error::EvalError;
-use crate::parser::ast::*;
+use crate::ast::*;
+use crate::{EvalError, Result};
 
 /// Evaluates an AST node in the given environment.
 ///
@@ -29,8 +27,8 @@ use crate::parser::ast::*;
 ///
 /// ```
 /// use maat::{Lexer, Parser, Env};
-/// use maat::eval::{eval, Object};
-/// use maat::parser::ast::Node;
+/// use maat::{eval, Object};
+/// use maat::ast::Node;
 ///
 /// let input = "5 + 10";
 /// let lexer = Lexer::new(input);

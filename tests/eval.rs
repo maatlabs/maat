@@ -1,6 +1,5 @@
-use maat::eval::{Hashable, NULL, Object, eval};
-use maat::parser::ast::*;
-use maat::{Env, Lexer, Parser, Result};
+use maat::ast::*;
+use maat::{Env, Hashable, Lexer, NULL, Object, Parser, Result, eval};
 
 fn test_eval(input: &str) -> Result<Object> {
     let lexer = Lexer::new(input);

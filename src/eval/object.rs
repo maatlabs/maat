@@ -2,9 +2,8 @@ use std::collections::HashMap;
 use std::fmt;
 
 use super::Env;
-use crate::error::EvalError;
-use crate::parser::ast::BlockStatement;
-use crate::{Error, Result};
+use crate::ast::BlockStatement;
+use crate::{Error, EvalError, Result};
 
 pub type BuiltinFn = fn(&[Object]) -> Result<Object>;
 

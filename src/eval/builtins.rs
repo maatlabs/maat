@@ -1,6 +1,5 @@
 use super::{BuiltinFn, NULL, Object};
-use crate::Result;
-use crate::error::EvalError;
+use crate::{EvalError, Result};
 
 /// Attempts to retrieve a builtin by name. Returns `Some(fn)` or `None`.
 #[inline]
