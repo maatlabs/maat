@@ -37,7 +37,7 @@ use crate::{EvalError, Result};
 /// let env = Env::default();
 ///
 /// let result = eval(Node::Program(program), &env).unwrap();
-/// assert_eq!(result, Object::Int64(15));
+/// assert_eq!(result, Object::I64(15));
 /// ```
 pub fn eval(node: Node, env: &Env) -> Result<Object> {
     match node {
@@ -58,23 +58,23 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
         },
 
         Node::Expression(expr) => match expr {
-            Expression::I8(_)
-            | Expression::I16(_)
-            | Expression::I32(_)
-            | Expression::I64(_)
-            | Expression::I128(_)
-            | Expression::Isize(_)
-            | Expression::U8(_)
-            | Expression::U16(_)
-            | Expression::U32(_)
-            | Expression::U64(_)
-            | Expression::U128(_)
-            | Expression::Usize(_)
-            | Expression::F32(_)
-            | Expression::F64(_) => todo!(),
+            Expression::I8(v) => Ok(Object::I8(v.value)),
+            Expression::I16(v) => Ok(Object::I16(v.value)),
+            Expression::I32(v) => Ok(Object::I32(v.value)),
+            Expression::I64(v) => Ok(Object::I64(v.value)),
+            Expression::I128(v) => Ok(Object::I128(v.value)),
+            Expression::Isize(v) => Ok(Object::Isize(v.value)),
 
-            Expression::Int64(int64) => Ok(Object::Int64(int64.value)),
-            Expression::Float64(float64) => Ok(Object::Float64(float64.into())),
+            Expression::U8(v) => Ok(Object::U8(v.value)),
+            Expression::U16(v) => Ok(Object::U16(v.value)),
+            Expression::U32(v) => Ok(Object::U32(v.value)),
+            Expression::U64(v) => Ok(Object::U64(v.value)),
+            Expression::U128(v) => Ok(Object::U128(v.value)),
+            Expression::Usize(v) => Ok(Object::Usize(v.value)),
+
+            Expression::F32(v) => Ok(Object::F32(v.into())),
+            Expression::F64(v) => Ok(Object::F64(v.into())),
+
             Expression::Boolean(boolean) => Ok(Object::Boolean(boolean)),
             Expression::String(string) => Ok(Object::String(string)),
             Expression::Array(array_lit) => {
@@ -140,15 +140,26 @@ fn eval_index_expression(idx_expr: IndexExpr, env: &Env) -> Result<Object> {
     let expr_type = expr.type_name();
     let index = eval(Node::Expression(*idx_expr.index), env)?;
 
-    match (expr, index) {
-        (Object::Array(arr), Object::Int64(idx)) => {
-            if arr.is_empty() || idx < 0 || idx as usize >= arr.len() {
+    match expr {
+        Object::Array(arr) => {
+            let idx = match index {
+                Object::Usize(v) => v,
+                _ => {
+                    return Err(EvalError::IndexExpression(format!(
+                        "array index must be of type Usize, got {}",
+                        index.type_name()
+                    ))
+                    .into());
+                }
+            };
+
+            if arr.is_empty() || idx >= arr.len() {
                 return Ok(NULL);
             }
-            Ok(arr[idx as usize].clone())
+            Ok(arr[idx].clone())
         }
-        (Object::Hash(hash), key) => {
-            let key_hash = Hashable::try_from(key)?;
+        Object::Hash(hash) => {
+            let key_hash = Hashable::try_from(index)?;
             Ok(hash.pairs.get(&key_hash).cloned().unwrap_or(NULL))
         }
         _ => Err(EvalError::IndexExpression(format!(
@@ -181,11 +192,41 @@ fn eval_prefix_expression(expr: PrefixExpr, env: &Env) -> Result<Object> {
             _ => Ok(FALSE),
         },
         "-" => match operand {
-            Object::Int64(int64) => Ok(Object::Int64(-int64)),
-            Object::Float64(float64) => Ok(Object::Float64(-float64)),
+            Object::I8(v) => v.checked_neg().map(Object::I8).ok_or_else(|| {
+                EvalError::PrefixExpression(format!("negation overflow: -{v}")).into()
+            }),
+            Object::I16(v) => v.checked_neg().map(Object::I16).ok_or_else(|| {
+                EvalError::PrefixExpression(format!("negation overflow: -{v}")).into()
+            }),
+            Object::I32(v) => v.checked_neg().map(Object::I32).ok_or_else(|| {
+                EvalError::PrefixExpression(format!("negation overflow: -{v}")).into()
+            }),
+            Object::I64(v) => v.checked_neg().map(Object::I64).ok_or_else(|| {
+                EvalError::PrefixExpression(format!("negation overflow: -{v}")).into()
+            }),
+            Object::I128(v) => v.checked_neg().map(Object::I128).ok_or_else(|| {
+                EvalError::PrefixExpression(format!("negation overflow: -{v}")).into()
+            }),
+            Object::Isize(v) => v.checked_neg().map(Object::Isize).ok_or_else(|| {
+                EvalError::PrefixExpression(format!("negation overflow: -{v}")).into()
+            }),
+            Object::F32(v) => Ok(Object::F32(-v)),
+            Object::F64(v) => Ok(Object::F64(-v)),
+
+            Object::U8(_)
+            | Object::U16(_)
+            | Object::U32(_)
+            | Object::U64(_)
+            | Object::U128(_)
+            | Object::Usize(_) => Err(EvalError::PrefixExpression(format!(
+                "{} cannot be negated (unsigned type)",
+                operand.type_name()
+            ))
+            .into()),
 
             _ => Err(EvalError::PrefixExpression(format!(
-                "{operand} is of type that cannot be negated"
+                "{} cannot be negated",
+                operand.type_name()
             ))
             .into()),
         },
@@ -202,10 +243,24 @@ fn eval_infix_expression(expr: InfixExpr, env: &Env) -> Result<Object> {
     let operator = &expr.operator;
 
     match (&lhs, &rhs) {
-        (Object::Int64(left), Object::Int64(right)) => eval_infix_op(operator, *left, *right),
-        (Object::Float64(left), Object::Float64(right)) => eval_infix_op(operator, *left, *right),
+        (Object::I8(left), Object::I8(right)) => eval_infix_op(operator, *left, *right),
+        (Object::I16(left), Object::I16(right)) => eval_infix_op(operator, *left, *right),
+        (Object::I32(left), Object::I32(right)) => eval_infix_op(operator, *left, *right),
+        (Object::I64(left), Object::I64(right)) => eval_infix_op(operator, *left, *right),
+        (Object::I128(left), Object::I128(right)) => eval_infix_op(operator, *left, *right),
+        (Object::Isize(left), Object::Isize(right)) => eval_infix_op(operator, *left, *right),
+        (Object::U8(left), Object::U8(right)) => eval_infix_op(operator, *left, *right),
+        (Object::U16(left), Object::U16(right)) => eval_infix_op(operator, *left, *right),
+        (Object::U32(left), Object::U32(right)) => eval_infix_op(operator, *left, *right),
+        (Object::U64(left), Object::U64(right)) => eval_infix_op(operator, *left, *right),
+        (Object::U128(left), Object::U128(right)) => eval_infix_op(operator, *left, *right),
+        (Object::Usize(left), Object::Usize(right)) => eval_infix_op(operator, *left, *right),
+        (Object::F32(left), Object::F32(right)) => eval_infix_op(operator, *left, *right),
+        (Object::F64(left), Object::F64(right)) => eval_infix_op(operator, *left, *right),
+
         (Object::Boolean(left), Object::Boolean(right)) => eval_infix_bool(operator, *left, *right),
         (Object::String(left), Object::String(right)) => eval_infix_string(operator, left, right),
+
         _ => Err(EvalError::InfixExpression(format!(
             "invalid infix expression: `{lhs} {operator} {rhs}`"
         ))
@@ -213,36 +268,52 @@ fn eval_infix_expression(expr: InfixExpr, env: &Env) -> Result<Object> {
     }
 }
 
-/// Trait for types that support infix numeric operations, both arithmetic and comparision.
+/// Trait for types that support infix numeric operations, both arithmetic and comparison.
 ///
-/// It should to be implemented by all native Rust numeric types
-/// (i8..i128, u8..u128, isize, usize, f32, f64).
-trait InfixOp:
-    Copy
-    + std::ops::Add<Output = Self>
-    + std::ops::Sub<Output = Self>
-    + std::ops::Mul<Output = Self>
-    + std::ops::Div<Output = Self>
-    + PartialOrd
-    + PartialEq
-    + std::fmt::Display
-{
+/// Provides checked arithmetic operations to prevent overflow panics. Integer types return `None` on overflow,
+/// while floating-point types allow infinity and NaN per IEEE 754 standard.
+trait InfixOp: Copy + PartialOrd + PartialEq + core::fmt::Display {
     fn into_object(self) -> Object;
     fn type_name() -> &'static str;
+
+    fn checked_add(self, rhs: Self) -> Option<Self>;
+    fn checked_sub(self, rhs: Self) -> Option<Self>;
+    fn checked_mul(self, rhs: Self) -> Option<Self>;
+    fn checked_div(self, rhs: Self) -> Option<Self>;
 }
 
 macro_rules! impl_infix_op_int {
-    ($($t:ty => $name:literal),* $(,)?) => {
+    ($($t:ty => $variant:ident, $name:literal),* $(,)?) => {
         $(
             impl InfixOp for $t {
                 #[inline]
                 fn into_object(self) -> Object {
-                    Object::Int64(self as i64)
+                    Object::$variant(self)
                 }
 
                 #[inline]
                 fn type_name() -> &'static str {
                     $name
+                }
+
+                #[inline]
+                fn checked_add(self, rhs: Self) -> Option<Self> {
+                    <$t>::checked_add(self, rhs)
+                }
+
+                #[inline]
+                fn checked_sub(self, rhs: Self) -> Option<Self> {
+                    <$t>::checked_sub(self, rhs)
+                }
+
+                #[inline]
+                fn checked_mul(self, rhs: Self) -> Option<Self> {
+                    <$t>::checked_mul(self, rhs)
+                }
+
+                #[inline]
+                fn checked_div(self, rhs: Self) -> Option<Self> {
+                    <$t>::checked_div(self, rhs)
                 }
             }
         )*
@@ -250,17 +321,37 @@ macro_rules! impl_infix_op_int {
 }
 
 macro_rules! impl_infix_op_float {
-    ($($t:ty => $name:literal),* $(,)?) => {
+    ($($t:ty => $variant:ident, $name:literal),* $(,)?) => {
         $(
             impl InfixOp for $t {
                 #[inline]
                 fn into_object(self) -> Object {
-                    Object::Float64(self as f64)
+                    Object::$variant(self)
                 }
 
                 #[inline]
                 fn type_name() -> &'static str {
                     $name
+                }
+
+                #[inline]
+                fn checked_add(self, rhs: Self) -> Option<Self> {
+                    Some(self + rhs)
+                }
+
+                #[inline]
+                fn checked_sub(self, rhs: Self) -> Option<Self> {
+                    Some(self - rhs)
+                }
+
+                #[inline]
+                fn checked_mul(self, rhs: Self) -> Option<Self> {
+                    Some(self * rhs)
+                }
+
+                #[inline]
+                fn checked_div(self, rhs: Self) -> Option<Self> {
+                    Some(self / rhs)
                 }
             }
         )*
@@ -268,31 +359,73 @@ macro_rules! impl_infix_op_float {
 }
 
 impl_infix_op_int! {
-    i8 => "i8",
-    i16 => "i16",
-    i32 => "i32",
-    i64 => "i64",
-    i128 => "i128",
-    isize => "isize",
-    u8 => "u8",
-    u16 => "u16",
-    u32 => "u32",
-    u64 => "u64",
-    u128 => "u128",
-    usize => "usize",
+    i8 => I8, "i8",
+    i16 => I16, "i16",
+    i32 => I32, "i32",
+    i64 => I64, "i64",
+    i128 => I128, "i128",
+    isize => Isize, "isize",
+    u8 => U8, "u8",
+    u16 => U16, "u16",
+    u32 => U32, "u32",
+    u64 => U64, "u64",
+    u128 => U128, "u128",
+    usize => Usize, "usize",
 }
 
 impl_infix_op_float! {
-    f32 => "f32",
-    f64 => "f64",
+    f32 => F32, "f32",
+    f64 => F64, "f64",
 }
 
 fn eval_infix_op<T: InfixOp>(operator: &str, lhs: T, rhs: T) -> Result<Object> {
     match operator {
-        "+" => Ok((lhs + rhs).into_object()),
-        "-" => Ok((lhs - rhs).into_object()),
-        "*" => Ok((lhs * rhs).into_object()),
-        "/" => Ok((lhs / rhs).into_object()),
+        "+" => lhs
+            .checked_add(rhs)
+            .map(|v| v.into_object())
+            .ok_or_else(|| {
+                EvalError::Number(format!(
+                    "arithmetic overflow: {} + {} exceeds {} bounds",
+                    lhs,
+                    rhs,
+                    T::type_name()
+                ))
+                .into()
+            }),
+        "-" => lhs
+            .checked_sub(rhs)
+            .map(|v| v.into_object())
+            .ok_or_else(|| {
+                EvalError::Number(format!(
+                    "arithmetic overflow: {} - {} exceeds {} bounds",
+                    lhs,
+                    rhs,
+                    T::type_name()
+                ))
+                .into()
+            }),
+        "*" => lhs
+            .checked_mul(rhs)
+            .map(|v| v.into_object())
+            .ok_or_else(|| {
+                EvalError::Number(format!(
+                    "arithmetic overflow: {} * {} exceeds {} bounds",
+                    lhs,
+                    rhs,
+                    T::type_name()
+                ))
+                .into()
+            }),
+        "/" => lhs
+            .checked_div(rhs)
+            .map(|v| v.into_object())
+            .ok_or_else(|| {
+                EvalError::Number(format!(
+                    "division error: {} / {} (division by zero or overflow)",
+                    lhs, rhs
+                ))
+                .into()
+            }),
 
         "<" => Ok(Object::Boolean(lhs < rhs)),
         ">" => Ok(Object::Boolean(lhs > rhs)),

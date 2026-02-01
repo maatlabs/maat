@@ -18,8 +18,8 @@ pub fn get_builtin(name: &str) -> Option<BuiltinFn> {
 pub fn len(args: &[Object]) -> Result<Object> {
     expect_arg_count(args, 1)?;
     match &args[0] {
-        Object::Array(arr) => Ok(Object::Int64(arr.len() as i64)),
-        Object::String(s) => Ok(Object::Int64(s.len() as i64)),
+        Object::Array(arr) => Ok(Object::Usize(arr.len())),
+        Object::String(s) => Ok(Object::Usize(s.len())),
         _ => Err(EvalError::Builtin(format!(
             "argument to `len` not supported: {}",
             args[0].type_name()
