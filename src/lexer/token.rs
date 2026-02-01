@@ -68,11 +68,6 @@ pub enum TokenKind {
     /// A 64-bit floating-point number.
     F64,
 
-    /// A 64-bit signed integer literal (legacy, for backward compatibility).
-    Int64,
-    /// A 64-bit floating-point number (legacy, for backward compatibility).
-    Float64,
-
     /// The assignment operator `=`.
     Assign,
     /// The addition operator `+`.
