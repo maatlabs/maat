@@ -68,10 +68,10 @@ fn parse_identifier_expression() {
 fn parse_integer_literal_expression() {
     let program = parse("5;");
     let Statement::Expression(ExpressionStatement {
-        value: Expression::Int64(Int64 { value, .. }),
+        value: Expression::I64(I64 { value, .. }),
     }) = expect_single_stmt(&program)
     else {
-        panic!("expected Int64 expression");
+        panic!("expected I64 expression");
     };
     assert_eq!(*value, 5);
 }
@@ -179,7 +179,7 @@ fn parse_float_literal() {
     .for_each(|(input, expected)| {
         let program = parse(input);
         let Statement::Expression(ExpressionStatement {
-            value: Expression::Float64(float),
+            value: Expression::F64(float),
         }) = expect_single_stmt(&program)
         else {
             panic!("expected float literal");
@@ -281,10 +281,10 @@ fn parse_binary_literals() {
         .for_each(|(input, expected)| {
             let program = parse(input);
             let Statement::Expression(ExpressionStatement {
-                value: Expression::Int64(int64),
+                value: Expression::I64(int64),
             }) = expect_single_stmt(&program)
             else {
-                panic!("expected Int64 expression");
+                panic!("expected I64 expression");
             };
             assert_eq!(int64.radix, Radix::Bin);
             assert_eq!(int64.value, *expected, "input: {}", input);
@@ -298,10 +298,10 @@ fn parse_octal_literals() {
         .for_each(|(input, expected)| {
             let program = parse(input);
             let Statement::Expression(ExpressionStatement {
-                value: Expression::Int64(int64),
+                value: Expression::I64(int64),
             }) = expect_single_stmt(&program)
             else {
-                panic!("expected Int64 expression");
+                panic!("expected I64 expression");
             };
             assert_eq!(int64.radix, Radix::Oct);
             assert_eq!(int64.value, *expected, "input: {}", input);
@@ -315,10 +315,10 @@ fn parse_hex_literals() {
         .for_each(|(input, expected)| {
             let program = parse(input);
             let Statement::Expression(ExpressionStatement {
-                value: Expression::Int64(int64),
+                value: Expression::I64(int64),
             }) = expect_single_stmt(&program)
             else {
-                panic!("expected Int64 expression");
+                panic!("expected I64 expression");
             };
             assert_eq!(int64.radix, Radix::Hex);
             assert_eq!(int64.value, *expected, "input: {}", input);
@@ -329,21 +329,21 @@ fn parse_hex_literals() {
 fn parse_rust_style_suffixes() {
     let program = parse("123i64;");
     let Statement::Expression(ExpressionStatement {
-        value: Expression::Int64(int64),
+        value: Expression::I64(i64_lit),
     }) = expect_single_stmt(&program)
     else {
-        panic!("expected Int64 expression");
+        panic!("expected I64 expression");
     };
-    assert_eq!(int64.value, 123);
+    assert_eq!(i64_lit.value, 123);
 
     let program = parse("3.14f64;");
     let Statement::Expression(ExpressionStatement {
-        value: Expression::Float64(float64),
+        value: Expression::F64(f64_lit),
     }) = expect_single_stmt(&program)
     else {
-        panic!("expected Float64 expression");
+        panic!("expected F64 expression");
     };
-    let value: f64 = (*float64).into();
+    let value: f64 = (*f64_lit).into();
     assert!((value - 3.14).abs() < 1e-10);
 }
 
