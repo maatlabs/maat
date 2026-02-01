@@ -76,10 +76,6 @@ pub enum Expression {
     F32(F32),
     F64(F64),
 
-    // Legacy types (for backward compatibility)
-    Int64(Int64),
-    Float64(Float64),
-
     Boolean(bool),
     String(String),
     Array(ArrayLiteral),
@@ -92,13 +88,6 @@ pub enum Expression {
     Call(CallExpr),
 }
 
-/// Signed 64-bit integer type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Int64 {
-    pub radix: Radix,
-    pub value: i64,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Radix {
     Bin,
@@ -107,78 +96,58 @@ pub enum Radix {
     Hex,
 }
 
-/// Represents a float literal (stored as raw bits).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Float64(pub u64);
-
-impl From<f64> for Float64 {
-    fn from(value: f64) -> Self {
-        Self(f64::to_bits(value))
-    }
-}
-
-impl From<Float64> for f64 {
-    fn from(value: Float64) -> Self {
-        f64::from_bits(value.0)
-    }
-}
-
-// ============================================================================
-// Numeric Type Definitions
-// ============================================================================
-
-/// Macro to generate numeric type structs with radix support.
+/// Macro to generate integer type structs with radix support and native storage.
 macro_rules! define_int_type {
-    ($name:ident, $doc:expr) => {
+    ($name:ident, $native:ty, $doc:expr) => {
         #[doc = $doc]
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         pub struct $name {
             pub radix: Radix,
-            pub value: i64,
+            pub value: $native,
         }
     };
 }
 
-/// Macro to generate floating-point type structs (stored as raw bits).
+/// Macro to generate floating-point type structs with native storage (as raw bits).
 macro_rules! define_float_type {
-    ($name:ident, $doc:expr) => {
+    ($name:ident, $native:ty, $bits:ty, $doc:expr) => {
         #[doc = $doc]
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-        pub struct $name(pub u64);
+        pub struct $name(pub $bits);
 
-        impl From<f64> for $name {
-            fn from(value: f64) -> Self {
-                Self(f64::to_bits(value))
+        impl From<$native> for $name {
+            fn from(value: $native) -> Self {
+                Self(<$native>::to_bits(value))
             }
         }
 
-        impl From<$name> for f64 {
+        impl From<$name> for $native {
             fn from(value: $name) -> Self {
-                f64::from_bits(value.0)
+                <$native>::from_bits(value.0)
             }
         }
     };
 }
 
 // Signed integer types
-define_int_type!(I8, "8-bit signed integer literal.");
-define_int_type!(I16, "16-bit signed integer literal.");
-define_int_type!(I32, "32-bit signed integer literal.");
-define_int_type!(I64, "64-bit signed integer literal.");
-define_int_type!(I128, "128-bit signed integer literal.");
-define_int_type!(Isize, "Pointer-sized signed integer literal.");
+define_int_type!(I8, i8, "8-bit signed integer literal.");
+define_int_type!(I16, i16, "16-bit signed integer literal.");
+define_int_type!(I32, i32, "32-bit signed integer literal.");
+define_int_type!(I64, i64, "64-bit signed integer literal.");
+define_int_type!(I128, i128, "128-bit signed integer literal.");
+define_int_type!(Isize, isize, "Pointer-sized signed integer literal.");
 
 // Unsigned integer types
-define_int_type!(U8, "8-bit unsigned integer literal.");
-define_int_type!(U16, "16-bit unsigned integer literal.");
-define_int_type!(U32, "32-bit unsigned integer literal.");
-define_int_type!(U64, "64-bit unsigned integer literal.");
-define_int_type!(U128, "128-bit unsigned integer literal.");
-define_int_type!(Usize, "Pointer-sized unsigned integer literal.");
+define_int_type!(U8, u8, "8-bit unsigned integer literal.");
+define_int_type!(U16, u16, "16-bit unsigned integer literal.");
+define_int_type!(U32, u32, "32-bit unsigned integer literal.");
+define_int_type!(U64, u64, "64-bit unsigned integer literal.");
+define_int_type!(U128, u128, "128-bit unsigned integer literal.");
+define_int_type!(Usize, usize, "Pointer-sized unsigned integer literal.");
 
 // Floating-point types
-define_float_type!(F32, "32-bit floating-point literal.");
-define_float_type!(F64, "64-bit floating-point literal.");
+define_float_type!(F32, f32, u32, "32-bit floating-point literal.");
+define_float_type!(F64, f64, u64, "64-bit floating-point literal.");
 
 /// Arrays: `[expr, expr, ...]`
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -296,26 +265,43 @@ impl fmt::Display for BlockStatement {
 
 impl fmt::Display for Expression {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        macro_rules! fmt_int {
+            ($v:expr) => {
+                match $v.radix {
+                    Radix::Bin => write!(f, "0b{:b}", $v.value),
+                    Radix::Oct => write!(f, "0o{:o}", $v.value),
+                    Radix::Dec => write!(f, "{}", $v.value),
+                    Radix::Hex => write!(f, "0x{:x}", $v.value),
+                }
+            };
+        }
+
         match self {
             Self::Identifier(ident) => ident.fmt(f),
 
-            Self::I8(_)
-            | Self::I16(_)
-            | Self::I32(_)
-            | Self::I64(_)
-            | Self::I128(_)
-            | Self::Isize(_)
-            | Self::U8(_)
-            | Self::U16(_)
-            | Self::U32(_)
-            | Self::U64(_)
-            | Self::U128(_)
-            | Self::Usize(_)
-            | Self::F32(_)
-            | Self::F64(_) => todo!(),
+            // Integer types
+            Self::I8(v) => fmt_int!(v),
+            Self::I16(v) => fmt_int!(v),
+            Self::I32(v) => fmt_int!(v),
+            Self::I64(v) => fmt_int!(v),
+            Self::I128(v) => fmt_int!(v),
+            Self::Isize(v) => fmt_int!(v),
+            Self::U8(v) => fmt_int!(v),
+            Self::U16(v) => fmt_int!(v),
+            Self::U32(v) => fmt_int!(v),
+            Self::U64(v) => fmt_int!(v),
+            Self::U128(v) => fmt_int!(v),
+            Self::Usize(v) => fmt_int!(v),
 
-            Self::Int64(int64) => int64.fmt(f),
-            Self::Float64(float64) => float64.fmt(f),
+            // Float types
+            Self::F32(v) => {
+                let val: f32 = (*v).into();
+                write!(f, "{val}")
+            }
+            Self::F64(v) => {
+                let val: f64 = (*v).into();
+                write!(f, "{val}")
+            }
 
             Self::Boolean(boolean) => boolean.fmt(f),
             Self::String(string) => string.fmt(f),
@@ -328,24 +314,6 @@ impl fmt::Display for Expression {
             Self::Function(func_lit) => func_lit.fmt(f),
             Self::Call(call_expr) => call_expr.fmt(f),
         }
-    }
-}
-
-impl fmt::Display for Int64 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.radix {
-            Radix::Bin => write!(f, "0b{:b}", self.value),
-            Radix::Oct => write!(f, "0o{:o}", self.value),
-            Radix::Dec => write!(f, "{}", self.value),
-            Radix::Hex => write!(f, "0x{:x}", self.value),
-        }
-    }
-}
-
-impl fmt::Display for Float64 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let float64: f64 = (*self).into();
-        write!(f, "{float64}")
     }
 }
 

@@ -159,8 +159,22 @@ impl<'a> Parser<'a> {
     fn parse_expression(&mut self, prec: u8) -> Option<Expression> {
         let mut lhs = match self.current.kind {
             TokenKind::Ident => self.parse_identifier()?,
-            TokenKind::Int64 => self.parse_int64()?,
-            TokenKind::Float64 => self.parse_float64()?,
+
+            // All numeric types
+            TokenKind::I8
+            | TokenKind::I16
+            | TokenKind::I32
+            | TokenKind::I64
+            | TokenKind::I128
+            | TokenKind::Isize
+            | TokenKind::U8
+            | TokenKind::U16
+            | TokenKind::U32
+            | TokenKind::U64
+            | TokenKind::U128
+            | TokenKind::Usize => self.parse_int()?,
+            TokenKind::F32 | TokenKind::F64 => self.parse_float()?,
+
             TokenKind::String => self.parse_string_literal()?,
             TokenKind::Bang | TokenKind::Minus => self.parse_prefix_expression()?,
             TokenKind::True | TokenKind::False => self.parse_boolean()?,
@@ -226,88 +240,142 @@ impl<'a> Parser<'a> {
         Some(Expression::Boolean(self.cur_token_is(TokenKind::True)))
     }
 
-    fn parse_int64(&mut self) -> Option<Expression> {
-        let literal = self.current.literal;
+    fn parse_int(&mut self) -> Option<Expression> {
+        macro_rules! strip_int_suffixes {
+            ($lit:expr) => {{
+                $lit.strip_suffix("_i8")
+                    .or_else(|| $lit.strip_suffix("i8"))
+                    .or_else(|| $lit.strip_suffix("_i16"))
+                    .or_else(|| $lit.strip_suffix("i16"))
+                    .or_else(|| $lit.strip_suffix("_i32"))
+                    .or_else(|| $lit.strip_suffix("i32"))
+                    .or_else(|| $lit.strip_suffix("_i64"))
+                    .or_else(|| $lit.strip_suffix("i64"))
+                    .or_else(|| $lit.strip_suffix("_i128"))
+                    .or_else(|| $lit.strip_suffix("i128"))
+                    .or_else(|| $lit.strip_suffix("_isize"))
+                    .or_else(|| $lit.strip_suffix("isize"))
+                    .or_else(|| $lit.strip_suffix("_u8"))
+                    .or_else(|| $lit.strip_suffix("u8"))
+                    .or_else(|| $lit.strip_suffix("_u16"))
+                    .or_else(|| $lit.strip_suffix("u16"))
+                    .or_else(|| $lit.strip_suffix("_u32"))
+                    .or_else(|| $lit.strip_suffix("u32"))
+                    .or_else(|| $lit.strip_suffix("_u64"))
+                    .or_else(|| $lit.strip_suffix("u64"))
+                    .or_else(|| $lit.strip_suffix("_u128"))
+                    .or_else(|| $lit.strip_suffix("u128"))
+                    .or_else(|| $lit.strip_suffix("_usize"))
+                    .or_else(|| $lit.strip_suffix("usize"))
+                    .unwrap_or($lit)
+            }};
+        }
 
-        let literal = literal
-            .strip_suffix("_i64")
-            .or_else(|| literal.strip_suffix("i64"))
-            .unwrap_or(literal);
+        let literal = strip_int_suffixes!(self.current.literal);
+        let token_kind = self.current.kind;
 
-        let (radix, value) = if let Some(bin) = literal
-            .strip_prefix("0b")
-            .or_else(|| literal.strip_prefix("0B"))
-        {
-            match i64::from_str_radix(bin, 2) {
-                Ok(v) => (Radix::Bin, v),
-                Err(_) => {
-                    self.errors.push(format!(
-                        "could not parse {:?} as binary integer",
-                        self.current.literal
-                    ));
-                    return None;
+        macro_rules! parse_int_type {
+            ($rust_ty:ty, $variant:ident) => {{
+                let (radix, value) = if let Some(bin) = literal
+                    .strip_prefix("0b")
+                    .or_else(|| literal.strip_prefix("0B"))
+                {
+                    <$rust_ty>::from_str_radix(bin, 2)
+                        .ok()
+                        .map(|v| (Radix::Bin, v))
+                } else if let Some(oct) = literal
+                    .strip_prefix("0o")
+                    .or_else(|| literal.strip_prefix("0O"))
+                {
+                    <$rust_ty>::from_str_radix(oct, 8)
+                        .ok()
+                        .map(|v| (Radix::Oct, v))
+                } else if let Some(hex) = literal
+                    .strip_prefix("0x")
+                    .or_else(|| literal.strip_prefix("0X"))
+                {
+                    <$rust_ty>::from_str_radix(hex, 16)
+                        .ok()
+                        .map(|v| (Radix::Hex, v))
+                } else {
+                    literal.parse::<$rust_ty>().ok().map(|v| (Radix::Dec, v))
                 }
-            }
-        } else if let Some(oct) = literal
-            .strip_prefix("0o")
-            .or_else(|| literal.strip_prefix("0O"))
-        {
-            match i64::from_str_radix(oct, 8) {
-                Ok(v) => (Radix::Oct, v),
-                Err(_) => {
+                .or_else(|| {
                     self.errors.push(format!(
-                        "could not parse {:?} as octal integer",
-                        self.current.literal
+                        "could not parse {:?} as {}",
+                        self.current.literal,
+                        stringify!($rust_ty)
                     ));
-                    return None;
-                }
-            }
-        } else if let Some(hex) = literal
-            .strip_prefix("0x")
-            .or_else(|| literal.strip_prefix("0X"))
-        {
-            match i64::from_str_radix(hex, 16) {
-                Ok(v) => (Radix::Hex, v),
-                Err(_) => {
-                    self.errors.push(format!(
-                        "could not parse {:?} as hexadecimal integer",
-                        self.current.literal
-                    ));
-                    return None;
-                }
-            }
-        } else {
-            match literal.parse::<i64>() {
-                Ok(v) => (Radix::Dec, v),
-                Err(_) => {
-                    self.errors.push(format!(
-                        "could not parse {:?} as `Int64`",
-                        self.current.literal
-                    ));
-                    return None;
-                }
-            }
+                    None
+                })?;
+
+                Expression::$variant($variant { radix, value })
+            }};
+        }
+
+        let expr = match token_kind {
+            TokenKind::I8 => parse_int_type!(i8, I8),
+            TokenKind::I16 => parse_int_type!(i16, I16),
+            TokenKind::I32 => parse_int_type!(i32, I32),
+            TokenKind::I64 => parse_int_type!(i64, I64),
+            TokenKind::I128 => parse_int_type!(i128, I128),
+            TokenKind::Isize => parse_int_type!(isize, Isize),
+            TokenKind::U8 => parse_int_type!(u8, U8),
+            TokenKind::U16 => parse_int_type!(u16, U16),
+            TokenKind::U32 => parse_int_type!(u32, U32),
+            TokenKind::U64 => parse_int_type!(u64, U64),
+            TokenKind::U128 => parse_int_type!(u128, U128),
+            TokenKind::Usize => parse_int_type!(usize, Usize),
+            _ => unreachable!(),
         };
 
-        Some(Expression::Int64(Int64 { radix, value }))
+        Some(expr)
     }
 
-    fn parse_float64(&mut self) -> Option<Expression> {
-        let literal = self.current.literal;
-
-        let literal = literal
-            .strip_suffix("_f64")
-            .or_else(|| literal.strip_suffix("f64"))
-            .unwrap_or(literal);
-
-        match literal.parse::<f64>() {
-            Ok(value) => Some(Expression::Float64(Float64::from(value))),
-            Err(_) => {
-                let msg = format!("could not parse {:?} as `Float64`", self.current.literal);
-                self.errors.push(msg);
-                None
-            }
+    fn parse_float(&mut self) -> Option<Expression> {
+        macro_rules! strip_float_suffixes {
+            ($lit:expr) => {{
+                $lit.strip_suffix("_f32")
+                    .or_else(|| $lit.strip_suffix("f32"))
+                    .or_else(|| $lit.strip_suffix("_f64"))
+                    .or_else(|| $lit.strip_suffix("f64"))
+                    .unwrap_or($lit)
+            }};
         }
+
+        let literal = strip_float_suffixes!(self.current.literal);
+
+        let expr = match self.current.kind {
+            TokenKind::F32 => {
+                let value = literal.parse::<f32>().ok().or_else(|| {
+                    self.errors
+                        .push(format!("could not parse {:?} as f32", self.current.literal));
+                    None
+                })?;
+
+                if !value.is_finite() && !literal.contains("inf") && !literal.contains("nan") {
+                    self.errors.push(format!(
+                        "literal out of range for f32: {}",
+                        self.current.literal
+                    ));
+                    return None;
+                }
+
+                Expression::F32(F32::from(value))
+            }
+            TokenKind::F64 => {
+                let value = literal.parse::<f64>().ok().or_else(|| {
+                    self.errors
+                        .push(format!("could not parse {:?} as f64", self.current.literal));
+                    None
+                })?;
+
+                Expression::F64(F64::from(value))
+            }
+            _ => unreachable!(),
+        };
+
+        Some(expr)
     }
 
     fn parse_string_literal(&mut self) -> Option<Expression> {
