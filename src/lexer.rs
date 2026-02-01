@@ -209,7 +209,7 @@ impl<'a> Lexer<'a> {
 
     fn yield_number(&mut self, start: usize) -> Token<'a> {
         let mut is_float = false;
-        let mut has_radix = false;
+        let mut suffix = None;
 
         // Check for radix prefix (0b, 0o, 0x)
         if self.peek_pos() == Some(b'0')
@@ -217,37 +217,37 @@ impl<'a> Lexer<'a> {
         {
             match radix {
                 b'b' | b'B' => {
-                    has_radix = true;
                     self.advance_pos(); // Skip '0'
                     self.advance_pos(); // Skip 'b'
                     self.read_binary_digits();
+                    suffix = self.try_read_suffix();
+                    let kind = suffix
+                        .map(|s| s.to_token_kind())
+                        .unwrap_or(TokenKind::Int64);
+                    return Token::new(kind, &self.source[start..self.pos]);
                 }
                 b'o' | b'O' => {
-                    has_radix = true;
                     self.advance_pos();
                     self.advance_pos();
                     self.read_octal_digits();
+                    suffix = self.try_read_suffix();
+                    let kind = suffix
+                        .map(|s| s.to_token_kind())
+                        .unwrap_or(TokenKind::Int64);
+                    return Token::new(kind, &self.source[start..self.pos]);
                 }
                 b'x' | b'X' => {
-                    has_radix = true;
                     self.advance_pos();
                     self.advance_pos();
                     self.read_hex_digits();
+                    suffix = self.try_read_suffix();
+                    let kind = suffix
+                        .map(|s| s.to_token_kind())
+                        .unwrap_or(TokenKind::Int64);
+                    return Token::new(kind, &self.source[start..self.pos]);
                 }
                 _ => {}
             }
-        }
-
-        if has_radix {
-            if let Some(suffix_type) = self.try_read_suffix() {
-                is_float = suffix_type.is_float();
-            }
-            let kind = if is_float {
-                TokenKind::Float64
-            } else {
-                TokenKind::Int64
-            };
-            return Token::new(kind, &self.source[start..self.pos]);
         }
 
         self.read_decimal_digits();
@@ -258,15 +258,16 @@ impl<'a> Lexer<'a> {
             is_float = true;
         }
 
-        if let Some(suffix_type) = self.try_read_suffix() {
-            is_float = suffix_type.is_float();
-        }
+        suffix = self.try_read_suffix();
 
-        let kind = if is_float {
+        let kind = if let Some(suf) = suffix {
+            suf.to_token_kind()
+        } else if is_float {
             TokenKind::Float64
         } else {
             TokenKind::Int64
         };
+
         Token::new(kind, &self.source[start..self.pos])
     }
 
@@ -336,13 +337,13 @@ impl<'a> Lexer<'a> {
         let bytes = self.source.as_bytes();
         let remaining = &bytes[self.pos..];
 
-        if let Some(len) = Self::match_int_suffix(remaining) {
+        if let Some((suffix, len)) = Self::match_int_suffix(remaining) {
             self.pos += len;
-            return Some(Suffix::Int);
+            return Some(suffix);
         }
-        if let Some(len) = Self::match_float_suffix(remaining) {
+        if let Some((suffix, len)) = Self::match_float_suffix(remaining) {
             self.pos += len;
-            return Some(Suffix::Float);
+            return Some(suffix);
         }
 
         // No valid suffix found, restore position
@@ -350,75 +351,99 @@ impl<'a> Lexer<'a> {
         None
     }
 
-    /// Matches integer suffixes. Returns length if matched.
+    /// Matches integer suffixes. Returns the specific suffix type and its length.
     /// Supports: i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize.
     ///
     /// Boundary rule: Only match if suffix is followed by non-alphanumeric character.
     /// This prevents matching partial suffixes like "i64" in "42i641", such as in Rust
     /// where invalid suffixes like "i641" cause errors.
     #[inline]
-    fn match_int_suffix(bytes: &[u8]) -> Option<usize> {
+    fn match_int_suffix(bytes: &[u8]) -> Option<(Suffix, usize)> {
         #[inline]
         fn is_ident_continue(b: &u8) -> bool {
             b.is_ascii_alphanumeric() || *b == b'_'
         }
 
-        match bytes.first()? {
-            b'i' | b'u' => {
-                // Check single-digit suffixes: i8/u8
-                if bytes.get(1..2) == Some(b"8") && !bytes.get(2).is_some_and(is_ident_continue) {
-                    return Some(2);
-                }
+        let prefix = *bytes.first()?;
 
-                // Check two-digit suffixes: i16/u16, i32/u32, i64/u64
-                if let Some(suffix) = bytes.get(1..3)
-                    && (suffix == b"16" || suffix == b"32" || suffix == b"64")
-                    && !bytes.get(3).is_some_and(is_ident_continue)
-                {
-                    return Some(3);
-                }
-
-                // Check three-digit suffixes: i128/u128
-                if bytes.get(1..4) == Some(b"128") && !bytes.get(4).is_some_and(is_ident_continue) {
-                    return Some(4);
-                }
-
-                // Check size suffixes: isize/usize
-                if bytes.get(1..5) == Some(b"size") && !bytes.get(5).is_some_and(is_ident_continue)
-                {
-                    return Some(5);
-                }
-                None
-            }
-            _ => None,
+        // Check single-digit suffixes: i8/u8
+        if bytes.get(1..2) == Some(b"8") && !bytes.get(2).is_some_and(is_ident_continue) {
+            let suffix = if prefix == b'i' {
+                Suffix::I8
+            } else {
+                Suffix::U8
+            };
+            return Some((suffix, 2));
         }
+
+        // Check two-digit suffixes: i16/u16, i32/u32, i64/u64
+        if let Some(digits) = bytes.get(1..3)
+            && !bytes.get(3).is_some_and(is_ident_continue)
+        {
+            let suffix = match (prefix, digits) {
+                (b'i', b"16") => Suffix::I16,
+                (b'i', b"32") => Suffix::I32,
+                (b'i', b"64") => Suffix::I64,
+                (b'u', b"16") => Suffix::U16,
+                (b'u', b"32") => Suffix::U32,
+                (b'u', b"64") => Suffix::U64,
+                _ => return None,
+            };
+            return Some((suffix, 3));
+        }
+
+        // Check three-digit suffixes: i128/u128
+        if bytes.get(1..4) == Some(b"128") && !bytes.get(4).is_some_and(is_ident_continue) {
+            let suffix = if prefix == b'i' {
+                Suffix::I128
+            } else {
+                Suffix::U128
+            };
+            return Some((suffix, 4));
+        }
+
+        // Check size suffixes: isize/usize
+        if bytes.get(1..5) == Some(b"size") && !bytes.get(5).is_some_and(is_ident_continue) {
+            let suffix = if prefix == b'i' {
+                Suffix::Isize
+            } else {
+                Suffix::Usize
+            };
+            return Some((suffix, 5));
+        }
+
+        None
     }
 
-    /// Matches float suffixes. Returns length if matched.
+    /// Matches float suffixes. Returns the specific suffix type and its length.
     /// Supports: f32, f64.
     ///
     /// Boundary rule: Only match if suffix is followed by non-alphanumeric character.
     /// This prevents matching partial suffixes like "f64" in "42f641", such as in Rust
     /// where invalid suffixes like "f641" cause errors.
     #[inline]
-    fn match_float_suffix(bytes: &[u8]) -> Option<usize> {
+    fn match_float_suffix(bytes: &[u8]) -> Option<(Suffix, usize)> {
         #[inline]
         fn is_ident_continue(b: &u8) -> bool {
             b.is_ascii_alphanumeric() || *b == b'_'
         }
 
-        match bytes.first()? {
-            b'f' => {
-                if let Some(suffix) = bytes.get(1..3)
-                    && (suffix == b"32" || suffix == b"64")
-                    && !bytes.get(3).is_some_and(is_ident_continue)
-                {
-                    return Some(3);
-                }
-                None
-            }
-            _ => None,
+        if bytes.first()? != &b'f' {
+            return None;
         }
+
+        if let Some(digits) = bytes.get(1..3)
+            && !bytes.get(3).is_some_and(is_ident_continue)
+        {
+            let suffix = match digits {
+                b"32" => Suffix::F32,
+                b"64" => Suffix::F64,
+                _ => return None,
+            };
+            return Some((suffix, 3));
+        }
+
+        None
     }
 
     /// Tries to read fractional part (e.g., .123).
@@ -479,17 +504,47 @@ impl<'a> Lexer<'a> {
 /// Type of numeric suffix found during lexing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Suffix {
-    /// Integer type suffix
-    /// (i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize).
-    Int,
-    /// Floating-point type suffix (f32, f64).
-    Float,
+    I8,
+    I16,
+    I32,
+    I64,
+    I128,
+    Isize,
+    U8,
+    U16,
+    U32,
+    U64,
+    U128,
+    Usize,
+    F32,
+    F64,
 }
 
 impl Suffix {
     /// Returns true if this suffix represents a floating-point type.
     #[inline]
     const fn is_float(self) -> bool {
-        matches!(self, Self::Float)
+        matches!(self, Self::F32 | Self::F64)
+    }
+
+    /// Converts this suffix to the appropriate TokenKind.
+    #[inline]
+    const fn to_token_kind(self) -> TokenKind {
+        match self {
+            Self::I8 => TokenKind::I8,
+            Self::I16 => TokenKind::I16,
+            Self::I32 => TokenKind::I32,
+            Self::I64 => TokenKind::I64,
+            Self::I128 => TokenKind::I128,
+            Self::Isize => TokenKind::Isize,
+            Self::U8 => TokenKind::U8,
+            Self::U16 => TokenKind::U16,
+            Self::U32 => TokenKind::U32,
+            Self::U64 => TokenKind::U64,
+            Self::U128 => TokenKind::U128,
+            Self::Usize => TokenKind::Usize,
+            Self::F32 => TokenKind::F32,
+            Self::F64 => TokenKind::F64,
+        }
     }
 }

@@ -58,6 +58,21 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
         },
 
         Node::Expression(expr) => match expr {
+            Expression::I8(_)
+            | Expression::I16(_)
+            | Expression::I32(_)
+            | Expression::I64(_)
+            | Expression::I128(_)
+            | Expression::Isize(_)
+            | Expression::U8(_)
+            | Expression::U16(_)
+            | Expression::U32(_)
+            | Expression::U64(_)
+            | Expression::U128(_)
+            | Expression::Usize(_)
+            | Expression::F32(_)
+            | Expression::F64(_) => todo!(),
+
             Expression::Int64(int64) => Ok(Object::Int64(int64.value)),
             Expression::Float64(float64) => Ok(Object::Float64(float64.into())),
             Expression::Boolean(boolean) => Ok(Object::Boolean(boolean)),

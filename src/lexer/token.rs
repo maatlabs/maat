@@ -36,9 +36,41 @@ pub enum TokenKind {
     Ident,
     /// A string literal.
     String,
+
+    /// An 8-bit signed integer literal.
+    I8,
+    /// A 16-bit signed integer literal.
+    I16,
+    /// A 32-bit signed integer literal.
+    I32,
     /// A 64-bit signed integer literal.
-    Int64,
+    I64,
+    /// A 128-bit signed integer literal.
+    I128,
+    /// A pointer-sized signed integer literal.
+    Isize,
+
+    /// An 8-bit unsigned integer literal.
+    U8,
+    /// A 16-bit unsigned integer literal.
+    U16,
+    /// A 32-bit unsigned integer literal.
+    U32,
+    /// A 64-bit unsigned integer literal.
+    U64,
+    /// A 128-bit unsigned integer literal.
+    U128,
+    /// A pointer-sized unsigned integer literal.
+    Usize,
+
+    /// A 32-bit floating-point number.
+    F32,
     /// A 64-bit floating-point number.
+    F64,
+
+    /// A 64-bit signed integer literal (legacy, for backward compatibility).
+    Int64,
+    /// A 64-bit floating-point number (legacy, for backward compatibility).
     Float64,
 
     /// The assignment operator `=`.
