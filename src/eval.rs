@@ -165,7 +165,6 @@ fn eval_prefix_expression(expr: PrefixExpr, env: &Env) -> Result<Object> {
             obj if !is_truthy(&obj) => Ok(TRUE),
             _ => Ok(FALSE),
         },
-
         "-" => match operand {
             Object::Int64(int64) => Ok(Object::Int64(-int64)),
             Object::Float64(float64) => Ok(Object::Float64(-float64)),
@@ -175,8 +174,10 @@ fn eval_prefix_expression(expr: PrefixExpr, env: &Env) -> Result<Object> {
             ))
             .into()),
         },
-
-        _ => Err(EvalError::PrefixExpression(format!("unknown operator: {operator}")).into()),
+        _ => Err(EvalError::PrefixExpression(format!(
+            "invalid prefix expression: `{operator}{operand}`"
+        ))
+        .into()),
     }
 }
 
@@ -186,10 +187,8 @@ fn eval_infix_expression(expr: InfixExpr, env: &Env) -> Result<Object> {
     let operator = &expr.operator;
 
     match (&lhs, &rhs) {
-        (Object::Int64(left), Object::Int64(right)) => eval_infix_int64(operator, *left, *right),
-        (Object::Float64(left), Object::Float64(right)) => {
-            eval_infix_float64(operator, *left, *right)
-        }
+        (Object::Int64(left), Object::Int64(right)) => eval_infix_op(operator, *left, *right),
+        (Object::Float64(left), Object::Float64(right)) => eval_infix_op(operator, *left, *right),
         (Object::Boolean(left), Object::Boolean(right)) => eval_infix_bool(operator, *left, *right),
         (Object::String(left), Object::String(right)) => eval_infix_string(operator, left, right),
         _ => Err(EvalError::InfixExpression(format!(
@@ -199,39 +198,97 @@ fn eval_infix_expression(expr: InfixExpr, env: &Env) -> Result<Object> {
     }
 }
 
-fn eval_infix_int64(operator: &str, lhs: i64, rhs: i64) -> Result<Object> {
-    match operator {
-        "+" => Ok(Object::Int64(lhs + rhs)),
-        "-" => Ok(Object::Int64(lhs - rhs)),
-        "*" => Ok(Object::Int64(lhs * rhs)),
-        "/" => Ok(Object::Int64(lhs / rhs)),
-
-        "<" => Ok(Object::Boolean(lhs < rhs)),
-        ">" => Ok(Object::Boolean(lhs > rhs)),
-        "==" => Ok(Object::Boolean(lhs == rhs)),
-        "!=" => Ok(Object::Boolean(lhs != rhs)),
-
-        _ => Err(
-            EvalError::Number(format!("invalid i64 operation: `{lhs} {operator} {rhs}`")).into(),
-        ),
-    }
+/// Trait for types that support infix numeric operations, both arithmetic and comparision.
+///
+/// It should to be implemented by all native Rust numeric types
+/// (i8..i128, u8..u128, isize, usize, f32, f64).
+trait InfixOp:
+    Copy
+    + std::ops::Add<Output = Self>
+    + std::ops::Sub<Output = Self>
+    + std::ops::Mul<Output = Self>
+    + std::ops::Div<Output = Self>
+    + PartialOrd
+    + PartialEq
+    + std::fmt::Display
+{
+    fn into_object(self) -> Object;
+    fn type_name() -> &'static str;
 }
 
-fn eval_infix_float64(operator: &str, lhs: f64, rhs: f64) -> Result<Object> {
+macro_rules! impl_infix_op_int {
+    ($($t:ty => $name:literal),* $(,)?) => {
+        $(
+            impl InfixOp for $t {
+                #[inline]
+                fn into_object(self) -> Object {
+                    Object::Int64(self as i64)
+                }
+
+                #[inline]
+                fn type_name() -> &'static str {
+                    $name
+                }
+            }
+        )*
+    };
+}
+
+macro_rules! impl_infix_op_float {
+    ($($t:ty => $name:literal),* $(,)?) => {
+        $(
+            impl InfixOp for $t {
+                #[inline]
+                fn into_object(self) -> Object {
+                    Object::Float64(self as f64)
+                }
+
+                #[inline]
+                fn type_name() -> &'static str {
+                    $name
+                }
+            }
+        )*
+    };
+}
+
+impl_infix_op_int! {
+    i8 => "i8",
+    i16 => "i16",
+    i32 => "i32",
+    i64 => "i64",
+    i128 => "i128",
+    isize => "isize",
+    u8 => "u8",
+    u16 => "u16",
+    u32 => "u32",
+    u64 => "u64",
+    u128 => "u128",
+    usize => "usize",
+}
+
+impl_infix_op_float! {
+    f32 => "f32",
+    f64 => "f64",
+}
+
+fn eval_infix_op<T: InfixOp>(operator: &str, lhs: T, rhs: T) -> Result<Object> {
     match operator {
-        "+" => Ok(Object::Float64(lhs + rhs)),
-        "-" => Ok(Object::Float64(lhs - rhs)),
-        "*" => Ok(Object::Float64(lhs * rhs)),
-        "/" => Ok(Object::Float64(lhs / rhs)),
+        "+" => Ok((lhs + rhs).into_object()),
+        "-" => Ok((lhs - rhs).into_object()),
+        "*" => Ok((lhs * rhs).into_object()),
+        "/" => Ok((lhs / rhs).into_object()),
 
         "<" => Ok(Object::Boolean(lhs < rhs)),
         ">" => Ok(Object::Boolean(lhs > rhs)),
         "==" => Ok(Object::Boolean(lhs == rhs)),
         "!=" => Ok(Object::Boolean(lhs != rhs)),
 
-        _ => Err(
-            EvalError::Number(format!("invalid f64 operation: `{lhs} {operator} {rhs}`")).into(),
-        ),
+        _ => Err(EvalError::Number(format!(
+            "invalid {} operation: `{lhs} {operator} {rhs}`",
+            T::type_name()
+        ))
+        .into()),
     }
 }
 
