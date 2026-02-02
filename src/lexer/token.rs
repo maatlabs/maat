@@ -1,14 +1,19 @@
+use super::Span;
+
 /// A lexical token in Maat.
 ///
 /// Tokens represent the smallest meaningful units of source code, such as
 /// keywords, operators, identifiers, and literals. Each token carries both its
-/// syntactic classification ([`TokenKind`]) and the exact source text it represents.
+/// syntactic classification ([`TokenKind`]), the exact source text it represents,
+/// and its position in the source for error reporting.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Token<'a> {
     /// The syntactic classification of this token.
     pub kind: TokenKind,
     /// The raw source text that produced this token.
     pub literal: &'a str,
+    /// The source position of this token.
+    pub span: Span,
 }
 
 /// The syntactic classification of a lexical token.
@@ -160,19 +165,24 @@ impl TokenKind {
 }
 
 impl<'a> Token<'a> {
-    /// Constructs a new token with the given kind and literal text.
+    /// Constructs a new token with the given kind, literal text, and span.
     ///
     /// # Parameters
     ///
     /// * `kind` - The syntactic classification of the token.
     /// * `literal` - The raw source text that produced this token.
+    /// * `span` - The source position of this token.
     ///
     /// # Returns
     ///
     /// A new [`Token`] instance.
     #[inline]
-    pub const fn new(kind: TokenKind, literal: &'a str) -> Self {
-        Self { kind, literal }
+    pub const fn new(kind: TokenKind, literal: &'a str, span: Span) -> Self {
+        Self {
+            kind,
+            literal,
+            span,
+        }
     }
 }
 

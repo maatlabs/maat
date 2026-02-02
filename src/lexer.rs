@@ -1,7 +1,9 @@
 mod num;
+mod span;
 mod token;
 
 use num::Suffix;
+pub use span::Span;
 pub use token::{Token, TokenKind};
 
 /// A lexical analyzer for the Maat programming language.
@@ -74,7 +76,12 @@ impl<'a> Lexer<'a> {
 
         let start = self.pos;
         let Some(byte) = self.peek_pos() else {
-            return Token::new(TokenKind::Eof, &self.source[start..self.pos]);
+            let end = self.pos;
+            return Token::new(
+                TokenKind::Eof,
+                &self.source[start..end],
+                Span::new(start, end),
+            );
         };
 
         match byte {
@@ -83,7 +90,12 @@ impl<'a> Lexer<'a> {
                 if self.peek_pos() == Some(b'=') {
                     self.yield_token(start, TokenKind::Equal)
                 } else {
-                    Token::new(TokenKind::Assign, &self.source[start..self.pos])
+                    let end = self.pos;
+                    Token::new(
+                        TokenKind::Assign,
+                        &self.source[start..end],
+                        Span::new(start, end),
+                    )
                 }
             }
             b'!' => {
@@ -91,7 +103,12 @@ impl<'a> Lexer<'a> {
                 if self.peek_pos() == Some(b'=') {
                     self.yield_token(start, TokenKind::NotEqual)
                 } else {
-                    Token::new(TokenKind::Bang, &self.source[start..self.pos])
+                    let end = self.pos;
+                    Token::new(
+                        TokenKind::Bang,
+                        &self.source[start..end],
+                        Span::new(start, end),
+                    )
                 }
             }
 
@@ -105,7 +122,12 @@ impl<'a> Lexer<'a> {
                 if self.peek_pos() == Some(b'=') {
                     self.yield_token(start, TokenKind::LessEqual)
                 } else {
-                    Token::new(TokenKind::Less, &self.source[start..self.pos])
+                    let end = self.pos;
+                    Token::new(
+                        TokenKind::Less,
+                        &self.source[start..end],
+                        Span::new(start, end),
+                    )
                 }
             }
             b'>' => {
@@ -113,7 +135,12 @@ impl<'a> Lexer<'a> {
                 if self.peek_pos() == Some(b'=') {
                     self.yield_token(start, TokenKind::GreaterEqual)
                 } else {
-                    Token::new(TokenKind::Greater, &self.source[start..self.pos])
+                    let end = self.pos;
+                    Token::new(
+                        TokenKind::Greater,
+                        &self.source[start..end],
+                        Span::new(start, end),
+                    )
                 }
             }
 
@@ -163,10 +190,12 @@ impl<'a> Lexer<'a> {
     #[inline]
     fn yield_token(&mut self, start: usize, kind: TokenKind) -> Token<'a> {
         self.advance_pos();
-        Token::new(kind, &self.source[start..self.pos])
+        let end = self.pos;
+        Token::new(kind, &self.source[start..end], Span::new(start, end))
     }
 
     fn yield_string(&mut self) -> Token<'a> {
+        let span_start = self.pos;
         self.advance_pos(); // skip opening quote
         let start = self.pos;
 
@@ -179,7 +208,12 @@ impl<'a> Lexer<'a> {
 
         let end = self.pos;
         self.advance_pos(); // skip closing quote
-        Token::new(TokenKind::String, &self.source[start..end])
+        let span_end = self.pos;
+        Token::new(
+            TokenKind::String,
+            &self.source[start..end],
+            Span::new(span_start, span_end),
+        )
     }
 
     fn yield_ident(&mut self, start: usize) -> Token<'a> {
@@ -202,9 +236,10 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        let literal = &self.source[start..self.pos];
+        let end = self.pos;
+        let literal = &self.source[start..end];
         let kind = TokenKind::keyword_or_ident(literal);
-        Token::new(kind, literal)
+        Token::new(kind, literal, Span::new(start, end))
     }
 
     #[inline]
@@ -239,7 +274,8 @@ impl<'a> Lexer<'a> {
                         .try_read_suffix()
                         .map(|s| s.to_token_kind())
                         .unwrap_or(TokenKind::I64);
-                    return Token::new(kind, &self.source[start..self.pos]);
+                    let end = self.pos;
+                    return Token::new(kind, &self.source[start..end], Span::new(start, end));
                 }
                 b'o' | b'O' => {
                     self.advance_pos();
@@ -249,7 +285,8 @@ impl<'a> Lexer<'a> {
                         .try_read_suffix()
                         .map(|s| s.to_token_kind())
                         .unwrap_or(TokenKind::I64);
-                    return Token::new(kind, &self.source[start..self.pos]);
+                    let end = self.pos;
+                    return Token::new(kind, &self.source[start..end], Span::new(start, end));
                 }
                 b'x' | b'X' => {
                     self.advance_pos();
@@ -259,7 +296,8 @@ impl<'a> Lexer<'a> {
                         .try_read_suffix()
                         .map(|s| s.to_token_kind())
                         .unwrap_or(TokenKind::I64);
-                    return Token::new(kind, &self.source[start..self.pos]);
+                    let end = self.pos;
+                    return Token::new(kind, &self.source[start..end], Span::new(start, end));
                 }
                 _ => {}
             }
@@ -281,7 +319,8 @@ impl<'a> Lexer<'a> {
             TokenKind::I64
         };
 
-        Token::new(kind, &self.source[start..self.pos])
+        let end = self.pos;
+        Token::new(kind, &self.source[start..end], Span::new(start, end))
     }
 
     #[inline]

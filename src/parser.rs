@@ -20,7 +20,7 @@ mod prec;
 use ast::*;
 use prec::{LOWEST, PREFIX, Precedence};
 
-use crate::{Lexer, Token, TokenKind};
+use crate::{Lexer, ParseError, Token, TokenKind};
 
 /// A recursive descent parser that builds an AST from a token stream.
 ///
@@ -32,7 +32,7 @@ pub struct Parser<'a> {
     lexer: Lexer<'a>,
     current: Token<'a>,
     peek: Token<'a>,
-    errors: Vec<String>,
+    errors: Vec<ParseError>,
 }
 
 impl<'a> Parser<'a> {
@@ -60,6 +60,9 @@ impl<'a> Parser<'a> {
 
     /// Returns a reference to the errors encountered during parsing.
     ///
+    /// Each error includes the error message and the source position where
+    /// it occurred, enabling precise error reporting with line and column numbers.
+    ///
     /// # Example
     ///
     /// ```
@@ -71,8 +74,14 @@ impl<'a> Parser<'a> {
     ///
     /// assert!(!parser.errors().is_empty());
     /// ```
-    pub fn errors(&self) -> &Vec<String> {
+    pub fn errors(&self) -> &Vec<ParseError> {
         &self.errors
+    }
+
+    /// Pushes an error with the current token's span.
+    fn push_error(&mut self, message: impl Into<String>) {
+        self.errors
+            .push(ParseError::new(message, self.current.span));
     }
 
     /// Parses the input source code into a complete program AST.
@@ -303,7 +312,7 @@ impl<'a> Parser<'a> {
                     literal.parse::<$rust_ty>().ok().map(|v| (Radix::Dec, v))
                 }
                 .or_else(|| {
-                    self.errors.push(format!(
+                    self.push_error(format!(
                         "could not parse {:?} as {}",
                         self.current.literal,
                         stringify!($rust_ty)
@@ -350,13 +359,12 @@ impl<'a> Parser<'a> {
         let expr = match self.current.kind {
             TokenKind::F32 => {
                 let value = literal.parse::<f32>().ok().or_else(|| {
-                    self.errors
-                        .push(format!("could not parse {:?} as f32", self.current.literal));
+                    self.push_error(format!("could not parse {:?} as f32", self.current.literal));
                     None
                 })?;
 
                 if !value.is_finite() && !literal.contains("inf") && !literal.contains("nan") {
-                    self.errors.push(format!(
+                    self.push_error(format!(
                         "literal out of range for f32: {}",
                         self.current.literal
                     ));
@@ -367,8 +375,7 @@ impl<'a> Parser<'a> {
             }
             TokenKind::F64 => {
                 let value = literal.parse::<f64>().ok().or_else(|| {
-                    self.errors
-                        .push(format!("could not parse {:?} as f64", self.current.literal));
+                    self.push_error(format!("could not parse {:?} as f64", self.current.literal));
                     None
                 })?;
 
@@ -593,11 +600,11 @@ impl<'a> Parser<'a> {
             "expected next token to be `{:?}`, got `{:?}` instead",
             kind, self.peek.kind
         );
-        self.errors.push(msg);
+        self.push_error(msg);
     }
 
     fn prefix_parse_error(&mut self, kind: TokenKind) {
         let msg = format!("no prefix parse function for `{:?}` found", kind);
-        self.errors.push(msg);
+        self.push_error(msg);
     }
 }
