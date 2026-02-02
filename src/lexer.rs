@@ -58,7 +58,7 @@ impl<'a> Lexer<'a> {
     /// token. Whitespace is automatically skipped. The method handles:
     ///
     /// - Single-character operators and delimiters
-    /// - Multi-character operators (`==`, `!=`)
+    /// - Multi-character operators (`==`, `!=`, `<=`, `>=`)
     /// - Keywords and identifiers (with Unicode support)
     /// - Integer literals
     /// - Invalid characters
@@ -100,8 +100,22 @@ impl<'a> Lexer<'a> {
             b'*' => self.yield_token(start, TokenKind::Asterisk),
             b'/' => self.yield_token(start, TokenKind::Slash),
 
-            b'<' => self.yield_token(start, TokenKind::Less),
-            b'>' => self.yield_token(start, TokenKind::Greater),
+            b'<' => {
+                self.advance_pos();
+                if self.peek_pos() == Some(b'=') {
+                    self.yield_token(start, TokenKind::LessEqual)
+                } else {
+                    Token::new(TokenKind::Less, &self.source[start..self.pos])
+                }
+            }
+            b'>' => {
+                self.advance_pos();
+                if self.peek_pos() == Some(b'=') {
+                    self.yield_token(start, TokenKind::GreaterEqual)
+                } else {
+                    Token::new(TokenKind::Greater, &self.source[start..self.pos])
+                }
+            }
 
             b',' => self.yield_token(start, TokenKind::Comma),
             b';' => self.yield_token(start, TokenKind::Semicolon),

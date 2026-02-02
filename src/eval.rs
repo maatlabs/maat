@@ -429,6 +429,8 @@ fn eval_infix_op<T: InfixOp>(operator: &str, lhs: T, rhs: T) -> Result<Object> {
 
         "<" => Ok(Object::Boolean(lhs < rhs)),
         ">" => Ok(Object::Boolean(lhs > rhs)),
+        "<=" => Ok(Object::Boolean(lhs <= rhs)),
+        ">=" => Ok(Object::Boolean(lhs >= rhs)),
         "==" => Ok(Object::Boolean(lhs == rhs)),
         "!=" => Ok(Object::Boolean(lhs != rhs)),
 

@@ -144,10 +144,12 @@ fn single_character_tokens() {
 
 #[test]
 fn two_character_tokens() {
-    let source = "== !=";
+    let source = "== != <= >=";
     let expected = [
         (TokenKind::Equal, "=="),
         (TokenKind::NotEqual, "!="),
+        (TokenKind::LessEqual, "<="),
+        (TokenKind::GreaterEqual, ">="),
         (TokenKind::Eof, ""),
     ];
 

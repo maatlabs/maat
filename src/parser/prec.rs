@@ -7,7 +7,7 @@ use crate::TokenKind;
 pub const LOWEST: u8 = 1;
 /// `==`, `!=`
 pub const EQUALITY: u8 = 2;
-/// `<`, `>`
+/// `<`, `>`, `<=`, `>=`
 pub const LESSGREATER: u8 = 3;
 /// `+`, `-`
 pub const SUM: u8 = 4;
@@ -29,7 +29,10 @@ impl Precedence {
     pub fn get(&self, kind: &TokenKind) -> Option<u8> {
         match *kind {
             TokenKind::Equal | TokenKind::NotEqual => Some(EQUALITY),
-            TokenKind::Less | TokenKind::Greater => Some(LESSGREATER),
+            TokenKind::Less
+            | TokenKind::Greater
+            | TokenKind::LessEqual
+            | TokenKind::GreaterEqual => Some(LESSGREATER),
             TokenKind::Plus | TokenKind::Minus => Some(SUM),
             TokenKind::Asterisk | TokenKind::Slash => Some(PRODUCT),
             TokenKind::LParen => Some(CALL),

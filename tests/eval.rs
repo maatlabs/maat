@@ -49,6 +49,12 @@ fn eval_boolean_expression() {
         ("1 > 2", false),
         ("1 < 1", false),
         ("1 > 1", false),
+        ("1 <= 2", true),
+        ("1 >= 2", false),
+        ("1 <= 1", true),
+        ("1 >= 1", true),
+        ("2 <= 1", false),
+        ("2 >= 1", true),
         ("1 == 1", true),
         ("1 != 1", false),
         ("1 == 2", false),
@@ -62,6 +68,8 @@ fn eval_boolean_expression() {
         ("(1 < 2) == false", false),
         ("(1 > 2) == true", false),
         ("(1 > 2) == false", true),
+        ("(1 <= 1) == true", true),
+        ("(2 >= 1) == true", true),
     ]
     .iter()
     .for_each(|(input, expected)| {

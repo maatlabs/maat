@@ -85,6 +85,10 @@ pub enum TokenKind {
     Less,
     /// The greater-than comparison operator `>`.
     Greater,
+    /// The less-than-or-equal comparison operator `<=`.
+    LessEqual,
+    /// The greater-than-or-equal comparison operator `>=`.
+    GreaterEqual,
 
     /// The equality comparison operator `==`.
     Equal,

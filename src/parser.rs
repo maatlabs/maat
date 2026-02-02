@@ -200,6 +200,8 @@ impl<'a> Parser<'a> {
                 | TokenKind::NotEqual
                 | TokenKind::Less
                 | TokenKind::Greater
+                | TokenKind::LessEqual
+                | TokenKind::GreaterEqual
                 | TokenKind::LParen
                 | TokenKind::LBracket => {
                     self.next_token();
