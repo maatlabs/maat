@@ -76,7 +76,7 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
             Expression::F64(v) => Ok(Object::F64(v.into())),
 
             Expression::Boolean(boolean) => Ok(Object::Boolean(boolean)),
-            Expression::String(string) => Ok(Object::String(string)),
+            Expression::String(string) => Ok(Object::String(unescape_string(&string))),
             Expression::Array(array_lit) => {
                 let elements = eval_expressions(&array_lit.elements, env)?;
                 Ok(Object::Array(elements))
@@ -510,4 +510,41 @@ fn eval_function_call(expr: CallExpr, env: &Env) -> Result<Object> {
         Object::Builtin(builtin_fn) => builtin_fn(&expressions),
         obj => Err(EvalError::NotAFunction(format!("expected {obj} to be a function")).into()),
     }
+}
+
+/// Unescapes a string literal by processing escape sequences.
+///
+/// Supports standard escape sequences:
+/// - `\\` → backslash
+/// - `\"` → double quote
+/// - `\n` → newline
+/// - `\r` → carriage return
+/// - `\t` → tab
+/// - `\0` → null character
+///
+/// Invalid escape sequences are preserved as-is.
+fn unescape_string(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            match chars.next() {
+                Some('\\') => result.push('\\'),
+                Some('"') => result.push('"'),
+                Some('n') => result.push('\n'),
+                Some('r') => result.push('\r'),
+                Some('t') => result.push('\t'),
+                Some('0') => result.push('\0'),
+                Some(c) => {
+                    result.push('\\');
+                    result.push(c);
+                }
+                None => result.push('\\'),
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+    result
 }

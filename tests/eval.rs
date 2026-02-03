@@ -230,6 +230,30 @@ fn eval_string_concatenation() {
 }
 
 #[test]
+fn eval_string_escape_sequences() {
+    [
+        (r#""hello \"world\"""#, "hello \"world\""),
+        (r#""line1\nline2""#, "line1\nline2"),
+        (r#""tab\there""#, "tab\there"),
+        (r#""backslash\\""#, "backslash\\"),
+        (r#""quote\"""#, "quote\""),
+        (r#""null\0char""#, "null\0char"),
+        (r#""mixed\t\n\r\\""#, "mixed\t\n\r\\"),
+        (r#""invalid\xescape""#, "invalid\\xescape"), // Invalid escape preserved
+    ]
+    .iter()
+    .for_each(|(input, expected)| {
+        let result = test_eval(input).unwrap();
+        assert_eq!(
+            result,
+            Object::String(expected.to_string()),
+            "input: {}",
+            input
+        );
+    });
+}
+
+#[test]
 fn eval_array_literals() {
     let result = test_eval("[1, 2 * 2, 3 + 3]").unwrap();
     match result {

@@ -203,7 +203,14 @@ impl<'a> Lexer<'a> {
             if b == b'"' {
                 break;
             }
-            self.advance_pos();
+            if b == b'\\' {
+                self.advance_pos(); // skip backslash
+                if self.peek_pos().is_some() {
+                    self.advance_pos(); // skip escaped character
+                }
+            } else {
+                self.advance_pos();
+            }
         }
 
         let end = self.pos;

@@ -320,6 +320,29 @@ fn string_literals() {
 }
 
 #[test]
+fn string_escape_sequences() {
+    let source = r#""hello \"world\"" "line1\nline2" "tab\there" "backslash\\" "quote\"" "null\0char" "mixed\t\n\r\\\"""#;
+    let expected = [
+        (TokenKind::String, r#"hello \"world\""#),
+        (TokenKind::String, r"line1\nline2"),
+        (TokenKind::String, r"tab\there"),
+        (TokenKind::String, r"backslash\\"),
+        (TokenKind::String, r#"quote\""#),
+        (TokenKind::String, r"null\0char"),
+        (TokenKind::String, r#"mixed\t\n\r\\\""#),
+        (TokenKind::Eof, ""),
+    ];
+
+    let mut lexer = Lexer::new(source);
+
+    for (kind, literal) in expected {
+        let token = lexer.next_token();
+        assert_eq!(token.kind, kind);
+        assert_eq!(token.literal, literal);
+    }
+}
+
+#[test]
 fn float64_literals() {
     let source = "3.14 0.5 123.456 0.0 999.999";
     let expected = [
