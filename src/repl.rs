@@ -1,7 +1,6 @@
 use std::io::{self, BufRead, Write};
 
-use crate::ast::Node;
-use crate::{Env, Lexer, Parser, eval};
+use crate::{Env, Lexer, Parser, ast, eval};
 
 const PROMPT: &str = ">> ";
 
@@ -55,8 +54,22 @@ pub fn start<R: BufRead, W: Write>(mut reader: R, writer: &mut W) -> io::Result<
                 writeln!(writer, "  {err}")?;
             }
         } else {
-            match eval(Node::Program(program), &env) {
-                Ok(result) => writeln!(writer, "{result}")?,
+            // Check if the program contains only Let statements
+            let only_let_stmts = !program.statements.is_empty()
+                && program
+                    .statements
+                    .iter()
+                    .all(|stmt| matches!(stmt, ast::Statement::Let(_)));
+
+            match eval(ast::Node::Program(program), &env) {
+                Ok(result) => {
+                    if only_let_stmts {
+                        // Don't print result for let-only statements, but print newline
+                        writeln!(writer)?
+                    } else {
+                        writeln!(writer, "{result}")?
+                    }
+                }
                 Err(e) => writeln!(writer, "  {e}")?,
             }
         }
@@ -100,8 +113,7 @@ mod tests {
 
         let result = String::from_utf8(output).expect("Invalid UTF-8");
         let outputs = extract_output(&result);
-        assert_eq!(outputs.len(), 1);
-        assert_eq!(outputs[0], "5");
+        assert_eq!(outputs.len(), 0);
     }
 
     #[test]
@@ -112,7 +124,7 @@ mod tests {
 
         let result = String::from_utf8(output).expect("Invalid UTF-8");
         let outputs = extract_output(&result);
-        assert_eq!(outputs, vec!["5", "10", "15"]);
+        assert_eq!(outputs, vec!["15"]);
     }
 
     #[test]
