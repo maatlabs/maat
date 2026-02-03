@@ -1,6 +1,6 @@
 use std::io::{self, BufRead, Write};
 
-use crate::{Env, Lexer, Parser, ast, eval};
+use crate::{Env, Lexer, Object, Parser, ast, eval};
 
 const PROMPT: &str = ">> ";
 
@@ -63,8 +63,8 @@ pub fn start<R: BufRead, W: Write>(mut reader: R, writer: &mut W) -> io::Result<
 
             match eval(ast::Node::Program(program), &env) {
                 Ok(result) => {
-                    if only_let_stmts {
-                        // Don't print result for let-only statements, but print newline
+                    // Suppress output for let-only statements and null values
+                    if only_let_stmts || matches!(result, Object::Null) {
                         writeln!(writer)?
                     } else {
                         writeln!(writer, "{result}")?
@@ -171,8 +171,8 @@ mod tests {
 
         let result = String::from_utf8(output).expect("Invalid UTF-8");
         let outputs = extract_output(&result);
-        assert_eq!(outputs.len(), 1);
-        assert_eq!(outputs[0], "null");
+        // Empty input evaluates to null, which is suppressed in REPL output
+        assert_eq!(outputs.len(), 0);
     }
 
     #[test]
