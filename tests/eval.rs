@@ -293,6 +293,45 @@ fn eval_array_index_expressions() {
 }
 
 #[test]
+fn eval_array_index_with_integer_types() {
+    [
+        // Default I64 type (no suffix)
+        ("[1, 2, 3][0]", Some(1)),
+        ("[1, 2, 3][1]", Some(2)),
+        ("[1, 2, 3][2]", Some(3)),
+        ("let i = 1; [10, 20, 30][i];", Some(20)),
+        // Explicit integer types
+        ("[1, 2, 3][0_i8]", Some(1)),
+        ("[1, 2, 3][1_i16]", Some(2)),
+        ("[1, 2, 3][2_i32]", Some(3)),
+        ("[1, 2, 3][0_i64]", Some(1)),
+        ("[1, 2, 3][1_u8]", Some(2)),
+        ("[1, 2, 3][2_u16]", Some(3)),
+        ("[1, 2, 3][0_u32]", Some(1)),
+        ("[1, 2, 3][1_u64]", Some(2)),
+        // Out of bounds
+        ("[1, 2, 3][10]", None),
+        ("[1, 2, 3][100_u8]", None),
+    ]
+    .iter()
+    .for_each(|(input, expected)| {
+        let result = test_eval(input).unwrap();
+        match expected {
+            Some(val) => assert_eq!(result, Object::I64(*val), "input: {}", input),
+            None => assert_eq!(result, NULL, "input: {}", input),
+        }
+    });
+}
+
+#[test]
+fn eval_array_index_negative_error() {
+    let result = test_eval("[1, 2, 3][-1]");
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.to_string().contains("array index out of range"));
+}
+
+#[test]
 fn eval_hash_literals() {
     let input = r#"
             let two = "two";

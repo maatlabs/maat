@@ -535,27 +535,27 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expression_list(&mut self, end: TokenKind) -> Option<Vec<Expression>> {
-        let mut arguments = Vec::new();
+        let mut list = Vec::new();
 
         if self.peek_token_is(end) {
             self.next_token();
-            return Some(arguments);
+            return Some(list);
         }
 
         self.next_token();
-        arguments.push(self.parse_expression(LOWEST)?);
+        list.push(self.parse_expression(LOWEST)?);
 
         while self.peek_token_is(TokenKind::Comma) {
             self.next_token();
             self.next_token();
-            arguments.push(self.parse_expression(LOWEST)?);
+            list.push(self.parse_expression(LOWEST)?);
         }
 
         if !self.expect_peek(end) {
             return None;
         }
 
-        Some(arguments)
+        Some(list)
     }
 
     /// Advance the parser: shift `peek` into `current` token,
