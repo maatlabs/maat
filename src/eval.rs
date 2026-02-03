@@ -490,29 +490,24 @@ fn eval_identifier(ident: String, env: &Env) -> Result<Object> {
 }
 
 fn eval_function_call(expr: CallExpr, env: &Env) -> Result<Object> {
-    let function = eval(Node::Expression(*expr.function), env)?;
-    let arguments = eval_expressions(&expr.arguments, env)?;
-    apply_function(function, arguments)
-}
+    let object = eval(Node::Expression(*expr.function), env)?;
+    let expressions = eval_expressions(&expr.arguments, env)?;
 
-fn apply_function(f: Object, args: Vec<Object>) -> Result<Object> {
-    match f {
+    match object {
         Object::Function(func) => {
             let env = Env::new_enclosed(&func.env);
-
             func.params.iter().enumerate().for_each(|(i, param)| {
-                env.set(param.to_owned(), &args[i]);
+                env.set(param.to_owned(), &expressions[i]);
             });
 
             let evaluated = eval(Node::Statement(Statement::Block(func.body)), &env)?;
-
             if let Object::ReturnValue(val) = evaluated {
                 Ok(*val)
             } else {
                 Ok(evaluated)
             }
         }
-        Object::Builtin(builtin_fn) => builtin_fn(&args),
+        Object::Builtin(builtin_fn) => builtin_fn(&expressions),
         obj => Err(EvalError::NotAFunction(format!("expected {obj} to be a function")).into()),
     }
 }
