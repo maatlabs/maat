@@ -12,6 +12,74 @@ Proof-Driven Development (PDD) is software development methodology that emphasiz
 
 Source files written in Maat use the `.maat` extension.
 
+## Getting Started
+
+### Prerequisites
+
+- [Rust](https://www.rust-lang.org/tools/install) 1.85 or later (with `rustup`)
+- Cargo (comes with Rust)
+
+### Installation
+
+Clone the repository and build the project:
+
+```bash
+git clone https://github.com/maatlabs/maat.git
+cd maat
+cargo build --release
+```
+
+### Running the REPL
+
+Start an interactive REPL session:
+
+```bash
+cargo run --release
+```
+
+Example session:
+
+```txt
+>> let name = "Maat";
+>> let version = 0.1;
+>> print("Welcome to", name, version);
+Welcome to Maat 0.1
+```
+
+### Running Tests
+
+Run the full test suite:
+
+```bash
+cargo test --all-features
+```
+
+### Development
+
+#### Code Formatting
+
+Format code using nightly rustfmt:
+
+```bash
+cargo +nightly fmt
+```
+
+#### Linting
+
+Run Clippy for linting (zero warnings policy):
+
+```bash
+cargo clippy --all-features --all-targets -- -D warnings
+```
+
+#### Building Documentation
+
+Generate and view documentation:
+
+```bash
+cargo doc --all-features --no-deps --open
+```
+
 ## Contributing
 
 Thank you for your interest in contributing to this project! All contributions large and small are actively accepted. To get started, please read the [contribution guidelines](./CONTRIBUTING.md). A good place to start would be [Good First Issues](https://github.com/maatlabs/maat/labels/good%20first%20issue).
