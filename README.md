@@ -30,3 +30,7 @@ Maat is currently at version 0.1 and is still going through several improvements
 
 Early adopters should be aware that Maat 0.1 is a transient accomplishment towards Maat 1.0, for which a formal audit process is expected.
 In the meantime, we invite you to know and experiment with Maat, but we don't recommend using it to build mission-critical systems.
+
+## Acknowledgments
+
+Maat v0.1.0 is based on the excellent book [Writing An Interpreter In Go](https://interpreterbook.com) by [Thorsten Ball](https://thorstenball.com). The interpreter implementation follows the book's approach of building a tree-walking interpreter for the Monkey programming language, translated from Go to Rust with significant enhancements including comprehensive numeric type support, string escape sequences, span tracking for error reporting, and an improved REPL experience.
