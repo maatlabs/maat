@@ -492,6 +492,23 @@ fn eval_builtin_push() {
 }
 
 #[test]
+fn eval_builtin_print_or_puts() {
+    // print/puts returns null
+    let result = test_eval(r#"print("hello", "world")"#).unwrap();
+    assert_eq!(result, NULL);
+    let result = test_eval(r#"puts("test")"#).unwrap();
+    assert_eq!(result, NULL);
+
+    // print/puts with no arguments
+    let result = test_eval("puts()").unwrap();
+    assert_eq!(result, NULL);
+
+    // print/puts with mixed types
+    let result = test_eval(r#"print("value:", 42, true)"#).unwrap();
+    assert_eq!(result, NULL);
+}
+
+#[test]
 fn eval_float_arithmetic() {
     [
         ("3.5 + 2.5", 6.0),

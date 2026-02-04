@@ -6,7 +6,7 @@ use crate::{EvalError, Result};
 pub fn get_builtin(name: &str) -> Option<BuiltinFn> {
     match name {
         "len" => Some(len),
-        "puts" | "print" => Some(puts),
+        "print" | "puts" => Some(print),
         "first" => Some(first),
         "last" => Some(last),
         "rest" => Some(rest),
@@ -28,8 +28,18 @@ pub fn len(args: &[Object]) -> Result<Object> {
     }
 }
 
-pub fn puts(args: &[Object]) -> Result<Object> {
-    args.iter().for_each(|arg| println!("{arg}"));
+pub fn print(args: &[Object]) -> Result<Object> {
+    if args.is_empty() {
+        println!();
+    } else {
+        for (i, arg) in args.iter().enumerate() {
+            if i > 0 {
+                print!(" ");
+            }
+            print!("{arg}");
+        }
+        println!();
+    }
     Ok(NULL)
 }
 
