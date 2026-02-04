@@ -14,7 +14,7 @@ Source files written in Maat use the `.maat` extension.
 
 ## Contributing
 
-Thank you for your interest in contributing to this project! All contributions large and small are actively accepted. To get started, please read the [contribution guidelines](#contributing). A good place to start would be [Good First Issues](https://github.com/maatlabs/maat/labels/good%20first%20issue).
+Thank you for your interest in contributing to this project! All contributions large and small are actively accepted. To get started, please read the [contribution guidelines](./CONTRIBUTING.md). A good place to start would be [Good First Issues](https://github.com/maatlabs/maat/labels/good%20first%20issue).
 
 ## License
 
