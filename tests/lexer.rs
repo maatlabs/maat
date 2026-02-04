@@ -344,9 +344,9 @@ fn string_escape_sequences() {
 
 #[test]
 fn float64_literals() {
-    let source = "3.14 0.5 123.456 0.0 999.999";
+    let source = "3.15 0.5 123.456 0.0 999.999";
     let expected = [
-        (TokenKind::F64, "3.14"),
+        (TokenKind::F64, "3.15"),
         (TokenKind::F64, "0.5"),
         (TokenKind::F64, "123.456"),
         (TokenKind::F64, "0.0"),
@@ -385,12 +385,12 @@ fn number_suffixes() {
 
 #[test]
 fn scientific_notation() {
-    let source = "1e10 1.5e10 2E5 3.14E-2 1e+5 6.022e23 0e0";
+    let source = "1e10 1.5e10 2E5 3.15E-2 1e+5 6.022e23 0e0";
     let expected = [
         (TokenKind::F64, "1e10"),
         (TokenKind::F64, "1.5e10"),
         (TokenKind::F64, "2E5"),
-        (TokenKind::F64, "3.14E-2"),
+        (TokenKind::F64, "3.15E-2"),
         (TokenKind::F64, "1e+5"),
         (TokenKind::F64, "6.022e23"),
         (TokenKind::F64, "0e0"),
@@ -408,9 +408,9 @@ fn scientific_notation() {
 
 #[test]
 fn mixed_numbers() {
-    let source = "3.14_f64 1.5e10_f64 100_i64";
+    let source = "3.15_f64 1.5e10_f64 100_i64";
     let expected = [
-        (TokenKind::F64, "3.14_f64"),
+        (TokenKind::F64, "3.15_f64"),
         (TokenKind::F64, "1.5e10_f64"),
         (TokenKind::I64, "100_i64"),
         (TokenKind::Eof, ""),
@@ -527,11 +527,11 @@ fn rust_style_suffixes() {
 
 #[test]
 fn mixed_radix_and_suffixes() {
-    let source = "0b1010i64 0xFFi64 3.14f64";
+    let source = "0b1010i64 0xFFi64 3.15f64";
     let expected = [
         (TokenKind::I64, "0b1010i64"),
         (TokenKind::I64, "0xFFi64"),
-        (TokenKind::F64, "3.14f64"),
+        (TokenKind::F64, "3.15f64"),
         (TokenKind::Eof, ""),
     ];
 
@@ -640,10 +640,10 @@ fn unsigned_integer_suffixes() {
 
 #[test]
 fn float_suffixes() {
-    let source = "3.14f32 3.14_f32 2.718f64 2.718_f64 1e10f32 1.5e-5f64";
+    let source = "3.15f32 3.15_f32 2.718f64 2.718_f64 1e10f32 1.5e-5f64";
     let expected = [
-        (TokenKind::F32, "3.14f32"),
-        (TokenKind::F32, "3.14_f32"),
+        (TokenKind::F32, "3.15f32"),
+        (TokenKind::F32, "3.15_f32"),
         (TokenKind::F64, "2.718f64"),
         (TokenKind::F64, "2.718_f64"),
         (TokenKind::F32, "1e10f32"),

@@ -494,7 +494,7 @@ fn eval_builtin_push() {
 #[test]
 fn eval_float_arithmetic() {
     [
-        ("3.14 + 2.86", 6.0),
+        ("3.5 + 2.5", 6.0),
         ("10.5 - 5.5", 5.0),
         ("2.5 * 4.0", 10.0),
         ("10.0 / 2.0", 5.0),
@@ -555,7 +555,7 @@ fn eval_rust_style_suffixes() {
             assert_eq!(result, Object::I64(*expected), "input: {}", input);
         });
 
-    [("3.14f64", 3.14), ("0.5f64", 0.5)]
+    [("3.15f64", 3.15), ("0.5f64", 0.5)]
         .iter()
         .for_each(|(input, expected)| {
             let result = test_eval(input).unwrap();

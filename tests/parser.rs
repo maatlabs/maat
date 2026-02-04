@@ -171,7 +171,7 @@ fn parse_string_literal() {
 #[test]
 fn parse_float_literal() {
     [
-        ("3.14;", 3.14),
+        ("3.15;", 3.15),
         ("0.5;", 0.5),
         ("123.456;", 123.456),
         ("1e10;", 1e10),
@@ -338,7 +338,7 @@ fn parse_rust_style_suffixes() {
     };
     assert_eq!(i64_lit.value, 123);
 
-    let program = parse("3.14f64;");
+    let program = parse("3.15f64;");
     let Statement::Expression(ExpressionStatement {
         value: Expression::F64(f64_lit),
     }) = expect_single_stmt(&program)
@@ -346,7 +346,7 @@ fn parse_rust_style_suffixes() {
         panic!("expected F64 expression");
     };
     let value: f64 = (*f64_lit).into();
-    assert!((value - 3.14).abs() < 1e-10);
+    assert!((value - 3.15).abs() < 1e-10);
 }
 
 #[test]
