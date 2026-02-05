@@ -16,9 +16,11 @@
 
 pub mod ast;
 mod prec;
+mod transform;
 
 use ast::*;
 use prec::{LOWEST, PREFIX, Precedence};
+pub use transform::{TransformFn, transform};
 
 use crate::{Lexer, ParseError, Token, TokenKind};
 
