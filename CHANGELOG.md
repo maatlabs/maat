@@ -4,6 +4,128 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-02-05
+
+Major feature release adding a Lisp-style runtime macro system for metaprogramming, based on "The Lost Chapter: A Macro System for Monkey" by Thorsten Ball.
+
+### Added
+
+#### Macro System
+
+- **`macro` Keyword**: New language construct for defining compile-time code transformations
+  - Syntax: `let name = macro(params...) { body };`
+  - Macros are first-class objects stored in the environment
+  - Support for zero or more parameters
+  - Lexically-scoped macro definitions
+
+- **`quote` Special Form**: Captures AST nodes without evaluation
+  - Syntax: `quote(expression)`
+  - Returns a `Quote` object wrapping the unevaluated AST
+  - Enables code-as-data manipulation
+  - Handles `unquote` calls within quoted expressions
+
+- **`unquote` Special Form**: Splices evaluated expressions into quoted code
+  - Syntax: `unquote(expression)` (used within `quote`)
+  - Evaluates the expression and inserts its AST into the surrounding quote
+  - Enables dynamic code generation
+  - Supports arbitrary nesting depth
+
+- **AST Transformation Infrastructure**: `transform()` function for traversing and modifying AST
+  - Post-order traversal of entire AST
+  - Functional approach using closures
+  - Type-safe node transformation
+  - Used by macro expansion and available for future compiler optimizations
+
+- **Macro Expansion Pipeline**: Two-phase macro processing
+  - `define_macros()`: Extracts macro definitions from programs and stores in environment
+  - `expand_macros()`: Recursively expands all macro calls using AST transformation
+  - Expansion happens before evaluation (compile-time metaprogramming)
+  - Properly handles nested macro calls
+
+#### New Object Types
+
+- **`Macro` Object**: Runtime representation of macro definitions
+  - Stores parameter names, body (block statement), and closure environment
+  - Evaluated during macro expansion, not normal evaluation
+  - Display format: `macro(params...) { body }`
+
+- **`Quote` Object**: Wrapper for unevaluated AST nodes
+  - Enables passing code as data to macros
+  - Display format: `quote(expression)`
+  - Converts back to AST during macro expansion
+
+#### New AST Nodes
+
+- **`MacroLiteral` Expression**: Parser representation of macro definitions
+  - Similar structure to `FunctionLiteral`
+  - Parameters and block statement body
+  - Distinct from functions in evaluation semantics
+
+#### Constants for Special Forms
+
+- **`QUOTE` Constant**: Centralized name for `quote` special form
+  - Ensures consistent string comparisons
+  - Single source of truth for special form names
+  - Fully documented as special form (not regular builtin)
+
+- **`UNQUOTE` Constant**: Centralized name for `unquote` special form
+  - Used in macro expansion to identify unquote calls
+  - Prevents magic strings in codebase
+  - Type-safe string handling
+
+#### Testing
+
+- **Comprehensive Macro Test Suite**: 7 new tests in `tests/macros.rs`
+  - `test_define_macros`: Verifies macro extraction from programs
+  - `test_expand_macros`: Tests basic macro expansion
+  - `test_expand_macros_with_unquote`: Tests unquote splicing
+  - `test_quote_builtin`: Verifies quote special form
+  - `test_macro_expansion_unless`: Complex conditional macro (`unless`)
+  - `test_macro_double`: Simple arithmetic macro
+  - `test_macro_with_multiple_args`: Multi-parameter macros
+- **Transform Test Suite**: 13 new tests in `tests/transform.rs`
+  - Tests for all AST node types (programs, statements, expressions)
+  - Nested structure transformation tests
+  - Post-order traversal verification
+
+### Changed
+
+- **Evaluator**: Integrated macro processing into evaluation pipeline
+  - Macros are now extracted and expanded before program evaluation
+  - `eval()` function handles `quote` special form directly (not as regular builtin)
+  - Special handling for `Macro` and `Quote` object types
+  - Expanded code is evaluated normally after expansion
+
+- **Parser**: Added support for `macro` keyword
+  - `parse_macro()` function mirrors `parse_function()` structure
+  - Macro literals parsed as expressions
+  - Proper precedence and associativity handling
+
+- **Lexer**: Added `TokenKind::Macro`
+  - Recognized as keyword via `keyword_or_ident()` function
+  - Distinct from identifiers in token stream
+
+### Documentation
+
+- **README**: Updated example session to showcase macro system
+  - `double` macro example demonstrating basic metaprogramming
+  - `unless` macro showing conditional code generation
+  - Version bumped to 0.2.0 throughout documentation
+  - Updated acknowledgments to credit `The Lost Chapter: A Macro System for Monkey`
+
+### Performance
+
+- **Efficient AST Transformation**: Post-order traversal minimizes allocations
+  - Transform children before parents
+  - Reuses existing AST structure where possible
+  - Functional approach with closures avoids virtual dispatch
+
+- **Lazy Macro Expansion**: Only expands macros that are actually called
+  - Unused macro definitions don't impact performance
+  - Expansion happens once per program evaluation
+
+---
+
 ## [0.1.0] - 2026-02-04
 
 Initial release of Maat: a Turing-complete programming language designed for proof-driven development. This release includes a complete interpreter implementation.
@@ -118,4 +240,5 @@ When adding entries to this changelog for future releases:
 3. **Audience**: Write for users, not developers (focus on impact, not implementation)
 4. **Links**: Add comparison links at the bottom: `[0.2.0]: https://github.com/maatlabs/maat/compare/v0.1.0...v0.2.0`
 
+[0.2.0]: https://github.com/maatlabs/maat/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/maatlabs/maat/releases/tag/v0.1.0
