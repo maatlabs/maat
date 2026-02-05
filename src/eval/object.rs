@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 use super::Env;
-use crate::ast::BlockStatement;
+use crate::ast::{BlockStatement, Node};
 use crate::{Error, EvalError, Result};
 
 pub type BuiltinFn = fn(&[Object]) -> Result<Object>;
@@ -61,6 +61,10 @@ pub enum Object {
     Hash(HashObject),
     /// A function object with parameters, body, and closure environment.
     Function(Function),
+    /// A macro object with parameters, body, and closure environment.
+    Macro(Macro),
+    /// A quoted AST node for metaprogramming.
+    Quote(Quote),
     /// Wraps a return value for early function/block termination.
     ReturnValue(Box<Object>),
     /// A builtin function.
@@ -91,6 +95,8 @@ impl Object {
             Self::Array(_) => "Array",
             Self::Hash(_) => "Hashable",
             Self::Function(_) => "Function",
+            Self::Macro(_) => "Macro",
+            Self::Quote(_) => "Quote",
             Self::ReturnValue(_) => "ReturnValue",
             Self::Builtin(_) => "BuiltinFn",
         }
@@ -121,6 +127,8 @@ impl PartialEq for Object {
             (Array(a1), Array(a2)) => a1 == a2,
             (Hash(h1), Hash(h2)) => h1 == h2,
             (Function(f1), Function(f2)) => f1 == f2,
+            (Macro(m1), Macro(m2)) => m1 == m2,
+            (Quote(q1), Quote(q2)) => q1 == q2,
             (ReturnValue(o1), ReturnValue(o2)) => o1 == o2,
             (Builtin(f1), Builtin(f2)) => std::ptr::fn_addr_eq(*f1, *f2),
             _ => false,
@@ -134,6 +142,20 @@ pub struct Function {
     pub params: Vec<String>,
     pub body: BlockStatement,
     pub env: Env,
+}
+
+/// Represents a macro object.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Macro {
+    pub params: Vec<String>,
+    pub body: BlockStatement,
+    pub env: Env,
+}
+
+/// Represents a quoted AST node.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Quote {
+    pub node: Node,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -216,6 +238,8 @@ impl fmt::Display for Object {
             }
             Self::Hash(hash) => hash.fmt(f),
             Self::Function(func) => func.fmt(f),
+            Self::Macro(macro_obj) => macro_obj.fmt(f),
+            Self::Quote(quote) => quote.fmt(f),
             Self::ReturnValue(ret_val) => ret_val.fmt(f),
             Self::Builtin(_) => write!(f, "builtin function"),
         }
@@ -225,6 +249,18 @@ impl fmt::Display for Object {
 impl fmt::Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "fn({}) {{\n{}\n}}", self.params.join(", "), self.body)
+    }
+}
+
+impl fmt::Display for Macro {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "macro({}) {{\n{}\n}}", self.params.join(", "), self.body)
+    }
+}
+
+impl fmt::Display for Quote {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "quote({})", self.node)
     }
 }
 

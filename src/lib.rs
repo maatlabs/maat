@@ -5,7 +5,7 @@ pub mod parser;
 pub mod repl;
 
 pub use error::{Error, EvalError, ParseError};
-pub use eval::{Env, Hashable, NULL, Object, eval};
+pub use eval::{Env, Hashable, NULL, Object, define_macros, eval, expand_macros};
 pub use lexer::{Lexer, Token, TokenKind};
 pub use parser::{Parser, TransformFn, ast, transform};
 

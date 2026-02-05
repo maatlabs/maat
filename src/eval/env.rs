@@ -17,7 +17,7 @@ struct EnvInner {
 }
 
 impl Env {
-    /// Creates an enclosed environment for use within function calls.
+    /// Creates an enclosed environment for use within function calls and macros.
     ///
     /// The enclosed environment can access bindings from the outer environment
     /// while maintaining its own local bindings.
