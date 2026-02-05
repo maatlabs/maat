@@ -11,7 +11,7 @@ mod object;
 
 use std::collections::HashMap;
 
-use builtins::get_builtin;
+use builtins::{QUOTE, get_builtin};
 pub use env::Env;
 pub use macros::{define_macros, expand_macros};
 pub use object::{
@@ -112,12 +112,12 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
             Expression::Call(call_expr) => {
                 // Handle special `quote` builtin
                 if let Expression::Identifier(ref ident) = *call_expr.function
-                    && ident == "quote"
+                    && ident == QUOTE
                 {
                     if call_expr.arguments.len() != 1 {
-                        return Err(EvalError::Builtin(
-                            "quote expects exactly 1 argument".to_owned(),
-                        )
+                        return Err(EvalError::Builtin(format!(
+                            "{QUOTE} expects exactly 1 argument"
+                        ))
                         .into());
                     }
                     let node = Node::Expression(call_expr.arguments[0].clone());

@@ -5,6 +5,7 @@
 //! - Macro expansion using AST transformation
 //! - Quote/unquote builtins for AST manipulation
 
+use super::builtins::UNQUOTE;
 use super::{Env, Macro, Object, Quote, eval_block_statement, eval_expression};
 use crate::ast::{self, Expression, Node, Program, Statement};
 use crate::transform;
@@ -135,7 +136,7 @@ fn is_unquote_call(node: &Node) -> bool {
     if let Node::Expression(Expression::Call(call)) = node
         && let Expression::Identifier(ident) = &*call.function
     {
-        return ident == "unquote";
+        return ident == UNQUOTE;
     }
     false
 }
