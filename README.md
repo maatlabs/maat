@@ -41,9 +41,23 @@ Example session:
 
 ```txt
 >> let name = "Maat";
->> let version = 0.1;
+>> let version = 0.2;
 >> print("Welcome to", name, version);
-Welcome to Maat 0.1
+Welcome to Maat 0.2
+
+>> let double = macro(x) { quote(unquote(x) * 2); };
+>> double(21);
+42
+
+>> let unless = macro(cond, cons, alt) {
+..     quote(if (!(unquote(cond))) {
+..         unquote(cons);
+..     } else {
+..         unquote(alt);
+..     });
+.. };
+>> unless(10 > 5, print("not greater"), print("greater"));
+greater
 ```
 
 ### Running Tests
@@ -92,13 +106,18 @@ Unless you explicitly state otherwise, any contribution intentionally submitted 
 
 ## Status
 
-Maat is currently at version 0.1 and is still going through several improvements in order to deliver the best-in-class experience as a fully-fledged Turing-complete PDD programming language.
+Maat is currently at version 0.2 and is still going through several improvements in order to deliver the best-in-class experience as a fully-fledged Turing-complete PDD programming language.
 
 ## Disclaimer
 
-Early adopters should be aware that Maat 0.1 is a transient accomplishment towards Maat 1.0, for which a formal audit process is expected.
+Early adopters should be aware that Maat 0.2 is a transient accomplishment towards Maat 1.0, for which a formal audit process is expected.
 In the meantime, we invite you to know and experiment with Maat, but we don't recommend using it to build mission-critical systems.
 
 ## Acknowledgments
 
-Maat v0.1.0 is based on the excellent book [Writing An Interpreter In Go](https://interpreterbook.com) by [Thorsten Ball](https://thorstenball.com). The interpreter implementation follows the book's approach of building a tree-walking interpreter for the Monkey programming language, translated from Go to Rust with significant enhancements including comprehensive numeric type support, string escape sequences, span tracking for error reporting, and an improved REPL experience.
+Maat v0.2.0 is based on the following excellent sources:
+
+1. [Writing An Interpreter In Go (WAIIG)](https://interpreterbook.com), which implements the `Monkey` programming language.
+2. [The Lost Chapter: A Macro System for Monkey](https://interpreterbook.com/lost/), a follow-up to `WAIIG`.
+
+The Maat interpreter implementation follows `Monkey`'s approach of building a tree-walking interpreter with a Lisp-style macro system, translated from Go to Rust with significant enhancements including comprehensive numeric type support, string escape sequences, AST transformation infrastructure, runtime metaprogramming capabilities, and an improved REPL experience.

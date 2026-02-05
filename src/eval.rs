@@ -6,13 +6,17 @@
 
 mod builtins;
 mod env;
+mod macros;
 mod object;
 
 use std::collections::HashMap;
 
-use builtins::get_builtin;
+use builtins::{QUOTE, get_builtin};
 pub use env::Env;
-pub use object::{BuiltinFn, FALSE, Function, HashObject, Hashable, NULL, Object, TRUE};
+pub use macros::{define_macros, expand_macros};
+pub use object::{
+    BuiltinFn, FALSE, Function, HashObject, Hashable, Macro, NULL, Object, Quote, TRUE,
+};
 
 use crate::ast::*;
 use crate::{EvalError, Result};
@@ -41,7 +45,15 @@ use crate::{EvalError, Result};
 /// ```
 pub fn eval(node: Node, env: &Env) -> Result<Object> {
     match node {
-        Node::Program(prog) => eval_program(prog, env),
+        Node::Program(prog) => {
+            let p = define_macros(prog, env);
+            let n = expand_macros(Node::Program(p), env);
+            if let Node::Program(expanded_prog) = n {
+                eval_program(expanded_prog, env)
+            } else {
+                unreachable!("expand_macros should return a Program node")
+            }
+        }
 
         Node::Statement(stmt) => match stmt {
             Statement::Let(ls) => {
@@ -54,7 +66,7 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
                 Ok(Object::ReturnValue(Box::new(obj)))
             }
             Statement::Expression(es) => eval(Node::Expression(es.value), env),
-            Statement::Block(bs) => eval_block_statement(bs, env),
+            Statement::Block(bs) => eval_block_statement(&bs, env),
         },
 
         Node::Expression(expr) => match expr {
@@ -92,7 +104,29 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
                 body: func_lit.body,
                 env: env.clone(),
             })),
-            Expression::Call(call_expr) => eval_function_call(call_expr, env),
+            Expression::Macro(macro_lit) => Ok(Object::Macro(Macro {
+                params: macro_lit.params,
+                body: macro_lit.body,
+                env: env.clone(),
+            })),
+            Expression::Call(call_expr) => {
+                // Handle special `quote` builtin
+                if let Expression::Identifier(ref ident) = *call_expr.function
+                    && ident == QUOTE
+                {
+                    if call_expr.arguments.len() != 1 {
+                        return Err(EvalError::Builtin(format!(
+                            "{QUOTE} expects exactly 1 argument"
+                        ))
+                        .into());
+                    }
+                    let node = Node::Expression(call_expr.arguments[0].clone());
+                    // Process `unquote` calls within the quoted expression
+                    let node = macros::eval_unquote_calls(node, env);
+                    return Ok(Object::Quote(Quote { node }));
+                }
+                eval_function_call(call_expr, env)
+            }
         },
     }
 }
@@ -111,7 +145,7 @@ fn eval_program(prog: Program, env: &Env) -> Result<Object> {
     Ok(result)
 }
 
-fn eval_block_statement(block: BlockStatement, env: &Env) -> Result<Object> {
+fn eval_block_statement(block: &BlockStatement, env: &Env) -> Result<Object> {
     let mut result = NULL;
 
     for stmt in &block.statements {
@@ -123,6 +157,13 @@ fn eval_block_statement(block: BlockStatement, env: &Env) -> Result<Object> {
         }
     }
     Ok(result)
+}
+
+/// Evaluates an expression in the given environment.
+///
+/// This is a convenience wrapper around `eval` for macro system use.
+fn eval_expression(expr: &Expression, env: &Env) -> Result<Object> {
+    eval(Node::Expression(expr.clone()), env)
 }
 
 fn eval_expressions(exprs: &[Expression], env: &Env) -> Result<Vec<Object>> {

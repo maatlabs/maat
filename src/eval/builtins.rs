@@ -1,6 +1,18 @@
 use super::{BuiltinFn, NULL, Object};
 use crate::{EvalError, Result};
 
+/// The name of the `quote` special form for AST quoting.
+///
+/// Used to capture AST nodes without evaluation, enabling metaprogramming.
+/// This is a special form handled directly in the evaluator, not a regular builtin.
+pub const QUOTE: &str = "quote";
+
+/// The name of the `unquote` special form for splicing evaluated expressions into quotes.
+///
+/// Used within `quote` to evaluate and splice expressions into the quoted AST.
+/// This is a special form handled during quote evaluation, not a regular builtin.
+pub const UNQUOTE: &str = "unquote";
+
 /// Attempts to retrieve a builtin by name. Returns `Some(fn)` or `None`.
 #[inline]
 pub fn get_builtin(name: &str) -> Option<BuiltinFn> {
