@@ -85,6 +85,7 @@ pub enum Expression {
     Infix(InfixExpr),
     Conditional(ConditionalExpr),
     Function(Function),
+    Macro(MacroLiteral),
     Call(CallExpr),
 }
 
@@ -194,6 +195,13 @@ pub struct ConditionalExpr {
 /// Function literal
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Function {
+    pub params: Vec<String>,
+    pub body: BlockStatement,
+}
+
+/// Macro literal
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct MacroLiteral {
     pub params: Vec<String>,
     pub body: BlockStatement,
 }
@@ -312,6 +320,7 @@ impl fmt::Display for Expression {
             Self::Infix(infix_expr) => infix_expr.fmt(f),
             Self::Conditional(cond_expr) => cond_expr.fmt(f),
             Self::Function(func_lit) => func_lit.fmt(f),
+            Self::Macro(macro_lit) => macro_lit.fmt(f),
             Self::Call(call_expr) => call_expr.fmt(f),
         }
     }
@@ -378,6 +387,12 @@ impl fmt::Display for ConditionalExpr {
 impl fmt::Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "fn({}) {{\n{}\n}}", self.params.join(", "), self.body)
+    }
+}
+
+impl fmt::Display for MacroLiteral {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "macro({}) {{\n{}\n}}", self.params.join(", "), self.body)
     }
 }
 

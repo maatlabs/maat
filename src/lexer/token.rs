@@ -36,6 +36,8 @@ pub enum TokenKind {
     Function,
     /// The `return` keyword for early returns.
     Return,
+    /// The `macro` keyword for macro definitions.
+    Macro,
 
     /// A user-defined identifier (variable, function name, etc.).
     Ident,
@@ -159,6 +161,7 @@ impl TokenKind {
             "false" => Self::False,
             "fn" => Self::Function,
             "return" => Self::Return,
+            "macro" => Self::Macro,
             _ => Self::Ident,
         }
     }

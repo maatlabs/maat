@@ -234,6 +234,17 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                     Expression::Function(func)
                 }
 
+                Expression::Macro(mut macro_lit) => {
+                    macro_lit.body = match transform(
+                        Node::Statement(Statement::Block(macro_lit.body)),
+                        transformer,
+                    ) {
+                        Node::Statement(Statement::Block(b)) => b,
+                        _ => unreachable!("Block transformation returned non-block"),
+                    };
+                    Expression::Macro(macro_lit)
+                }
+
                 Expression::Call(mut call) => {
                     call.function = Box::new(
                         match transform(Node::Expression(*call.function), transformer) {

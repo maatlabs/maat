@@ -192,6 +192,7 @@ impl<'a> Parser<'a> {
             TokenKind::LParen => self.parse_grouped_expression()?,
             TokenKind::If => self.parse_conditional_expression()?,
             TokenKind::Function => self.parse_function()?,
+            TokenKind::Macro => self.parse_macro()?,
             TokenKind::LBracket => self.parse_array_literal()?,
             TokenKind::LBrace => self.parse_hash_literal()?,
             kind => {
@@ -496,7 +497,7 @@ impl<'a> Parser<'a> {
         if !self.expect_peek(TokenKind::LParen) {
             return None;
         }
-        let params = self.parse_function_params()?;
+        let params = self.parse_parameters()?;
         if !self.expect_peek(TokenKind::LBrace) {
             return None;
         }
@@ -505,7 +506,20 @@ impl<'a> Parser<'a> {
         Some(Expression::Function(Function { params, body }))
     }
 
-    fn parse_function_params(&mut self) -> Option<Vec<String>> {
+    fn parse_macro(&mut self) -> Option<Expression> {
+        if !self.expect_peek(TokenKind::LParen) {
+            return None;
+        }
+        let params = self.parse_parameters()?;
+        if !self.expect_peek(TokenKind::LBrace) {
+            return None;
+        }
+        let body = self.parse_block_statement()?;
+
+        Some(Expression::Macro(MacroLiteral { params, body }))
+    }
+
+    fn parse_parameters(&mut self) -> Option<Vec<String>> {
         let mut identifiers = Vec::new();
 
         if self.peek_token_is(TokenKind::RParen) {
