@@ -1,23 +1,22 @@
-[package]
-name = "maat"
-version = "0.2.0"
-edition.workspace = true
-repository.workspace = true
-license.workspace = true
-
-[[bin]]
-name = "maat"
-path = "src/main.rs"
+[workspace]
+resolver = "2"
+members = [
+    "compiler/maat_span",
+    "compiler/maat_errors",
+    "compiler/maat_lexer",
+    "compiler/maat_ast",
+    "compiler/maat_parse",
+    "compiler/maat_eval",
+    "compiler/maat_driver",
+    "compiler/maat",
+    "src/tools/maat-repl",
+]
 
 [workspace.package]
+version = "0.3.0"
 edition = "2024"
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/maatlabs/maat"
-license = "MIT OR Apache 2.0"
-
-[workspace]
-members = []
 
 [workspace.dependencies]
-
-[dependencies]
 unicode-xid = "0.2"

@@ -1,0 +1,13 @@
+[package]
+name = "maat-repl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "repl"
+path = "src/main.rs"
+
+[dependencies]
+maat_driver = { path = "../../../compiler/maat_driver" }
