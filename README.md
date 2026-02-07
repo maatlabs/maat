@@ -29,21 +29,34 @@ cd maat
 cargo build --release
 ```
 
+### Binaries
+
+Maat provides two binaries:
+
+- **`maat`** - Main compiler/interpreter entry point
+- **`repl`** - Interactive REPL for experimenting with Maat code
+
+To see version information:
+
+```bash
+cargo run --release --bin maat
+```
+
 ### Running the REPL
 
 Start an interactive REPL session:
 
 ```bash
-cargo run --release
+cargo run --release --bin repl
 ```
 
 Example session:
 
 ```txt
 >> let name = "Maat";
->> let version = 0.2;
+>> let version = 0.3;
 >> print("Welcome to", name, version);
-Welcome to Maat 0.2
+Welcome to Maat 0.3
 
 >> let double = macro(x) { quote(unquote(x) * 2); };
 >> double(21);
@@ -65,7 +78,7 @@ greater
 Run the full test suite:
 
 ```bash
-cargo test --all-features
+cargo test --workspace
 ```
 
 ### Development
@@ -106,16 +119,16 @@ Unless you explicitly state otherwise, any contribution intentionally submitted 
 
 ## Status
 
-Maat is currently at version 0.2 and is still going through several improvements in order to deliver the best-in-class experience as a fully-fledged Turing-complete PDD programming language.
+Maat is currently at version 0.3 and is still going through several improvements in order to deliver the best-in-class experience as a fully-fledged Turing-complete PDD programming language.
 
 ## Disclaimer
 
-Early adopters should be aware that Maat 0.2 is a transient accomplishment towards Maat 1.0, for which a formal audit process is expected.
+Early adopters should be aware that Maat 0.3 is a transient accomplishment towards Maat 1.0, for which a formal audit process is expected.
 In the meantime, we invite you to know and experiment with Maat, but we don't recommend using it to build mission-critical systems.
 
 ## Acknowledgments
 
-Maat v0.2.0 is based on the following excellent sources:
+Maat v0.3.0 is based on the following excellent sources:
 
 1. [Writing An Interpreter In Go (WAIIG)](https://interpreterbook.com), which implements the `Monkey` programming language.
 2. [The Lost Chapter: A Macro System for Monkey](https://interpreterbook.com/lost/), a follow-up to `WAIIG`.

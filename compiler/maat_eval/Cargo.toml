@@ -1,0 +1,10 @@
+[package]
+name = "maat_eval"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+maat_errors = { path = "../maat_errors" }
+maat_ast = { path = "../maat_ast" }

@@ -4,10 +4,70 @@ version = 4
 
 [[package]]
 name = "maat"
-version = "0.2.0"
+version = "0.3.0"
+
+[[package]]
+name = "maat-repl"
+version = "0.3.0"
 dependencies = [
+ "maat_driver",
+]
+
+[[package]]
+name = "maat_ast"
+version = "0.3.0"
+dependencies = [
+ "maat_lexer",
+ "maat_span",
+]
+
+[[package]]
+name = "maat_driver"
+version = "0.3.0"
+dependencies = [
+ "maat_ast",
+ "maat_errors",
+ "maat_eval",
+ "maat_lexer",
+ "maat_parse",
+]
+
+[[package]]
+name = "maat_errors"
+version = "0.3.0"
+dependencies = [
+ "maat_span",
+]
+
+[[package]]
+name = "maat_eval"
+version = "0.3.0"
+dependencies = [
+ "maat_ast",
+ "maat_errors",
+]
+
+[[package]]
+name = "maat_lexer"
+version = "0.3.0"
+dependencies = [
+ "maat_span",
  "unicode-xid",
 ]
+
+[[package]]
+name = "maat_parse"
+version = "0.3.0"
+dependencies = [
+ "maat_ast",
+ "maat_errors",
+ "maat_lexer",
+ "maat_span",
+]
+
+[[package]]
+name = "maat_span"
+version = "0.3.0"
 
 [[package]]
 name = "unicode-xid"

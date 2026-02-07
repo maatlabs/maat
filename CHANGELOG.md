@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-02-07
+
+### Changed - Major Architecture Restructuring
+
+**Breaking Changes:**
+
+- **New Project Structure**:
+  - `compiler/` - Language implementation (9 crates: `maat_span`, `maat_errors`, `maat_lexer`, `maat_ast`, `maat_parse`, `maat_eval`, `maat_driver`, `maat`)
+  - `src/tools/` - Development tools (`maat-repl`)
+
+**Crate Organization:**
+
+- **maat_span** - Source location tracking and span management
+- **maat_errors** - Unified error handling with Result type alias
+- **maat_lexer** - Tokenization and lexical analysis
+- **maat_ast** - Abstract Syntax Tree definitions and transformations
+- **maat_parse** - Pratt parser with operator precedence
+- **maat_eval** - Tree-walking interpreter with integrated macro system
+- **maat_driver** - Orchestration layer providing unified API
+- **maat** - Compiler binary entry point
+- **maat-repl** - Interactive REPL tool
+
+---
+
 ## [0.2.0] - 2026-02-05
 
 Major feature release adding a Lisp-style runtime macro system for metaprogramming, based on "The Lost Chapter: A Macro System for Monkey" by Thorsten Ball.
@@ -240,5 +264,6 @@ When adding entries to this changelog for future releases:
 3. **Audience**: Write for users, not developers (focus on impact, not implementation)
 4. **Links**: Add comparison links at the bottom: `[0.2.0]: https://github.com/maatlabs/maat/compare/v0.1.0...v0.2.0`
 
+[0.3.0]: https://github.com/maatlabs/maat/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/maatlabs/maat/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/maatlabs/maat/releases/tag/v0.1.0
