@@ -29,6 +29,16 @@ mod opcode;
 pub use instruction::{Instructions, decode_operands, encode};
 pub use opcode::Opcode;
 
+/// Maximum number of constants in the constant pool.
+///
+/// This limit is imposed by the OpConstant instruction's 2-byte index encoding,
+/// which can represent indices from 0 to 65,535 (2^16 - 1).
+///
+/// To support more constants, the operand width would need to be increased to
+/// 4 bytes (allowing up to 4,294,967,295 constants), but this comes with a
+/// bytecode size trade-off.
+pub const MAX_CONSTANT_POOL_SIZE: usize = u16::MAX as usize;
+
 /// Compiled bytecode output containing instructions and constants.
 ///
 /// This represents the complete compiled program ready for execution by the

@@ -89,6 +89,42 @@ pub enum Expression {
     Call(CallExpr),
 }
 
+impl Expression {
+    /// Returns a human-readable name for this expression type.
+    ///
+    /// Used primarily for error reporting.
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Self::Identifier(_) => "identifier",
+            Self::I8(_) => "i8 literal",
+            Self::I16(_) => "i16 literal",
+            Self::I32(_) => "i32 literal",
+            Self::I64(_) => "i64 literal",
+            Self::I128(_) => "i128 literal",
+            Self::Isize(_) => "isize literal",
+            Self::U8(_) => "u8 literal",
+            Self::U16(_) => "u16 literal",
+            Self::U32(_) => "u32 literal",
+            Self::U64(_) => "u64 literal",
+            Self::U128(_) => "u128 literal",
+            Self::Usize(_) => "usize literal",
+            Self::F32(_) => "f32 literal",
+            Self::F64(_) => "f64 literal",
+            Self::Boolean(_) => "boolean literal",
+            Self::String(_) => "string literal",
+            Self::Array(_) => "array literal",
+            Self::Index(_) => "index expression",
+            Self::Hash(_) => "hash literal",
+            Self::Prefix(_) => "prefix expression",
+            Self::Infix(_) => "infix expression",
+            Self::Conditional(_) => "conditional expression",
+            Self::Function(_) => "function literal",
+            Self::Macro(_) => "macro literal",
+            Self::Call(_) => "function call",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Radix {
     Bin,

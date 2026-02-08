@@ -49,13 +49,17 @@ pub enum Opcode {
     /// Operands: none
     GreaterThan = 10,
 
+    /// Test if first value is less than second.
+    /// Operands: none
+    LessThan = 11,
+
     /// Negate a value (unary minus).
     /// Operands: none
-    Minus = 11,
+    Minus = 12,
 
     /// Logical NOT operation.
     /// Operands: none
-    Bang = 12,
+    Bang = 13,
 }
 
 impl Opcode {
@@ -74,6 +78,7 @@ impl Opcode {
             Self::Equal => "OpEqual",
             Self::NotEqual => "OpNotEqual",
             Self::GreaterThan => "OpGreaterThan",
+            Self::LessThan => "OpLessThan",
             Self::Minus => "OpMinus",
             Self::Bang => "OpBang",
         }
@@ -97,6 +102,7 @@ impl Opcode {
             | Self::Equal
             | Self::NotEqual
             | Self::GreaterThan
+            | Self::LessThan
             | Self::Minus
             | Self::Bang => &[],
         }
@@ -117,8 +123,9 @@ impl Opcode {
             8 => Some(Self::Equal),
             9 => Some(Self::NotEqual),
             10 => Some(Self::GreaterThan),
-            11 => Some(Self::Minus),
-            12 => Some(Self::Bang),
+            11 => Some(Self::LessThan),
+            12 => Some(Self::Minus),
+            13 => Some(Self::Bang),
             _ => None,
         }
     }
@@ -136,7 +143,7 @@ mod tests {
 
     #[test]
     fn opcode_roundtrip() {
-        for byte in 0..=12 {
+        for byte in 0..=13 {
             let opcode = Opcode::from_byte(byte).unwrap();
             assert_eq!(opcode.to_byte(), byte);
         }
