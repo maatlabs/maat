@@ -1,0 +1,17 @@
+[package]
+name = "maat_vm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+maat_bytecode = { path = "../maat_bytecode" }
+maat_errors = { path = "../maat_errors" }
+maat_eval = { path = "../maat_eval" }
+
+[dev-dependencies]
+maat_ast = { path = "../maat_ast" }
+maat_codegen = { path = "../maat_codegen" }
+maat_lexer = { path = "../maat_lexer" }
+maat_parse = { path = "../maat_parse" }
