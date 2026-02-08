@@ -1,0 +1,10 @@
+[package]
+name = "maat_bytecode"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+maat_errors = { path = "../maat_errors" }
+maat_eval = { path = "../maat_eval" }
