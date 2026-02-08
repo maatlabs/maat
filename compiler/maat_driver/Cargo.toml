@@ -11,3 +11,6 @@ maat_lexer = { path = "../maat_lexer" }
 maat_ast = { path = "../maat_ast" }
 maat_parse = { path = "../maat_parse" }
 maat_eval = { path = "../maat_eval" }
+maat_bytecode = { path = "../maat_bytecode" }
+maat_codegen = { path = "../maat_codegen" }
+maat_vm = { path = "../maat_vm" }
