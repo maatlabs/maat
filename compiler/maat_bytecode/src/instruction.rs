@@ -85,11 +85,7 @@ impl fmt::Display for Instructions {
             let (operands, bytes_read) = match decode_operands(widths, &self.0[ip + 1..]) {
                 Ok(result) => result,
                 Err(e) => {
-                    writeln!(
-                        f,
-                        "ERROR: failed to decode operands at offset {}: {}",
-                        ip, e
-                    )?;
+                    writeln!(f, "ERROR: failed to decode operands at offset {ip}: {e}")?;
                     ip += 1;
                     continue;
                 }
@@ -317,7 +313,7 @@ mod tests {
                 assert_eq!(needed, 2);
                 assert_eq!(available, 1);
             }
-            other => panic!("expected UnexpectedEndOfBytecode, got {:?}", other),
+            other => panic!("expected UnexpectedEndOfBytecode, got {other:?}"),
         }
     }
 
@@ -340,7 +336,7 @@ mod tests {
                 assert_eq!(needed, 2);
                 assert_eq!(available, 0);
             }
-            other => panic!("expected UnexpectedEndOfBytecode, got {:?}", other),
+            other => panic!("expected UnexpectedEndOfBytecode, got {other:?}"),
         }
     }
 }

@@ -6,10 +6,10 @@
 
 use maat_bytecode::{Bytecode, Opcode};
 use maat_errors::{Result, VmError};
-use maat_eval::Object;
+use maat_eval::{FALSE, Object, TRUE};
 
 /// Maximum number of elements that can be pushed onto the stack.
-const STACK_SIZE: usize = 2048;
+const MAX_STACK_SIZE: usize = 2048;
 
 /// Virtual machine for executing bytecode instructions.
 ///
@@ -28,12 +28,12 @@ impl VM {
     /// Creates a new virtual machine from compiled bytecode.
     ///
     /// Initializes the VM with the provided constants and instructions,
-    /// allocating a stack of size `STACK_SIZE`.
+    /// allocating a stack of size `MAX_STACK_SIZE`.
     pub fn new(bytecode: Bytecode) -> Self {
         Self {
             constants: bytecode.constants,
             instructions: bytecode.instructions.into(),
-            stack: Vec::with_capacity(STACK_SIZE),
+            stack: Vec::with_capacity(MAX_STACK_SIZE),
             sp: 0,
         }
     }
@@ -55,36 +55,22 @@ impl VM {
                     let const_index = self.read_u16(ip + 1);
                     ip += 2;
                     let constant = self.constants[const_index as usize].clone();
-                    self.push(constant)?;
+                    self.push_stack(constant)?;
                 }
-
                 Opcode::Pop => {
-                    self.pop()?;
+                    self.pop_stack()?;
                 }
-
                 Opcode::Add | Opcode::Sub | Opcode::Mul | Opcode::Div => {
                     self.execute_binary_operation(op)?;
                 }
-
-                Opcode::True => {
-                    self.push(Object::Boolean(true))?;
-                }
-
-                Opcode::False => {
-                    self.push(Object::Boolean(false))?;
-                }
+                Opcode::True => self.push_stack(TRUE)?,
+                Opcode::False => self.push_stack(FALSE)?,
 
                 Opcode::Equal | Opcode::NotEqual | Opcode::GreaterThan | Opcode::LessThan => {
-                    self.execute_comparison(op)?;
+                    self.execute_comparison(op)?
                 }
-
-                Opcode::Bang => {
-                    self.execute_bang_operator()?;
-                }
-
-                Opcode::Minus => {
-                    self.execute_minus_operator()?;
-                }
+                Opcode::Bang => self.execute_bang_operator()?,
+                Opcode::Minus => self.execute_minus_operator()?,
             }
 
             ip += 1;
@@ -100,8 +86,12 @@ impl VM {
     }
 
     /// Pushes a value onto the stack.
-    fn push(&mut self, obj: Object) -> Result<()> {
-        if self.sp >= STACK_SIZE {
+    ///
+    /// # Errors
+    ///
+    /// Returns `VmError` if the stack is full (stack overflow).
+    fn push_stack(&mut self, obj: Object) -> Result<()> {
+        if self.sp >= MAX_STACK_SIZE {
             return Err(VmError::new("stack overflow").into());
         }
 
@@ -110,8 +100,8 @@ impl VM {
         } else {
             self.stack[self.sp] = obj;
         }
-        self.sp += 1;
 
+        self.sp += 1;
         Ok(())
     }
 
@@ -120,7 +110,7 @@ impl VM {
     /// # Errors
     ///
     /// Returns `VmError` if the stack is empty (stack underflow).
-    fn pop(&mut self) -> Result<Object> {
+    fn pop_stack(&mut self) -> Result<Object> {
         if self.sp == 0 {
             return Err(VmError::new("stack underflow").into());
         }
@@ -131,8 +121,8 @@ impl VM {
 
     /// Executes a binary arithmetic operation.
     fn execute_binary_operation(&mut self, op: Opcode) -> Result<()> {
-        let right = self.pop()?;
-        let left = self.pop()?;
+        let right = self.pop_stack()?;
+        let left = self.pop_stack()?;
 
         match (&left, &right) {
             (Object::I64(l), Object::I64(r)) => self.execute_binary_integer_operation(op, *l, *r),
@@ -161,13 +151,13 @@ impl VM {
         };
 
         let result = result.ok_or_else(|| VmError::new("integer arithmetic overflow"))?;
-        self.push(Object::I64(result))
+        self.push_stack(Object::I64(result))
     }
 
     /// Executes a comparison operation.
     fn execute_comparison(&mut self, op: Opcode) -> Result<()> {
-        let right = self.pop()?;
-        let left = self.pop()?;
+        let right = self.pop_stack()?;
+        let left = self.pop_stack()?;
 
         match (&left, &right) {
             (Object::I64(l), Object::I64(r)) => self.execute_integer_comparison(op, *l, *r),
@@ -185,7 +175,7 @@ impl VM {
                         .into());
                     }
                 };
-                self.push(Object::Boolean(result))
+                self.push_stack(Object::Boolean(result))
             }
         }
     }
@@ -200,32 +190,29 @@ impl VM {
             _ => return Err(VmError::new(format!("unknown operator: {:?}", op)).into()),
         };
 
-        self.push(Object::Boolean(result))
+        self.push_stack(Object::Boolean(result))
     }
 
     /// Executes the logical NOT (bang) operator.
     fn execute_bang_operator(&mut self) -> Result<()> {
-        let operand = self.pop()?;
-
+        let operand = self.pop_stack()?;
         let result = match operand {
-            Object::Boolean(true) => Object::Boolean(false),
-            Object::Boolean(false) => Object::Boolean(true),
-            _ => Object::Boolean(false),
+            // Object::Boolean(true) => FALSE,
+            Object::Boolean(false) => TRUE,
+            _ => FALSE,
         };
-
-        self.push(result)
+        self.push_stack(result)
     }
 
     /// Executes the unary minus operator.
     fn execute_minus_operator(&mut self) -> Result<()> {
-        let operand = self.pop()?;
-
+        let operand = self.pop_stack()?;
         match operand {
             Object::I64(value) => {
                 let result = value
                     .checked_neg()
                     .ok_or_else(|| VmError::new("integer negation overflow"))?;
-                self.push(Object::I64(result))
+                self.push_stack(Object::I64(result))
             }
             _ => Err(VmError::new(format!(
                 "unsupported type for negation: {}",
@@ -303,7 +290,7 @@ mod tests {
     }
 
     #[test]
-    fn test_integer_arithmetic() {
+    fn integer_arithmetic() {
         let cases = vec![
             ("1", TestValue::Int(1)),
             ("2", TestValue::Int(2)),
@@ -330,7 +317,7 @@ mod tests {
     }
 
     #[test]
-    fn test_boolean_expressions() {
+    fn boolean_expressions() {
         let cases = vec![
             ("true", TestValue::Bool(true)),
             ("false", TestValue::Bool(false)),
@@ -365,7 +352,7 @@ mod tests {
     }
 
     #[test]
-    fn test_stack_underflow() {
+    fn stack_underflow() {
         use maat_bytecode::{Instructions, Opcode, encode};
         use maat_errors::Error;
 
