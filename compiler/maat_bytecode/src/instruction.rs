@@ -12,6 +12,16 @@ use crate::Opcode;
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Instructions(Vec<u8>);
 
+/// Tracks the most recently emitted instruction for peephole operations.
+///
+/// The compiler maintains a two-instruction history to support operations
+/// like removing trailing `OpPop` instructions from block expressions.
+#[derive(Debug, Clone, Copy)]
+pub struct Instruction {
+    pub opcode: Opcode,
+    pub position: usize,
+}
+
 impl Instructions {
     /// Creates an empty instruction sequence.
     #[inline]
@@ -46,6 +56,22 @@ impl Instructions {
     /// Appends another instruction sequence to this one.
     pub fn extend(&mut self, other: &Self) {
         self.0.extend_from_slice(&other.0);
+    }
+
+    /// Replaces bytes in the instruction stream starting at `pos`.
+    ///
+    /// Used by the compiler to patch forward jump targets after
+    /// the jump destination is known.
+    pub fn replace_bytes(&mut self, pos: usize, bytes: &[u8]) {
+        self.0[pos..pos + bytes.len()].copy_from_slice(bytes);
+    }
+
+    /// Truncates the instruction stream to the given length.
+    ///
+    /// Used by the compiler to remove trailing instructions (e.g., removing
+    /// a trailing `OpPop` from block expressions).
+    pub fn truncate(&mut self, len: usize) {
+        self.0.truncate(len);
     }
 }
 

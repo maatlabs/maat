@@ -26,7 +26,7 @@ use maat_eval::Object;
 mod instruction;
 mod opcode;
 
-pub use instruction::{Instructions, decode_operands, encode};
+pub use instruction::{Instruction, Instructions, decode_operands, encode};
 pub use opcode::Opcode;
 
 /// Maximum number of constants in the constant pool.

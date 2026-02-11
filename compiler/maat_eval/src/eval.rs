@@ -205,7 +205,7 @@ fn eval_prefix_expression(expr: PrefixExpr, env: &Env) -> Result<Object> {
 
     match operator.as_str() {
         "!" => match operand {
-            obj if !is_truthy(&obj) => Ok(TRUE),
+            obj if !obj.is_truthy() => Ok(TRUE),
             _ => Ok(FALSE),
         },
         "-" => match operand {
@@ -483,7 +483,7 @@ fn eval_infix_string(operator: &str, lhs: &str, rhs: &str) -> Result<Object> {
 fn eval_conditional_expression(expr: ConditionalExpr, env: &Env) -> Result<Object> {
     let condition = eval(Node::Expression(*expr.condition), env)?;
 
-    if is_truthy(&condition) {
+    if condition.is_truthy() {
         eval(Node::Statement(Statement::Block(expr.consequence)), env)
     } else if let Some(alt) = expr.alternative {
         eval(Node::Statement(Statement::Block(alt)), env)
@@ -492,9 +492,14 @@ fn eval_conditional_expression(expr: ConditionalExpr, env: &Env) -> Result<Objec
     }
 }
 
-fn is_truthy(obj: &Object) -> bool {
-    !(*obj == NULL || *obj == FALSE)
-}
+// #[inline]
+// fn is_truthy(obj: &Object) -> bool {
+//     match obj {
+//         Object::Boolean(b) => *b,
+//         Object::Null => false,
+//         _ => true,
+//     }
+// }
 
 fn eval_identifier(ident: String, env: &Env) -> Result<Object> {
     match env.get(&ident) {

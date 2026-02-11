@@ -4,8 +4,8 @@
 //! executed by the virtual machine. The compiler performs a single-pass
 //! traversal of the AST, emitting stack-based bytecode operations.
 
-use maat_ast::{Expression, Node, Program, Statement};
-use maat_bytecode::{Bytecode, Instructions, MAX_CONSTANT_POOL_SIZE, Opcode, encode};
+use maat_ast::{BlockStatement, Expression, Node, Program, Statement};
+use maat_bytecode::{Bytecode, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, Opcode, encode};
 use maat_errors::{CompileError, Result};
 use maat_eval::Object;
 
@@ -13,18 +13,26 @@ use maat_eval::Object;
 ///
 /// The compiler performs a recursive descent through the AST, emitting
 /// bytecode instructions and tracking constants in a separate pool.
+/// It maintains a two-instruction history to support peephole operations
+/// like removing trailing pops from block expressions.
 #[derive(Debug, Clone)]
 pub struct Compiler {
     instructions: Instructions,
     constants: Vec<Object>,
+    last_instruction: Option<Instruction>,
+    previous_instruction: Option<Instruction>,
 }
 
 impl Compiler {
+    const JUMP_DUMMY_TARGET: usize = 9999;
+
     /// Creates a new compiler with empty instruction stream and constant pool.
     pub fn new() -> Self {
         Self {
             instructions: Instructions::new(),
             constants: Vec::new(),
+            last_instruction: None,
+            previous_instruction: None,
         }
     }
 
@@ -56,8 +64,17 @@ impl Compiler {
                 self.emit(Opcode::Pop, &[]);
                 Ok(())
             }
+            Statement::Block(block) => self.compile_block_statement(block),
             _ => Ok(()),
         }
+    }
+
+    /// Compiles a sequence of statements.
+    fn compile_block_statement(&mut self, block: &BlockStatement) -> Result<()> {
+        for stmt in &block.statements {
+            self.compile_statement(stmt)?;
+        }
+        Ok(())
     }
 
     /// Compiles an expression node into bytecode.
@@ -121,6 +138,38 @@ impl Compiler {
                 Ok(())
             }
 
+            Expression::Conditional(cond) => {
+                self.compile_expression(&cond.condition)?;
+
+                let cond_jump_pos = self.emit(Opcode::CondJump, &[Self::JUMP_DUMMY_TARGET]);
+
+                self.compile_block_statement(&cond.consequence)?;
+                if self.last_instruction_is(Opcode::Pop) {
+                    self.remove_last_pop();
+                }
+
+                let jump_pos = self.emit(Opcode::Jump, &[Self::JUMP_DUMMY_TARGET]);
+
+                let cons_pos = self.instructions.len();
+                self.replace_operand(cond_jump_pos, cons_pos);
+
+                match &cond.alternative {
+                    None => {
+                        self.emit(Opcode::Null, &[]);
+                    }
+                    Some(alt_block) => {
+                        self.compile_block_statement(alt_block)?;
+                        if self.last_instruction_is(Opcode::Pop) {
+                            self.remove_last_pop();
+                        }
+                    }
+                }
+
+                let alt_pos = self.instructions.len();
+                self.replace_operand(jump_pos, alt_pos);
+                Ok(())
+            }
+
             expr => Err(CompileError::UnsupportedExpression {
                 expr_type: expr.type_name().to_string(),
             }
@@ -154,7 +203,9 @@ impl Compiler {
     /// Returns the starting position of the emitted instruction.
     fn emit(&mut self, opcode: Opcode, operands: &[usize]) -> usize {
         let instruction = encode(opcode, operands);
-        self.add_instruction(&instruction)
+        let pos = self.add_instruction(&instruction);
+        self.set_last_instruction(opcode, pos);
+        pos
     }
 
     /// Appends instruction bytes to the instruction stream.
@@ -165,6 +216,41 @@ impl Compiler {
         self.instructions
             .extend(&Instructions::from(instruction.to_vec()));
         pos
+    }
+
+    /// Updates the last/previous instruction tracking.
+    fn set_last_instruction(&mut self, opcode: Opcode, position: usize) {
+        self.previous_instruction = self.last_instruction;
+        self.last_instruction = Some(Instruction { opcode, position });
+    }
+
+    /// Returns `true` if the last emitted instruction matches the given opcode.
+    fn last_instruction_is(&self, opcode: Opcode) -> bool {
+        self.last_instruction
+            .is_some_and(|last| last.opcode == opcode)
+    }
+
+    /// Removes the last `OpPop` instruction from the stream.
+    ///
+    /// This is used when compiling block expressions within conditionals:
+    /// the block's expression statements emit `OpPop`, but conditionals
+    /// need the value to remain on the stack.
+    fn remove_last_pop(&mut self) {
+        if let Some(last) = self.last_instruction {
+            self.instructions.truncate(last.position);
+            self.last_instruction = self.previous_instruction;
+        }
+    }
+
+    /// Replaces the operand of an instruction at the given position.
+    ///
+    /// Re-encodes the full instruction (opcode + new operand) and patches
+    /// it into the instruction stream. Used for back-patching forward jumps.
+    fn replace_operand(&mut self, op_pos: usize, operand: usize) {
+        let op = Opcode::from_byte(self.instructions.as_bytes()[op_pos])
+            .expect("invalid opcode at patch position");
+        let new_inst = encode(op, &[operand]);
+        self.instructions.replace_bytes(op_pos, &new_inst);
     }
 
     /// Extracts the compiled bytecode and constants.
@@ -405,6 +491,84 @@ mod tests {
                 expected_constants.len(),
                 "wrong number of constants for input: {input}"
             );
+        }
+    }
+
+    #[test]
+    fn compile_conditionals() {
+        let tests = vec![
+            (
+                "if (true) { 10 }; 3333;",
+                vec![10, 3333],
+                vec![
+                    // 0000
+                    encode(Opcode::True, &[]),
+                    // 0001
+                    encode(Opcode::CondJump, &[10]),
+                    // 0004
+                    encode(Opcode::Constant, &[0]),
+                    // 0007
+                    encode(Opcode::Jump, &[11]),
+                    // 0010
+                    encode(Opcode::Null, &[]),
+                    // 0011
+                    encode(Opcode::Pop, &[]),
+                    // 0012
+                    encode(Opcode::Constant, &[1]),
+                    // 0015
+                    encode(Opcode::Pop, &[]),
+                ],
+            ),
+            (
+                "if (true) { 10 } else { 20 }; 3333;",
+                vec![10, 20, 3333],
+                vec![
+                    // 0000
+                    encode(Opcode::True, &[]),
+                    // 0001
+                    encode(Opcode::CondJump, &[10]),
+                    // 0004
+                    encode(Opcode::Constant, &[0]),
+                    // 0007
+                    encode(Opcode::Jump, &[13]),
+                    // 0010
+                    encode(Opcode::Constant, &[1]),
+                    // 0013
+                    encode(Opcode::Pop, &[]),
+                    // 0014
+                    encode(Opcode::Constant, &[2]),
+                    // 0017
+                    encode(Opcode::Pop, &[]),
+                ],
+            ),
+        ];
+
+        for (input, expected_constants, expected_instructions) in tests {
+            let bytecode = compile_program(input);
+
+            let expected_ins = concat_instructions(&expected_instructions);
+            assert_eq!(
+                bytecode.instructions.as_bytes(),
+                expected_ins.as_bytes(),
+                "wrong instructions for input: {input}\n  got: {}\n  want: {}",
+                bytecode.instructions,
+                expected_ins,
+            );
+
+            assert_eq!(
+                bytecode.constants.len(),
+                expected_constants.len(),
+                "wrong number of constants for input: {input}"
+            );
+
+            for (i, expected) in expected_constants.iter().enumerate() {
+                match &bytecode.constants[i] {
+                    Object::I64(value) => {
+                        assert_eq!(*value, *expected, "constant {i} wrong for input: {input}")
+                    }
+                    _ => panic!("expected integer constant"),
+                }
+            }
         }
     }
 

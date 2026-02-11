@@ -60,6 +60,18 @@ pub enum Opcode {
     /// Logical NOT operation.
     /// Operands: none
     Bang = 13,
+
+    /// Conditional jump: pop value and jump to target address if not truthy.
+    /// Operands: [u16] - jump target address
+    CondJump = 14,
+
+    /// Unconditional jump to target address.
+    /// Operands: [u16] - jump target address
+    Jump = 15,
+
+    /// Push the null value onto the stack.
+    /// Operands: none
+    Null = 16,
 }
 
 impl Opcode {
@@ -81,6 +93,9 @@ impl Opcode {
             Self::LessThan => "OpLessThan",
             Self::Minus => "OpMinus",
             Self::Bang => "OpBang",
+            Self::CondJump => "OpCondJump",
+            Self::Jump => "OpJump",
+            Self::Null => "OpNull",
         }
     }
 
@@ -91,7 +106,7 @@ impl Opcode {
     #[inline]
     pub const fn operand_widths(self) -> &'static [usize] {
         match self {
-            Self::Constant => &[2],
+            Self::Constant | Self::CondJump | Self::Jump => &[2],
             Self::Add
             | Self::Pop
             | Self::Sub
@@ -104,7 +119,8 @@ impl Opcode {
             | Self::GreaterThan
             | Self::LessThan
             | Self::Minus
-            | Self::Bang => &[],
+            | Self::Bang
+            | Self::Null => &[],
         }
     }
 
@@ -126,6 +142,9 @@ impl Opcode {
             11 => Some(Self::LessThan),
             12 => Some(Self::Minus),
             13 => Some(Self::Bang),
+            14 => Some(Self::CondJump),
+            15 => Some(Self::Jump),
+            16 => Some(Self::Null),
             _ => None,
         }
     }
@@ -143,7 +162,7 @@ mod tests {
 
     #[test]
     fn opcode_roundtrip() {
-        for byte in 0..=13 {
+        for byte in 0..=16 {
             let opcode = Opcode::from_byte(byte).unwrap();
             assert_eq!(opcode.to_byte(), byte);
         }

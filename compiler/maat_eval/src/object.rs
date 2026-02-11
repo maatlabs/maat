@@ -73,6 +73,19 @@ pub enum Object {
 }
 
 impl Object {
+    /// Determines whether this object is truthy.
+    ///
+    /// Booleans return their value directly; null is falsy;
+    /// all other values (including integers) are truthy.
+    #[inline]
+    pub fn is_truthy(&self) -> bool {
+        match self {
+            Object::Boolean(b) => *b,
+            Object::Null => false,
+            _ => true,
+        }
+    }
+
     /// Returns a string representation of the object's type.
     pub fn type_name(&self) -> &'static str {
         match self {

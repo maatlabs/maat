@@ -6,7 +6,7 @@
 
 use maat_bytecode::{Bytecode, Opcode};
 use maat_errors::{Result, VmError};
-use maat_eval::{FALSE, Object, TRUE};
+use maat_eval::{FALSE, NULL, Object, TRUE};
 
 /// Maximum number of elements that can be pushed onto the stack.
 const MAX_STACK_SIZE: usize = 2048;
@@ -71,6 +71,23 @@ impl VM {
                 }
                 Opcode::Bang => self.execute_bang_operator()?,
                 Opcode::Minus => self.execute_minus_operator()?,
+                Opcode::Jump => {
+                    let target = self.read_u16(ip + 1) as usize;
+                    ip = target;
+                    continue;
+                }
+                Opcode::CondJump => {
+                    let target = self.read_u16(ip + 1) as usize;
+                    ip += 2;
+                    let condition = self.pop_stack()?;
+                    if !condition.is_truthy() {
+                        ip = target;
+                        continue;
+                    }
+                }
+                Opcode::Null => {
+                    self.push_stack(NULL)?;
+                }
             }
 
             ip += 1;
@@ -197,8 +214,7 @@ impl VM {
     fn execute_bang_operator(&mut self) -> Result<()> {
         let operand = self.pop_stack()?;
         let result = match operand {
-            // Object::Boolean(true) => FALSE,
-            Object::Boolean(false) => TRUE,
+            Object::Boolean(false) | Object::Null => TRUE,
             _ => FALSE,
         };
         self.push_stack(result)
@@ -249,6 +265,7 @@ mod tests {
     enum TestValue {
         Int(i64),
         Bool(bool),
+        Null,
     }
 
     fn parse(input: &str) -> Program {
@@ -286,6 +303,14 @@ mod tests {
                 }
                 _ => panic!("expected boolean object, got: {:?}", stack_elem),
             },
+            TestValue::Null => {
+                assert_eq!(
+                    stack_elem,
+                    Object::Null,
+                    "expected null for input: {input}, got: {:?}",
+                    stack_elem
+                );
+            }
         }
     }
 
@@ -344,6 +369,30 @@ mod tests {
             ("!!true", TestValue::Bool(true)),
             ("!!false", TestValue::Bool(false)),
             ("!!5", TestValue::Bool(true)),
+            ("!(if (false) { 5; })", TestValue::Bool(true)),
+        ];
+
+        for (input, expected) in cases {
+            run_vm_test(input, expected);
+        }
+    }
+
+    #[test]
+    fn conditionals() {
+        let cases = vec![
+            ("if (true) { 10 }", TestValue::Int(10)),
+            ("if (true) { 10 } else { 20 }", TestValue::Int(10)),
+            ("if (false) { 10 } else { 20 }", TestValue::Int(20)),
+            ("if (1) { 10 }", TestValue::Int(10)),
+            ("if (1 < 2) { 10 }", TestValue::Int(10)),
+            ("if (1 < 2) { 10 } else { 20 }", TestValue::Int(10)),
+            ("if (1 > 2) { 10 } else { 20 }", TestValue::Int(20)),
+            ("if (1 > 2) { 10 }", TestValue::Null),
+            ("if (false) { 10 }", TestValue::Null),
+            (
+                "if ((if (false) { 10 })) { 10 } else { 20 }",
+                TestValue::Int(20),
+            ),
         ];
 
         for (input, expected) in cases {
