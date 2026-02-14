@@ -72,6 +72,14 @@ pub enum Opcode {
     /// Push the null value onto the stack.
     /// Operands: none
     Null = 16,
+
+    /// Store a value in a global binding.
+    /// Operands: [u16] - global variable index
+    SetGlobal = 17,
+
+    /// Load a value from a global binding.
+    /// Operands: [u16] - global variable index
+    GetGlobal = 18,
 }
 
 impl Opcode {
@@ -96,6 +104,8 @@ impl Opcode {
             Self::CondJump => "OpCondJump",
             Self::Jump => "OpJump",
             Self::Null => "OpNull",
+            Self::SetGlobal => "OpSetGlobal",
+            Self::GetGlobal => "OpGetGlobal",
         }
     }
 
@@ -106,7 +116,9 @@ impl Opcode {
     #[inline]
     pub const fn operand_widths(self) -> &'static [usize] {
         match self {
-            Self::Constant | Self::CondJump | Self::Jump => &[2],
+            Self::Constant | Self::CondJump | Self::Jump | Self::SetGlobal | Self::GetGlobal => {
+                &[2]
+            }
             Self::Add
             | Self::Pop
             | Self::Sub
@@ -145,6 +157,8 @@ impl Opcode {
             14 => Some(Self::CondJump),
             15 => Some(Self::Jump),
             16 => Some(Self::Null),
+            17 => Some(Self::SetGlobal),
+            18 => Some(Self::GetGlobal),
             _ => None,
         }
     }
@@ -162,7 +176,7 @@ mod tests {
 
     #[test]
     fn opcode_roundtrip() {
-        for byte in 0..=16 {
+        for byte in 0..=18 {
             let opcode = Opcode::from_byte(byte).unwrap();
             assert_eq!(opcode.to_byte(), byte);
         }

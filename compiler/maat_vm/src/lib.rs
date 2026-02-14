@@ -9,7 +9,10 @@ use maat_errors::{Result, VmError};
 use maat_eval::{FALSE, NULL, Object, TRUE};
 
 /// Maximum number of elements that can be pushed onto the stack.
-const MAX_STACK_SIZE: usize = 2048;
+const STACK_SIZE: usize = 2048;
+
+/// Maximum number of global variable bindings.
+const GLOBALS_SIZE: usize = 65536;
 
 /// Virtual machine for executing bytecode instructions.
 ///
@@ -22,6 +25,7 @@ pub struct VM {
     instructions: Vec<u8>,
     stack: Vec<Object>,
     sp: usize,
+    globals: Vec<Object>,
 }
 
 impl VM {
@@ -33,8 +37,23 @@ impl VM {
         Self {
             constants: bytecode.constants,
             instructions: bytecode.instructions.into(),
-            stack: Vec::with_capacity(MAX_STACK_SIZE),
+            stack: Vec::with_capacity(STACK_SIZE),
             sp: 0,
+            globals: Vec::with_capacity(GLOBALS_SIZE),
+        }
+    }
+
+    /// Creates a VM with an existing globals store.
+    ///
+    /// This enables REPL sessions where global variable values persist
+    /// across multiple bytecode executions.
+    pub fn with_globals(bytecode: Bytecode, globals: Vec<Object>) -> Self {
+        Self {
+            constants: bytecode.constants,
+            instructions: bytecode.instructions.into(),
+            stack: Vec::with_capacity(STACK_SIZE),
+            sp: 0,
+            globals,
         }
     }
 
@@ -88,6 +107,21 @@ impl VM {
                 Opcode::Null => {
                     self.push_stack(NULL)?;
                 }
+                Opcode::SetGlobal => {
+                    let index = self.read_u16(ip + 1) as usize;
+                    ip += 2;
+                    let value = self.pop_stack()?;
+                    if index >= self.globals.len() {
+                        self.globals.resize(index + 1, Object::Null);
+                    }
+                    self.globals[index] = value;
+                }
+                Opcode::GetGlobal => {
+                    let index = self.read_u16(ip + 1) as usize;
+                    ip += 2;
+                    let value = self.globals[index].clone();
+                    self.push_stack(value)?;
+                }
             }
 
             ip += 1;
@@ -108,7 +142,7 @@ impl VM {
     ///
     /// Returns `VmError` if the stack is full (stack overflow).
     fn push_stack(&mut self, obj: Object) -> Result<()> {
-        if self.sp >= MAX_STACK_SIZE {
+        if self.sp >= STACK_SIZE {
             return Err(VmError::new("stack overflow").into());
         }
 
@@ -392,6 +426,22 @@ mod tests {
             (
                 "if ((if (false) { 10 })) { 10 } else { 20 }",
                 TestValue::Int(20),
+            ),
+        ];
+
+        for (input, expected) in cases {
+            run_vm_test(input, expected);
+        }
+    }
+
+    #[test]
+    fn global_let_statements() {
+        let cases = vec![
+            ("let one = 1; one", TestValue::Int(1)),
+            ("let one = 1; let two = 2; one + two", TestValue::Int(3)),
+            (
+                "let one = 1; let two = one + one; one + two",
+                TestValue::Int(3),
             ),
         ];
 

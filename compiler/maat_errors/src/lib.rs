@@ -83,6 +83,12 @@ pub enum CompileError {
         "unsupported expression type '{expr_type}' (not yet implemented in this compiler phase)"
     )]
     UnsupportedExpression { expr_type: String },
+
+    #[error("invalid opcode 0x{opcode:02x} at instruction position {position}")]
+    InvalidOpcode { opcode: u8, position: usize },
+
+    #[error("undefined variable '{name}'")]
+    UndefinedVariable { name: String },
 }
 
 #[derive(Debug, thiserror::Error)]
