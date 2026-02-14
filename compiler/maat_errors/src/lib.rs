@@ -89,6 +89,11 @@ pub enum CompileError {
 
     #[error("undefined variable '{name}'")]
     UndefinedVariable { name: String },
+
+    #[error(
+        "symbols table overflow: exceeded maximum of {max} global bindings (attempted to define '{name}')"
+    )]
+    SymbolsTableOverflow { max: usize, name: String },
 }
 
 #[derive(Debug, thiserror::Error)]

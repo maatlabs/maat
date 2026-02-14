@@ -103,7 +103,7 @@ impl Compiler {
             Statement::Block(block) => self.compile_block_statement(block),
             Statement::Let(let_stmt) => {
                 self.compile_expression(&let_stmt.value)?;
-                let index = self.symbols_table.define_symbol(&let_stmt.ident).index;
+                let index = self.symbols_table.define_symbol(&let_stmt.ident)?.index;
                 self.emit(Opcode::SetGlobal, &[index]);
                 Ok(())
             }

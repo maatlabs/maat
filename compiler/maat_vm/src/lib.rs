@@ -4,15 +4,9 @@
 //! compiled bytecode instructions. The VM maintains a value stack and
 //! instruction pointer, executing operations sequentially.
 
-use maat_bytecode::{Bytecode, Opcode};
+use maat_bytecode::{Bytecode, MAX_GLOBALS, MAX_STACK_SIZE, Opcode};
 use maat_errors::{Result, VmError};
 use maat_eval::{FALSE, NULL, Object, TRUE};
-
-/// Maximum number of elements that can be pushed onto the stack.
-const STACK_SIZE: usize = 2048;
-
-/// Maximum number of global variable bindings.
-const GLOBALS_SIZE: usize = 65536;
 
 /// Virtual machine for executing bytecode instructions.
 ///
@@ -37,9 +31,9 @@ impl VM {
         Self {
             constants: bytecode.constants,
             instructions: bytecode.instructions.into(),
-            stack: Vec::with_capacity(STACK_SIZE),
+            stack: Vec::with_capacity(MAX_STACK_SIZE),
             sp: 0,
-            globals: Vec::with_capacity(GLOBALS_SIZE),
+            globals: Vec::with_capacity(MAX_GLOBALS),
         }
     }
 
@@ -51,7 +45,7 @@ impl VM {
         Self {
             constants: bytecode.constants,
             instructions: bytecode.instructions.into(),
-            stack: Vec::with_capacity(STACK_SIZE),
+            stack: Vec::with_capacity(MAX_STACK_SIZE),
             sp: 0,
             globals,
         }
@@ -142,7 +136,7 @@ impl VM {
     ///
     /// Returns `VmError` if the stack is full (stack overflow).
     fn push_stack(&mut self, obj: Object) -> Result<()> {
-        if self.sp >= STACK_SIZE {
+        if self.sp >= MAX_STACK_SIZE {
             return Err(VmError::new("stack overflow").into());
         }
 

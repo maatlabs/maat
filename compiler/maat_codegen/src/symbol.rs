@@ -1,5 +1,8 @@
 use std::collections::HashMap;
 
+use maat_bytecode::MAX_GLOBALS;
+use maat_errors::{CompileError, Result};
+
 /// Compile-time symbols table for tracking variable bindings.
 ///
 /// Maps variable names to storage indices, enabling the compiler
@@ -41,7 +44,20 @@ impl Table {
     /// Defines a new symbol, assigning it the next available index.
     ///
     /// Returns a reference to the newly created symbol.
-    pub fn define_symbol(&mut self, name: &str) -> &Symbol {
+    ///
+    /// # Errors
+    ///
+    /// Returns `CompileError::SymbolsTableOverflow` if the maximum number
+    /// of global bindings has been reached.
+    pub fn define_symbol(&mut self, name: &str) -> Result<&Symbol> {
+        if self.num_definitions > MAX_GLOBALS {
+            return Err(CompileError::SymbolsTableOverflow {
+                max: MAX_GLOBALS,
+                name: name.to_string(),
+            }
+            .into());
+        }
+
         let symbol = Symbol {
             name: name.to_string(),
             scope: Scope::Global,
@@ -49,7 +65,7 @@ impl Table {
         };
         self.store.insert(name.to_string(), symbol);
         self.num_definitions += 1;
-        &self.store[name]
+        Ok(&self.store[name])
     }
 
     /// Resolves a symbol by name.
@@ -68,12 +84,12 @@ mod tests {
     fn symbol_table_define() {
         let mut table = Table::new();
 
-        let a = table.define_symbol("a");
+        let a = table.define_symbol("a").expect("should define 'a'");
         assert_eq!(a.name, "a");
         assert_eq!(a.scope, Scope::Global);
         assert_eq!(a.index, 0);
 
-        let b = table.define_symbol("b");
+        let b = table.define_symbol("b").expect("should define 'b'");
         assert_eq!(b.name, "b");
         assert_eq!(b.scope, Scope::Global);
         assert_eq!(b.index, 1);
@@ -82,8 +98,8 @@ mod tests {
     #[test]
     fn symbol_table_resolve() {
         let mut table = Table::new();
-        table.define_symbol("a");
-        table.define_symbol("b");
+        table.define_symbol("a").expect("should define 'a'");
+        table.define_symbol("b").expect("should define 'b'");
 
         let a = table.resolve_symbol("a").expect("'a' should be defined");
         assert_eq!(a.index, 0);

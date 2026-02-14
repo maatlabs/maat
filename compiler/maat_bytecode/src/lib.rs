@@ -39,6 +39,15 @@ pub use opcode::Opcode;
 /// bytecode size trade-off.
 pub const MAX_CONSTANT_POOL_SIZE: usize = u16::MAX as usize;
 
+/// Maximum number of elements that can be pushed onto the VM's stack.
+pub const MAX_STACK_SIZE: usize = 2048;
+
+/// Maximum number of global variable bindings.
+///
+/// This limit is imposed by the `OpSetGlobal`/`OpGetGlobal` instructions'
+/// 2-byte index encoding, which can represent indices from 0 to 65,535.
+pub const MAX_GLOBALS: usize = u16::MAX as usize;
+
 /// Compiled bytecode output containing instructions and constants.
 ///
 /// This represents the complete compiled program ready for execution by the
