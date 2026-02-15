@@ -4,9 +4,11 @@
 //! compiled bytecode instructions. The VM maintains a value stack and
 //! instruction pointer, executing operations sequentially.
 
+use std::collections::HashMap;
+
 use maat_bytecode::{Bytecode, MAX_GLOBALS, MAX_STACK_SIZE, Opcode};
 use maat_errors::{Result, VmError};
-use maat_eval::{FALSE, NULL, Object, TRUE};
+use maat_eval::{FALSE, HashObject, Hashable, NULL, Object, TRUE};
 
 /// Virtual machine for executing bytecode instructions.
 ///
@@ -65,9 +67,9 @@ impl VM {
 
             match op {
                 Opcode::Constant => {
-                    let const_index = self.read_u16(ip + 1);
+                    let index = self.read_operand(ip + 1);
                     ip += 2;
-                    let constant = self.constants[const_index as usize].clone();
+                    let constant = self.constants[index].clone();
                     self.push_stack(constant)?;
                 }
                 Opcode::Pop => {
@@ -85,12 +87,12 @@ impl VM {
                 Opcode::Bang => self.execute_bang_operator()?,
                 Opcode::Minus => self.execute_minus_operator()?,
                 Opcode::Jump => {
-                    let target = self.read_u16(ip + 1) as usize;
+                    let target = self.read_operand(ip + 1);
                     ip = target;
                     continue;
                 }
                 Opcode::CondJump => {
-                    let target = self.read_u16(ip + 1) as usize;
+                    let target = self.read_operand(ip + 1);
                     ip += 2;
                     let condition = self.pop_stack()?;
                     if !condition.is_truthy() {
@@ -102,7 +104,7 @@ impl VM {
                     self.push_stack(NULL)?;
                 }
                 Opcode::SetGlobal => {
-                    let index = self.read_u16(ip + 1) as usize;
+                    let index = self.read_operand(ip + 1);
                     ip += 2;
                     let value = self.pop_stack()?;
                     if index >= self.globals.len() {
@@ -111,10 +113,27 @@ impl VM {
                     self.globals[index] = value;
                 }
                 Opcode::GetGlobal => {
-                    let index = self.read_u16(ip + 1) as usize;
+                    let index = self.read_operand(ip + 1);
                     ip += 2;
                     let value = self.globals[index].clone();
                     self.push_stack(value)?;
+                }
+                Opcode::Array => {
+                    let num_elements = self.read_operand(ip + 1);
+                    ip += 2;
+                    let array = self.build_array(num_elements);
+                    self.push_stack(array)?;
+                }
+                Opcode::Hash => {
+                    let num_elements = self.read_operand(ip + 1);
+                    ip += 2;
+                    let hash = self.build_hash(num_elements)?;
+                    self.push_stack(hash)?;
+                }
+                Opcode::Index => {
+                    let index = self.pop_stack()?;
+                    let container = self.pop_stack()?;
+                    self.execute_index_expression(container, index)?;
                 }
             }
 
@@ -124,10 +143,11 @@ impl VM {
         Ok(())
     }
 
-    /// Reads a 16-bit unsigned integer from the instruction stream.
+    /// Reads the 16-bit unsigned integer operand from the instruction stream,
+    /// returning it as a `usize`.
     #[inline]
-    fn read_u16(&self, offset: usize) -> u16 {
-        u16::from_be_bytes([self.instructions[offset], self.instructions[offset + 1]])
+    fn read_operand(&self, offset: usize) -> usize {
+        u16::from_be_bytes([self.instructions[offset], self.instructions[offset + 1]]) as usize
     }
 
     /// Pushes a value onto the stack.
@@ -171,6 +191,9 @@ impl VM {
 
         match (&left, &right) {
             (Object::I64(l), Object::I64(r)) => self.execute_binary_integer_operation(op, *l, *r),
+            (Object::String(l), Object::String(r)) => {
+                self.execute_binary_string_operation(op, l, r)
+            }
             _ => Err(VmError::new(format!(
                 "unsupported types for binary operation: {} {}",
                 left.type_name(),
@@ -266,6 +289,80 @@ impl VM {
         }
     }
 
+    /// Executes string concatenation via `OpAdd`.
+    fn execute_binary_string_operation(
+        &mut self,
+        op: Opcode,
+        left: &str,
+        right: &str,
+    ) -> Result<()> {
+        if op != Opcode::Add {
+            return Err(VmError::new(format!("unknown string operator: {}", op.name())).into());
+        }
+        let mut result = String::with_capacity(left.len() + right.len());
+        result.push_str(left);
+        result.push_str(right);
+        self.push_stack(Object::String(result))
+    }
+
+    /// Builds an array object from the top `num_elements` stack values.
+    fn build_array(&mut self, num_elements: usize) -> Object {
+        let start = self.sp - num_elements;
+        let elements = self.stack[start..self.sp].to_vec();
+        self.sp -= num_elements;
+        Object::Array(elements)
+    }
+
+    /// Builds a hash object from the top `num_elements` stack values.
+    ///
+    /// Elements are expected in alternating key-value order on the stack.
+    fn build_hash(&mut self, num_elements: usize) -> Result<Object> {
+        let start = self.sp - num_elements;
+        let mut pairs = HashMap::with_capacity(num_elements / 2);
+
+        for i in (start..self.sp).step_by(2) {
+            let key = self.stack[i].clone();
+            let value = self.stack[i + 1].clone();
+            let key = Hashable::try_from(key).map_err(|e| VmError::new(e.to_string()))?;
+            pairs.insert(key, value);
+        }
+
+        self.sp -= num_elements;
+        Ok(Object::Hash(HashObject { pairs }))
+    }
+
+    /// Dispatches index operations to the appropriate handler.
+    fn execute_index_expression(&mut self, container: Object, index: Object) -> Result<()> {
+        match (&container, &index) {
+            (Object::Array(elements), Object::I64(i)) => self.execute_array_index(elements, *i),
+            (Object::Hash(hash), _) => self.execute_hash_index(hash, index),
+            _ => Err(VmError::new(format!(
+                "index operator not supported: {}",
+                container.type_name()
+            ))
+            .into()),
+        }
+    }
+
+    /// Indexes into an array with bounds checking.
+    fn execute_array_index(&mut self, elements: &[Object], index: i64) -> Result<()> {
+        let max = elements.len() as i64 - 1;
+        if index < 0 || index > max {
+            return self.push_stack(NULL);
+        }
+        self.push_stack(elements[index as usize].clone())
+    }
+
+    /// Indexes into a hash by key.
+    fn execute_hash_index(&mut self, hash: &HashObject, index: Object) -> Result<()> {
+        let key = Hashable::try_from(index).map_err(|e| VmError::new(e.to_string()))?;
+
+        match hash.pairs.get(&key) {
+            Some(value) => self.push_stack(value.clone()),
+            None => self.push_stack(NULL),
+        }
+    }
+
     /// Returns the last value popped from the stack.
     ///
     /// This is primarily used for testing to retrieve the result of
@@ -293,6 +390,9 @@ mod tests {
     enum TestValue {
         Int(i64),
         Bool(bool),
+        Str(String),
+        IntArray(Vec<i64>),
+        Hash(Vec<(i64, i64)>),
         Null,
     }
 
@@ -330,6 +430,58 @@ mod tests {
                     assert_eq!(val, expected_val, "wrong boolean value for input: {input}")
                 }
                 _ => panic!("expected boolean object, got: {:?}", stack_elem),
+            },
+            TestValue::Str(expected_val) => match stack_elem {
+                Object::String(val) => {
+                    assert_eq!(val, expected_val, "wrong string value for input: {input}")
+                }
+                _ => panic!("expected string object, got: {:?}", stack_elem),
+            },
+            TestValue::IntArray(expected_vals) => match stack_elem {
+                Object::Array(elements) => {
+                    assert_eq!(
+                        elements.len(),
+                        expected_vals.len(),
+                        "wrong array length for input: {input}"
+                    );
+                    for (i, expected_elem) in expected_vals.iter().enumerate() {
+                        match &elements[i] {
+                            Object::I64(val) => assert_eq!(
+                                *val, *expected_elem,
+                                "wrong array element at index {i} for input: {input}"
+                            ),
+                            other => {
+                                panic!("expected integer in array at index {i}, got: {:?}", other)
+                            }
+                        }
+                    }
+                }
+                _ => panic!("expected array object, got: {:?}", stack_elem),
+            },
+            TestValue::Hash(expected_pairs) => match &stack_elem {
+                Object::Hash(hash_obj) => {
+                    assert_eq!(
+                        hash_obj.pairs.len(),
+                        expected_pairs.len(),
+                        "wrong hash size for input: {input}"
+                    );
+                    for (key, value) in &expected_pairs {
+                        let hash_key = maat_eval::Hashable::I64(*key);
+                        let actual = hash_obj.pairs.get(&hash_key).unwrap_or_else(|| {
+                            panic!("missing key {key} in hash for input: {input}")
+                        });
+                        match actual {
+                            Object::I64(val) => assert_eq!(
+                                *val, *value,
+                                "wrong hash value for key {key} in input: {input}"
+                            ),
+                            other => {
+                                panic!("expected integer value for key {key}, got: {:?}", other)
+                            }
+                        }
+                    }
+                }
+                _ => panic!("expected hash object, got: {:?}", stack_elem),
             },
             TestValue::Null => {
                 assert_eq!(
@@ -437,6 +589,80 @@ mod tests {
                 "let one = 1; let two = one + one; one + two",
                 TestValue::Int(3),
             ),
+        ];
+
+        for (input, expected) in cases {
+            run_vm_test(input, expected);
+        }
+    }
+
+    #[test]
+    fn string_literals() {
+        let cases = vec![
+            (
+                r#""zero knowledge""#,
+                TestValue::Str("zero knowledge".to_string()),
+            ),
+            (
+                r#""zero " + "knowledge""#,
+                TestValue::Str("zero knowledge".to_string()),
+            ),
+            (
+                r#""zero " + "knowledge" + " proofs""#,
+                TestValue::Str("zero knowledge proofs".to_string()),
+            ),
+        ];
+
+        for (input, expected) in cases {
+            run_vm_test(input, expected);
+        }
+    }
+
+    #[test]
+    fn array_literals() {
+        let cases = vec![
+            ("[]", TestValue::IntArray(vec![])),
+            ("[1, 2, 3]", TestValue::IntArray(vec![1, 2, 3])),
+            (
+                "[1 + 2, 3 * 4, 5 + 6]",
+                TestValue::IntArray(vec![3, 12, 11]),
+            ),
+        ];
+
+        for (input, expected) in cases {
+            run_vm_test(input, expected);
+        }
+    }
+
+    #[test]
+    fn hash_literals() {
+        let cases = vec![
+            ("{}", TestValue::Hash(vec![])),
+            ("{1: 2, 2: 3}", TestValue::Hash(vec![(1, 2), (2, 3)])),
+            (
+                "{1 + 1: 2 * 2, 3 + 3: 4 * 4}",
+                TestValue::Hash(vec![(2, 4), (6, 16)]),
+            ),
+        ];
+
+        for (input, expected) in cases {
+            run_vm_test(input, expected);
+        }
+    }
+
+    #[test]
+    fn index_expressions() {
+        let cases = vec![
+            ("[1, 2, 3][1]", TestValue::Int(2)),
+            ("[1, 2, 3][0 + 2]", TestValue::Int(3)),
+            ("[[1, 1, 1]][0][0]", TestValue::Int(1)),
+            ("[][0]", TestValue::Null),
+            ("[1, 2, 3][99]", TestValue::Null),
+            ("[1][-1]", TestValue::Null),
+            ("{1: 1, 2: 2}[1]", TestValue::Int(1)),
+            ("{1: 1, 2: 2}[2]", TestValue::Int(2)),
+            ("{1: 1}[0]", TestValue::Null),
+            ("{}[0]", TestValue::Null),
         ];
 
         for (input, expected) in cases {

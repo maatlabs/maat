@@ -221,6 +221,37 @@ impl Compiler {
                 Ok(())
             }
 
+            Expression::String(value) => {
+                let constant = Object::String(value.clone());
+                let index = self.add_constant(constant)?;
+                self.emit(Opcode::Constant, &[index]);
+                Ok(())
+            }
+
+            Expression::Array(array) => {
+                for element in &array.elements {
+                    self.compile_expression(element)?;
+                }
+                self.emit(Opcode::Array, &[array.elements.len()]);
+                Ok(())
+            }
+
+            Expression::Hash(hash) => {
+                for (key, value) in &hash.pairs {
+                    self.compile_expression(key)?;
+                    self.compile_expression(value)?;
+                }
+                self.emit(Opcode::Hash, &[hash.pairs.len() * 2]);
+                Ok(())
+            }
+
+            Expression::Index(index_expr) => {
+                self.compile_expression(&index_expr.expr)?;
+                self.compile_expression(&index_expr.index)?;
+                self.emit(Opcode::Index, &[]);
+                Ok(())
+            }
+
             expr => Err(CompileError::UnsupportedExpression {
                 expr_type: expr.type_name().to_string(),
             }
@@ -667,6 +698,250 @@ mod tests {
                 assert_eq!(context, "prefix expression");
             }
             other => panic!("expected UnsupportedOperator, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn compile_strings() {
+        let cases = vec![
+            (
+                r#""zero-knowledge""#,
+                vec!["zero-knowledge"],
+                vec![encode(Opcode::Constant, &[0]), encode(Opcode::Pop, &[])],
+            ),
+            (
+                r#""zero" + "knowledge""#,
+                vec!["zero", "knowledge"],
+                vec![
+                    encode(Opcode::Constant, &[0]),
+                    encode(Opcode::Constant, &[1]),
+                    encode(Opcode::Add, &[]),
+                    encode(Opcode::Pop, &[]),
+                ],
+            ),
+        ];
+
+        for (input, expected_constants, expected_instructions) in cases {
+            let bytecode = compile_program(input);
+
+            let expected_ins = concat_instructions(&expected_instructions);
+            assert_eq!(
+                bytecode.instructions.as_bytes(),
+                expected_ins.as_bytes(),
+                "wrong instructions for input: {input}"
+            );
+
+            assert_eq!(
+                bytecode.constants.len(),
+                expected_constants.len(),
+                "wrong number of constants for input: {input}"
+            );
+
+            for (i, expected) in expected_constants.iter().enumerate() {
+                match &bytecode.constants[i] {
+                    Object::String(value) => {
+                        assert_eq!(value, expected, "constant {i} wrong for input: {input}")
+                    }
+                    _ => panic!("expected string constant at index {i}"),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn compile_arrays() {
+        let cases = vec![
+            (
+                "[]",
+                vec![],
+                vec![encode(Opcode::Array, &[0]), encode(Opcode::Pop, &[])],
+            ),
+            (
+                "[1, 2, 3]",
+                vec![1, 2, 3],
+                vec![
+                    encode(Opcode::Constant, &[0]),
+                    encode(Opcode::Constant, &[1]),
+                    encode(Opcode::Constant, &[2]),
+                    encode(Opcode::Array, &[3]),
+                    encode(Opcode::Pop, &[]),
+                ],
+            ),
+            (
+                "[1 + 2, 3 - 4, 5 * 6]",
+                vec![1, 2, 3, 4, 5, 6],
+                vec![
+                    encode(Opcode::Constant, &[0]),
+                    encode(Opcode::Constant, &[1]),
+                    encode(Opcode::Add, &[]),
+                    encode(Opcode::Constant, &[2]),
+                    encode(Opcode::Constant, &[3]),
+                    encode(Opcode::Sub, &[]),
+                    encode(Opcode::Constant, &[4]),
+                    encode(Opcode::Constant, &[5]),
+                    encode(Opcode::Mul, &[]),
+                    encode(Opcode::Array, &[3]),
+                    encode(Opcode::Pop, &[]),
+                ],
+            ),
+        ];
+
+        for (input, expected_constants, expected_instructions) in cases {
+            let bytecode = compile_program(input);
+
+            let expected_ins = concat_instructions(&expected_instructions);
+            assert_eq!(
+                bytecode.instructions.as_bytes(),
+                expected_ins.as_bytes(),
+                "wrong instructions for input: {input}"
+            );
+
+            assert_eq!(
+                bytecode.constants.len(),
+                expected_constants.len(),
+                "wrong number of constants for input: {input}"
+            );
+
+            for (i, expected) in expected_constants.iter().enumerate() {
+                match &bytecode.constants[i] {
+                    Object::I64(value) => {
+                        assert_eq!(*value, *expected, "constant {i} wrong for input: {input}")
+                    }
+                    _ => panic!("expected integer constant at index {i}"),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn compile_hashes() {
+        let cases = vec![
+            (
+                "{}",
+                vec![],
+                vec![encode(Opcode::Hash, &[0]), encode(Opcode::Pop, &[])],
+            ),
+            (
+                "{1: 2, 3: 4, 5: 6}",
+                vec![1, 2, 3, 4, 5, 6],
+                vec![
+                    encode(Opcode::Constant, &[0]),
+                    encode(Opcode::Constant, &[1]),
+                    encode(Opcode::Constant, &[2]),
+                    encode(Opcode::Constant, &[3]),
+                    encode(Opcode::Constant, &[4]),
+                    encode(Opcode::Constant, &[5]),
+                    encode(Opcode::Hash, &[6]),
+                    encode(Opcode::Pop, &[]),
+                ],
+            ),
+            (
+                "{1: 2 + 3, 4: 5 * 6}",
+                vec![1, 2, 3, 4, 5, 6],
+                vec![
+                    encode(Opcode::Constant, &[0]),
+                    encode(Opcode::Constant, &[1]),
+                    encode(Opcode::Constant, &[2]),
+                    encode(Opcode::Add, &[]),
+                    encode(Opcode::Constant, &[3]),
+                    encode(Opcode::Constant, &[4]),
+                    encode(Opcode::Constant, &[5]),
+                    encode(Opcode::Mul, &[]),
+                    encode(Opcode::Hash, &[4]),
+                    encode(Opcode::Pop, &[]),
+                ],
+            ),
+        ];
+
+        for (input, expected_constants, expected_instructions) in cases {
+            let bytecode = compile_program(input);
+
+            let expected_ins = concat_instructions(&expected_instructions);
+            assert_eq!(
+                bytecode.instructions.as_bytes(),
+                expected_ins.as_bytes(),
+                "wrong instructions for input: {input}\n  got: {}\n  want: {}",
+                bytecode.instructions,
+                expected_ins,
+            );
+
+            assert_eq!(
+                bytecode.constants.len(),
+                expected_constants.len(),
+                "wrong number of constants for input: {input}"
+            );
+
+            for (i, expected) in expected_constants.iter().enumerate() {
+                match &bytecode.constants[i] {
+                    Object::I64(value) => {
+                        assert_eq!(*value, *expected, "constant {i} wrong for input: {input}")
+                    }
+                    _ => panic!("expected integer constant at index {i}"),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn compile_index_expressions() {
+        let cases = vec![
+            (
+                "[1, 2, 3][1 + 1]",
+                vec![1, 2, 3, 1, 1],
+                vec![
+                    encode(Opcode::Constant, &[0]),
+                    encode(Opcode::Constant, &[1]),
+                    encode(Opcode::Constant, &[2]),
+                    encode(Opcode::Array, &[3]),
+                    encode(Opcode::Constant, &[3]),
+                    encode(Opcode::Constant, &[4]),
+                    encode(Opcode::Add, &[]),
+                    encode(Opcode::Index, &[]),
+                    encode(Opcode::Pop, &[]),
+                ],
+            ),
+            (
+                "{1: 2}[2 - 1]",
+                vec![1, 2, 2, 1],
+                vec![
+                    encode(Opcode::Constant, &[0]),
+                    encode(Opcode::Constant, &[1]),
+                    encode(Opcode::Hash, &[2]),
+                    encode(Opcode::Constant, &[2]),
+                    encode(Opcode::Constant, &[3]),
+                    encode(Opcode::Sub, &[]),
+                    encode(Opcode::Index, &[]),
+                    encode(Opcode::Pop, &[]),
+                ],
+            ),
+        ];
+
+        for (input, expected_constants, expected_instructions) in cases {
+            let bytecode = compile_program(input);
+
+            let expected_ins = concat_instructions(&expected_instructions);
+            assert_eq!(
+                bytecode.instructions.as_bytes(),
+                expected_ins.as_bytes(),
+                "wrong instructions for input: {input}\n  got: {}\n  want: {}",
+                bytecode.instructions,
+                expected_ins,
+            );
+
+            assert_eq!(
+                bytecode.constants.len(),
+                expected_constants.len(),
+                "wrong number of constants for input: {input}"
+            );
+
+            for (i, expected) in expected_constants.iter().enumerate() {
+                match &bytecode.constants[i] {
+                    Object::I64(value) => {
+                        assert_eq!(*value, *expected, "constant {i} wrong for input: {input}")
+                    }
+                    _ => panic!("expected integer constant at index {i}"),
+                }
+            }
         }
     }
 

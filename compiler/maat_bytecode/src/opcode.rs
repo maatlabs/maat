@@ -80,6 +80,18 @@ pub enum Opcode {
     /// Load a value from a global binding.
     /// Operands: [u16] - global variable index
     GetGlobal = 18,
+
+    /// Build an array from the top N stack elements.
+    /// Operands: [u16] - number of elements
+    Array = 19,
+
+    /// Build a hash from the top N stack elements (key-value pairs).
+    /// Operands: [u16] - total number of elements (keys + values)
+    Hash = 20,
+
+    /// Index into an array or hash. Pops index and container, pushes result.
+    /// Operands: none
+    Index = 21,
 }
 
 impl Opcode {
@@ -106,6 +118,9 @@ impl Opcode {
             Self::Null => "OpNull",
             Self::SetGlobal => "OpSetGlobal",
             Self::GetGlobal => "OpGetGlobal",
+            Self::Array => "OpArray",
+            Self::Hash => "OpHash",
+            Self::Index => "OpIndex",
         }
     }
 
@@ -116,9 +131,13 @@ impl Opcode {
     #[inline]
     pub const fn operand_widths(self) -> &'static [usize] {
         match self {
-            Self::Constant | Self::CondJump | Self::Jump | Self::SetGlobal | Self::GetGlobal => {
-                &[2]
-            }
+            Self::Constant
+            | Self::CondJump
+            | Self::Jump
+            | Self::SetGlobal
+            | Self::GetGlobal
+            | Self::Array
+            | Self::Hash => &[2],
             Self::Add
             | Self::Pop
             | Self::Sub
@@ -132,7 +151,8 @@ impl Opcode {
             | Self::LessThan
             | Self::Minus
             | Self::Bang
-            | Self::Null => &[],
+            | Self::Null
+            | Self::Index => &[],
         }
     }
 
@@ -159,6 +179,9 @@ impl Opcode {
             16 => Some(Self::Null),
             17 => Some(Self::SetGlobal),
             18 => Some(Self::GetGlobal),
+            19 => Some(Self::Array),
+            20 => Some(Self::Hash),
+            21 => Some(Self::Index),
             _ => None,
         }
     }
@@ -176,7 +199,7 @@ mod tests {
 
     #[test]
     fn opcode_roundtrip() {
-        for byte in 0..=18 {
+        for byte in 0..=21 {
             let opcode = Opcode::from_byte(byte).unwrap();
             assert_eq!(opcode.to_byte(), byte);
         }
