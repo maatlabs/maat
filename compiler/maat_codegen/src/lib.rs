@@ -8,4 +8,4 @@ mod compile;
 mod symbol;
 
 pub use compile::Compiler;
-pub use symbol::{Scope, Symbol, Table};
+pub use symbol::{Symbol, SymbolScope, SymbolsTable};

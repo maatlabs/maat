@@ -1,23 +1,65 @@
 use maat_ast::{Node, Program};
-use maat_bytecode::{Instructions, Opcode, encode};
+use maat_bytecode::{Bytecode, Instructions, Opcode, encode};
 use maat_codegen::Compiler;
 use maat_eval::Object;
 use maat_lexer::Lexer;
 use maat_parse::Parser;
 
-fn parse(input: &str) -> Program {
+/// A constant expectation that can be either an integer or a compiled function's instructions.
+enum Constant {
+    Int(i64),
+    Fn(Vec<Vec<u8>>),
+}
+
+type ConstantTestCase<'a> = (&'a str, Vec<Constant>, Vec<Vec<u8>>);
+
+fn assert_constants(bytecode: &Bytecode, expected: &[Constant], input: &str) {
+    assert_eq!(
+        bytecode.constants.len(),
+        expected.len(),
+        "wrong number of constants for input: {input}"
+    );
+
+    for (i, expected_const) in expected.iter().enumerate() {
+        match (expected_const, &bytecode.constants[i]) {
+            (Constant::Int(expected_val), Object::I64(actual_val)) => {
+                assert_eq!(
+                    actual_val, expected_val,
+                    "constant {i} wrong for input: {input}"
+                );
+            }
+            (Constant::Fn(expected_insts), Object::CompiledFunction(cf)) => {
+                let expected_ins = concat_instructions(expected_insts);
+                let actual_ins = Instructions::from_bytes(cf.instructions.clone());
+                assert_eq!(
+                    actual_ins.as_bytes(),
+                    expected_ins.as_bytes(),
+                    "wrong instructions for CompiledFunction constant {i} in input: {input}\n  got: {actual_ins}\n  want: {expected_ins}",
+                );
+            }
+            (Constant::Int(_), actual) => {
+                panic!("expected integer constant at index {i}, got: {actual:?}");
+            }
+            (Constant::Fn(_), actual) => {
+                panic!("expected CompiledFunction constant at index {i}, got: {actual:?}");
+            }
+        }
+    }
+}
+
+fn parse_program(input: &str) -> Program {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     parser.parse_program()
 }
 
-fn compile_program(input: &str) -> maat_bytecode::Bytecode {
-    let program = parse(input);
+fn compile_program(input: &str) -> Bytecode {
+    let program = parse_program(input);
     let mut compiler = Compiler::new();
     compiler
         .compile(&Node::Program(program))
         .expect("compilation failed");
-    compiler.bytecode()
+    compiler.bytecode().expect("bytecode extraction failed")
 }
 
 fn concat_instructions(instructions: &[Vec<u8>]) -> Instructions {
@@ -469,5 +511,221 @@ fn compile_index_expressions() {
         let bytecode = compile_program(input);
         assert_instructions(&bytecode, &expected_instructions, input);
         assert_integer_constants(&bytecode, &expected_constants, input);
+    }
+}
+
+#[test]
+fn compile_functions() {
+    let cases: Vec<ConstantTestCase<'_>> = vec![
+        (
+            "fn() { return 5 + 10 }",
+            vec![
+                Constant::Int(5),
+                Constant::Int(10),
+                Constant::Fn(vec![
+                    encode(Opcode::Constant, &[0]),
+                    encode(Opcode::Constant, &[1]),
+                    encode(Opcode::Add, &[]),
+                    encode(Opcode::ReturnValue, &[]),
+                ]),
+            ],
+            vec![encode(Opcode::Constant, &[2]), encode(Opcode::Pop, &[])],
+        ),
+        (
+            "fn() { 5 + 10 }",
+            vec![
+                Constant::Int(5),
+                Constant::Int(10),
+                Constant::Fn(vec![
+                    encode(Opcode::Constant, &[0]),
+                    encode(Opcode::Constant, &[1]),
+                    encode(Opcode::Add, &[]),
+                    encode(Opcode::ReturnValue, &[]),
+                ]),
+            ],
+            vec![encode(Opcode::Constant, &[2]), encode(Opcode::Pop, &[])],
+        ),
+        (
+            "fn() { 1; 2 }",
+            vec![
+                Constant::Int(1),
+                Constant::Int(2),
+                Constant::Fn(vec![
+                    encode(Opcode::Constant, &[0]),
+                    encode(Opcode::Pop, &[]),
+                    encode(Opcode::Constant, &[1]),
+                    encode(Opcode::ReturnValue, &[]),
+                ]),
+            ],
+            vec![encode(Opcode::Constant, &[2]), encode(Opcode::Pop, &[])],
+        ),
+    ];
+
+    for (input, expected_consts, expected_insts) in cases {
+        let bytecode = compile_program(input);
+        assert_instructions(&bytecode, &expected_insts, input);
+        assert_constants(&bytecode, &expected_consts, input);
+    }
+}
+
+#[test]
+fn compile_functions_without_return_value() {
+    let cases: Vec<ConstantTestCase<'_>> = vec![(
+        "fn() { }",
+        vec![Constant::Fn(vec![encode(Opcode::Return, &[])])],
+        vec![encode(Opcode::Constant, &[0]), encode(Opcode::Pop, &[])],
+    )];
+
+    for (input, expected_consts, expected_insts) in cases {
+        let bytecode = compile_program(input);
+        assert_instructions(&bytecode, &expected_insts, input);
+        assert_constants(&bytecode, &expected_consts, input);
+    }
+}
+
+#[test]
+fn compile_function_calls() {
+    let cases: Vec<ConstantTestCase<'_>> = vec![
+        (
+            "fn() { 24 }();",
+            vec![
+                Constant::Int(24),
+                Constant::Fn(vec![
+                    encode(Opcode::Constant, &[0]),
+                    encode(Opcode::ReturnValue, &[]),
+                ]),
+            ],
+            vec![
+                encode(Opcode::Constant, &[1]),
+                encode(Opcode::Call, &[0]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+        (
+            "let noArg = fn() { 24 }; noArg();",
+            vec![
+                Constant::Int(24),
+                Constant::Fn(vec![
+                    encode(Opcode::Constant, &[0]),
+                    encode(Opcode::ReturnValue, &[]),
+                ]),
+            ],
+            vec![
+                encode(Opcode::Constant, &[1]),
+                encode(Opcode::SetGlobal, &[0]),
+                encode(Opcode::GetGlobal, &[0]),
+                encode(Opcode::Call, &[0]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+        (
+            "let oneArg = fn(a) { a }; oneArg(24);",
+            vec![
+                Constant::Fn(vec![
+                    encode(Opcode::GetLocal, &[0]),
+                    encode(Opcode::ReturnValue, &[]),
+                ]),
+                Constant::Int(24),
+            ],
+            vec![
+                encode(Opcode::Constant, &[0]),
+                encode(Opcode::SetGlobal, &[0]),
+                encode(Opcode::GetGlobal, &[0]),
+                encode(Opcode::Constant, &[1]),
+                encode(Opcode::Call, &[1]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+        (
+            "let manyArgs = fn(a, b, c) { a; b; c }; manyArgs(24, 25, 26);",
+            vec![
+                Constant::Fn(vec![
+                    encode(Opcode::GetLocal, &[0]),
+                    encode(Opcode::Pop, &[]),
+                    encode(Opcode::GetLocal, &[1]),
+                    encode(Opcode::Pop, &[]),
+                    encode(Opcode::GetLocal, &[2]),
+                    encode(Opcode::ReturnValue, &[]),
+                ]),
+                Constant::Int(24),
+                Constant::Int(25),
+                Constant::Int(26),
+            ],
+            vec![
+                encode(Opcode::Constant, &[0]),
+                encode(Opcode::SetGlobal, &[0]),
+                encode(Opcode::GetGlobal, &[0]),
+                encode(Opcode::Constant, &[1]),
+                encode(Opcode::Constant, &[2]),
+                encode(Opcode::Constant, &[3]),
+                encode(Opcode::Call, &[3]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+    ];
+
+    for (input, expected_consts, expected_insts) in cases {
+        let bytecode = compile_program(input);
+        assert_instructions(&bytecode, &expected_insts, input);
+        assert_constants(&bytecode, &expected_consts, input);
+    }
+}
+
+#[test]
+fn compile_let_statement_scopes() {
+    let cases: Vec<ConstantTestCase<'_>> = vec![
+        (
+            "let num = 55; fn() { num }",
+            vec![
+                Constant::Int(55),
+                Constant::Fn(vec![
+                    encode(Opcode::GetGlobal, &[0]),
+                    encode(Opcode::ReturnValue, &[]),
+                ]),
+            ],
+            vec![
+                encode(Opcode::Constant, &[0]),
+                encode(Opcode::SetGlobal, &[0]),
+                encode(Opcode::Constant, &[1]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+        (
+            "fn() { let num = 55; num }",
+            vec![
+                Constant::Int(55),
+                Constant::Fn(vec![
+                    encode(Opcode::Constant, &[0]),
+                    encode(Opcode::SetLocal, &[0]),
+                    encode(Opcode::GetLocal, &[0]),
+                    encode(Opcode::ReturnValue, &[]),
+                ]),
+            ],
+            vec![encode(Opcode::Constant, &[1]), encode(Opcode::Pop, &[])],
+        ),
+        (
+            "fn() { let a = 55; let b = 77; a + b }",
+            vec![
+                Constant::Int(55),
+                Constant::Int(77),
+                Constant::Fn(vec![
+                    encode(Opcode::Constant, &[0]),
+                    encode(Opcode::SetLocal, &[0]),
+                    encode(Opcode::Constant, &[1]),
+                    encode(Opcode::SetLocal, &[1]),
+                    encode(Opcode::GetLocal, &[0]),
+                    encode(Opcode::GetLocal, &[1]),
+                    encode(Opcode::Add, &[]),
+                    encode(Opcode::ReturnValue, &[]),
+                ]),
+            ],
+            vec![encode(Opcode::Constant, &[2]), encode(Opcode::Pop, &[])],
+        ),
+    ];
+
+    for (input, expected_consts, expected_insts) in cases {
+        let bytecode = compile_program(input);
+        assert_instructions(&bytecode, &expected_insts, input);
+        assert_constants(&bytecode, &expected_consts, input);
     }
 }

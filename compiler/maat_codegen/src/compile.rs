@@ -1,23 +1,44 @@
 use maat_ast::{BlockStatement, Expression, Node, Program, Statement};
 use maat_bytecode::{Bytecode, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, Opcode, encode};
 use maat_errors::{CompileError, Result};
-use maat_eval::Object;
+use maat_eval::{CompiledFunction, Object};
 
-use crate::symbol::Table;
+use crate::{SymbolScope, SymbolsTable};
+
+/// Per-scope compilation state.
+///
+/// Each function body (and the top-level program) gets its own scope
+/// with an independent instruction stream and instruction history
+/// for peephole optimizations.
+#[derive(Debug, Clone)]
+struct CompilationScope {
+    instructions: Instructions,
+    last_instruction: Option<Instruction>,
+    previous_instruction: Option<Instruction>,
+}
+
+impl CompilationScope {
+    fn new() -> Self {
+        Self {
+            instructions: Instructions::new(),
+            last_instruction: None,
+            previous_instruction: None,
+        }
+    }
+}
 
 /// Compiler state for generating bytecode from AST nodes.
 ///
 /// The compiler performs a recursive descent through the AST, emitting
 /// bytecode instructions and tracking constants in a separate pool.
-/// It maintains a two-instruction history to support peephole operations
-/// like removing trailing pops from block expressions.
+/// It maintains a stack of compilation scopes to support nested function
+/// bodies, each with its own instruction stream and peephole history.
 #[derive(Debug, Clone)]
 pub struct Compiler {
-    instructions: Instructions,
     constants: Vec<Object>,
-    last_instruction: Option<Instruction>,
-    previous_instruction: Option<Instruction>,
-    symbols_table: Table,
+    symbols_table: SymbolsTable,
+    scopes: Vec<CompilationScope>,
+    scope_index: usize,
 }
 
 impl Default for Compiler {
@@ -32,11 +53,10 @@ impl Compiler {
     /// Creates a new compiler with empty instruction stream and constant pool.
     pub fn new() -> Self {
         Self {
-            instructions: Instructions::new(),
             constants: Vec::new(),
-            last_instruction: None,
-            previous_instruction: None,
-            symbols_table: Table::new(),
+            symbols_table: SymbolsTable::new(),
+            scopes: vec![CompilationScope::new()],
+            scope_index: 0,
         }
     }
 
@@ -44,31 +64,36 @@ impl Compiler {
     ///
     /// This enables REPL sessions where variable definitions and constants
     /// persist across multiple compilation passes.
-    pub fn with_state(symbols_table: Table, constants: Vec<Object>) -> Self {
+    pub fn with_state(symbols_table: SymbolsTable, constants: Vec<Object>) -> Self {
         Self {
-            instructions: Instructions::new(),
             constants,
-            last_instruction: None,
-            previous_instruction: None,
             symbols_table,
+            scopes: vec![CompilationScope::new()],
+            scope_index: 0,
         }
     }
 
     /// Extracts the compiled bytecode and constants.
     ///
     /// This consumes the compiler instance and returns the final bytecode output.
-    pub fn bytecode(self) -> Bytecode {
-        Bytecode {
-            instructions: self.instructions,
+    ///
+    /// # Errors
+    ///
+    /// Returns `CompileError::ScopeUnderflow` if the scope stack is empty,
+    /// which indicates an internal compiler invariant violation.
+    pub fn bytecode(mut self) -> Result<Bytecode> {
+        let scope = self.scopes.pop().ok_or(CompileError::ScopeUnderflow)?;
+        Ok(Bytecode {
+            instructions: scope.instructions,
             constants: self.constants,
-        }
+        })
     }
 
     /// Returns a reference to the compiler's symbols table.
     ///
     /// Used for state persistence in REPL sessions where symbol definitions
     /// must carry over across compilation passes.
-    pub fn symbols_table(&self) -> &Table {
+    pub fn symbols_table(&self) -> &SymbolsTable {
         &self.symbols_table
     }
 
@@ -103,11 +128,19 @@ impl Compiler {
             Statement::Block(block) => self.compile_block_statement(block),
             Statement::Let(let_stmt) => {
                 self.compile_expression(&let_stmt.value)?;
-                let index = self.symbols_table.define_symbol(&let_stmt.ident)?.index;
-                self.emit(Opcode::SetGlobal, &[index]);
+                let symbol = self.symbols_table.define_symbol(&let_stmt.ident)?;
+                let (scope, index) = (symbol.scope, symbol.index);
+                match scope {
+                    SymbolScope::Global => self.emit(Opcode::SetGlobal, &[index]),
+                    SymbolScope::Local => self.emit(Opcode::SetLocal, &[index]),
+                };
                 Ok(())
             }
-            _ => Ok(()),
+            Statement::Return(ret_stmt) => {
+                self.compile_expression(&ret_stmt.value)?;
+                self.emit(Opcode::ReturnValue, &[]);
+                Ok(())
+            }
         }
     }
 
@@ -192,7 +225,7 @@ impl Compiler {
 
                 let jump_pos = self.emit(Opcode::Jump, &[Self::JUMP_DUMMY_TARGET]);
 
-                let cons_pos = self.instructions.len();
+                let cons_pos = self.current_instructions().len();
                 self.replace_operand(cond_jump_pos, cons_pos)?;
 
                 match &cond.alternative {
@@ -207,7 +240,7 @@ impl Compiler {
                     }
                 }
 
-                let alt_pos = self.instructions.len();
+                let alt_pos = self.current_instructions().len();
                 self.replace_operand(jump_pos, alt_pos)?;
                 Ok(())
             }
@@ -217,7 +250,11 @@ impl Compiler {
                     .symbols_table
                     .resolve_symbol(name)
                     .ok_or_else(|| CompileError::UndefinedVariable { name: name.clone() })?;
-                self.emit(Opcode::GetGlobal, &[symbol.index]);
+                let (scope, index) = (symbol.scope, symbol.index);
+                match scope {
+                    SymbolScope::Global => self.emit(Opcode::GetGlobal, &[index]),
+                    SymbolScope::Local => self.emit(Opcode::GetLocal, &[index]),
+                };
                 Ok(())
             }
 
@@ -252,6 +289,44 @@ impl Compiler {
                 Ok(())
             }
 
+            Expression::Function(func) => {
+                self.enter_scope();
+
+                for param in &func.params {
+                    self.symbols_table.define_symbol(param)?;
+                }
+
+                self.compile_block_statement(&func.body)?;
+
+                if self.last_instruction_is(Opcode::Pop) {
+                    self.replace_last_pop_with_return_value();
+                }
+                if !self.last_instruction_is(Opcode::ReturnValue) {
+                    self.emit(Opcode::Return, &[]);
+                }
+
+                let num_locals = self.symbols_table.num_definitions();
+                let instructions = self.leave_scope()?;
+
+                let compiled_fn = Object::CompiledFunction(CompiledFunction {
+                    instructions: instructions.into(),
+                    num_locals,
+                    num_parameters: func.params.len(),
+                });
+                let index = self.add_constant(compiled_fn)?;
+                self.emit(Opcode::Constant, &[index]);
+                Ok(())
+            }
+
+            Expression::Call(call) => {
+                self.compile_expression(&call.function)?;
+                for arg in &call.arguments {
+                    self.compile_expression(arg)?;
+                }
+                self.emit(Opcode::Call, &[call.arguments.len()]);
+                Ok(())
+            }
+
             expr => Err(CompileError::UnsupportedExpression {
                 expr_type: expr.type_name().to_string(),
             }
@@ -280,6 +355,44 @@ impl Compiler {
         Ok(index)
     }
 
+    /// Returns a reference to the current scope's instruction stream.
+    fn current_instructions(&self) -> &Instructions {
+        &self.scopes[self.scope_index].instructions
+    }
+
+    /// Enters a new compilation scope for a function body.
+    ///
+    /// Creates a fresh instruction stream and an enclosed symbol table
+    /// that chains to the current one.
+    fn enter_scope(&mut self) {
+        self.scopes.push(CompilationScope::new());
+        self.scope_index += 1;
+
+        let outer = std::mem::take(&mut self.symbols_table);
+        self.symbols_table = SymbolsTable::new_enclosed(outer);
+    }
+
+    /// Leaves the current compilation scope, returning its instructions.
+    ///
+    /// Restores the outer symbol table and pops the scope stack.
+    ///
+    /// # Errors
+    ///
+    /// Returns `CompileError::ScopeUnderflow` if the scope stack is empty
+    /// or the enclosed symbol table has no outer table to restore.
+    fn leave_scope(&mut self) -> Result<Instructions> {
+        if self.scope_index == 0 {
+            return Err(CompileError::ScopeUnderflow.into());
+        }
+        let scope = self.scopes.pop().ok_or(CompileError::ScopeUnderflow)?;
+        self.scope_index -= 1;
+
+        let current = std::mem::take(&mut self.symbols_table);
+        self.symbols_table = current.take_outer().ok_or(CompileError::ScopeUnderflow)?;
+
+        Ok(scope.instructions)
+    }
+
     /// Emits a bytecode instruction with the given opcode and operands.
     ///
     /// Returns the starting position of the emitted instruction.
@@ -290,25 +403,29 @@ impl Compiler {
         pos
     }
 
-    /// Appends instruction bytes to the instruction stream.
+    /// Appends instruction bytes to the current scope's instruction stream.
     ///
     /// Returns the position where the instruction was inserted.
     fn add_instruction(&mut self, instruction: &[u8]) -> usize {
-        let pos = self.instructions.len();
-        self.instructions
+        let scope = &mut self.scopes[self.scope_index];
+        let pos = scope.instructions.len();
+        scope
+            .instructions
             .extend(&Instructions::from(instruction.to_vec()));
         pos
     }
 
-    /// Updates the last/previous instruction tracking.
+    /// Updates the last/previous instruction tracking in the current scope.
     fn set_last_instruction(&mut self, opcode: Opcode, position: usize) {
-        self.previous_instruction = self.last_instruction;
-        self.last_instruction = Some(Instruction { opcode, position });
+        let scope = &mut self.scopes[self.scope_index];
+        scope.previous_instruction = scope.last_instruction;
+        scope.last_instruction = Some(Instruction { opcode, position });
     }
 
     /// Returns `true` if the last emitted instruction matches the given opcode.
     fn last_instruction_is(&self, opcode: Opcode) -> bool {
-        self.last_instruction
+        self.scopes[self.scope_index]
+            .last_instruction
             .is_some_and(|last| last.opcode == opcode)
     }
 
@@ -318,9 +435,26 @@ impl Compiler {
     /// the block's expression statements emit `OpPop`, but conditionals
     /// need the value to remain on the stack.
     fn remove_last_pop(&mut self) {
-        if let Some(last) = self.last_instruction {
-            self.instructions.truncate(last.position);
-            self.last_instruction = self.previous_instruction;
+        let scope = &mut self.scopes[self.scope_index];
+        if let Some(last) = scope.last_instruction {
+            scope.instructions.truncate(last.position);
+            scope.last_instruction = scope.previous_instruction;
+        }
+    }
+
+    /// Replaces the last `OpPop` with `OpReturnValue`.
+    ///
+    /// Used at the end of function bodies to convert the final expression
+    /// statement's implicit pop into an explicit return.
+    fn replace_last_pop_with_return_value(&mut self) {
+        let scope = &mut self.scopes[self.scope_index];
+        if let Some(last) = scope.last_instruction {
+            let new_inst = encode(Opcode::ReturnValue, &[]);
+            scope.instructions.replace_bytes(last.position, &new_inst);
+            scope.last_instruction = Some(Instruction {
+                opcode: Opcode::ReturnValue,
+                position: last.position,
+            });
         }
     }
 
@@ -329,13 +463,14 @@ impl Compiler {
     /// Re-encodes the full instruction (opcode + new operand) and patches
     /// it into the instruction stream. Used for back-patching forward jumps.
     fn replace_operand(&mut self, op_pos: usize, operand: usize) -> Result<()> {
-        let byte = self.instructions.as_bytes()[op_pos];
+        let scope = &mut self.scopes[self.scope_index];
+        let byte = scope.instructions.as_bytes()[op_pos];
         let op = Opcode::from_byte(byte).ok_or(CompileError::InvalidOpcode {
             opcode: byte,
             position: op_pos,
         })?;
         let new_inst = encode(op, &[operand]);
-        self.instructions.replace_bytes(op_pos, &new_inst);
+        scope.instructions.replace_bytes(op_pos, &new_inst);
         Ok(())
     }
 }
@@ -401,5 +536,38 @@ mod tests {
             }
             other => panic!("expected UnsupportedOperator, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn scopes() {
+        let mut compiler = Compiler::new();
+        assert_eq!(compiler.scope_index, 0);
+
+        compiler.emit(Opcode::Mul, &[]);
+
+        compiler.enter_scope();
+        assert_eq!(compiler.scope_index, 1);
+
+        compiler.emit(Opcode::Sub, &[]);
+        assert_eq!(compiler.scopes[compiler.scope_index].instructions.len(), 1);
+        assert_eq!(
+            compiler.scopes[compiler.scope_index]
+                .last_instruction
+                .unwrap()
+                .opcode,
+            Opcode::Sub
+        );
+
+        let instructions = compiler.leave_scope().expect("should leave scope");
+        assert_eq!(compiler.scope_index, 0);
+        assert_eq!(instructions.len(), 1);
+
+        assert_eq!(
+            compiler.scopes[compiler.scope_index]
+                .last_instruction
+                .unwrap()
+                .opcode,
+            Opcode::Mul
+        );
     }
 }
