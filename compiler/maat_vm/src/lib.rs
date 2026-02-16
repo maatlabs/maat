@@ -382,28 +382,19 @@ impl VM {
     }
 
     /// Indexes into an array with bounds checking.
-    ///
-    /// Converts the index to `usize` via `TryFrom`. Negative values and
-    /// out-of-bounds indices produce `Null`. Non-integer index types return an error.
     fn execute_array_index(&mut self, elements: &[Object], index: &Object) -> Result<()> {
-        let idx = match index {
-            Object::I64(v) => match usize::try_from(*v) {
-                Ok(i) => i,
-                Err(_) => return self.push_stack(NULL),
-            },
-            _ => {
-                return Err(VmError::new(format!(
-                    "array index must be an integer, got {}",
-                    index.type_name()
-                ))
-                .into());
-            }
-        };
-
-        if idx >= elements.len() {
-            return self.push_stack(NULL);
+        if !index.is_integer() {
+            return Err(VmError::new(format!(
+                "array index must be an integer, got {}",
+                index.type_name()
+            ))
+            .into());
         }
-        self.push_stack(elements[idx].clone())
+
+        match index.to_array_index() {
+            Some(idx) if idx < elements.len() => self.push_stack(elements[idx].clone()),
+            _ => self.push_stack(NULL),
+        }
     }
 
     /// Indexes into a hash by key.

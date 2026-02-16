@@ -86,6 +86,47 @@ impl Object {
         }
     }
 
+    /// Attempts to convert this object to a `usize` array index.
+    ///
+    /// Returns `Some(index)` for any integer type whose value fits in `usize`.
+    /// Returns `None` for negative values, out-of-range values, or non-integer types.
+    pub fn to_array_index(&self) -> Option<usize> {
+        match self {
+            Self::I8(v) => usize::try_from(*v).ok(),
+            Self::I16(v) => usize::try_from(*v).ok(),
+            Self::I32(v) => usize::try_from(*v).ok(),
+            Self::I64(v) => usize::try_from(*v).ok(),
+            Self::I128(v) => usize::try_from(*v).ok(),
+            Self::Isize(v) => usize::try_from(*v).ok(),
+            Self::U8(v) => Some(*v as usize),
+            Self::U16(v) => Some(*v as usize),
+            Self::U32(v) => Some(*v as usize),
+            Self::U64(v) => usize::try_from(*v).ok(),
+            Self::U128(v) => usize::try_from(*v).ok(),
+            Self::Usize(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    /// Returns `true` if this object is an integer type.
+    pub fn is_integer(&self) -> bool {
+        matches!(
+            self,
+            Self::I8(_)
+                | Self::I16(_)
+                | Self::I32(_)
+                | Self::I64(_)
+                | Self::I128(_)
+                | Self::Isize(_)
+                | Self::U8(_)
+                | Self::U16(_)
+                | Self::U32(_)
+                | Self::U64(_)
+                | Self::U128(_)
+                | Self::Usize(_)
+        )
+    }
+
     /// Returns a string representation of the object's type.
     pub fn type_name(&self) -> &'static str {
         match self {

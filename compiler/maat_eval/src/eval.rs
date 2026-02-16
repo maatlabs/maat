@@ -169,11 +169,18 @@ fn eval_index_expression(idx_expr: IndexExpr, env: &Env) -> Result<Object> {
 
     match expr {
         Object::Array(arr) => {
-            let idx = to_array_index(&index)?;
-            if arr.is_empty() || idx >= arr.len() {
-                return Ok(NULL);
+            if index.is_integer() {
+                match index.to_array_index() {
+                    Some(idx) if idx < arr.len() => Ok(arr[idx].clone()),
+                    _ => Ok(NULL),
+                }
+            } else {
+                Err(EvalError::IndexExpression(format!(
+                    "array index must be an integer, got {}",
+                    index.type_name()
+                ))
+                .into())
             }
-            Ok(arr[idx].clone())
         }
         Object::Hash(hash) => {
             let key_hash = Hashable::try_from(index)?;
@@ -531,48 +538,6 @@ fn eval_function_call(expr: CallExpr, env: &Env) -> Result<Object> {
         }
         Object::Builtin(builtin_fn) => builtin_fn(&expressions),
         obj => Err(EvalError::NotAFunction(format!("expected {obj} to be a function")).into()),
-    }
-}
-
-/// Converts any integer object to usize for array indexing.
-///
-/// Accepts all integer types and performs checked conversion to usize.
-/// Returns an error if the value is negative or out of range.
-fn to_array_index(obj: &Object) -> Result<usize> {
-    match obj {
-        Object::I8(v) => usize::try_from(*v).map_err(|_| {
-            EvalError::IndexExpression(format!("array index out of range: {v}")).into()
-        }),
-        Object::I16(v) => usize::try_from(*v).map_err(|_| {
-            EvalError::IndexExpression(format!("array index out of range: {v}")).into()
-        }),
-        Object::I32(v) => usize::try_from(*v).map_err(|_| {
-            EvalError::IndexExpression(format!("array index out of range: {v}")).into()
-        }),
-        Object::I64(v) => usize::try_from(*v).map_err(|_| {
-            EvalError::IndexExpression(format!("array index out of range: {v}")).into()
-        }),
-        Object::I128(v) => usize::try_from(*v).map_err(|_| {
-            EvalError::IndexExpression(format!("array index out of range: {v}")).into()
-        }),
-        Object::Isize(v) => usize::try_from(*v).map_err(|_| {
-            EvalError::IndexExpression(format!("array index out of range: {v}")).into()
-        }),
-        Object::U8(v) => Ok(*v as usize),
-        Object::U16(v) => Ok(*v as usize),
-        Object::U32(v) => Ok(*v as usize),
-        Object::U64(v) => usize::try_from(*v).map_err(|_| {
-            EvalError::IndexExpression(format!("array index out of range: {v}")).into()
-        }),
-        Object::U128(v) => usize::try_from(*v).map_err(|_| {
-            EvalError::IndexExpression(format!("array index out of range: {v}")).into()
-        }),
-        Object::Usize(v) => Ok(*v),
-        _ => Err(EvalError::IndexExpression(format!(
-            "array index must be an integer, got {}",
-            obj.type_name()
-        ))
-        .into()),
     }
 }
 

@@ -323,11 +323,9 @@ fn eval_array_index_with_integer_types() {
 }
 
 #[test]
-fn eval_array_index_negative_error() {
-    let result = test_eval("[1, 2, 3][-1]");
-    assert!(result.is_err());
-    let err = result.unwrap_err();
-    assert!(err.to_string().contains("array index out of range"));
+fn eval_array_index_negative_returns_null() {
+    let result = test_eval("[1, 2, 3][-1]").unwrap();
+    assert_eq!(result, Object::Null);
 }
 
 #[test]
