@@ -1,41 +1,71 @@
 //! Virtual machine for executing Maat bytecode.
 //!
 //! This crate implements a stack-based virtual machine that executes
-//! compiled bytecode instructions. The VM maintains a value stack and
-//! instruction pointer, executing operations sequentially.
+//! compiled bytecode instructions. The VM uses call frames for function
+//! invocations, maintaining a value stack, globals store, and frame stack.
 
 use std::collections::HashMap;
 
-use maat_bytecode::{Bytecode, MAX_GLOBALS, MAX_STACK_SIZE, Opcode};
+use maat_bytecode::{Bytecode, MAX_FRAMES, MAX_GLOBALS, MAX_STACK_SIZE, Opcode};
 use maat_errors::{Result, VmError};
-use maat_eval::{FALSE, HashObject, Hashable, NULL, Object, TRUE};
+use maat_eval::{CompiledFunction, FALSE, HashObject, Hashable, NULL, Object, TRUE};
+
+/// A single call frame on the VM's frame stack.
+///
+/// Each function invocation creates a new frame that tracks the function's
+/// bytecode, current instruction pointer, and base pointer into the stack
+/// where this frame's local variables begin.
+#[derive(Debug, Clone)]
+struct Frame {
+    instructions: Vec<u8>,
+    ip: isize,
+    base_pointer: usize,
+}
+
+impl Frame {
+    /// Creates a new call frame for the given compiled function.
+    fn new(func: &CompiledFunction, base_pointer: usize) -> Self {
+        Self {
+            instructions: func.instructions.clone(),
+            ip: -1,
+            base_pointer,
+        }
+    }
+}
 
 /// Virtual machine for executing bytecode instructions.
 ///
-/// The VM uses a stack-based architecture where operands are pushed onto
-/// a stack, operations pop operands and push results, maintaining the
-/// instruction pointer to track execution progress.
+/// The VM uses a stack-based architecture with call frames. Operands are
+/// pushed onto a value stack, operations pop operands and push results,
+/// and function calls create new frames with their own instruction pointers.
 #[derive(Debug)]
 pub struct VM {
     constants: Vec<Object>,
-    instructions: Vec<u8>,
     stack: Vec<Object>,
     sp: usize,
     globals: Vec<Object>,
+    frames: Vec<Frame>,
 }
 
 impl VM {
     /// Creates a new virtual machine from compiled bytecode.
     ///
-    /// Initializes the VM with the provided constants and instructions,
-    /// allocating a stack of size `MAX_STACK_SIZE`.
+    /// The top-level program instructions are wrapped in a synthetic
+    /// `CompiledFunction` and placed as the initial frame.
     pub fn new(bytecode: Bytecode) -> Self {
+        let main_fn = CompiledFunction {
+            instructions: bytecode.instructions.into(),
+            num_locals: 0,
+            num_parameters: 0,
+        };
+        let main_frame = Frame::new(&main_fn, 0);
+
         Self {
             constants: bytecode.constants,
-            instructions: bytecode.instructions.into(),
             stack: Vec::with_capacity(MAX_STACK_SIZE),
             sp: 0,
             globals: Vec::with_capacity(MAX_GLOBALS),
+            frames: vec![main_frame],
         }
     }
 
@@ -44,12 +74,19 @@ impl VM {
     /// This enables REPL sessions where global variable values persist
     /// across multiple bytecode executions.
     pub fn with_globals(bytecode: Bytecode, globals: Vec<Object>) -> Self {
+        let main_fn = CompiledFunction {
+            instructions: bytecode.instructions.into(),
+            num_locals: 0,
+            num_parameters: 0,
+        };
+        let main_frame = Frame::new(&main_fn, 0);
+
         Self {
             constants: bytecode.constants,
-            instructions: bytecode.instructions.into(),
             stack: Vec::with_capacity(MAX_STACK_SIZE),
             sp: 0,
             globals,
+            frames: vec![main_frame],
         }
     }
 
@@ -67,23 +104,86 @@ impl VM {
         }
     }
 
+    /// Returns the current (topmost) call frame.
+    ///
+    /// # Errors
+    ///
+    /// Returns `VmError` if the frame stack is empty, which indicates
+    /// an internal VM invariant violation.
+    #[inline]
+    fn current_frame(&self) -> Result<&Frame> {
+        self.frames
+            .last()
+            .ok_or_else(|| VmError::new("frame stack underflow").into())
+    }
+
+    /// Returns a mutable reference to the current call frame.
+    ///
+    /// # Errors
+    ///
+    /// Returns `VmError` if the frame stack is empty, which indicates
+    /// an internal VM invariant violation.
+    #[inline]
+    fn current_frame_mut(&mut self) -> Result<&mut Frame> {
+        self.frames
+            .last_mut()
+            .ok_or_else(|| VmError::new("frame stack underflow").into())
+    }
+
+    /// Pushes a new call frame onto the frame stack.
+    fn push_frame(&mut self, frame: Frame) -> Result<()> {
+        if self.frames.len() >= MAX_FRAMES {
+            return Err(VmError::new("stack overflow: maximum call depth exceeded").into());
+        }
+        self.frames.push(frame);
+        Ok(())
+    }
+
+    /// Pops the current call frame from the frame stack.
+    ///
+    /// # Errors
+    ///
+    /// Returns `VmError` if only the main frame remains, preventing
+    /// an invalid return from the top-level program.
+    fn pop_frame(&mut self) -> Result<Frame> {
+        if self.frames.len() <= 1 {
+            return Err(VmError::new("cannot return from top-level code").into());
+        }
+        self.frames
+            .pop()
+            .ok_or_else(|| VmError::new("frame stack underflow").into())
+    }
+
     /// Executes the bytecode instructions.
     ///
-    /// Iterates through instructions, dispatching to appropriate handlers
-    /// for each opcode. Returns an error if execution fails.
+    /// Iterates through instructions in the current frame, dispatching
+    /// to appropriate handlers for each opcode. Function calls push new
+    /// frames; returns pop them.
     pub fn run(&mut self) -> Result<()> {
-        let mut ip = 0;
+        loop {
+            let frame = self.current_frame()?;
+            if frame.ip >= frame.instructions.len() as isize - 1 {
+                break;
+            }
 
-        while ip < self.instructions.len() {
-            let op = Opcode::from_byte(self.instructions[ip]).ok_or_else(|| {
-                VmError::new(format!("unknown opcode: {}", self.instructions[ip]))
-            })?;
+            self.current_frame_mut()?.ip += 1;
+            let ip = self.current_frame()?.ip as usize;
+            let op_byte =
+                *self.current_frame()?.instructions.get(ip).ok_or_else(|| {
+                    VmError::new(format!("instruction pointer out of bounds: {ip}"))
+                })?;
+            let op = Opcode::from_byte(op_byte)
+                .ok_or_else(|| VmError::new(format!("unknown opcode: {op_byte}")))?;
 
             match op {
                 Opcode::Constant => {
-                    let index = self.read_operand(ip + 1);
-                    ip += 2;
-                    let constant = self.constants[index].clone();
+                    let index = self.read_u16_operand(ip + 1)?;
+                    self.current_frame_mut()?.ip += 2;
+                    let constant = self.constants.get(index).cloned().ok_or_else(|| {
+                        VmError::new(format!(
+                            "constant pool access out of bounds at index {index}"
+                        ))
+                    })?;
                     self.push_stack(constant)?;
                 }
                 Opcode::Pop => {
@@ -101,25 +201,23 @@ impl VM {
                 Opcode::Bang => self.execute_bang_operator()?,
                 Opcode::Minus => self.execute_minus_operator()?,
                 Opcode::Jump => {
-                    let target = self.read_operand(ip + 1);
-                    ip = target;
-                    continue;
+                    let target = self.read_u16_operand(ip + 1)? as isize;
+                    self.current_frame_mut()?.ip = target - 1;
                 }
                 Opcode::CondJump => {
-                    let target = self.read_operand(ip + 1);
-                    ip += 2;
+                    let target = self.read_u16_operand(ip + 1)? as isize;
+                    self.current_frame_mut()?.ip += 2;
                     let condition = self.pop_stack()?;
                     if !condition.is_truthy() {
-                        ip = target;
-                        continue;
+                        self.current_frame_mut()?.ip = target - 1;
                     }
                 }
                 Opcode::Null => {
                     self.push_stack(NULL)?;
                 }
                 Opcode::SetGlobal => {
-                    let index = self.read_operand(ip + 1);
-                    ip += 2;
+                    let index = self.read_u16_operand(ip + 1)?;
+                    self.current_frame_mut()?.ip += 2;
                     let value = self.pop_stack()?;
                     if index >= self.globals.len() {
                         self.globals.resize(index + 1, Object::Null);
@@ -127,20 +225,22 @@ impl VM {
                     self.globals[index] = value;
                 }
                 Opcode::GetGlobal => {
-                    let index = self.read_operand(ip + 1);
-                    ip += 2;
-                    let value = self.globals[index].clone();
+                    let index = self.read_u16_operand(ip + 1)?;
+                    self.current_frame_mut()?.ip += 2;
+                    let value = self.globals.get(index).cloned().ok_or_else(|| {
+                        VmError::new(format!("undefined global variable at index {index}"))
+                    })?;
                     self.push_stack(value)?;
                 }
                 Opcode::Array => {
-                    let num_elements = self.read_operand(ip + 1);
-                    ip += 2;
+                    let num_elements = self.read_u16_operand(ip + 1)?;
+                    self.current_frame_mut()?.ip += 2;
                     let array = self.build_array(num_elements)?;
                     self.push_stack(array)?;
                 }
                 Opcode::Hash => {
-                    let num_elements = self.read_operand(ip + 1);
-                    ip += 2;
+                    let num_elements = self.read_u16_operand(ip + 1)?;
+                    self.current_frame_mut()?.ip += 2;
                     let hash = self.build_hash(num_elements)?;
                     self.push_stack(hash)?;
                 }
@@ -149,19 +249,123 @@ impl VM {
                     let container = self.pop_stack()?;
                     self.execute_index_expression(container, index)?;
                 }
+                Opcode::Call => {
+                    let num_args = self.read_u8_operand(ip + 1)?;
+                    self.current_frame_mut()?.ip += 1;
+                    self.call_function(num_args)?;
+                }
+                Opcode::ReturnValue => {
+                    let return_value = self.pop_stack()?;
+                    let frame = self.pop_frame()?;
+                    self.sp = frame.base_pointer.saturating_sub(1);
+                    self.push_stack(return_value)?;
+                }
+                Opcode::Return => {
+                    let frame = self.pop_frame()?;
+                    self.sp = frame.base_pointer.saturating_sub(1);
+                    self.push_stack(NULL)?;
+                }
+                Opcode::SetLocal => {
+                    let local_index = self.read_u8_operand(ip + 1)?;
+                    self.current_frame_mut()?.ip += 1;
+                    let base_pointer = self.current_frame()?.base_pointer;
+                    let value = self.pop_stack()?;
+                    let slot = base_pointer + local_index;
+                    if slot >= self.stack.len() {
+                        self.stack.resize(slot + 1, Object::Null);
+                    }
+                    self.stack[slot] = value;
+                }
+                Opcode::GetLocal => {
+                    let local_index = self.read_u8_operand(ip + 1)?;
+                    self.current_frame_mut()?.ip += 1;
+                    let base_pointer = self.current_frame()?.base_pointer;
+                    let slot = base_pointer + local_index;
+                    let value = self.stack.get(slot).cloned().ok_or_else(|| {
+                        VmError::new(format!(
+                            "local variable access out of bounds at slot {slot}"
+                        ))
+                    })?;
+                    self.push_stack(value)?;
+                }
             }
-
-            ip += 1;
         }
 
         Ok(())
     }
 
-    /// Reads the 16-bit unsigned integer operand from the instruction stream,
-    /// returning it as a `usize`.
+    /// Reads a 16-bit big-endian operand from the current frame's instructions.
+    ///
+    /// # Errors
+    ///
+    /// Returns `VmError` if the offset extends beyond the instruction stream.
     #[inline]
-    fn read_operand(&self, offset: usize) -> usize {
-        u16::from_be_bytes([self.instructions[offset], self.instructions[offset + 1]]) as usize
+    fn read_u16_operand(&self, offset: usize) -> Result<usize> {
+        let instructions = &self.current_frame()?.instructions;
+        let hi = *instructions
+            .get(offset)
+            .ok_or_else(|| VmError::new("instruction stream truncated: missing operand byte"))?;
+        let lo = *instructions
+            .get(offset + 1)
+            .ok_or_else(|| VmError::new("instruction stream truncated: missing operand byte"))?;
+        Ok(u16::from_be_bytes([hi, lo]) as usize)
+    }
+
+    /// Reads an 8-bit operand from the current frame's instructions.
+    ///
+    /// # Errors
+    ///
+    /// Returns `VmError` if the offset is beyond the instruction stream.
+    #[inline]
+    fn read_u8_operand(&self, offset: usize) -> Result<usize> {
+        self.current_frame()?
+            .instructions
+            .get(offset)
+            .map(|&b| b as usize)
+            .ok_or_else(|| {
+                VmError::new("instruction stream truncated: missing operand byte").into()
+            })
+    }
+
+    /// Handles function call execution.
+    ///
+    /// Validates argument count, creates a new frame with base pointer
+    /// set to the first argument's position, and reserves stack space
+    /// for local variables.
+    fn call_function(&mut self, num_args: usize) -> Result<()> {
+        let fn_slot = self
+            .sp
+            .checked_sub(1 + num_args)
+            .ok_or_else(|| VmError::new("stack underflow in function call"))?;
+        let fn_obj = self
+            .stack
+            .get(fn_slot)
+            .cloned()
+            .ok_or_else(|| VmError::new("stack underflow in function call"))?;
+        let func = match &fn_obj {
+            Object::CompiledFunction(f) => f,
+            _ => return Err(VmError::new("calling non-function").into()),
+        };
+
+        if num_args != func.num_parameters {
+            return Err(VmError::new(format!(
+                "wrong number of arguments: want={}, got={num_args}",
+                func.num_parameters
+            ))
+            .into());
+        }
+
+        let base_pointer = self.sp - num_args;
+        let num_locals = func.num_locals;
+        let frame = Frame::new(func, base_pointer);
+        self.push_frame(frame)?;
+        self.sp = base_pointer + num_locals;
+
+        if self.sp > self.stack.len() {
+            self.stack.resize(self.sp, Object::Null);
+        }
+
+        Ok(())
     }
 
     /// Pushes a value onto the stack.
@@ -320,10 +524,6 @@ impl VM {
     }
 
     /// Builds an array object from the top `num_elements` stack values.
-    ///
-    /// # Errors
-    ///
-    /// Returns `VmError` if the stack contains fewer elements than requested.
     fn build_array(&mut self, num_elements: usize) -> Result<Object> {
         if num_elements > self.sp {
             return Err(VmError::new(format!(
@@ -341,11 +541,6 @@ impl VM {
     /// Builds a hash object from the top `num_elements` stack values.
     ///
     /// Elements are expected in alternating key-value order on the stack.
-    ///
-    /// # Errors
-    ///
-    /// Returns `VmError` if the stack contains fewer elements than requested,
-    /// or if a key is not a hashable type.
     fn build_hash(&mut self, num_elements: usize) -> Result<Object> {
         if num_elements > self.sp {
             return Err(VmError::new(format!(

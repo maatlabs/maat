@@ -16,20 +16,20 @@ enum TestValue {
     Null,
 }
 
-fn parse(input: &str) -> Program {
+fn parse_program(input: &str) -> Program {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     parser.parse_program()
 }
 
 fn run_vm_test(input: &str, expected: TestValue) {
-    let program = parse(input);
+    let program = parse_program(input);
     let mut compiler = Compiler::new();
     compiler
         .compile(&Node::Program(program))
         .expect("compilation failed");
 
-    let bytecode = compiler.bytecode();
+    let bytecode = compiler.bytecode().expect("bytecode extraction failed");
     let mut vm = VM::new(bytecode);
     vm.run().expect("vm error");
 
@@ -113,6 +113,26 @@ fn run_vm_test(input: &str, expected: TestValue) {
             );
         }
     }
+}
+
+fn run_vm_error_test(input: &str, expected_error: &str) {
+    let program = parse_program(input);
+    let mut compiler = Compiler::new();
+    compiler
+        .compile(&Node::Program(program))
+        .expect("compilation failed");
+
+    let bytecode = compiler.bytecode().expect("bytecode extraction failed");
+    let mut vm = VM::new(bytecode);
+    let result = vm.run();
+
+    assert!(result.is_err(), "expected VM error for input: {input}");
+
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains(expected_error),
+        "wrong VM error for input: {input}\n  expected to contain: {expected_error}\n  got: {err_msg}"
+    );
 }
 
 #[test]
@@ -288,6 +308,165 @@ fn index_expressions() {
 
     for (input, expected) in cases {
         run_vm_test(input, expected);
+    }
+}
+
+#[test]
+fn calling_functions_without_arguments() {
+    let cases = vec![
+        (
+            "let fivePlusTen = fn() { 5 + 10; }; fivePlusTen();",
+            TestValue::Int(15),
+        ),
+        (
+            "let one = fn() { 1; }; let two = fn() { 2; }; one() + two()",
+            TestValue::Int(3),
+        ),
+        (
+            "let a = fn() { 1 }; let b = fn() { a() + 1 }; let c = fn() { b() + 1 }; c();",
+            TestValue::Int(3),
+        ),
+    ];
+
+    for (input, expected) in cases {
+        run_vm_test(input, expected);
+    }
+}
+
+#[test]
+fn functions_with_return_statement() {
+    let cases = vec![
+        (
+            "let earlyExit = fn() { return 99; 100; }; earlyExit();",
+            TestValue::Int(99),
+        ),
+        (
+            "let earlyExit = fn() { return 99; return 100; }; earlyExit();",
+            TestValue::Int(99),
+        ),
+    ];
+
+    for (input, expected) in cases {
+        run_vm_test(input, expected);
+    }
+}
+
+#[test]
+fn functions_without_return_value() {
+    let cases = vec![
+        ("let noReturn = fn() { }; noReturn();", TestValue::Null),
+        (
+            "let noReturn = fn() { }; let noReturnTwo = fn() { noReturn(); }; noReturn(); noReturnTwo();",
+            TestValue::Null,
+        ),
+    ];
+
+    for (input, expected) in cases {
+        run_vm_test(input, expected);
+    }
+}
+
+#[test]
+fn first_class_functions() {
+    let cases = vec![
+        (
+            "let returnsOne = fn() { 1; }; let returnsOneReturner = fn() { returnsOne; }; returnsOneReturner()();",
+            TestValue::Int(1),
+        ),
+        (
+            "let returnsOneReturner = fn() { let returnsOne = fn() { 1; }; returnsOne; }; returnsOneReturner()();",
+            TestValue::Int(1),
+        ),
+    ];
+
+    for (input, expected) in cases {
+        run_vm_test(input, expected);
+    }
+}
+
+#[test]
+fn calling_functions_with_bindings() {
+    let cases = vec![
+        (
+            "let one = fn() { let one = 1; one }; one();",
+            TestValue::Int(1),
+        ),
+        (
+            "let oneAndTwo = fn() { let one = 1; let two = 2; one + two; }; oneAndTwo();",
+            TestValue::Int(3),
+        ),
+        (
+            "let oneAndTwo = fn() { let one = 1; let two = 2; one + two; }; let threeAndFour = fn() { let three = 3; let four = 4; three + four; }; oneAndTwo() + threeAndFour();",
+            TestValue::Int(10),
+        ),
+        (
+            "let firstFoobar = fn() { let foobar = 50; foobar; }; let secondFoobar = fn() { let foobar = 100; foobar; }; firstFoobar() + secondFoobar();",
+            TestValue::Int(150),
+        ),
+        (
+            "let globalSeed = 50; let minusOne = fn() { let num = 1; globalSeed - num; }; let minusTwo = fn() { let num = 2; globalSeed - num; }; minusOne() + minusTwo();",
+            TestValue::Int(97),
+        ),
+    ];
+
+    for (input, expected) in cases {
+        run_vm_test(input, expected);
+    }
+}
+
+#[test]
+fn calling_functions_with_arguments_and_bindings() {
+    let cases = vec![
+        (
+            "let identity = fn(a) { a; }; identity(4);",
+            TestValue::Int(4),
+        ),
+        (
+            "let sum = fn(a, b) { a + b; }; sum(1, 2);",
+            TestValue::Int(3),
+        ),
+        (
+            "let sum = fn(a, b) { let c = a + b; c; }; sum(1, 2);",
+            TestValue::Int(3),
+        ),
+        (
+            "let sum = fn(a, b) { let c = a + b; c; }; sum(1, 2) + sum(3, 4);",
+            TestValue::Int(10),
+        ),
+        (
+            "let sum = fn(a, b) { let c = a + b; c; }; let outer = fn() { sum(1, 2) + sum(3, 4); }; outer();",
+            TestValue::Int(10),
+        ),
+        (
+            "let globalNum = 10; let sum = fn(a, b) { let c = a + b; c + globalNum; }; let outer = fn() { sum(1, 2) + sum(3, 4) + globalNum; }; outer() + globalNum;",
+            TestValue::Int(50),
+        ),
+    ];
+
+    for (input, expected) in cases {
+        run_vm_test(input, expected);
+    }
+}
+
+#[test]
+fn calling_functions_with_wrong_arguments() {
+    let cases = vec![
+        (
+            "fn() { 1; }(1);",
+            "wrong number of arguments: want=0, got=1",
+        ),
+        (
+            "fn(a) { a; }();",
+            "wrong number of arguments: want=1, got=0",
+        ),
+        (
+            "fn(a, b) { a + b; }(1);",
+            "wrong number of arguments: want=2, got=1",
+        ),
+    ];
+
+    for (input, expected_error) in cases {
+        run_vm_error_test(input, expected_error);
     }
 }
 
