@@ -1,0 +1,473 @@
+use maat_ast::{Node, Program};
+use maat_bytecode::{Instructions, Opcode, encode};
+use maat_codegen::Compiler;
+use maat_eval::Object;
+use maat_lexer::Lexer;
+use maat_parse::Parser;
+
+fn parse(input: &str) -> Program {
+    let lexer = Lexer::new(input);
+    let mut parser = Parser::new(lexer);
+    parser.parse_program()
+}
+
+fn compile_program(input: &str) -> maat_bytecode::Bytecode {
+    let program = parse(input);
+    let mut compiler = Compiler::new();
+    compiler
+        .compile(&Node::Program(program))
+        .expect("compilation failed");
+    compiler.bytecode()
+}
+
+fn concat_instructions(instructions: &[Vec<u8>]) -> Instructions {
+    let mut result = Instructions::new();
+    for ins in instructions {
+        result.extend(&Instructions::from(ins.clone()));
+    }
+    result
+}
+
+fn assert_integer_constants(bytecode: &maat_bytecode::Bytecode, expected: &[i64], input: &str) {
+    assert_eq!(
+        bytecode.constants.len(),
+        expected.len(),
+        "wrong number of constants for input: {input}"
+    );
+
+    for (i, expected_val) in expected.iter().enumerate() {
+        match &bytecode.constants[i] {
+            Object::I64(value) => {
+                assert_eq!(
+                    *value, *expected_val,
+                    "constant {i} wrong for input: {input}"
+                )
+            }
+            _ => panic!(
+                "expected integer constant at index {i}, got: {:?}",
+                bytecode.constants[i]
+            ),
+        }
+    }
+}
+
+fn assert_instructions(bytecode: &maat_bytecode::Bytecode, expected: &[Vec<u8>], input: &str) {
+    let expected_ins = concat_instructions(expected);
+    assert_eq!(
+        bytecode.instructions.as_bytes(),
+        expected_ins.as_bytes(),
+        "wrong instructions for input: {input}\n  got: {}\n  want: {}",
+        bytecode.instructions,
+        expected_ins,
+    );
+}
+
+#[test]
+fn compile_integer_arithmetic() {
+    let cases = vec![
+        (
+            "1 + 2",
+            vec![1, 2],
+            vec![
+                encode(Opcode::Constant, &[0]),
+                encode(Opcode::Constant, &[1]),
+                encode(Opcode::Add, &[]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+        (
+            "1; 2",
+            vec![1, 2],
+            vec![
+                encode(Opcode::Constant, &[0]),
+                encode(Opcode::Pop, &[]),
+                encode(Opcode::Constant, &[1]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+        (
+            "1 - 2",
+            vec![1, 2],
+            vec![
+                encode(Opcode::Constant, &[0]),
+                encode(Opcode::Constant, &[1]),
+                encode(Opcode::Sub, &[]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+        (
+            "1 * 2",
+            vec![1, 2],
+            vec![
+                encode(Opcode::Constant, &[0]),
+                encode(Opcode::Constant, &[1]),
+                encode(Opcode::Mul, &[]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+        (
+            "2 / 1",
+            vec![2, 1],
+            vec![
+                encode(Opcode::Constant, &[0]),
+                encode(Opcode::Constant, &[1]),
+                encode(Opcode::Div, &[]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+        (
+            "-1",
+            vec![1],
+            vec![
+                encode(Opcode::Constant, &[0]),
+                encode(Opcode::Minus, &[]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+    ];
+
+    for (input, expected_constants, expected_instructions) in cases {
+        let bytecode = compile_program(input);
+        assert_instructions(&bytecode, &expected_instructions, input);
+        assert_integer_constants(&bytecode, &expected_constants, input);
+    }
+}
+
+#[test]
+fn compile_boolean_expressions() {
+    let tests = vec![
+        (
+            "true",
+            vec![encode(Opcode::True, &[]), encode(Opcode::Pop, &[])],
+        ),
+        (
+            "false",
+            vec![encode(Opcode::False, &[]), encode(Opcode::Pop, &[])],
+        ),
+        (
+            "1 > 2",
+            vec![
+                encode(Opcode::Constant, &[0]),
+                encode(Opcode::Constant, &[1]),
+                encode(Opcode::GreaterThan, &[]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+        (
+            "1 < 2",
+            vec![
+                encode(Opcode::Constant, &[0]),
+                encode(Opcode::Constant, &[1]),
+                encode(Opcode::LessThan, &[]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+        (
+            "1 == 2",
+            vec![
+                encode(Opcode::Constant, &[0]),
+                encode(Opcode::Constant, &[1]),
+                encode(Opcode::Equal, &[]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+        (
+            "1 != 2",
+            vec![
+                encode(Opcode::Constant, &[0]),
+                encode(Opcode::Constant, &[1]),
+                encode(Opcode::NotEqual, &[]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+        (
+            "true == false",
+            vec![
+                encode(Opcode::True, &[]),
+                encode(Opcode::False, &[]),
+                encode(Opcode::Equal, &[]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+        (
+            "true != false",
+            vec![
+                encode(Opcode::True, &[]),
+                encode(Opcode::False, &[]),
+                encode(Opcode::NotEqual, &[]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+        (
+            "!true",
+            vec![
+                encode(Opcode::True, &[]),
+                encode(Opcode::Bang, &[]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+    ];
+
+    for (input, expected_instructions) in tests {
+        let bytecode = compile_program(input);
+        assert_instructions(&bytecode, &expected_instructions, input);
+    }
+}
+
+#[test]
+fn compile_conditionals() {
+    let tests = vec![
+        (
+            "if (true) { 10 }; 3333;",
+            vec![10, 3333],
+            vec![
+                encode(Opcode::True, &[]),
+                encode(Opcode::CondJump, &[10]),
+                encode(Opcode::Constant, &[0]),
+                encode(Opcode::Jump, &[11]),
+                encode(Opcode::Null, &[]),
+                encode(Opcode::Pop, &[]),
+                encode(Opcode::Constant, &[1]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+        (
+            "if (true) { 10 } else { 20 }; 3333;",
+            vec![10, 20, 3333],
+            vec![
+                encode(Opcode::True, &[]),
+                encode(Opcode::CondJump, &[10]),
+                encode(Opcode::Constant, &[0]),
+                encode(Opcode::Jump, &[13]),
+                encode(Opcode::Constant, &[1]),
+                encode(Opcode::Pop, &[]),
+                encode(Opcode::Constant, &[2]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+    ];
+
+    for (input, expected_constants, expected_instructions) in tests {
+        let bytecode = compile_program(input);
+        assert_instructions(&bytecode, &expected_instructions, input);
+        assert_integer_constants(&bytecode, &expected_constants, input);
+    }
+}
+
+#[test]
+fn compile_global_let_statements() {
+    let tests = vec![
+        (
+            "let one = 1; let two = 2;",
+            vec![1, 2],
+            vec![
+                encode(Opcode::Constant, &[0]),
+                encode(Opcode::SetGlobal, &[0]),
+                encode(Opcode::Constant, &[1]),
+                encode(Opcode::SetGlobal, &[1]),
+            ],
+        ),
+        (
+            "let one = 1; one;",
+            vec![1],
+            vec![
+                encode(Opcode::Constant, &[0]),
+                encode(Opcode::SetGlobal, &[0]),
+                encode(Opcode::GetGlobal, &[0]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+        (
+            "let one = 1; let two = one; two;",
+            vec![1],
+            vec![
+                encode(Opcode::Constant, &[0]),
+                encode(Opcode::SetGlobal, &[0]),
+                encode(Opcode::GetGlobal, &[0]),
+                encode(Opcode::SetGlobal, &[1]),
+                encode(Opcode::GetGlobal, &[1]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+    ];
+
+    for (input, expected_constants, expected_instructions) in tests {
+        let bytecode = compile_program(input);
+        assert_instructions(&bytecode, &expected_instructions, input);
+        assert_integer_constants(&bytecode, &expected_constants, input);
+    }
+}
+
+#[test]
+fn compile_strings() {
+    let cases = vec![
+        (
+            r#""zero-knowledge""#,
+            vec!["zero-knowledge"],
+            vec![encode(Opcode::Constant, &[0]), encode(Opcode::Pop, &[])],
+        ),
+        (
+            r#""zero" + "knowledge""#,
+            vec!["zero", "knowledge"],
+            vec![
+                encode(Opcode::Constant, &[0]),
+                encode(Opcode::Constant, &[1]),
+                encode(Opcode::Add, &[]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+    ];
+
+    for (input, expected_constants, expected_instructions) in cases {
+        let bytecode = compile_program(input);
+        assert_instructions(&bytecode, &expected_instructions, input);
+
+        assert_eq!(
+            bytecode.constants.len(),
+            expected_constants.len(),
+            "wrong number of constants for input: {input}"
+        );
+
+        for (i, expected) in expected_constants.iter().enumerate() {
+            match &bytecode.constants[i] {
+                Object::String(value) => {
+                    assert_eq!(value, expected, "constant {i} wrong for input: {input}")
+                }
+                _ => panic!("expected string constant at index {i}"),
+            }
+        }
+    }
+}
+
+#[test]
+fn compile_arrays() {
+    let cases = vec![
+        (
+            "[]",
+            vec![],
+            vec![encode(Opcode::Array, &[0]), encode(Opcode::Pop, &[])],
+        ),
+        (
+            "[1, 2, 3]",
+            vec![1, 2, 3],
+            vec![
+                encode(Opcode::Constant, &[0]),
+                encode(Opcode::Constant, &[1]),
+                encode(Opcode::Constant, &[2]),
+                encode(Opcode::Array, &[3]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+        (
+            "[1 + 2, 3 - 4, 5 * 6]",
+            vec![1, 2, 3, 4, 5, 6],
+            vec![
+                encode(Opcode::Constant, &[0]),
+                encode(Opcode::Constant, &[1]),
+                encode(Opcode::Add, &[]),
+                encode(Opcode::Constant, &[2]),
+                encode(Opcode::Constant, &[3]),
+                encode(Opcode::Sub, &[]),
+                encode(Opcode::Constant, &[4]),
+                encode(Opcode::Constant, &[5]),
+                encode(Opcode::Mul, &[]),
+                encode(Opcode::Array, &[3]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+    ];
+
+    for (input, expected_constants, expected_instructions) in cases {
+        let bytecode = compile_program(input);
+        assert_instructions(&bytecode, &expected_instructions, input);
+        assert_integer_constants(&bytecode, &expected_constants, input);
+    }
+}
+
+#[test]
+fn compile_hashes() {
+    let cases = vec![
+        (
+            "{}",
+            vec![],
+            vec![encode(Opcode::Hash, &[0]), encode(Opcode::Pop, &[])],
+        ),
+        (
+            "{1: 2, 3: 4, 5: 6}",
+            vec![1, 2, 3, 4, 5, 6],
+            vec![
+                encode(Opcode::Constant, &[0]),
+                encode(Opcode::Constant, &[1]),
+                encode(Opcode::Constant, &[2]),
+                encode(Opcode::Constant, &[3]),
+                encode(Opcode::Constant, &[4]),
+                encode(Opcode::Constant, &[5]),
+                encode(Opcode::Hash, &[6]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+        (
+            "{1: 2 + 3, 4: 5 * 6}",
+            vec![1, 2, 3, 4, 5, 6],
+            vec![
+                encode(Opcode::Constant, &[0]),
+                encode(Opcode::Constant, &[1]),
+                encode(Opcode::Constant, &[2]),
+                encode(Opcode::Add, &[]),
+                encode(Opcode::Constant, &[3]),
+                encode(Opcode::Constant, &[4]),
+                encode(Opcode::Constant, &[5]),
+                encode(Opcode::Mul, &[]),
+                encode(Opcode::Hash, &[4]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+    ];
+
+    for (input, expected_constants, expected_instructions) in cases {
+        let bytecode = compile_program(input);
+        assert_instructions(&bytecode, &expected_instructions, input);
+        assert_integer_constants(&bytecode, &expected_constants, input);
+    }
+}
+
+#[test]
+fn compile_index_expressions() {
+    let cases = vec![
+        (
+            "[1, 2, 3][1 + 1]",
+            vec![1, 2, 3, 1, 1],
+            vec![
+                encode(Opcode::Constant, &[0]),
+                encode(Opcode::Constant, &[1]),
+                encode(Opcode::Constant, &[2]),
+                encode(Opcode::Array, &[3]),
+                encode(Opcode::Constant, &[3]),
+                encode(Opcode::Constant, &[4]),
+                encode(Opcode::Add, &[]),
+                encode(Opcode::Index, &[]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+        (
+            "{1: 2}[2 - 1]",
+            vec![1, 2, 2, 1],
+            vec![
+                encode(Opcode::Constant, &[0]),
+                encode(Opcode::Constant, &[1]),
+                encode(Opcode::Hash, &[2]),
+                encode(Opcode::Constant, &[2]),
+                encode(Opcode::Constant, &[3]),
+                encode(Opcode::Sub, &[]),
+                encode(Opcode::Index, &[]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+    ];
+
+    for (input, expected_constants, expected_instructions) in cases {
+        let bytecode = compile_program(input);
+        assert_instructions(&bytecode, &expected_instructions, input);
+        assert_integer_constants(&bytecode, &expected_constants, input);
+    }
+}

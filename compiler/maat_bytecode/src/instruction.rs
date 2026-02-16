@@ -215,9 +215,12 @@ pub fn decode_operands(widths: &[usize], bytes: &[u8]) -> Result<(Vec<usize>, us
 
 /// Encodes an operand value into the instruction buffer.
 ///
-/// # Panics
+/// # Safety Invariant
 ///
-/// Panics if an unsupported operand width is encountered (not 1, 2, 4, or 8 bytes).
+/// The `width` parameter must be 1, 2, 4, or 8 bytes. This invariant is
+/// guaranteed by the `Opcode::operand_widths()` method, which is the sole
+/// source of width values passed to this function. A violation would indicate
+/// a defect in our opcode definitions, not user input.
 #[inline]
 fn encode_operand_bytes(instruction: &mut Vec<u8>, operand: usize, width: usize) {
     match width {
@@ -225,7 +228,12 @@ fn encode_operand_bytes(instruction: &mut Vec<u8>, operand: usize, width: usize)
         2 => instruction.extend_from_slice(&(operand as u16).to_be_bytes()),
         4 => instruction.extend_from_slice(&(operand as u32).to_be_bytes()),
         8 => instruction.extend_from_slice(&(operand as u64).to_be_bytes()),
-        _ => panic!("unsupported operand width: {width}"),
+        _ => {
+            debug_assert!(
+                false,
+                "operand width {width} is not defined in Opcode::operand_widths"
+            );
+        }
     }
 }
 
