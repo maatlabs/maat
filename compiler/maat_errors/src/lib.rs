@@ -94,6 +94,14 @@ pub enum CompileError {
         "symbols table overflow: exceeded maximum of {max} global bindings (attempted to define '{name}')"
     )]
     SymbolsTableOverflow { max: usize, name: String },
+
+    #[error(
+        "local variable overflow: exceeded maximum of {max} local bindings in function scope (attempted to define '{name}')"
+    )]
+    LocalsOverflow { max: usize, name: String },
+
+    #[error("scope stack underflow: attempted to leave scope with no enclosing scope")]
+    ScopeUnderflow,
 }
 
 #[derive(Debug, thiserror::Error)]

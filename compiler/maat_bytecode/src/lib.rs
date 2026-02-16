@@ -48,6 +48,19 @@ pub const MAX_STACK_SIZE: usize = 2048;
 /// 2-byte index encoding, which can represent indices from 0 to 65,535.
 pub const MAX_GLOBALS: usize = u16::MAX as usize;
 
+/// Maximum number of local variable bindings per function scope.
+///
+/// This limit is imposed by the `OpSetLocal`/`OpGetLocal` instructions'
+/// 1-byte index encoding, which can represent indices from 0 to 255.
+pub const MAX_LOCALS: usize = u8::MAX as usize;
+
+/// Maximum number of call frames on the VM's frame stack.
+///
+/// This limits the maximum recursion depth. Each function call pushes
+/// a new frame, and each return pops one. Exceeding this limit indicates
+/// unbounded recursion or excessively deep call chains.
+pub const MAX_FRAMES: usize = 1024;
+
 /// Compiled bytecode output containing instructions and constants.
 ///
 /// This represents the complete compiled program ready for execution by the

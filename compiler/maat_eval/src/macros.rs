@@ -8,9 +8,8 @@
 use maat_ast::{self as ast, Expression, Node, Program, Statement, transform};
 
 use crate::builtins::UNQUOTE;
-use crate::env::Env;
 use crate::eval::{eval_block_statement, eval_expression};
-use crate::object::{Macro, Object, Quote};
+use crate::{Env, Macro, Object, Quote};
 
 /// Extracts macro definitions from a program and stores them in the environment.
 ///

@@ -92,6 +92,26 @@ pub enum Opcode {
     /// Index into an array or hash. Pops index and container, pushes result.
     /// Operands: none
     Index = 21,
+
+    /// Call a function. Pops function and arguments from the stack.
+    /// Operands: [u8] - number of arguments
+    Call = 22,
+
+    /// Return from a function with a value on top of the stack.
+    /// Operands: none
+    ReturnValue = 23,
+
+    /// Return from a function with no explicit return value (implicit null).
+    /// Operands: none
+    Return = 24,
+
+    /// Load a local binding onto the stack.
+    /// Operands: [u8] - local variable index
+    GetLocal = 25,
+
+    /// Store a value in a local binding.
+    /// Operands: [u8] - local variable index
+    SetLocal = 26,
 }
 
 impl Opcode {
@@ -121,6 +141,11 @@ impl Opcode {
             Self::Array => "OpArray",
             Self::Hash => "OpHash",
             Self::Index => "OpIndex",
+            Self::Call => "OpCall",
+            Self::ReturnValue => "OpReturnValue",
+            Self::Return => "OpReturn",
+            Self::GetLocal => "OpGetLocal",
+            Self::SetLocal => "OpSetLocal",
         }
     }
 
@@ -138,6 +163,7 @@ impl Opcode {
             | Self::GetGlobal
             | Self::Array
             | Self::Hash => &[2],
+            Self::Call | Self::GetLocal | Self::SetLocal => &[1],
             Self::Add
             | Self::Pop
             | Self::Sub
@@ -152,7 +178,9 @@ impl Opcode {
             | Self::Minus
             | Self::Bang
             | Self::Null
-            | Self::Index => &[],
+            | Self::Index
+            | Self::ReturnValue
+            | Self::Return => &[],
         }
     }
 
@@ -182,6 +210,11 @@ impl Opcode {
             19 => Some(Self::Array),
             20 => Some(Self::Hash),
             21 => Some(Self::Index),
+            22 => Some(Self::Call),
+            23 => Some(Self::ReturnValue),
+            24 => Some(Self::Return),
+            25 => Some(Self::GetLocal),
+            26 => Some(Self::SetLocal),
             _ => None,
         }
     }
@@ -199,7 +232,7 @@ mod tests {
 
     #[test]
     fn opcode_roundtrip() {
-        for byte in 0..=21 {
+        for byte in 0..=26 {
             let opcode = Opcode::from_byte(byte).unwrap();
             assert_eq!(opcode.to_byte(), byte);
         }

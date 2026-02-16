@@ -70,6 +70,8 @@ pub enum Object {
     ReturnValue(Box<Object>),
     /// A builtin function.
     Builtin(BuiltinFn),
+    /// A compiled function containing bytecode instructions.
+    CompiledFunction(CompiledFunction),
 }
 
 impl Object {
@@ -154,6 +156,7 @@ impl Object {
             Self::Quote(_) => "Quote",
             Self::ReturnValue(_) => "ReturnValue",
             Self::Builtin(_) => "BuiltinFn",
+            Self::CompiledFunction(_) => "CompiledFunction",
         }
     }
 }
@@ -186,6 +189,7 @@ impl PartialEq for Object {
             (Quote(q1), Quote(q2)) => q1 == q2,
             (ReturnValue(o1), ReturnValue(o2)) => o1 == o2,
             (Builtin(f1), Builtin(f2)) => std::ptr::fn_addr_eq(*f1, *f2),
+            (CompiledFunction(c1), CompiledFunction(c2)) => c1 == c2,
             _ => false,
         }
     }
@@ -211,6 +215,21 @@ pub struct Macro {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Quote {
     pub node: Node,
+}
+
+/// A compiled function object containing bytecode instructions.
+///
+/// Functions are compiled into bytecode and stored in the constant pool.
+/// The VM creates a new call frame for each invocation, using the
+/// `num_locals` field to reserve stack space for local bindings.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CompiledFunction {
+    /// The bytecode instructions for this function's body.
+    pub instructions: Vec<u8>,
+    /// The number of local bindings (parameters + let bindings) in this function.
+    pub num_locals: usize,
+    /// The number of parameters this function expects.
+    pub num_parameters: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -297,6 +316,7 @@ impl fmt::Display for Object {
             Self::Quote(quote) => quote.fmt(f),
             Self::ReturnValue(ret_val) => ret_val.fmt(f),
             Self::Builtin(_) => write!(f, "builtin function"),
+            Self::CompiledFunction(cf) => write!(f, "CompiledFunction[{:p}]", cf),
         }
     }
 }

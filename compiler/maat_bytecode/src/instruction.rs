@@ -159,9 +159,8 @@ impl fmt::Display for Instructions {
 pub fn encode(opcode: Opcode, operands: &[usize]) -> Vec<u8> {
     let widths = opcode.operand_widths();
 
-    let inst_len = 1 + widths.iter().sum::<usize>();
     let mut instruction = vec![opcode.to_byte()];
-    instruction.reserve(inst_len - 1);
+    instruction.reserve(widths.iter().sum());
 
     for (&operand, &width) in operands.iter().zip(widths.iter()) {
         encode_operand_bytes(&mut instruction, operand, width);
@@ -288,6 +287,8 @@ mod tests {
         let cases = vec![
             (Opcode::Constant, vec![65534], vec![0, 255, 254]),
             (Opcode::Add, vec![], vec![1]),
+            (Opcode::GetLocal, vec![255], vec![25, 255]),
+            (Opcode::Call, vec![3], vec![22, 3]),
         ];
 
         for (opcode, operands, expected) in cases {
@@ -302,6 +303,8 @@ mod tests {
             encode(Opcode::Add, &[]),
             encode(Opcode::Constant, &[2]),
             encode(Opcode::Constant, &[65535]),
+            encode(Opcode::GetLocal, &[1]),
+            encode(Opcode::Call, &[2]),
         ];
 
         let mut bytecode = Instructions::new();
@@ -309,13 +312,17 @@ mod tests {
             bytecode.extend(&Instructions::from(ins));
         }
 
-        let expected = "0000 OpAdd\n0001 OpConstant 2\n0004 OpConstant 65535\n";
+        let expected = "0000 OpAdd\n0001 OpConstant 2\n0004 OpConstant 65535\n0007 OpGetLocal 1\n0009 OpCall 2\n";
         assert_eq!(bytecode.to_string(), expected);
     }
 
     #[test]
     fn test_decode_operands() {
-        let cases = vec![(Opcode::Constant, vec![65535], 2)];
+        let cases = vec![
+            (Opcode::Constant, vec![65535], 2),
+            (Opcode::GetLocal, vec![128], 1),
+            (Opcode::Call, vec![5], 1),
+        ];
 
         for (opcode, expected_operands, expected_bytes_read) in cases {
             let instruction = encode(opcode, &expected_operands);
