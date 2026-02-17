@@ -165,15 +165,32 @@ impl Compiler {
         Ok(())
     }
 
+    /// Emits a constant-load instruction for a numeric literal.
+    fn compile_numeric_constant(&mut self, obj: Object) -> Result<()> {
+        let index = self.add_constant(obj)?;
+        self.emit(Opcode::Constant, &[index]);
+        Ok(())
+    }
+
     /// Compiles an expression node into bytecode.
     fn compile_expression(&mut self, expr: &Expression) -> Result<()> {
         match expr {
-            Expression::I64(int_lit) => {
-                let constant = Object::I64(int_lit.value);
-                let index = self.add_constant(constant)?;
-                self.emit(Opcode::Constant, &[index]);
-                Ok(())
-            }
+            Expression::I8(lit) => self.compile_numeric_constant(Object::I8(lit.value)),
+            Expression::I16(lit) => self.compile_numeric_constant(Object::I16(lit.value)),
+            Expression::I32(lit) => self.compile_numeric_constant(Object::I32(lit.value)),
+            Expression::I64(lit) => self.compile_numeric_constant(Object::I64(lit.value)),
+            Expression::I128(lit) => self.compile_numeric_constant(Object::I128(lit.value)),
+            Expression::Isize(lit) => self.compile_numeric_constant(Object::Isize(lit.value)),
+
+            Expression::U8(lit) => self.compile_numeric_constant(Object::U8(lit.value)),
+            Expression::U16(lit) => self.compile_numeric_constant(Object::U16(lit.value)),
+            Expression::U32(lit) => self.compile_numeric_constant(Object::U32(lit.value)),
+            Expression::U64(lit) => self.compile_numeric_constant(Object::U64(lit.value)),
+            Expression::U128(lit) => self.compile_numeric_constant(Object::U128(lit.value)),
+            Expression::Usize(lit) => self.compile_numeric_constant(Object::Usize(lit.value)),
+
+            Expression::F32(lit) => self.compile_numeric_constant(Object::F32(f32::from(*lit))),
+            Expression::F64(lit) => self.compile_numeric_constant(Object::F64(f64::from(*lit))),
 
             Expression::Boolean(value) => {
                 let opcode = if *value { Opcode::True } else { Opcode::False };
@@ -341,8 +358,8 @@ impl Compiler {
                 Ok(())
             }
 
-            expr => Err(CompileError::UnsupportedExpression {
-                expr_type: expr.type_name().to_string(),
+            Expression::Macro(_) => Err(CompileError::UnsupportedExpression {
+                expr_type: "macro literal".to_string(),
             }
             .into()),
         }
