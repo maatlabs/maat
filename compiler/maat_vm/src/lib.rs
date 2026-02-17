@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use maat_bytecode::{Bytecode, MAX_FRAMES, MAX_GLOBALS, MAX_STACK_SIZE, Opcode};
 use maat_errors::{Result, VmError};
-use maat_eval::{BUILTINS, CompiledFunction, FALSE, HashObject, Hashable, NULL, Object, TRUE};
+use maat_runtime::{BUILTINS, CompiledFunction, FALSE, HashObject, Hashable, NULL, Object, TRUE};
 
 /// A single call frame on the VM's frame stack.
 ///

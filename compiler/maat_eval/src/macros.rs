@@ -6,10 +6,9 @@
 //! - Quote/unquote builtins for AST manipulation
 
 use maat_ast::{self as ast, Expression, Node, Program, Statement, transform};
+use maat_runtime::{Env, Macro, Object, Quote, UNQUOTE};
 
-use crate::builtins::UNQUOTE;
 use crate::eval::{eval_block_statement, eval_expression};
-use crate::{Env, Macro, Object, Quote};
 
 /// Extracts macro definitions from a program and stores them in the environment.
 ///

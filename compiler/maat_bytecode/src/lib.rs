@@ -21,7 +21,7 @@
 //! println!("{}", bytecode);
 //! ```
 
-use maat_eval::Object;
+use maat_runtime::Object;
 
 mod instruction;
 mod opcode;
@@ -98,7 +98,7 @@ pub const MAX_FRAMES: usize = 1024;
 ///
 /// ```
 /// # use maat_bytecode::{Bytecode, Instructions, Opcode, encode};
-/// # use maat_eval::Object;
+/// # use maat_runtime::Object;
 /// // Constant pool stores the actual values:
 /// let constants = vec![
 ///     Object::I64(1),  // constants[0]

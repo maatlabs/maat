@@ -1,9 +1,9 @@
 use maat_ast::{Node, Program};
 use maat_bytecode::{Bytecode, Instructions, Opcode, encode};
 use maat_codegen::Compiler;
-use maat_eval::{Hashable, Object};
 use maat_lexer::Lexer;
 use maat_parse::Parser;
+use maat_runtime::{Hashable, Object};
 use maat_vm::VM;
 
 #[derive(Debug)]

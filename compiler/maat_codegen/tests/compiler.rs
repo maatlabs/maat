@@ -1,9 +1,9 @@
 use maat_ast::{Node, Program};
 use maat_bytecode::{Bytecode, Instructions, Opcode, encode};
 use maat_codegen::Compiler;
-use maat_eval::Object;
 use maat_lexer::Lexer;
 use maat_parse::Parser;
+use maat_runtime::Object;
 
 /// A constant expectation that can be either an integer or a compiled function's instructions.
 enum Constant {

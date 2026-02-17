@@ -1,7 +1,7 @@
 use maat_ast::{BlockStatement, Expression, Node, Program, Statement};
 use maat_bytecode::{Bytecode, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, Opcode, encode};
 use maat_errors::{CompileError, Result};
-use maat_eval::{BUILTINS, CompiledFunction, Object};
+use maat_runtime::{BUILTINS, CompiledFunction, Object};
 
 use crate::{SymbolScope, SymbolsTable};
 

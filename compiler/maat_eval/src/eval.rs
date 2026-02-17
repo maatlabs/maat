@@ -8,11 +8,12 @@ use std::collections::HashMap;
 
 use maat_ast::*;
 use maat_errors::{EvalError, Result};
+use maat_runtime::{
+    Env, FALSE, Function, HashObject, Hashable, Macro, NULL, Object, QUOTE, Quote, TRUE,
+    get_builtin,
+};
 
-use crate::builtins::{QUOTE, get_builtin};
-use crate::env::Env;
-use crate::macros::{define_macros, expand_macros};
-use crate::object::{FALSE, Function, HashObject, Hashable, Macro, NULL, Object, Quote, TRUE};
+use crate::{define_macros, expand_macros};
 
 /// Evaluates an AST node in the given environment.
 ///

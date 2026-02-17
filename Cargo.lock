@@ -22,7 +22,7 @@ name = "maat_bytecode"
 version = "0.3.0"
 dependencies = [
  "maat_errors",
- "maat_eval",
+ "maat_runtime",
 ]
 
 [[package]]
@@ -32,9 +32,9 @@ dependencies = [
  "maat_ast",
  "maat_bytecode",
  "maat_errors",
- "maat_eval",
  "maat_lexer",
  "maat_parse",
+ "maat_runtime",
 ]
 
 [[package]]
@@ -48,6 +48,7 @@ dependencies = [
  "maat_eval",
  "maat_lexer",
  "maat_parse",
+ "maat_runtime",
  "maat_vm",
 ]
 
@@ -65,6 +66,7 @@ version = "0.3.0"
 dependencies = [
  "maat_ast",
  "maat_errors",
+ "maat_runtime",
 ]
 
 [[package]]
@@ -86,6 +88,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "maat_runtime"
+version = "0.3.0"
+dependencies = [
+ "maat_ast",
+ "maat_errors",
+]
+
+[[package]]
 name = "maat_span"
 version = "0.3.0"
 
@@ -97,9 +107,9 @@ dependencies = [
  "maat_bytecode",
  "maat_codegen",
  "maat_errors",
- "maat_eval",
  "maat_lexer",
  "maat_parse",
+ "maat_runtime",
 ]
 
 [[package]]

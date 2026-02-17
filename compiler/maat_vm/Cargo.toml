@@ -8,7 +8,7 @@ repository.workspace = true
 [dependencies]
 maat_bytecode = { path = "../maat_bytecode" }
 maat_errors = { path = "../maat_errors" }
-maat_eval = { path = "../maat_eval" }
+maat_runtime = { path = "../maat_runtime" }
 
 [dev-dependencies]
 maat_ast = { path = "../maat_ast" }
