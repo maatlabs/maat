@@ -4,7 +4,7 @@
 //!
 //! ```
 //! use maat_lexer::Lexer;
-//! use maat_parse::Parser;
+//! use maat_parser::Parser;
 //!
 //! let input = "let x = 5 + 10;";
 //! let lexer = Lexer::new(input);
@@ -44,7 +44,7 @@ impl<'a> Parser<'a> {
     ///
     /// ```
     /// use maat_lexer::Lexer;
-    /// use maat_parse::Parser;
+    /// use maat_parser::Parser;
     ///
     /// let lexer = Lexer::new("let x = 42;");
     /// let parser = Parser::new(lexer);
@@ -67,7 +67,7 @@ impl<'a> Parser<'a> {
     ///
     /// ```
     /// use maat_lexer::Lexer;
-    /// use maat_parse::Parser;
+    /// use maat_parser::Parser;
     ///
     /// let lexer = Lexer::new("let = 5;");
     /// let mut parser = Parser::new(lexer);
@@ -95,7 +95,7 @@ impl<'a> Parser<'a> {
     ///
     /// ```
     /// use maat_lexer::Lexer;
-    /// use maat_parse::Parser;
+    /// use maat_parser::Parser;
     ///
     /// let input = r#"
     ///     let x = 5;

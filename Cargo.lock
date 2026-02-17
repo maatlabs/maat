@@ -13,7 +13,7 @@ dependencies = [
  "maat_ast",
  "maat_eval",
  "maat_lexer",
- "maat_parse",
+ "maat_parser",
  "maat_runtime",
 ]
 
@@ -37,7 +37,7 @@ dependencies = [
  "maat_bytecode",
  "maat_errors",
  "maat_lexer",
- "maat_parse",
+ "maat_parser",
  "maat_runtime",
 ]
 
@@ -67,7 +67,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "maat_parse"
+name = "maat_parser"
 version = "0.3.0"
 dependencies = [
  "maat_ast",
@@ -98,7 +98,7 @@ dependencies = [
  "maat_errors",
  "maat_eval",
  "maat_lexer",
- "maat_parse",
+ "maat_parser",
  "maat_runtime",
  "maat_vm",
 ]
@@ -112,7 +112,7 @@ dependencies = [
  "maat_codegen",
  "maat_errors",
  "maat_lexer",
- "maat_parse",
+ "maat_parser",
  "maat_runtime",
 ]
 

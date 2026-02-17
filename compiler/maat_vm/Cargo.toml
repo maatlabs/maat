@@ -14,4 +14,4 @@ maat_runtime = { path = "../maat_runtime" }
 maat_ast = { path = "../maat_ast" }
 maat_codegen = { path = "../maat_codegen" }
 maat_lexer = { path = "../maat_lexer" }
-maat_parse = { path = "../maat_parse" }
+maat_parser = { path = "../maat_parser" }

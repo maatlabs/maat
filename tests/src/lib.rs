@@ -5,7 +5,7 @@ use maat_bytecode::Bytecode;
 use maat_codegen::Compiler;
 use maat_eval::eval;
 use maat_lexer::Lexer;
-use maat_parse::Parser;
+use maat_parser::Parser;
 use maat_runtime::{Env, Object};
 
 /// Parses the given source string into an AST [`Program`].

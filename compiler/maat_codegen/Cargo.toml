@@ -13,4 +13,4 @@ maat_runtime = { path = "../maat_runtime" }
 
 [dev-dependencies]
 maat_lexer = { path = "../maat_lexer" }
-maat_parse = { path = "../maat_parse" }
+maat_parser = { path = "../maat_parser" }

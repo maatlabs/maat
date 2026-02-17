@@ -5,7 +5,7 @@ members = [
     "compiler/maat_errors",
     "compiler/maat_lexer",
     "compiler/maat_ast",
-    "compiler/maat_parse",
+    "compiler/maat_parser",
     "compiler/maat_eval",
     "compiler/maat_runtime",
     "compiler/maat_bytecode",
