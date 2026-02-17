@@ -11,9 +11,9 @@ members = [
     "compiler/maat_bytecode",
     "compiler/maat_codegen",
     "compiler/maat_vm",
-    "compiler/maat_driver",
     "compiler/maat",
     "src/tools/maat-repl",
+    "tests",
 ]
 
 [workspace.package]

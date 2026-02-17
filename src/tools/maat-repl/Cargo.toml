@@ -10,4 +10,8 @@ name = "repl"
 path = "src/main.rs"
 
 [dependencies]
-maat_driver = { path = "../../../compiler/maat_driver" }
+maat_ast = { path = "../../../compiler/maat_ast" }
+maat_eval = { path = "../../../compiler/maat_eval" }
+maat_lexer = { path = "../../../compiler/maat_lexer" }
+maat_parse = { path = "../../../compiler/maat_parse" }
+maat_runtime = { path = "../../../compiler/maat_runtime" }

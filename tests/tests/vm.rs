@@ -1,8 +1,6 @@
-use maat_ast::{Node, Program};
+use maat_ast::Node;
 use maat_bytecode::{Bytecode, Instructions, Opcode, encode};
 use maat_codegen::Compiler;
-use maat_lexer::Lexer;
-use maat_parse::Parser;
 use maat_runtime::{Hashable, Object};
 use maat_vm::VM;
 
@@ -16,14 +14,8 @@ enum TestValue {
     Null,
 }
 
-fn parse_program(input: &str) -> Program {
-    let lexer = Lexer::new(input);
-    let mut parser = Parser::new(lexer);
-    parser.parse_program()
-}
-
 fn run_vm_test(input: &str, expected: TestValue) {
-    let program = parse_program(input);
+    let program = maat_tests::parse(input);
     let mut compiler = Compiler::new();
     compiler
         .compile(&Node::Program(program))
@@ -122,7 +114,7 @@ fn run_vm_test(input: &str, expected: TestValue) {
 }
 
 fn run_vm_error_test(input: &str, expected_error: &str) {
-    let program = parse_program(input);
+    let program = maat_tests::parse(input);
     let mut compiler = Compiler::new();
     compiler
         .compile(&Node::Program(program))

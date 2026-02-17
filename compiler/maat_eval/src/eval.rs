@@ -24,7 +24,8 @@ use crate::{define_macros, expand_macros};
 /// # Examples
 ///
 /// ```no_run
-/// # use maat_eval::{eval, Env};
+/// # use maat_eval::eval;
+/// # use maat_runtime::Env;
 /// # use maat_ast::Node;
 /// # let program = maat_ast::Program { statements: vec![] };
 /// let env = Env::default();

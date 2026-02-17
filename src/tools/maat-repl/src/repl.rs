@@ -1,6 +1,10 @@
 use std::io::{self, BufRead, Write};
 
-use maat_driver::{Env, Lexer, Object, Parser, eval, maat_ast as ast};
+use maat_ast as ast;
+use maat_eval::eval;
+use maat_lexer::Lexer;
+use maat_parse::Parser;
+use maat_runtime::{Env, Object};
 
 const PROMPT: &str = ">> ";
 

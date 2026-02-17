@@ -1,16 +1,7 @@
-use maat_driver::{Env, Hashable, Lexer, NULL, Object, Parser, Result, eval, *};
+use maat_runtime::{Hashable, NULL, Object};
 
-fn test_eval(input: &str) -> Result<Object> {
-    let lexer = Lexer::new(input);
-    let mut parser = Parser::new(lexer);
-    let program = parser.parse_program();
-    assert!(
-        parser.errors().is_empty(),
-        "parser errors: {:?}",
-        parser.errors()
-    );
-    let env = Env::default();
-    eval(Node::Program(program), &env)
+fn test_eval(input: &str) -> maat_errors::Result<Object> {
+    maat_tests::run_eval(input)
 }
 
 #[test]

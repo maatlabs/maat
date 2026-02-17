@@ -1,25 +1,14 @@
-use maat_driver::{Env, Lexer, Object, Parser, define_macros, expand_macros, *};
-
-fn parse(input: &str) -> Program {
-    let lexer = Lexer::new(input);
-    let mut parser = Parser::new(lexer);
-    let program = parser.parse_program();
-    assert_eq!(
-        parser.errors().len(),
-        0,
-        "Parser errors: {:?}",
-        parser.errors()
-    );
-    program
-}
+use maat_ast::{Expression, Node};
+use maat_eval::{define_macros, eval, expand_macros};
+use maat_runtime::{Env, Object};
 
 fn test_macros(input: &str, expected: &str) {
-    let program = parse(input);
+    let program = maat_tests::parse(input);
     let env = Env::default();
     let program = define_macros(program, &env);
     let expanded = expand_macros(Node::Program(program), &env);
 
-    let expected_prog = parse(expected);
+    let expected_prog = maat_tests::parse(expected);
 
     if let Node::Program(expanded_prog) = expanded {
         assert_eq!(
@@ -53,7 +42,7 @@ fn test_define_macros() {
         let mymacro = macro(x, y) { x + y; };
     "#;
 
-    let program = parse(input);
+    let program = maat_tests::parse(input);
     let env = Env::default();
     let modified = define_macros(program, &env);
 
@@ -91,7 +80,7 @@ fn test_expand_macros_with_unquote() {
 #[test]
 fn test_quote_builtin() {
     let input = "quote(5 + 5)";
-    let program = parse(input);
+    let program = maat_tests::parse(input);
     let env = Env::default();
 
     let result = eval(Node::Program(program), &env).unwrap();

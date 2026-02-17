@@ -1,0 +1,18 @@
+[package]
+name = "maat_tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+maat_ast = { path = "../compiler/maat_ast" }
+maat_bytecode = { path = "../compiler/maat_bytecode" }
+maat_codegen = { path = "../compiler/maat_codegen" }
+maat_errors = { path = "../compiler/maat_errors" }
+maat_eval = { path = "../compiler/maat_eval" }
+maat_lexer = { path = "../compiler/maat_lexer" }
+maat_parse = { path = "../compiler/maat_parse" }
+maat_runtime = { path = "../compiler/maat_runtime" }
+maat_vm = { path = "../compiler/maat_vm" }
