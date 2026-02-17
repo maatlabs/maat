@@ -1,25 +1,20 @@
-//! Evaluation engine.
-//!
-//! This module implements a tree-walking interpreter that evaluates the AST nodes
+//! Implements a tree-walking interpreter that evaluates the AST nodes
 //! into runtime objects. It supports integers, booleans, functions, conditionals,
 //! and lexically-scoped environments.
 
 use std::collections::HashMap;
 
-use maat_ast::*;
+use maat_ast::{self as ast, *};
 use maat_errors::{EvalError, Result};
 use maat_runtime::{
-    Env, FALSE, Function, HashObject, Hashable, Macro, NULL, Object, QUOTE, Quote, TRUE,
+    Env, FALSE, Function, HashObject, Hashable, Macro, NULL, Object, QUOTE, Quote, TRUE, UNQUOTE,
     get_builtin,
 };
 
-use crate::{define_macros, expand_macros};
-
 /// Evaluates an AST node in the given environment.
 ///
-/// This is the main entry point for the interpreter. It recursively traverses
-/// the AST, evaluating expressions and executing statements, producing runtime
-/// objects as results.
+/// This function performs pure tree-walking evaluation without macro processing.
+/// For full program evaluation with macro support, use [`crate::eval_program`].
 ///
 /// # Examples
 ///
@@ -33,15 +28,7 @@ use crate::{define_macros, expand_macros};
 /// ```
 pub fn eval(node: Node, env: &Env) -> Result<Object> {
     match node {
-        Node::Program(prog) => {
-            let p = define_macros(prog, env);
-            let n = expand_macros(Node::Program(p), env);
-            if let Node::Program(expanded_prog) = n {
-                eval_program(expanded_prog, env)
-            } else {
-                unreachable!("expand_macros should return a Program node")
-            }
-        }
+        Node::Program(prog) => eval_program(prog, env),
 
         Node::Statement(stmt) => match stmt {
             Statement::Let(ls) => {
@@ -109,8 +96,7 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
                         .into());
                     }
                     let node = Node::Expression(call_expr.arguments[0].clone());
-                    // Process `unquote` calls within the quoted expression
-                    let node = crate::macros::eval_unquote_calls(node, env);
+                    let node = eval_unquote_calls(node, env);
                     return Ok(Object::Quote(Quote { node }));
                 }
                 eval_function_call(call_expr, env)
@@ -541,6 +527,84 @@ fn eval_function_call(expr: CallExpr, env: &Env) -> Result<Object> {
         Object::Builtin(builtin_fn) => builtin_fn(&expressions),
         obj => Err(EvalError::NotAFunction(format!("expected {obj} to be a function")).into()),
     }
+}
+
+/// Evaluates `unquote` calls within a quoted AST node.
+///
+/// Traverses the AST and replaces `unquote(expr)` calls with their evaluated
+/// results, enabling selective evaluation inside quoted expressions.
+fn eval_unquote_calls(quoted: Node, env: &Env) -> Node {
+    transform(quoted, &mut |node| {
+        if !is_unquote_call(&node) {
+            return node;
+        }
+
+        if let Node::Expression(Expression::Call(call)) = &node {
+            if call.arguments.len() != 1 {
+                return node;
+            }
+
+            let unquoted = match eval_expression(&call.arguments[0], env) {
+                Ok(obj) => obj,
+                Err(_) => return node,
+            };
+
+            match object_to_node(&unquoted) {
+                Some(ast_node) => ast_node,
+                None => node,
+            }
+        } else {
+            node
+        }
+    })
+}
+
+/// Checks if a node is a call to the `unquote` builtin.
+fn is_unquote_call(node: &Node) -> bool {
+    if let Node::Expression(Expression::Call(call)) = node
+        && let Expression::Identifier(ident) = &*call.function
+    {
+        return ident == UNQUOTE;
+    }
+    false
+}
+
+/// Converts a runtime object back to an AST node.
+///
+/// Used to splice evaluated values back into quoted code.
+fn object_to_node(obj: &Object) -> Option<Node> {
+    use ast::Radix;
+
+    macro_rules! convert_int {
+        ($($obj:ident => $ast_name:ident($ast_type:ident)),* $(,)?) => {
+            match obj {
+                $(
+                    Object::$obj(v) => Some(Node::Expression(Expression::$ast_name(ast::$ast_type {
+                        radix: Radix::Dec,
+                        value: *v,
+                    }))),
+                )*
+                Object::Boolean(b) => Some(Node::Expression(Expression::Boolean(*b))),
+                Object::Quote(q) => Some(q.node.clone()),
+                _ => None,
+            }
+        };
+    }
+
+    convert_int!(
+        I8 => I8(I8),
+        I16 => I16(I16),
+        I32 => I32(I32),
+        I64 => I64(I64),
+        I128 => I128(I128),
+        Isize => Isize(Isize),
+        U8 => U8(U8),
+        U16 => U16(U16),
+        U32 => U32(U32),
+        U64 => U64(U64),
+        U128 => U128(U128),
+        Usize => Usize(Usize),
+    )
 }
 
 /// Unescapes a string literal by processing escape sequences.

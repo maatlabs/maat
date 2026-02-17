@@ -3,7 +3,7 @@
 use maat_ast::{Node, Program};
 use maat_bytecode::Bytecode;
 use maat_codegen::Compiler;
-use maat_eval::eval;
+use maat_eval::eval_program;
 use maat_lexer::Lexer;
 use maat_parser::Parser;
 use maat_runtime::{Env, Object};
@@ -47,5 +47,5 @@ pub fn compile(input: &str) -> Bytecode {
 pub fn run_eval(input: &str) -> maat_errors::Result<Object> {
     let program = parse(input);
     let env = Env::default();
-    eval(Node::Program(program), &env)
+    eval_program(program, &env)
 }

@@ -3,12 +3,11 @@
 //! This module implements a Lisp-style macro system with:
 //! - Macro definition extraction from programs
 //! - Macro expansion using AST transformation
-//! - Quote/unquote builtins for AST manipulation
 
-use maat_ast::{self as ast, Expression, Node, Program, Statement, transform};
-use maat_runtime::{Env, Macro, Object, Quote, UNQUOTE};
+use maat_ast::{Expression, Node, Program, Statement, transform};
+use maat_runtime::{Env, Macro, Object, Quote};
 
-use crate::eval::{eval_block_statement, eval_expression};
+use crate::interpreter::eval_block_statement;
 
 /// Extracts macro definitions from a program and stores them in the environment.
 ///
@@ -99,82 +98,4 @@ pub fn expand_macros(program: Node, env: &Env) -> Node {
         }
         node
     })
-}
-
-/// Evaluates unquote calls within a quoted AST node.
-///
-/// This function traverses the AST and replaces `unquote` calls with
-/// their evaluated results.
-pub(crate) fn eval_unquote_calls(quoted: Node, env: &Env) -> Node {
-    transform(quoted, &mut |node| {
-        if !is_unquote_call(&node) {
-            return node;
-        }
-
-        if let Node::Expression(Expression::Call(call)) = &node {
-            if call.arguments.len() != 1 {
-                return node;
-            }
-
-            let unquoted = match eval_expression(&call.arguments[0], env) {
-                Ok(obj) => obj,
-                Err(_) => return node,
-            };
-
-            match object_to_node(&unquoted) {
-                Some(ast_node) => ast_node,
-                None => node,
-            }
-        } else {
-            node
-        }
-    })
-}
-
-/// Checks if a node is a call to the `unquote` builtin.
-fn is_unquote_call(node: &Node) -> bool {
-    if let Node::Expression(Expression::Call(call)) = node
-        && let Expression::Identifier(ident) = &*call.function
-    {
-        return ident == UNQUOTE;
-    }
-    false
-}
-
-/// Converts a runtime object back to an AST node.
-///
-/// This is used to splice evaluated values back into quoted code.
-fn object_to_node(obj: &Object) -> Option<Node> {
-    use ast::Radix;
-
-    macro_rules! convert_int {
-        ($($obj:ident => $ast_name:ident($ast_type:ident)),* $(,)?) => {
-            match obj {
-                $(
-                    Object::$obj(v) => Some(Node::Expression(Expression::$ast_name(ast::$ast_type {
-                        radix: Radix::Dec,
-                        value: *v,
-                    }))),
-                )*
-                Object::Boolean(b) => Some(Node::Expression(Expression::Boolean(*b))),
-                Object::Quote(q) => Some(q.node.clone()),
-                _ => None,
-            }
-        };
-    }
-
-    convert_int!(
-        I8 => I8(I8),
-        I16 => I16(I16),
-        I32 => I32(I32),
-        I64 => I64(I64),
-        I128 => I128(I128),
-        Isize => Isize(Isize),
-        U8 => U8(U8),
-        U16 => U16(U16),
-        U32 => U32(U32),
-        U64 => U64(U64),
-        U128 => U128(U128),
-        Usize => Usize(Usize),
-    )
 }

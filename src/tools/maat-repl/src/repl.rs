@@ -1,7 +1,7 @@
 use std::io::{self, BufRead, Write};
 
 use maat_ast as ast;
-use maat_eval::eval;
+use maat_eval::eval_program;
 use maat_lexer::Lexer;
 use maat_parser::Parser;
 use maat_runtime::{Env, Object};
@@ -67,7 +67,7 @@ pub fn start<R: BufRead, W: Write>(mut reader: R, writer: &mut W) -> io::Result<
                     .iter()
                     .all(|stmt| matches!(stmt, ast::Statement::Let(_)));
 
-            match eval(ast::Node::Program(program), &env) {
+            match eval_program(program, &env) {
                 Ok(result) => {
                     // Suppress output for let-only statements and null values
                     if only_let_stmts || matches!(result, Object::Null) {
