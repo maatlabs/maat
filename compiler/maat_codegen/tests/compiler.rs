@@ -729,3 +729,40 @@ fn compile_let_statement_scopes() {
         assert_constants(&bytecode, &expected_consts, input);
     }
 }
+
+#[test]
+fn compile_builtins() {
+    let cases: Vec<ConstantTestCase<'_>> = vec![
+        (
+            "len([]); push([], 1);",
+            vec![Constant::Int(1)],
+            vec![
+                encode(Opcode::GetBuiltin, &[0]),
+                encode(Opcode::Array, &[0]),
+                encode(Opcode::Call, &[1]),
+                encode(Opcode::Pop, &[]),
+                encode(Opcode::GetBuiltin, &[6]),
+                encode(Opcode::Array, &[0]),
+                encode(Opcode::Constant, &[0]),
+                encode(Opcode::Call, &[2]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+        (
+            "fn() { len([]) }",
+            vec![Constant::Fn(vec![
+                encode(Opcode::GetBuiltin, &[0]),
+                encode(Opcode::Array, &[0]),
+                encode(Opcode::Call, &[1]),
+                encode(Opcode::ReturnValue, &[]),
+            ])],
+            vec![encode(Opcode::Constant, &[0]), encode(Opcode::Pop, &[])],
+        ),
+    ];
+
+    for (input, expected_consts, expected_insts) in cases {
+        let bytecode = compile_program(input);
+        assert_instructions(&bytecode, &expected_insts, input);
+        assert_constants(&bytecode, &expected_consts, input);
+    }
+}

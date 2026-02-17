@@ -14,6 +14,23 @@ pub const QUOTE: &str = "quote";
 /// This is a special form handled during quote evaluation, not a regular builtin.
 pub const UNQUOTE: &str = "unquote";
 
+/// Ordered registry of built-in functions for the compiler/VM pipeline.
+///
+/// Each entry maps a fixed index to a `(name, function)` pair. The compiler
+/// resolves builtin identifiers by name and emits `OpGetBuiltin` with the
+/// corresponding index. The VM retrieves the function by index at runtime.
+///
+/// The ordering must remain stable across compiler and VM sessions.
+pub const BUILTINS: &[(&str, BuiltinFn)] = &[
+    ("len", len),
+    ("puts", print),
+    ("print", print),
+    ("first", first),
+    ("last", last),
+    ("rest", rest),
+    ("push", push),
+];
+
 /// Attempts to retrieve a builtin by name. Returns `Some(fn)` or `None`.
 #[inline]
 pub fn get_builtin(name: &str) -> Option<BuiltinFn> {

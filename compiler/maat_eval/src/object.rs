@@ -4,7 +4,7 @@ use std::fmt;
 use maat_ast::{BlockStatement, Node};
 use maat_errors::{Error, EvalError, Result};
 
-use crate::env::Env;
+use crate::Env;
 
 pub type BuiltinFn = fn(&[Object]) -> Result<Object>;
 

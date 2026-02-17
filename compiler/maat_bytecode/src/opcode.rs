@@ -112,6 +112,10 @@ pub enum Opcode {
     /// Store a value in a local binding.
     /// Operands: [u8] - local variable index
     SetLocal = 26,
+
+    /// Load a built-in function onto the stack.
+    /// Operands: [u8] - builtin function index
+    GetBuiltin = 27,
 }
 
 impl Opcode {
@@ -146,6 +150,7 @@ impl Opcode {
             Self::Return => "OpReturn",
             Self::GetLocal => "OpGetLocal",
             Self::SetLocal => "OpSetLocal",
+            Self::GetBuiltin => "OpGetBuiltin",
         }
     }
 
@@ -163,7 +168,7 @@ impl Opcode {
             | Self::GetGlobal
             | Self::Array
             | Self::Hash => &[2],
-            Self::Call | Self::GetLocal | Self::SetLocal => &[1],
+            Self::Call | Self::GetLocal | Self::SetLocal | Self::GetBuiltin => &[1],
             Self::Add
             | Self::Pop
             | Self::Sub
@@ -215,6 +220,7 @@ impl Opcode {
             24 => Some(Self::Return),
             25 => Some(Self::GetLocal),
             26 => Some(Self::SetLocal),
+            27 => Some(Self::GetBuiltin),
             _ => None,
         }
     }
@@ -232,7 +238,7 @@ mod tests {
 
     #[test]
     fn opcode_roundtrip() {
-        for byte in 0..=26 {
+        for byte in 0..=27 {
             let opcode = Opcode::from_byte(byte).unwrap();
             assert_eq!(opcode.to_byte(), byte);
         }

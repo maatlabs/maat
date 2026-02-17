@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use maat_bytecode::{Bytecode, MAX_FRAMES, MAX_GLOBALS, MAX_STACK_SIZE, Opcode};
 use maat_errors::{Result, VmError};
-use maat_eval::{CompiledFunction, FALSE, HashObject, Hashable, NULL, Object, TRUE};
+use maat_eval::{BUILTINS, CompiledFunction, FALSE, HashObject, Hashable, NULL, Object, TRUE};
 
 /// A single call frame on the VM's frame stack.
 ///
@@ -252,7 +252,15 @@ impl VM {
                 Opcode::Call => {
                     let num_args = self.read_u8_operand(ip + 1)?;
                     self.current_frame_mut()?.ip += 1;
-                    self.call_function(num_args)?;
+                    self.execute_function_call(num_args)?;
+                }
+                Opcode::GetBuiltin => {
+                    let index = self.read_u8_operand(ip + 1)?;
+                    self.current_frame_mut()?.ip += 1;
+                    let (_, builtin_fn) = BUILTINS.get(index).ok_or_else(|| {
+                        VmError::new(format!("builtin index out of bounds: {index}"))
+                    })?;
+                    self.push_stack(Object::Builtin(*builtin_fn))?;
                 }
                 Opcode::ReturnValue => {
                     let return_value = self.pop_stack()?;
@@ -327,26 +335,27 @@ impl VM {
             })
     }
 
-    /// Handles function call execution.
-    ///
-    /// Validates argument count, creates a new frame with base pointer
-    /// set to the first argument's position, and reserves stack space
-    /// for local variables.
-    fn call_function(&mut self, num_args: usize) -> Result<()> {
+    /// Dispatches a function call to the appropriate handler based on the callee type.
+    fn execute_function_call(&mut self, num_args: usize) -> Result<()> {
         let fn_slot = self
             .sp
             .checked_sub(1 + num_args)
             .ok_or_else(|| VmError::new("stack underflow in function call"))?;
-        let fn_obj = self
+        let callee = self
             .stack
             .get(fn_slot)
             .cloned()
             .ok_or_else(|| VmError::new("stack underflow in function call"))?;
-        let func = match &fn_obj {
-            Object::CompiledFunction(f) => f,
-            _ => return Err(VmError::new("calling non-function").into()),
-        };
 
+        match callee {
+            Object::CompiledFunction(ref f) => self.call_user_fn(f, num_args),
+            Object::Builtin(f) => self.call_builtin_fn(f, num_args),
+            _ => Err(VmError::new("calling non-function").into()),
+        }
+    }
+
+    /// Handles user-defined (compiled) function call execution.
+    fn call_user_fn(&mut self, func: &CompiledFunction, num_args: usize) -> Result<()> {
         if num_args != func.num_parameters {
             return Err(VmError::new(format!(
                 "wrong number of arguments: want={}, got={num_args}",
@@ -364,6 +373,22 @@ impl VM {
         if self.sp > self.stack.len() {
             self.stack.resize(self.sp, Object::Null);
         }
+
+        Ok(())
+    }
+
+    /// Executes a built-in function call.
+    fn call_builtin_fn(
+        &mut self,
+        func: fn(&[Object]) -> Result<Object>,
+        num_args: usize,
+    ) -> Result<()> {
+        let args_start = self.sp - num_args;
+        let args = self.stack[args_start..self.sp].to_vec();
+        let result = func(&args)?;
+
+        self.sp = args_start - 1;
+        self.push_stack(result)?;
 
         Ok(())
     }

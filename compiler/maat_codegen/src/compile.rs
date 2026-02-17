@@ -1,7 +1,7 @@
 use maat_ast::{BlockStatement, Expression, Node, Program, Statement};
 use maat_bytecode::{Bytecode, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, Opcode, encode};
 use maat_errors::{CompileError, Result};
-use maat_eval::{CompiledFunction, Object};
+use maat_eval::{BUILTINS, CompiledFunction, Object};
 
 use crate::{SymbolScope, SymbolsTable};
 
@@ -52,9 +52,12 @@ impl Compiler {
 
     /// Creates a new compiler with empty instruction stream and constant pool.
     pub fn new() -> Self {
+        let mut symbols_table = SymbolsTable::new();
+        Self::register_builtins(&mut symbols_table);
+
         Self {
             constants: Vec::new(),
-            symbols_table: SymbolsTable::new(),
+            symbols_table,
             scopes: vec![CompilationScope::new()],
             scope_index: 0,
         }
@@ -64,12 +67,21 @@ impl Compiler {
     ///
     /// This enables REPL sessions where variable definitions and constants
     /// persist across multiple compilation passes.
-    pub fn with_state(symbols_table: SymbolsTable, constants: Vec<Object>) -> Self {
+    pub fn with_state(mut symbols_table: SymbolsTable, constants: Vec<Object>) -> Self {
+        Self::register_builtins(&mut symbols_table);
+
         Self {
             constants,
             symbols_table,
             scopes: vec![CompilationScope::new()],
             scope_index: 0,
+        }
+    }
+
+    /// Registers all built-in functions in the given symbols table.
+    fn register_builtins(table: &mut SymbolsTable) {
+        for (i, (name, _)) in BUILTINS.iter().enumerate() {
+            table.define_builtin(i, name);
         }
     }
 
@@ -133,6 +145,7 @@ impl Compiler {
                 match scope {
                     SymbolScope::Global => self.emit(Opcode::SetGlobal, &[index]),
                     SymbolScope::Local => self.emit(Opcode::SetLocal, &[index]),
+                    SymbolScope::Builtin => unreachable!("cannot bind to a builtin scope"),
                 };
                 Ok(())
             }
@@ -254,6 +267,7 @@ impl Compiler {
                 match scope {
                     SymbolScope::Global => self.emit(Opcode::GetGlobal, &[index]),
                     SymbolScope::Local => self.emit(Opcode::GetLocal, &[index]),
+                    SymbolScope::Builtin => self.emit(Opcode::GetBuiltin, &[index]),
                 };
                 Ok(())
             }

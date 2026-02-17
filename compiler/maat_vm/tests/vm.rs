@@ -1,5 +1,5 @@
 use maat_ast::{Node, Program};
-use maat_bytecode::Bytecode;
+use maat_bytecode::{Bytecode, Instructions, Opcode, encode};
 use maat_codegen::Compiler;
 use maat_eval::{Hashable, Object};
 use maat_lexer::Lexer;
@@ -42,6 +42,12 @@ fn run_vm_test(input: &str, expected: TestValue) {
         TestValue::Int(expected_val) => match stack_elem {
             Object::I64(val) => {
                 assert_eq!(val, expected_val, "wrong integer value for input: {input}")
+            }
+            Object::Usize(val) => {
+                assert_eq!(
+                    val as i64, expected_val,
+                    "wrong integer value for input: {input}"
+                )
             }
             _ => panic!("expected integer object, got: {:?}", stack_elem),
         },
@@ -471,8 +477,44 @@ fn calling_functions_with_wrong_arguments() {
 }
 
 #[test]
+fn builtin_functions() {
+    let cases = vec![
+        (r#"len("")"#, TestValue::Int(0)),
+        (r#"len("four")"#, TestValue::Int(4)),
+        ("len([1, 2, 3])", TestValue::Int(3)),
+        ("len([])", TestValue::Int(0)),
+        (r#"puts("hello", "world!")"#, TestValue::Null),
+        ("first([1, 2, 3])", TestValue::Int(1)),
+        ("first([])", TestValue::Null),
+        ("last([1, 2, 3])", TestValue::Int(3)),
+        ("last([])", TestValue::Null),
+        ("rest([1, 2, 3])", TestValue::IntArray(vec![2, 3])),
+        ("rest([])", TestValue::Null),
+        ("push([], 1)", TestValue::IntArray(vec![1])),
+    ];
+
+    for (input, expected) in cases {
+        run_vm_test(input, expected);
+    }
+}
+
+#[test]
+fn builtin_function_errors() {
+    let cases = vec![
+        ("len(1)", "argument to `len` not supported"),
+        (r#"len("one", "two")"#, "wrong number of arguments"),
+        ("first(1)", "argument to `first` must be an array"),
+        ("last(1)", "argument to `last` must be an array"),
+        ("push(1, 1)", "argument to `push` must be an array"),
+    ];
+
+    for (input, expected_error) in cases {
+        run_vm_error_test(input, expected_error);
+    }
+}
+
+#[test]
 fn stack_underflow() {
-    use maat_bytecode::{Instructions, Opcode, encode};
     use maat_errors::Error;
 
     let mut instructions = Instructions::new();

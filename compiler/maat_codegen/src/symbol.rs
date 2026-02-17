@@ -38,6 +38,8 @@ pub enum SymbolScope {
     Global,
     /// A locally-scoped variable, accessible only within its enclosing function.
     Local,
+    /// A built-in function, resolved at compile time by index.
+    Builtin,
 }
 
 impl SymbolsTable {
@@ -105,6 +107,21 @@ impl SymbolsTable {
         self.store.insert(name.to_string(), symbol);
         self.num_definitions += 1;
         Ok(&self.store[name])
+    }
+
+    /// Defines a built-in function symbol with a fixed index.
+    ///
+    /// Built-in symbols are stored in the table but do not increment
+    /// `num_definitions`, as they occupy no global or local storage slots.
+    /// They are resolved by index at runtime via `OpGetBuiltin`.
+    pub fn define_builtin(&mut self, index: usize, name: &str) -> &Symbol {
+        let symbol = Symbol {
+            name: name.to_string(),
+            scope: SymbolScope::Builtin,
+            index,
+        };
+        self.store.insert(name.to_string(), symbol);
+        &self.store[name]
     }
 
     /// Resolves a symbol by name, walking up the scope chain.
@@ -185,6 +202,33 @@ mod tests {
 
         for (name, expected_scope, expected_index) in expected {
             let symbol = local
+                .resolve_symbol(name)
+                .unwrap_or_else(|| panic!("'{name}' should be resolvable"));
+            assert_eq!(symbol.scope, expected_scope, "wrong scope for '{name}'");
+            assert_eq!(symbol.index, expected_index, "wrong index for '{name}'");
+        }
+    }
+
+    #[test]
+    fn define_resolve_builtins() {
+        let mut global = SymbolsTable::new();
+        let expected = [
+            ("a", SymbolScope::Builtin, 0),
+            ("c", SymbolScope::Builtin, 1),
+            ("e", SymbolScope::Builtin, 2),
+            ("f", SymbolScope::Builtin, 3),
+        ];
+
+        for (i, &(name, _, _)) in expected.iter().enumerate() {
+            global.define_builtin(i, name);
+        }
+
+        let first_local = SymbolsTable::new_enclosed(global);
+        let second_local = SymbolsTable::new_enclosed(first_local);
+
+        // Builtins must resolve at every scope level.
+        for &(name, expected_scope, expected_index) in &expected {
+            let symbol = second_local
                 .resolve_symbol(name)
                 .unwrap_or_else(|| panic!("'{name}' should be resolvable"));
             assert_eq!(symbol.scope, expected_scope, "wrong scope for '{name}'");

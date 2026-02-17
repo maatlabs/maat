@@ -4,6 +4,7 @@ mod eval;
 mod macros;
 mod object;
 
+pub use builtins::BUILTINS;
 pub use env::Env;
 pub use eval::eval;
 pub use macros::{define_macros, expand_macros};
