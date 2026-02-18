@@ -116,6 +116,18 @@ pub enum Opcode {
     /// Load a built-in function onto the stack.
     /// Operands: [u8] - builtin function index
     GetBuiltin = 27,
+
+    /// Create a closure from a compiled function and captured free variables.
+    /// Operands: [u16, u8] - constant pool index of the function, number of free variables
+    Closure = 28,
+
+    /// Load a free variable from the current closure's captured environment.
+    /// Operands: [u8] - free variable index
+    GetFree = 29,
+
+    /// Push the current closure onto the stack for recursive self-reference.
+    /// Operands: none
+    CurrentClosure = 30,
 }
 
 impl Opcode {
@@ -151,6 +163,9 @@ impl Opcode {
             Self::GetLocal => "OpGetLocal",
             Self::SetLocal => "OpSetLocal",
             Self::GetBuiltin => "OpGetBuiltin",
+            Self::Closure => "OpClosure",
+            Self::GetFree => "OpGetFree",
+            Self::CurrentClosure => "OpCurrentClosure",
         }
     }
 
@@ -168,7 +183,8 @@ impl Opcode {
             | Self::GetGlobal
             | Self::Array
             | Self::Hash => &[2],
-            Self::Call | Self::GetLocal | Self::SetLocal | Self::GetBuiltin => &[1],
+            Self::Closure => &[2, 1],
+            Self::Call | Self::GetLocal | Self::SetLocal | Self::GetBuiltin | Self::GetFree => &[1],
             Self::Add
             | Self::Pop
             | Self::Sub
@@ -185,7 +201,8 @@ impl Opcode {
             | Self::Null
             | Self::Index
             | Self::ReturnValue
-            | Self::Return => &[],
+            | Self::Return
+            | Self::CurrentClosure => &[],
         }
     }
 
@@ -221,6 +238,9 @@ impl Opcode {
             25 => Some(Self::GetLocal),
             26 => Some(Self::SetLocal),
             27 => Some(Self::GetBuiltin),
+            28 => Some(Self::Closure),
+            29 => Some(Self::GetFree),
+            30 => Some(Self::CurrentClosure),
             _ => None,
         }
     }
@@ -238,7 +258,7 @@ mod tests {
 
     #[test]
     fn opcode_roundtrip() {
-        for byte in 0..=27 {
+        for byte in 0..=30 {
             let opcode = Opcode::from_byte(byte).unwrap();
             assert_eq!(opcode.to_byte(), byte);
         }

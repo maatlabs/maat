@@ -228,9 +228,15 @@ pub struct ConditionalExpr {
     pub alternative: Option<BlockStatement>,
 }
 
-/// Function literal
+/// Function literal with optional name for recursive self-reference.
+///
+/// Named functions are created when a function literal is assigned via a
+/// `let` binding (e.g., `let foo = fn(x) { ... }`). The name enables
+/// recursive closures to reference themselves without capturing an
+/// outer binding.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Function {
+    pub name: Option<String>,
     pub params: Vec<String>,
     pub body: BlockStatement,
 }
@@ -422,7 +428,15 @@ impl fmt::Display for ConditionalExpr {
 
 impl fmt::Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "fn({}) {{\n{}\n}}", self.params.join(", "), self.body)
+        match &self.name {
+            Some(name) => write!(
+                f,
+                "fn<{name}>({}) {{\n{}\n}}",
+                self.params.join(", "),
+                self.body
+            ),
+            None => write!(f, "fn({}) {{\n{}\n}}", self.params.join(", "), self.body),
+        }
     }
 }
 

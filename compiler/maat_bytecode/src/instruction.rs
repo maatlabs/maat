@@ -289,6 +289,7 @@ mod tests {
             (Opcode::Add, vec![], vec![1]),
             (Opcode::GetLocal, vec![255], vec![25, 255]),
             (Opcode::Call, vec![3], vec![22, 3]),
+            (Opcode::Closure, vec![65534, 255], vec![28, 255, 254, 255]),
         ];
 
         for (opcode, operands, expected) in cases {
@@ -303,6 +304,7 @@ mod tests {
             encode(Opcode::Add, &[]),
             encode(Opcode::Constant, &[2]),
             encode(Opcode::Constant, &[65535]),
+            encode(Opcode::Closure, &[65535, 255]),
             encode(Opcode::GetLocal, &[1]),
             encode(Opcode::Call, &[2]),
         ];
@@ -312,7 +314,7 @@ mod tests {
             bytecode.extend(&Instructions::from(ins));
         }
 
-        let expected = "0000 OpAdd\n0001 OpConstant 2\n0004 OpConstant 65535\n0007 OpGetLocal 1\n0009 OpCall 2\n";
+        let expected = "0000 OpAdd\n0001 OpConstant 2\n0004 OpConstant 65535\n0007 OpClosure 65535 255\n0011 OpGetLocal 1\n0013 OpCall 2\n";
         assert_eq!(bytecode.to_string(), expected);
     }
 
@@ -322,6 +324,7 @@ mod tests {
             (Opcode::Constant, vec![65535], 2),
             (Opcode::GetLocal, vec![128], 1),
             (Opcode::Call, vec![5], 1),
+            (Opcode::Closure, vec![65534, 255], 3),
         ];
 
         for (opcode, expected_operands, expected_bytes_read) in cases {

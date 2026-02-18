@@ -1,6 +1,4 @@
-use maat_ast::Node;
 use maat_bytecode::{Bytecode, Instructions, Opcode, encode};
-use maat_codegen::Compiler;
 use maat_runtime::{Hashable, Object};
 use maat_vm::VM;
 
@@ -15,13 +13,7 @@ enum TestValue {
 }
 
 fn run_vm_test(input: &str, expected: TestValue) {
-    let program = maat_tests::parse(input);
-    let mut compiler = Compiler::new();
-    compiler
-        .compile(&Node::Program(program))
-        .expect("compilation failed");
-
-    let bytecode = compiler.bytecode().expect("bytecode extraction failed");
+    let bytecode = maat_tests::compile(input);
     let mut vm = VM::new(bytecode);
     vm.run().expect("vm error");
 
@@ -114,13 +106,7 @@ fn run_vm_test(input: &str, expected: TestValue) {
 }
 
 fn run_vm_error_test(input: &str, expected_error: &str) {
-    let program = maat_tests::parse(input);
-    let mut compiler = Compiler::new();
-    compiler
-        .compile(&Node::Program(program))
-        .expect("compilation failed");
-
-    let bytecode = compiler.bytecode().expect("bytecode extraction failed");
+    let bytecode = maat_tests::compile(input);
     let mut vm = VM::new(bytecode);
     let result = vm.run();
 
@@ -532,4 +518,81 @@ fn stack_underflow() {
         }
         other => panic!("expected VmError, got {:?}", other),
     }
+}
+
+#[test]
+fn closures() {
+    let cases = vec![
+        (
+            "let newClosure = fn(a) { fn() { a; }; }; let closure = newClosure(99); closure();",
+            TestValue::Int(99),
+        ),
+        (
+            "let newAdder = fn(a, b) { fn(c) { a + b + c }; }; let adder = newAdder(1, 2); adder(8);",
+            TestValue::Int(11),
+        ),
+        (
+            "let newAdder = fn(a, b) { let c = a + b; fn(d) { c + d }; }; let adder = newAdder(1, 2); adder(8);",
+            TestValue::Int(11),
+        ),
+        (
+            "let newAdderOuter = fn(a, b) { let c = a + b; fn(d) { let e = d + c; fn(f) { e + f; }; }; }; let newAdderInner = newAdderOuter(1, 2); let adder = newAdderInner(3); adder(8);",
+            TestValue::Int(14),
+        ),
+        (
+            "let a = 1; let newAdderOuter = fn(b) { fn(c) { fn(d) { a + b + c + d }; }; }; let newAdderInner = newAdderOuter(2); let adder = newAdderInner(3); adder(8);",
+            TestValue::Int(14),
+        ),
+        (
+            "let newClosure = fn(a, b) { let one = fn() { a; }; let two = fn() { b; }; fn() { one() + two(); }; }; let closure = newClosure(9, 90); closure();",
+            TestValue::Int(99),
+        ),
+    ];
+
+    for (input, expected) in cases {
+        run_vm_test(input, expected);
+    }
+}
+
+#[test]
+fn recursive_functions() {
+    let cases = vec![
+        (
+            "let countDown = fn(x) { if (x == 0) { return 0; } else { countDown(x - 1); } }; countDown(1);",
+            TestValue::Int(0),
+        ),
+        (
+            "let countDown = fn(x) { if (x == 0) { return 0; } else { countDown(x - 1); } }; let wrapper = fn() { countDown(1); }; wrapper();",
+            TestValue::Int(0),
+        ),
+        (
+            "let wrapper = fn() { let countDown = fn(x) { if (x == 0) { return 0; } else { countDown(x - 1); } }; countDown(1); }; wrapper();",
+            TestValue::Int(0),
+        ),
+    ];
+
+    for (input, expected) in cases {
+        run_vm_test(input, expected);
+    }
+}
+
+#[test]
+fn recursive_fibonacci() {
+    run_vm_test(
+        r#"
+        let fibonacci = fn(x) {
+            if (x == 0) {
+                return 0;
+            } else {
+                if (x == 1) {
+                    return 1;
+                } else {
+                    fibonacci(x - 1) + fibonacci(x - 2);
+                }
+            }
+        };
+        fibonacci(15);
+        "#,
+        TestValue::Int(610),
+    );
 }

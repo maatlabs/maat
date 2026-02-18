@@ -139,7 +139,10 @@ impl<'a> Parser<'a> {
             return None;
         }
         self.next_token();
-        let value = self.parse_expression(LOWEST)?;
+        let mut value = self.parse_expression(LOWEST)?;
+        if let Expression::Function(ref mut func) = value {
+            func.name = Some(ident.clone());
+        }
         if self.peek_token_is(TokenKind::Semicolon) {
             self.next_token();
         }
@@ -503,7 +506,11 @@ impl<'a> Parser<'a> {
         }
         let body = self.parse_block_statement()?;
 
-        Some(Expression::Function(Function { params, body }))
+        Some(Expression::Function(Function {
+            name: None,
+            params,
+            body,
+        }))
     }
 
     fn parse_macro(&mut self) -> Option<Expression> {

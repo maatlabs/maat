@@ -224,6 +224,7 @@ fn transform_let_statement() {
 #[test]
 fn transform_function_literal() {
     let func = Expression::Function(Function {
+        name: None,
         params: vec!["x".to_string()],
         body: BlockStatement {
             statements: vec![Statement::Expression(ExpressionStatement { value: one() })],

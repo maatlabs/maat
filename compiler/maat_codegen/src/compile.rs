@@ -3,7 +3,7 @@ use maat_bytecode::{Bytecode, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE,
 use maat_errors::{CompileError, Result};
 use maat_runtime::{BUILTINS, CompiledFunction, Object};
 
-use crate::{SymbolScope, SymbolsTable};
+use crate::{Symbol, SymbolScope, SymbolsTable};
 
 /// Per-scope compilation state.
 ///
@@ -145,7 +145,9 @@ impl Compiler {
                 match scope {
                     SymbolScope::Global => self.emit(Opcode::SetGlobal, &[index]),
                     SymbolScope::Local => self.emit(Opcode::SetLocal, &[index]),
-                    SymbolScope::Builtin => unreachable!("cannot bind to a builtin scope"),
+                    SymbolScope::Builtin | SymbolScope::Free | SymbolScope::Function => {
+                        unreachable!("define_symbol never produces this scope")
+                    }
                 };
                 Ok(())
             }
@@ -280,12 +282,7 @@ impl Compiler {
                     .symbols_table
                     .resolve_symbol(name)
                     .ok_or_else(|| CompileError::UndefinedVariable { name: name.clone() })?;
-                let (scope, index) = (symbol.scope, symbol.index);
-                match scope {
-                    SymbolScope::Global => self.emit(Opcode::GetGlobal, &[index]),
-                    SymbolScope::Local => self.emit(Opcode::GetLocal, &[index]),
-                    SymbolScope::Builtin => self.emit(Opcode::GetBuiltin, &[index]),
-                };
+                self.load_symbol(&symbol);
                 Ok(())
             }
 
@@ -323,6 +320,10 @@ impl Compiler {
             Expression::Function(func) => {
                 self.enter_scope();
 
+                if let Some(name) = &func.name {
+                    self.symbols_table.define_function_name(name);
+                }
+
                 for param in &func.params {
                     self.symbols_table.define_symbol(param)?;
                 }
@@ -336,8 +337,14 @@ impl Compiler {
                     self.emit(Opcode::Return, &[]);
                 }
 
+                let free_vars = self.symbols_table.free_vars().to_vec();
+                let num_free = free_vars.len();
                 let num_locals = self.symbols_table.num_definitions();
                 let instructions = self.leave_scope()?;
+
+                for sym in &free_vars {
+                    self.load_symbol(sym);
+                }
 
                 let compiled_fn = Object::CompiledFunction(CompiledFunction {
                     instructions: instructions.into(),
@@ -345,7 +352,7 @@ impl Compiler {
                     num_parameters: func.params.len(),
                 });
                 let index = self.add_constant(compiled_fn)?;
-                self.emit(Opcode::Constant, &[index]);
+                self.emit(Opcode::Closure, &[index, num_free]);
                 Ok(())
             }
 
@@ -422,6 +429,20 @@ impl Compiler {
         self.symbols_table = current.take_outer().ok_or(CompileError::ScopeUnderflow)?;
 
         Ok(scope.instructions)
+    }
+
+    /// Emits the appropriate load instruction for a resolved symbol.
+    ///
+    /// Dispatches to the correct opcode based on the symbol's scope:
+    /// global, local, builtin, free variable, or current closure.
+    fn load_symbol(&mut self, symbol: &Symbol) {
+        match symbol.scope {
+            SymbolScope::Global => self.emit(Opcode::GetGlobal, &[symbol.index]),
+            SymbolScope::Local => self.emit(Opcode::GetLocal, &[symbol.index]),
+            SymbolScope::Builtin => self.emit(Opcode::GetBuiltin, &[symbol.index]),
+            SymbolScope::Free => self.emit(Opcode::GetFree, &[symbol.index]),
+            SymbolScope::Function => self.emit(Opcode::CurrentClosure, &[]),
+        };
     }
 
     /// Emits a bytecode instruction with the given opcode and operands.

@@ -8,28 +8,36 @@ use std::collections::HashMap;
 
 use maat_bytecode::{Bytecode, MAX_FRAMES, MAX_GLOBALS, MAX_STACK_SIZE, Opcode};
 use maat_errors::{Result, VmError};
-use maat_runtime::{BUILTINS, CompiledFunction, FALSE, HashObject, Hashable, NULL, Object, TRUE};
+use maat_runtime::{
+    BUILTINS, Closure, CompiledFunction, FALSE, HashObject, Hashable, NULL, Object, TRUE,
+};
 
 /// A single call frame on the VM's frame stack.
 ///
-/// Each function invocation creates a new frame that tracks the function's
+/// Each function invocation creates a new frame that tracks the closure's
 /// bytecode, current instruction pointer, and base pointer into the stack
 /// where this frame's local variables begin.
 #[derive(Debug, Clone)]
 struct Frame {
-    instructions: Vec<u8>,
+    closure: Closure,
     ip: isize,
     base_pointer: usize,
 }
 
 impl Frame {
-    /// Creates a new call frame for the given compiled function.
-    fn new(func: &CompiledFunction, base_pointer: usize) -> Self {
+    /// Creates a new call frame for the given closure.
+    fn new(closure: Closure, base_pointer: usize) -> Self {
         Self {
-            instructions: func.instructions.clone(),
+            closure,
             ip: -1,
             base_pointer,
         }
+    }
+
+    /// Returns a reference to this frame's instruction bytes.
+    #[inline]
+    fn instructions(&self) -> &[u8] {
+        &self.closure.func.instructions
     }
 }
 
@@ -51,14 +59,17 @@ impl VM {
     /// Creates a new virtual machine from compiled bytecode.
     ///
     /// The top-level program instructions are wrapped in a synthetic
-    /// `CompiledFunction` and placed as the initial frame.
+    /// closure and placed as the initial frame.
     pub fn new(bytecode: Bytecode) -> Self {
-        let main_fn = CompiledFunction {
-            instructions: bytecode.instructions.into(),
-            num_locals: 0,
-            num_parameters: 0,
+        let main_closure = Closure {
+            func: CompiledFunction {
+                instructions: bytecode.instructions.into(),
+                num_locals: 0,
+                num_parameters: 0,
+            },
+            free_vars: vec![],
         };
-        let main_frame = Frame::new(&main_fn, 0);
+        let main_frame = Frame::new(main_closure, 0);
 
         Self {
             constants: bytecode.constants,
@@ -74,12 +85,15 @@ impl VM {
     /// This enables REPL sessions where global variable values persist
     /// across multiple bytecode executions.
     pub fn with_globals(bytecode: Bytecode, globals: Vec<Object>) -> Self {
-        let main_fn = CompiledFunction {
-            instructions: bytecode.instructions.into(),
-            num_locals: 0,
-            num_parameters: 0,
+        let main_closure = Closure {
+            func: CompiledFunction {
+                instructions: bytecode.instructions.into(),
+                num_locals: 0,
+                num_parameters: 0,
+            },
+            free_vars: vec![],
         };
-        let main_frame = Frame::new(&main_fn, 0);
+        let main_frame = Frame::new(main_closure, 0);
 
         Self {
             constants: bytecode.constants,
@@ -162,16 +176,17 @@ impl VM {
     pub fn run(&mut self) -> Result<()> {
         loop {
             let frame = self.current_frame()?;
-            if frame.ip >= frame.instructions.len() as isize - 1 {
+            if frame.ip >= frame.instructions().len() as isize - 1 {
                 break;
             }
 
             self.current_frame_mut()?.ip += 1;
             let ip = self.current_frame()?.ip as usize;
-            let op_byte =
-                *self.current_frame()?.instructions.get(ip).ok_or_else(|| {
-                    VmError::new(format!("instruction pointer out of bounds: {ip}"))
-                })?;
+            let op_byte = *self
+                .current_frame()?
+                .instructions()
+                .get(ip)
+                .ok_or_else(|| VmError::new(format!("instruction pointer out of bounds: {ip}")))?;
             let op = Opcode::from_byte(op_byte)
                 .ok_or_else(|| VmError::new(format!("unknown opcode: {op_byte}")))?;
 
@@ -262,6 +277,54 @@ impl VM {
                     })?;
                     self.push_stack(Object::Builtin(*builtin_fn))?;
                 }
+                Opcode::Closure => {
+                    let const_index = self.read_u16_operand(ip + 1)?;
+                    let num_free = self.read_u8_operand(ip + 3)?;
+                    self.current_frame_mut()?.ip += 3;
+
+                    let func = match self.constants.get(const_index) {
+                        Some(Object::CompiledFunction(f)) => f.clone(),
+                        _ => {
+                            return Err(VmError::new(format!(
+                                "expected CompiledFunction at constant pool index {const_index}"
+                            ))
+                            .into());
+                        }
+                    };
+
+                    let base = self
+                        .sp
+                        .checked_sub(num_free)
+                        .ok_or_else(|| VmError::new("stack underflow reading free variables"))?;
+                    let free_vars = (0..num_free)
+                        .map(|i| {
+                            self.stack.get(base + i).cloned().ok_or_else(|| {
+                                VmError::new("stack underflow reading free variables").into()
+                            })
+                        })
+                        .collect::<Result<Vec<_>>>()?;
+                    self.sp = base;
+
+                    self.push_stack(Object::Closure(Closure { func, free_vars }))?;
+                }
+                Opcode::GetFree => {
+                    let index = self.read_u8_operand(ip + 1)?;
+                    self.current_frame_mut()?.ip += 1;
+                    let value = self
+                        .current_frame()?
+                        .closure
+                        .free_vars
+                        .get(index)
+                        .cloned()
+                        .ok_or_else(|| {
+                            VmError::new(format!("free variable index out of bounds: {index}"))
+                        })?;
+                    self.push_stack(value)?;
+                }
+                Opcode::CurrentClosure => {
+                    let closure = self.current_frame()?.closure.clone();
+                    self.push_stack(Object::Closure(closure))?;
+                }
                 Opcode::ReturnValue => {
                     let return_value = self.pop_stack()?;
                     let frame = self.pop_frame()?;
@@ -309,7 +372,7 @@ impl VM {
     /// Returns `VmError` if the offset extends beyond the instruction stream.
     #[inline]
     fn read_u16_operand(&self, offset: usize) -> Result<usize> {
-        let instructions = &self.current_frame()?.instructions;
+        let instructions = self.current_frame()?.instructions();
         let hi = *instructions
             .get(offset)
             .ok_or_else(|| VmError::new("instruction stream truncated: missing operand byte"))?;
@@ -327,7 +390,7 @@ impl VM {
     #[inline]
     fn read_u8_operand(&self, offset: usize) -> Result<usize> {
         self.current_frame()?
-            .instructions
+            .instructions()
             .get(offset)
             .map(|&b| b as usize)
             .ok_or_else(|| {
@@ -348,25 +411,25 @@ impl VM {
             .ok_or_else(|| VmError::new("stack underflow in function call"))?;
 
         match callee {
-            Object::CompiledFunction(ref f) => self.call_user_fn(f, num_args),
+            Object::Closure(cl) => self.call_closure(cl, num_args),
             Object::Builtin(f) => self.call_builtin_fn(f, num_args),
             _ => Err(VmError::new("calling non-function").into()),
         }
     }
 
-    /// Handles user-defined (compiled) function call execution.
-    fn call_user_fn(&mut self, func: &CompiledFunction, num_args: usize) -> Result<()> {
-        if num_args != func.num_parameters {
+    /// Handles closure call execution.
+    fn call_closure(&mut self, closure: Closure, num_args: usize) -> Result<()> {
+        if num_args != closure.func.num_parameters {
             return Err(VmError::new(format!(
                 "wrong number of arguments: want={}, got={num_args}",
-                func.num_parameters
+                closure.func.num_parameters
             ))
             .into());
         }
 
         let base_pointer = self.sp - num_args;
-        let num_locals = func.num_locals;
-        let frame = Frame::new(func, base_pointer);
+        let num_locals = closure.func.num_locals;
+        let frame = Frame::new(closure, base_pointer);
         self.push_frame(frame)?;
         self.sp = base_pointer + num_locals;
 

@@ -72,6 +72,8 @@ pub enum Object {
     Builtin(BuiltinFn),
     /// A compiled function containing bytecode instructions.
     CompiledFunction(CompiledFunction),
+    /// A closure wrapping a compiled function with captured free variables.
+    Closure(Closure),
 }
 
 impl Object {
@@ -157,6 +159,7 @@ impl Object {
             Self::ReturnValue(_) => "ReturnValue",
             Self::Builtin(_) => "BuiltinFn",
             Self::CompiledFunction(_) => "CompiledFunction",
+            Self::Closure(_) => "Closure",
         }
     }
 }
@@ -190,6 +193,7 @@ impl PartialEq for Object {
             (ReturnValue(o1), ReturnValue(o2)) => o1 == o2,
             (Builtin(f1), Builtin(f2)) => std::ptr::fn_addr_eq(*f1, *f2),
             (CompiledFunction(c1), CompiledFunction(c2)) => c1 == c2,
+            (Closure(c1), Closure(c2)) => c1 == c2,
             _ => false,
         }
     }
@@ -230,6 +234,24 @@ pub struct CompiledFunction {
     pub num_locals: usize,
     /// The number of parameters this function expects.
     pub num_parameters: usize,
+}
+
+/// A closure binding a compiled function with its captured free variables.
+///
+/// At runtime, every function is wrapped in a closure, even those with zero
+/// free variables. This uniform representation simplifies the VM's call
+/// dispatch: there is a single code path for invoking user-defined functions.
+///
+/// Free variables are resolved at closure-creation time (`OpClosure`) and
+/// stored by value. Nested closures capture through the chain: an inner
+/// closure's free variable may itself be a free variable of its enclosing
+/// closure.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Closure {
+    /// The underlying compiled function.
+    pub func: CompiledFunction,
+    /// Captured free variables from enclosing scopes.
+    pub free_vars: Vec<Object>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -317,6 +339,7 @@ impl fmt::Display for Object {
             Self::ReturnValue(ret_val) => ret_val.fmt(f),
             Self::Builtin(_) => write!(f, "builtin function"),
             Self::CompiledFunction(cf) => write!(f, "CompiledFunction[{:p}]", cf),
+            Self::Closure(cl) => write!(f, "Closure[{:p}]", &cl.func),
         }
     }
 }

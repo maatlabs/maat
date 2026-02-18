@@ -6,15 +6,21 @@ use maat_errors::{CompileError, Result};
 /// Compile-time symbols table for tracking variable bindings.
 ///
 /// Maps variable names to storage indices, enabling the compiler
-/// to resolve identifiers to global and local storage slots.
-/// Supports nested scopes via an optional outer table reference,
-/// allowing local bindings to shadow globals and enabling scope-chain
-/// resolution during identifier lookup.
+/// to resolve identifiers to global, local, free, and function-scoped
+/// storage slots. Supports nested scopes via an optional outer table
+/// reference, allowing local bindings to shadow globals and enabling
+/// scope-chain resolution during identifier lookup.
+///
+/// When resolving a symbol that lives in a non-global, non-builtin
+/// enclosing scope, the table automatically promotes it to a free
+/// variable, recording the original symbol for the compiler to emit
+/// the appropriate load instructions at closure-creation time.
 #[derive(Debug, Clone, Default)]
 pub struct SymbolsTable {
     store: HashMap<String, Symbol>,
     num_definitions: usize,
     outer: Option<Box<SymbolsTable>>,
+    free_vars: Vec<Symbol>,
 }
 
 /// A resolved symbol with its scope and storage index.
@@ -40,6 +46,10 @@ pub enum SymbolScope {
     Local,
     /// A built-in function, resolved at compile time by index.
     Builtin,
+    /// A free variable captured from an enclosing scope.
+    Free,
+    /// The enclosing function's own name, enabling recursive self-reference.
+    Function,
 }
 
 impl SymbolsTable {
@@ -57,6 +67,7 @@ impl SymbolsTable {
             store: HashMap::new(),
             num_definitions: 0,
             outer: Some(Box::new(outer)),
+            free_vars: Vec::new(),
         }
     }
 
@@ -124,16 +135,47 @@ impl SymbolsTable {
         &self.store[name]
     }
 
+    /// Defines the enclosing function's own name for recursive self-reference.
+    ///
+    /// The symbol is stored at index 0 with `SymbolScope::Function` but does
+    /// **not** increment `num_definitions`, since it occupies no local slot.
+    /// At runtime, the VM resolves this via `OpCurrentClosure`.
+    pub fn define_function_name(&mut self, name: &str) {
+        let symbol = Symbol {
+            name: name.to_string(),
+            scope: SymbolScope::Function,
+            index: 0,
+        };
+        self.store.insert(name.to_string(), symbol);
+    }
+
     /// Resolves a symbol by name, walking up the scope chain.
     ///
-    /// First checks the current scope, then delegates to the outer table
-    /// if the symbol is not found locally.
-    pub fn resolve_symbol(&self, name: &str) -> Option<&Symbol> {
-        self.store.get(name).or_else(|| {
-            self.outer
-                .as_ref()
-                .and_then(|outer| outer.resolve_symbol(name))
-        })
+    /// When a symbol is found in an enclosing (non-global, non-builtin) scope,
+    /// it is automatically promoted to a free variable in the current scope.
+    /// This records the capture chain so the compiler can emit the correct
+    /// load instructions when creating closures.
+    pub fn resolve_symbol(&mut self, name: &str) -> Option<Symbol> {
+        if let Some(symbol) = self.store.get(name) {
+            return Some(symbol.clone());
+        }
+
+        let outer = self.outer.as_mut()?;
+        let outer_symbol = outer.resolve_symbol(name)?;
+
+        match outer_symbol.scope {
+            SymbolScope::Global | SymbolScope::Builtin => Some(outer_symbol),
+            _ => Some(self.define_free(outer_symbol)),
+        }
+    }
+
+    /// Returns the free variables captured by this scope.
+    ///
+    /// The returned slice is ordered by free variable index. The compiler
+    /// uses this to emit load instructions for each captured variable
+    /// before creating the closure.
+    pub fn free_vars(&self) -> &[Symbol] {
+        &self.free_vars
     }
 
     /// Extracts the outer table from this enclosed table.
@@ -141,6 +183,24 @@ impl SymbolsTable {
     /// Returns `None` if this is a top-level (global) table.
     pub fn take_outer(self) -> Option<SymbolsTable> {
         self.outer.map(|b| *b)
+    }
+
+    /// Promotes an outer-scope symbol to a free variable in the current scope.
+    ///
+    /// The original symbol is appended to `free_vars` (preserving the
+    /// capture order) and a new `Free`-scoped symbol is stored in the
+    /// current table. Returns the newly created free symbol.
+    fn define_free(&mut self, original: Symbol) -> Symbol {
+        let index = self.free_vars.len();
+        self.free_vars.push(original);
+
+        let symbol = Symbol {
+            name: self.free_vars[index].name.clone(),
+            scope: SymbolScope::Free,
+            index,
+        };
+        self.store.insert(symbol.name.clone(), symbol.clone());
+        symbol
     }
 }
 
@@ -224,9 +284,8 @@ mod tests {
         }
 
         let first_local = SymbolsTable::new_enclosed(global);
-        let second_local = SymbolsTable::new_enclosed(first_local);
+        let mut second_local = SymbolsTable::new_enclosed(first_local);
 
-        // Builtins must resolve at every scope level.
         for &(name, expected_scope, expected_index) in &expected {
             let symbol = second_local
                 .resolve_symbol(name)
@@ -264,5 +323,139 @@ mod tests {
             assert_eq!(symbol.scope, expected_scope, "wrong scope for '{name}'");
             assert_eq!(symbol.index, expected_index, "wrong index for '{name}'");
         }
+    }
+
+    #[test]
+    fn resolve_free() {
+        let mut global = SymbolsTable::new();
+        global.define_symbol("a").expect("should define 'a'");
+        global.define_symbol("b").expect("should define 'b'");
+
+        let mut first_local = SymbolsTable::new_enclosed(global);
+        first_local.define_symbol("c").expect("should define 'c'");
+        first_local.define_symbol("d").expect("should define 'd'");
+
+        let mut second_local = SymbolsTable::new_enclosed(first_local);
+        second_local.define_symbol("e").expect("should define 'e'");
+        second_local.define_symbol("f").expect("should define 'f'");
+
+        let expected = [
+            ("a", SymbolScope::Global, 0),
+            ("b", SymbolScope::Global, 1),
+            ("c", SymbolScope::Free, 0),
+            ("d", SymbolScope::Free, 1),
+            ("e", SymbolScope::Local, 0),
+            ("f", SymbolScope::Local, 1),
+        ];
+
+        for (name, expected_scope, expected_index) in expected {
+            let symbol = second_local
+                .resolve_symbol(name)
+                .unwrap_or_else(|| panic!("'{name}' should be resolvable"));
+            assert_eq!(symbol.scope, expected_scope, "wrong scope for '{name}'");
+            assert_eq!(symbol.index, expected_index, "wrong index for '{name}'");
+        }
+
+        let expected_free = [
+            Symbol {
+                name: "c".to_string(),
+                scope: SymbolScope::Local,
+                index: 0,
+            },
+            Symbol {
+                name: "d".to_string(),
+                scope: SymbolScope::Local,
+                index: 1,
+            },
+        ];
+
+        assert_eq!(
+            second_local.free_vars().len(),
+            expected_free.len(),
+            "wrong number of free variables"
+        );
+        for (actual, expected) in second_local.free_vars().iter().zip(&expected_free) {
+            assert_eq!(actual, expected);
+        }
+    }
+
+    #[test]
+    fn resolve_unresolvable_free() {
+        let mut global = SymbolsTable::new();
+        global.define_symbol("a").expect("should define 'a'");
+
+        let mut first_local = SymbolsTable::new_enclosed(global);
+        first_local.define_symbol("c").expect("should define 'c'");
+
+        let mut second_local = SymbolsTable::new_enclosed(first_local);
+        second_local.define_symbol("e").expect("should define 'e'");
+        second_local.define_symbol("f").expect("should define 'f'");
+
+        let expected = [
+            ("a", SymbolScope::Global, 0),
+            ("c", SymbolScope::Free, 0),
+            ("e", SymbolScope::Local, 0),
+            ("f", SymbolScope::Local, 1),
+        ];
+
+        for (name, expected_scope, expected_index) in expected {
+            let symbol = second_local
+                .resolve_symbol(name)
+                .unwrap_or_else(|| panic!("'{name}' should be resolvable"));
+            assert_eq!(symbol.scope, expected_scope, "wrong scope for '{name}'");
+            assert_eq!(symbol.index, expected_index, "wrong index for '{name}'");
+        }
+
+        assert!(
+            second_local.resolve_symbol("b").is_none(),
+            "should not resolve undefined 'b'"
+        );
+        assert!(
+            second_local.resolve_symbol("d").is_none(),
+            "should not resolve undefined 'd'"
+        );
+    }
+
+    #[test]
+    fn define_and_resolve_function_name() {
+        let mut global = SymbolsTable::new();
+        global.define_symbol("a").expect("should define 'a'");
+
+        let mut local = SymbolsTable::new_enclosed(global);
+        local.define_function_name("my_fn");
+        local.define_symbol("b").expect("should define 'b'");
+
+        let fn_sym = local
+            .resolve_symbol("my_fn")
+            .expect("function name should resolve");
+        assert_eq!(fn_sym.scope, SymbolScope::Function);
+        assert_eq!(fn_sym.index, 0);
+
+        let b_sym = local.resolve_symbol("b").expect("'b' should resolve");
+        assert_eq!(b_sym.scope, SymbolScope::Local);
+        assert_eq!(b_sym.index, 0);
+
+        assert_eq!(
+            local.num_definitions(),
+            1,
+            "function name should not increment num_definitions"
+        );
+    }
+
+    #[test]
+    fn shadowing_function_name() {
+        let mut global = SymbolsTable::new();
+        global.define_symbol("a").expect("should define 'a'");
+
+        let mut local = SymbolsTable::new_enclosed(global);
+        local.define_function_name("a");
+
+        let sym = local.resolve_symbol("a").expect("'a' should resolve");
+        assert_eq!(
+            sym.scope,
+            SymbolScope::Function,
+            "function name should shadow outer 'a'"
+        );
+        assert_eq!(sym.index, 0);
     }
 }

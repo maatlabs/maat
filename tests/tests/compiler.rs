@@ -510,7 +510,7 @@ fn compile_functions() {
                     encode(Opcode::ReturnValue, &[]),
                 ]),
             ],
-            vec![encode(Opcode::Constant, &[2]), encode(Opcode::Pop, &[])],
+            vec![encode(Opcode::Closure, &[2, 0]), encode(Opcode::Pop, &[])],
         ),
         (
             "fn() { 5 + 10 }",
@@ -524,7 +524,7 @@ fn compile_functions() {
                     encode(Opcode::ReturnValue, &[]),
                 ]),
             ],
-            vec![encode(Opcode::Constant, &[2]), encode(Opcode::Pop, &[])],
+            vec![encode(Opcode::Closure, &[2, 0]), encode(Opcode::Pop, &[])],
         ),
         (
             "fn() { 1; 2 }",
@@ -538,7 +538,7 @@ fn compile_functions() {
                     encode(Opcode::ReturnValue, &[]),
                 ]),
             ],
-            vec![encode(Opcode::Constant, &[2]), encode(Opcode::Pop, &[])],
+            vec![encode(Opcode::Closure, &[2, 0]), encode(Opcode::Pop, &[])],
         ),
     ];
 
@@ -554,7 +554,7 @@ fn compile_functions_without_return_value() {
     let cases: Vec<ConstantTestCase<'_>> = vec![(
         "fn() { }",
         vec![Constant::Fn(vec![encode(Opcode::Return, &[])])],
-        vec![encode(Opcode::Constant, &[0]), encode(Opcode::Pop, &[])],
+        vec![encode(Opcode::Closure, &[0, 0]), encode(Opcode::Pop, &[])],
     )];
 
     for (input, expected_consts, expected_insts) in cases {
@@ -577,7 +577,7 @@ fn compile_function_calls() {
                 ]),
             ],
             vec![
-                encode(Opcode::Constant, &[1]),
+                encode(Opcode::Closure, &[1, 0]),
                 encode(Opcode::Call, &[0]),
                 encode(Opcode::Pop, &[]),
             ],
@@ -592,7 +592,7 @@ fn compile_function_calls() {
                 ]),
             ],
             vec![
-                encode(Opcode::Constant, &[1]),
+                encode(Opcode::Closure, &[1, 0]),
                 encode(Opcode::SetGlobal, &[0]),
                 encode(Opcode::GetGlobal, &[0]),
                 encode(Opcode::Call, &[0]),
@@ -609,7 +609,7 @@ fn compile_function_calls() {
                 Constant::Int(24),
             ],
             vec![
-                encode(Opcode::Constant, &[0]),
+                encode(Opcode::Closure, &[0, 0]),
                 encode(Opcode::SetGlobal, &[0]),
                 encode(Opcode::GetGlobal, &[0]),
                 encode(Opcode::Constant, &[1]),
@@ -633,7 +633,7 @@ fn compile_function_calls() {
                 Constant::Int(26),
             ],
             vec![
-                encode(Opcode::Constant, &[0]),
+                encode(Opcode::Closure, &[0, 0]),
                 encode(Opcode::SetGlobal, &[0]),
                 encode(Opcode::GetGlobal, &[0]),
                 encode(Opcode::Constant, &[1]),
@@ -667,7 +667,7 @@ fn compile_let_statement_scopes() {
             vec![
                 encode(Opcode::Constant, &[0]),
                 encode(Opcode::SetGlobal, &[0]),
-                encode(Opcode::Constant, &[1]),
+                encode(Opcode::Closure, &[1, 0]),
                 encode(Opcode::Pop, &[]),
             ],
         ),
@@ -682,7 +682,7 @@ fn compile_let_statement_scopes() {
                     encode(Opcode::ReturnValue, &[]),
                 ]),
             ],
-            vec![encode(Opcode::Constant, &[1]), encode(Opcode::Pop, &[])],
+            vec![encode(Opcode::Closure, &[1, 0]), encode(Opcode::Pop, &[])],
         ),
         (
             "fn() { let a = 55; let b = 77; a + b }",
@@ -700,7 +700,7 @@ fn compile_let_statement_scopes() {
                     encode(Opcode::ReturnValue, &[]),
                 ]),
             ],
-            vec![encode(Opcode::Constant, &[2]), encode(Opcode::Pop, &[])],
+            vec![encode(Opcode::Closure, &[2, 0]), encode(Opcode::Pop, &[])],
         ),
     ];
 
@@ -737,7 +737,186 @@ fn compile_builtins() {
                 encode(Opcode::Call, &[1]),
                 encode(Opcode::ReturnValue, &[]),
             ])],
-            vec![encode(Opcode::Constant, &[0]), encode(Opcode::Pop, &[])],
+            vec![encode(Opcode::Closure, &[0, 0]), encode(Opcode::Pop, &[])],
+        ),
+    ];
+
+    for (input, expected_consts, expected_insts) in cases {
+        let bytecode = maat_tests::compile(input);
+        assert_instructions(&bytecode, &expected_insts, input);
+        assert_constants(&bytecode, &expected_consts, input);
+    }
+}
+
+#[test]
+fn compile_closures() {
+    let cases: Vec<ConstantTestCase<'_>> = vec![
+        (
+            "fn(a) { fn(b) { a + b } }",
+            vec![
+                Constant::Fn(vec![
+                    encode(Opcode::GetFree, &[0]),
+                    encode(Opcode::GetLocal, &[0]),
+                    encode(Opcode::Add, &[]),
+                    encode(Opcode::ReturnValue, &[]),
+                ]),
+                Constant::Fn(vec![
+                    encode(Opcode::GetLocal, &[0]),
+                    encode(Opcode::Closure, &[0, 1]),
+                    encode(Opcode::ReturnValue, &[]),
+                ]),
+            ],
+            vec![encode(Opcode::Closure, &[1, 0]), encode(Opcode::Pop, &[])],
+        ),
+        (
+            "fn(a) { fn(b) { fn(c) { a + b + c } } }",
+            vec![
+                Constant::Fn(vec![
+                    encode(Opcode::GetFree, &[0]),
+                    encode(Opcode::GetFree, &[1]),
+                    encode(Opcode::Add, &[]),
+                    encode(Opcode::GetLocal, &[0]),
+                    encode(Opcode::Add, &[]),
+                    encode(Opcode::ReturnValue, &[]),
+                ]),
+                Constant::Fn(vec![
+                    encode(Opcode::GetFree, &[0]),
+                    encode(Opcode::GetLocal, &[0]),
+                    encode(Opcode::Closure, &[0, 2]),
+                    encode(Opcode::ReturnValue, &[]),
+                ]),
+                Constant::Fn(vec![
+                    encode(Opcode::GetLocal, &[0]),
+                    encode(Opcode::Closure, &[1, 1]),
+                    encode(Opcode::ReturnValue, &[]),
+                ]),
+            ],
+            vec![encode(Opcode::Closure, &[2, 0]), encode(Opcode::Pop, &[])],
+        ),
+        (
+            r#"
+            let global = 55;
+            fn() {
+                let a = 66;
+                fn() {
+                    let b = 77;
+                    fn() {
+                        let c = 88;
+                        global + a + b + c
+                    }
+                }
+            }
+            "#,
+            vec![
+                Constant::Int(55),
+                Constant::Int(66),
+                Constant::Int(77),
+                Constant::Int(88),
+                Constant::Fn(vec![
+                    encode(Opcode::Constant, &[3]),
+                    encode(Opcode::SetLocal, &[0]),
+                    encode(Opcode::GetGlobal, &[0]),
+                    encode(Opcode::GetFree, &[0]),
+                    encode(Opcode::Add, &[]),
+                    encode(Opcode::GetFree, &[1]),
+                    encode(Opcode::Add, &[]),
+                    encode(Opcode::GetLocal, &[0]),
+                    encode(Opcode::Add, &[]),
+                    encode(Opcode::ReturnValue, &[]),
+                ]),
+                Constant::Fn(vec![
+                    encode(Opcode::Constant, &[2]),
+                    encode(Opcode::SetLocal, &[0]),
+                    encode(Opcode::GetFree, &[0]),
+                    encode(Opcode::GetLocal, &[0]),
+                    encode(Opcode::Closure, &[4, 2]),
+                    encode(Opcode::ReturnValue, &[]),
+                ]),
+                Constant::Fn(vec![
+                    encode(Opcode::Constant, &[1]),
+                    encode(Opcode::SetLocal, &[0]),
+                    encode(Opcode::GetLocal, &[0]),
+                    encode(Opcode::Closure, &[5, 1]),
+                    encode(Opcode::ReturnValue, &[]),
+                ]),
+            ],
+            vec![
+                encode(Opcode::Constant, &[0]),
+                encode(Opcode::SetGlobal, &[0]),
+                encode(Opcode::Closure, &[6, 0]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+    ];
+
+    for (input, expected_consts, expected_insts) in cases {
+        let bytecode = maat_tests::compile(input);
+        assert_instructions(&bytecode, &expected_insts, input);
+        assert_constants(&bytecode, &expected_consts, input);
+    }
+}
+
+#[test]
+fn compile_recursive_functions() {
+    let cases: Vec<ConstantTestCase<'_>> = vec![
+        (
+            "let countDown = fn(x) { countDown(x - 1); }; countDown(1);",
+            vec![
+                Constant::Int(1),
+                Constant::Fn(vec![
+                    encode(Opcode::CurrentClosure, &[]),
+                    encode(Opcode::GetLocal, &[0]),
+                    encode(Opcode::Constant, &[0]),
+                    encode(Opcode::Sub, &[]),
+                    encode(Opcode::Call, &[1]),
+                    encode(Opcode::ReturnValue, &[]),
+                ]),
+                Constant::Int(1),
+            ],
+            vec![
+                encode(Opcode::Closure, &[1, 0]),
+                encode(Opcode::SetGlobal, &[0]),
+                encode(Opcode::GetGlobal, &[0]),
+                encode(Opcode::Constant, &[2]),
+                encode(Opcode::Call, &[1]),
+                encode(Opcode::Pop, &[]),
+            ],
+        ),
+        (
+            r#"
+            let wrapper = fn() {
+                let countDown = fn(x) { countDown(x - 1); };
+                countDown(1);
+            };
+            wrapper();
+            "#,
+            vec![
+                Constant::Int(1),
+                Constant::Fn(vec![
+                    encode(Opcode::CurrentClosure, &[]),
+                    encode(Opcode::GetLocal, &[0]),
+                    encode(Opcode::Constant, &[0]),
+                    encode(Opcode::Sub, &[]),
+                    encode(Opcode::Call, &[1]),
+                    encode(Opcode::ReturnValue, &[]),
+                ]),
+                Constant::Int(1),
+                Constant::Fn(vec![
+                    encode(Opcode::Closure, &[1, 0]),
+                    encode(Opcode::SetLocal, &[0]),
+                    encode(Opcode::GetLocal, &[0]),
+                    encode(Opcode::Constant, &[2]),
+                    encode(Opcode::Call, &[1]),
+                    encode(Opcode::ReturnValue, &[]),
+                ]),
+            ],
+            vec![
+                encode(Opcode::Closure, &[3, 0]),
+                encode(Opcode::SetGlobal, &[0]),
+                encode(Opcode::GetGlobal, &[0]),
+                encode(Opcode::Call, &[0]),
+                encode(Opcode::Pop, &[]),
+            ],
         ),
     ];
 
