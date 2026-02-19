@@ -143,13 +143,11 @@ fn bench_string_operations(c: &mut Criterion) {
     });
 }
 
-criterion_group!(
-    fibonacci_benches,
-    bench_fibonacci_vm,
-    bench_fibonacci_eval,
-    bench_compile_fibonacci,
-    bench_vm_exec_only,
-);
+criterion_group! {
+    name = fibonacci_benches;
+    config = Criterion::default().measurement_time(std::time::Duration::from_secs(10));
+    targets = bench_fibonacci_vm, bench_fibonacci_eval, bench_compile_fibonacci, bench_vm_exec_only
+}
 criterion_group!(
     feature_benches,
     bench_closures,

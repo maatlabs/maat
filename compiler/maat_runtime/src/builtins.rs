@@ -1,6 +1,6 @@
 use maat_errors::{EvalError, Result};
 
-use crate::object::{BuiltinFn, NULL, Object};
+use crate::{BuiltinFn, NULL, Object};
 
 /// The name of the `quote` special form for AST quoting.
 ///

@@ -389,7 +389,7 @@ fn eval_builtin_len() {
     .for_each(|(input, expected)| match expected {
         Some(val) => {
             let result = test_eval(input).unwrap();
-            assert_eq!(result, Object::Usize(*val), "input: {}", input);
+            assert_eq!(result, Object::I64(*val as i64), "input: {}", input);
         }
         None => {
             assert!(test_eval(input).is_err(), "expected error for: {}", input);

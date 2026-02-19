@@ -12,6 +12,88 @@ use maat_runtime::{
     BUILTINS, Closure, CompiledFunction, FALSE, HashObject, Hashable, NULL, Object, TRUE,
 };
 
+/// Dispatches checked integer arithmetic across all 12 integer variants.
+///
+/// Returns `Option<Option<Object>>`:
+/// - outer `None`: operands are not the same integer type
+/// - inner `None`: arithmetic overflow
+macro_rules! int_binop {
+    ($left:expr, $right:expr, $method:ident) => {
+        match ($left, $right) {
+            (Object::I8(l), Object::I8(r)) => Some(l.$method(*r).map(Object::I8)),
+            (Object::I16(l), Object::I16(r)) => Some(l.$method(*r).map(Object::I16)),
+            (Object::I32(l), Object::I32(r)) => Some(l.$method(*r).map(Object::I32)),
+            (Object::I64(l), Object::I64(r)) => Some(l.$method(*r).map(Object::I64)),
+            (Object::I128(l), Object::I128(r)) => Some(l.$method(*r).map(Object::I128)),
+            (Object::Isize(l), Object::Isize(r)) => Some(l.$method(*r).map(Object::Isize)),
+            (Object::U8(l), Object::U8(r)) => Some(l.$method(*r).map(Object::U8)),
+            (Object::U16(l), Object::U16(r)) => Some(l.$method(*r).map(Object::U16)),
+            (Object::U32(l), Object::U32(r)) => Some(l.$method(*r).map(Object::U32)),
+            (Object::U64(l), Object::U64(r)) => Some(l.$method(*r).map(Object::U64)),
+            (Object::U128(l), Object::U128(r)) => Some(l.$method(*r).map(Object::U128)),
+            (Object::Usize(l), Object::Usize(r)) => Some(l.$method(*r).map(Object::Usize)),
+            _ => None,
+        }
+    };
+}
+
+/// Dispatches floating-point arithmetic across F32 and F64 variants.
+///
+/// Returns `None` if the operands are not the same float type.
+macro_rules! float_binop {
+    ($left:expr, $right:expr, $op:tt) => {
+        match ($left, $right) {
+            (Object::F32(l), Object::F32(r)) => Some(Object::F32(*l $op *r)),
+            (Object::F64(l), Object::F64(r)) => Some(Object::F64(*l $op *r)),
+            _ => None,
+        }
+    };
+}
+
+/// Dispatches ordered comparison across all 14 numeric variants.
+///
+/// Returns `None` if the operands are not the same numeric type.
+macro_rules! numeric_cmp {
+    ($left:expr, $right:expr, $op:tt) => {
+        match ($left, $right) {
+            (Object::I8(l), Object::I8(r)) => Some(*l $op *r),
+            (Object::I16(l), Object::I16(r)) => Some(*l $op *r),
+            (Object::I32(l), Object::I32(r)) => Some(*l $op *r),
+            (Object::I64(l), Object::I64(r)) => Some(*l $op *r),
+            (Object::I128(l), Object::I128(r)) => Some(*l $op *r),
+            (Object::Isize(l), Object::Isize(r)) => Some(*l $op *r),
+            (Object::U8(l), Object::U8(r)) => Some(*l $op *r),
+            (Object::U16(l), Object::U16(r)) => Some(*l $op *r),
+            (Object::U32(l), Object::U32(r)) => Some(*l $op *r),
+            (Object::U64(l), Object::U64(r)) => Some(*l $op *r),
+            (Object::U128(l), Object::U128(r)) => Some(*l $op *r),
+            (Object::Usize(l), Object::Usize(r)) => Some(*l $op *r),
+            (Object::F32(l), Object::F32(r)) => Some(*l $op *r),
+            (Object::F64(l), Object::F64(r)) => Some(*l $op *r),
+            _ => None,
+        }
+    };
+}
+
+/// Dispatches checked negation for signed integer types.
+///
+/// Returns `Option<Option<Object>>`:
+/// - outer `None`: operand is not a signed integer
+/// - inner `None`: negation overflow (e.g., `i8::MIN`)
+macro_rules! checked_neg {
+    ($val:expr) => {
+        match $val {
+            Object::I8(v) => Some(v.checked_neg().map(Object::I8)),
+            Object::I16(v) => Some(v.checked_neg().map(Object::I16)),
+            Object::I32(v) => Some(v.checked_neg().map(Object::I32)),
+            Object::I64(v) => Some(v.checked_neg().map(Object::I64)),
+            Object::I128(v) => Some(v.checked_neg().map(Object::I128)),
+            Object::Isize(v) => Some(v.checked_neg().map(Object::Isize)),
+            _ => None,
+        }
+    };
+}
+
 /// A single call frame on the VM's frame stack.
 ///
 /// Each function invocation creates a new frame that tracks the closure's
@@ -498,18 +580,61 @@ impl VM {
         Ok(self.stack[self.sp].clone())
     }
 
-    /// Executes a binary arithmetic operation.
+    /// Executes a binary arithmetic operation across all numeric types.
     fn execute_binary_operation(&mut self, op: Opcode) -> Result<()> {
         let right = self.pop_stack()?;
         let left = self.pop_stack()?;
 
-        match (&left, &right) {
-            (Object::I64(l), Object::I64(r)) => self.execute_binary_integer_operation(op, *l, *r),
-            (Object::String(l), Object::String(r)) => {
-                self.execute_binary_string_operation(op, l, r)
-            }
+        if let (Object::String(l), Object::String(r)) = (&left, &right) {
+            return self.execute_binary_string_operation(op, l, r);
+        }
+
+        let int_result = match op {
+            Opcode::Add => int_binop!(&left, &right, checked_add),
+            Opcode::Sub => int_binop!(&left, &right, checked_sub),
+            Opcode::Mul => int_binop!(&left, &right, checked_mul),
+            Opcode::Div => int_binop!(&left, &right, checked_div),
+            _ => None,
+        };
+        if let Some(maybe_val) = int_result {
+            let val = maybe_val.ok_or_else(|| VmError::new("integer arithmetic overflow"))?;
+            return self.push_stack(val);
+        }
+
+        let float_result = match op {
+            Opcode::Add => float_binop!(&left, &right, +),
+            Opcode::Sub => float_binop!(&left, &right, -),
+            Opcode::Mul => float_binop!(&left, &right, *),
+            Opcode::Div => float_binop!(&left, &right, /),
+            _ => None,
+        };
+        if let Some(val) = float_result {
+            return self.push_stack(val);
+        }
+
+        Err(VmError::new(format!(
+            "unsupported types for binary operation: {} {}",
+            left.type_name(),
+            right.type_name()
+        ))
+        .into())
+    }
+
+    /// Executes a comparison operation across all numeric and non-numeric types.
+    fn execute_comparison(&mut self, op: Opcode) -> Result<()> {
+        let right = self.pop_stack()?;
+        let left = self.pop_stack()?;
+
+        if let Some(result) = self.compare_numeric(op, &left, &right) {
+            return self.push_stack(Object::Boolean(result));
+        }
+
+        match op {
+            Opcode::Equal => self.push_stack(Object::Boolean(left == right)),
+            Opcode::NotEqual => self.push_stack(Object::Boolean(left != right)),
             _ => Err(VmError::new(format!(
-                "unsupported types for binary operation: {} {}",
+                "unsupported comparison: {:?} ({} {})",
+                op,
                 left.type_name(),
                 right.type_name()
             ))
@@ -517,84 +642,40 @@ impl VM {
         }
     }
 
-    /// Executes a binary integer arithmetic operation.
-    fn execute_binary_integer_operation(
-        &mut self,
-        op: Opcode,
-        left: i64,
-        right: i64,
-    ) -> Result<()> {
-        let result = match op {
-            Opcode::Add => left.checked_add(right),
-            Opcode::Sub => left.checked_sub(right),
-            Opcode::Mul => left.checked_mul(right),
-            Opcode::Div => left.checked_div(right),
-            _ => return Err(VmError::new(format!("unknown integer operator: {:?}", op)).into()),
-        };
-
-        let result = result.ok_or_else(|| VmError::new("integer arithmetic overflow"))?;
-        self.push_stack(Object::I64(result))
-    }
-
-    /// Executes a comparison operation.
-    fn execute_comparison(&mut self, op: Opcode) -> Result<()> {
-        let right = self.pop_stack()?;
-        let left = self.pop_stack()?;
-
-        match (&left, &right) {
-            (Object::I64(l), Object::I64(r)) => self.execute_integer_comparison(op, *l, *r),
-            _ => {
-                let result = match op {
-                    Opcode::Equal => left == right,
-                    Opcode::NotEqual => left != right,
-                    _ => {
-                        return Err(VmError::new(format!(
-                            "unknown operator: {:?} ({} {})",
-                            op,
-                            left.type_name(),
-                            right.type_name()
-                        ))
-                        .into());
-                    }
-                };
-                self.push_stack(Object::Boolean(result))
-            }
+    /// Attempts same-type numeric comparison across all 14 numeric variants.
+    ///
+    /// Returns `None` if the operands are not the same numeric type.
+    fn compare_numeric(&self, op: Opcode, left: &Object, right: &Object) -> Option<bool> {
+        match op {
+            Opcode::Equal => numeric_cmp!(left, right, ==),
+            Opcode::NotEqual => numeric_cmp!(left, right, !=),
+            Opcode::GreaterThan => numeric_cmp!(left, right, >),
+            Opcode::LessThan => numeric_cmp!(left, right, <),
+            _ => None,
         }
-    }
-
-    /// Executes an integer comparison operation.
-    fn execute_integer_comparison(&mut self, op: Opcode, left: i64, right: i64) -> Result<()> {
-        let result = match op {
-            Opcode::Equal => left == right,
-            Opcode::NotEqual => left != right,
-            Opcode::GreaterThan => left > right,
-            Opcode::LessThan => left < right,
-            _ => return Err(VmError::new(format!("unknown operator: {:?}", op)).into()),
-        };
-
-        self.push_stack(Object::Boolean(result))
     }
 
     /// Executes the logical NOT (bang) operator.
     fn execute_bang_operator(&mut self) -> Result<()> {
-        let operand = self.pop_stack()?;
-        let result = match operand {
+        let result = match self.pop_stack()? {
             Object::Boolean(false) | Object::Null => TRUE,
             _ => FALSE,
         };
         self.push_stack(result)
     }
 
-    /// Executes the unary minus operator.
+    /// Executes the unary minus operator for all signed integer and float types.
     fn execute_minus_operator(&mut self) -> Result<()> {
         let operand = self.pop_stack()?;
+
+        if let Some(result) = checked_neg!(&operand) {
+            let val = result.ok_or_else(|| VmError::new("integer negation overflow"))?;
+            return self.push_stack(val);
+        }
+
         match operand {
-            Object::I64(value) => {
-                let result = value
-                    .checked_neg()
-                    .ok_or_else(|| VmError::new("integer negation overflow"))?;
-                self.push_stack(Object::I64(result))
-            }
+            Object::F32(v) => self.push_stack(Object::F32(-v)),
+            Object::F64(v) => self.push_stack(Object::F64(-v)),
             _ => Err(VmError::new(format!(
                 "unsupported type for negation: {}",
                 operand.type_name()

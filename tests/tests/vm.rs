@@ -4,7 +4,9 @@ use maat_vm::VM;
 
 #[derive(Debug)]
 enum TestValue {
-    Int(i64),
+    I64(i64),
+    I32(i32),
+    F64(f64),
     Bool(bool),
     Str(String),
     IntArray(Vec<i64>),
@@ -23,7 +25,7 @@ fn run_vm_test(input: &str, expected: TestValue) {
         .clone();
 
     match expected {
-        TestValue::Int(expected_val) => match stack_elem {
+        TestValue::I64(expected_val) => match stack_elem {
             Object::I64(val) => {
                 assert_eq!(val, expected_val, "wrong integer value for input: {input}")
             }
@@ -34,6 +36,21 @@ fn run_vm_test(input: &str, expected: TestValue) {
                 )
             }
             _ => panic!("expected integer object, got: {:?}", stack_elem),
+        },
+        TestValue::I32(expected_val) => match stack_elem {
+            Object::I32(val) => {
+                assert_eq!(val, expected_val, "wrong I32 value for input: {input}")
+            }
+            _ => panic!("expected I32 object, got: {:?}", stack_elem),
+        },
+        TestValue::F64(expected_val) => match stack_elem {
+            Object::F64(val) => {
+                assert!(
+                    (val - expected_val).abs() < f64::EPSILON,
+                    "wrong F64 value for input: {input}"
+                )
+            }
+            _ => panic!("expected F64 object, got: {:?}", stack_elem),
         },
         TestValue::Bool(expected_val) => match stack_elem {
             Object::Boolean(val) => {
@@ -122,23 +139,23 @@ fn run_vm_error_test(input: &str, expected_error: &str) {
 #[test]
 fn integer_arithmetic() {
     let cases = vec![
-        ("1", TestValue::Int(1)),
-        ("2", TestValue::Int(2)),
-        ("1 + 2", TestValue::Int(3)),
-        ("1 - 2", TestValue::Int(-1)),
-        ("1 * 2", TestValue::Int(2)),
-        ("4 / 2", TestValue::Int(2)),
-        ("50 / 2 * 2 + 10 - 5", TestValue::Int(55)),
-        ("5 * (2 + 10)", TestValue::Int(60)),
-        ("5 + 5 + 5 + 5 - 10", TestValue::Int(10)),
-        ("2 * 2 * 2 * 2 * 2", TestValue::Int(32)),
-        ("5 * 2 + 10", TestValue::Int(20)),
-        ("5 + 2 * 10", TestValue::Int(25)),
-        ("5 * (2 + 10)", TestValue::Int(60)),
-        ("-5", TestValue::Int(-5)),
-        ("-10", TestValue::Int(-10)),
-        ("-50 + 100 + -50", TestValue::Int(0)),
-        ("(5 + 10 * 2 + 15 / 3) * 2 + -10", TestValue::Int(50)),
+        ("1", TestValue::I64(1)),
+        ("2", TestValue::I64(2)),
+        ("1 + 2", TestValue::I64(3)),
+        ("1 - 2", TestValue::I64(-1)),
+        ("1 * 2", TestValue::I64(2)),
+        ("4 / 2", TestValue::I64(2)),
+        ("50 / 2 * 2 + 10 - 5", TestValue::I64(55)),
+        ("5 * (2 + 10)", TestValue::I64(60)),
+        ("5 + 5 + 5 + 5 - 10", TestValue::I64(10)),
+        ("2 * 2 * 2 * 2 * 2", TestValue::I64(32)),
+        ("5 * 2 + 10", TestValue::I64(20)),
+        ("5 + 2 * 10", TestValue::I64(25)),
+        ("5 * (2 + 10)", TestValue::I64(60)),
+        ("-5", TestValue::I64(-5)),
+        ("-10", TestValue::I64(-10)),
+        ("-50 + 100 + -50", TestValue::I64(0)),
+        ("(5 + 10 * 2 + 15 / 3) * 2 + -10", TestValue::I64(50)),
     ];
 
     for (input, expected) in cases {
@@ -185,18 +202,18 @@ fn boolean_expressions() {
 #[test]
 fn conditionals() {
     let cases = vec![
-        ("if (true) { 10 }", TestValue::Int(10)),
-        ("if (true) { 10 } else { 20 }", TestValue::Int(10)),
-        ("if (false) { 10 } else { 20 }", TestValue::Int(20)),
-        ("if (1) { 10 }", TestValue::Int(10)),
-        ("if (1 < 2) { 10 }", TestValue::Int(10)),
-        ("if (1 < 2) { 10 } else { 20 }", TestValue::Int(10)),
-        ("if (1 > 2) { 10 } else { 20 }", TestValue::Int(20)),
+        ("if (true) { 10 }", TestValue::I64(10)),
+        ("if (true) { 10 } else { 20 }", TestValue::I64(10)),
+        ("if (false) { 10 } else { 20 }", TestValue::I64(20)),
+        ("if (1) { 10 }", TestValue::I64(10)),
+        ("if (1 < 2) { 10 }", TestValue::I64(10)),
+        ("if (1 < 2) { 10 } else { 20 }", TestValue::I64(10)),
+        ("if (1 > 2) { 10 } else { 20 }", TestValue::I64(20)),
         ("if (1 > 2) { 10 }", TestValue::Null),
         ("if (false) { 10 }", TestValue::Null),
         (
             "if ((if (false) { 10 })) { 10 } else { 20 }",
-            TestValue::Int(20),
+            TestValue::I64(20),
         ),
     ];
 
@@ -208,11 +225,11 @@ fn conditionals() {
 #[test]
 fn global_let_statements() {
     let cases = vec![
-        ("let one = 1; one", TestValue::Int(1)),
-        ("let one = 1; let two = 2; one + two", TestValue::Int(3)),
+        ("let one = 1; one", TestValue::I64(1)),
+        ("let one = 1; let two = 2; one + two", TestValue::I64(3)),
         (
             "let one = 1; let two = one + one; one + two",
-            TestValue::Int(3),
+            TestValue::I64(3),
         ),
     ];
 
@@ -278,14 +295,14 @@ fn hash_literals() {
 #[test]
 fn index_expressions() {
     let cases = vec![
-        ("[1, 2, 3][1]", TestValue::Int(2)),
-        ("[1, 2, 3][0 + 2]", TestValue::Int(3)),
-        ("[[1, 1, 1]][0][0]", TestValue::Int(1)),
+        ("[1, 2, 3][1]", TestValue::I64(2)),
+        ("[1, 2, 3][0 + 2]", TestValue::I64(3)),
+        ("[[1, 1, 1]][0][0]", TestValue::I64(1)),
         ("[][0]", TestValue::Null),
         ("[1, 2, 3][99]", TestValue::Null),
         ("[1][-1]", TestValue::Null),
-        ("{1: 1, 2: 2}[1]", TestValue::Int(1)),
-        ("{1: 1, 2: 2}[2]", TestValue::Int(2)),
+        ("{1: 1, 2: 2}[1]", TestValue::I64(1)),
+        ("{1: 1, 2: 2}[2]", TestValue::I64(2)),
         ("{1: 1}[0]", TestValue::Null),
         ("{}[0]", TestValue::Null),
     ];
@@ -300,15 +317,15 @@ fn calling_functions_without_arguments() {
     let cases = vec![
         (
             "let fivePlusTen = fn() { 5 + 10; }; fivePlusTen();",
-            TestValue::Int(15),
+            TestValue::I64(15),
         ),
         (
             "let one = fn() { 1; }; let two = fn() { 2; }; one() + two()",
-            TestValue::Int(3),
+            TestValue::I64(3),
         ),
         (
             "let a = fn() { 1 }; let b = fn() { a() + 1 }; let c = fn() { b() + 1 }; c();",
-            TestValue::Int(3),
+            TestValue::I64(3),
         ),
     ];
 
@@ -322,11 +339,11 @@ fn functions_with_return_statement() {
     let cases = vec![
         (
             "let earlyExit = fn() { return 99; 100; }; earlyExit();",
-            TestValue::Int(99),
+            TestValue::I64(99),
         ),
         (
             "let earlyExit = fn() { return 99; return 100; }; earlyExit();",
-            TestValue::Int(99),
+            TestValue::I64(99),
         ),
     ];
 
@@ -355,11 +372,11 @@ fn first_class_functions() {
     let cases = vec![
         (
             "let returnsOne = fn() { 1; }; let returnsOneReturner = fn() { returnsOne; }; returnsOneReturner()();",
-            TestValue::Int(1),
+            TestValue::I64(1),
         ),
         (
             "let returnsOneReturner = fn() { let returnsOne = fn() { 1; }; returnsOne; }; returnsOneReturner()();",
-            TestValue::Int(1),
+            TestValue::I64(1),
         ),
     ];
 
@@ -373,23 +390,23 @@ fn calling_functions_with_bindings() {
     let cases = vec![
         (
             "let one = fn() { let one = 1; one }; one();",
-            TestValue::Int(1),
+            TestValue::I64(1),
         ),
         (
             "let oneAndTwo = fn() { let one = 1; let two = 2; one + two; }; oneAndTwo();",
-            TestValue::Int(3),
+            TestValue::I64(3),
         ),
         (
             "let oneAndTwo = fn() { let one = 1; let two = 2; one + two; }; let threeAndFour = fn() { let three = 3; let four = 4; three + four; }; oneAndTwo() + threeAndFour();",
-            TestValue::Int(10),
+            TestValue::I64(10),
         ),
         (
             "let firstFoobar = fn() { let foobar = 50; foobar; }; let secondFoobar = fn() { let foobar = 100; foobar; }; firstFoobar() + secondFoobar();",
-            TestValue::Int(150),
+            TestValue::I64(150),
         ),
         (
             "let globalSeed = 50; let minusOne = fn() { let num = 1; globalSeed - num; }; let minusTwo = fn() { let num = 2; globalSeed - num; }; minusOne() + minusTwo();",
-            TestValue::Int(97),
+            TestValue::I64(97),
         ),
     ];
 
@@ -403,27 +420,27 @@ fn calling_functions_with_arguments_and_bindings() {
     let cases = vec![
         (
             "let identity = fn(a) { a; }; identity(4);",
-            TestValue::Int(4),
+            TestValue::I64(4),
         ),
         (
             "let sum = fn(a, b) { a + b; }; sum(1, 2);",
-            TestValue::Int(3),
+            TestValue::I64(3),
         ),
         (
             "let sum = fn(a, b) { let c = a + b; c; }; sum(1, 2);",
-            TestValue::Int(3),
+            TestValue::I64(3),
         ),
         (
             "let sum = fn(a, b) { let c = a + b; c; }; sum(1, 2) + sum(3, 4);",
-            TestValue::Int(10),
+            TestValue::I64(10),
         ),
         (
             "let sum = fn(a, b) { let c = a + b; c; }; let outer = fn() { sum(1, 2) + sum(3, 4); }; outer();",
-            TestValue::Int(10),
+            TestValue::I64(10),
         ),
         (
             "let globalNum = 10; let sum = fn(a, b) { let c = a + b; c + globalNum; }; let outer = fn() { sum(1, 2) + sum(3, 4) + globalNum; }; outer() + globalNum;",
-            TestValue::Int(50),
+            TestValue::I64(50),
         ),
     ];
 
@@ -457,14 +474,14 @@ fn calling_functions_with_wrong_arguments() {
 #[test]
 fn builtin_functions() {
     let cases = vec![
-        (r#"len("")"#, TestValue::Int(0)),
-        (r#"len("four")"#, TestValue::Int(4)),
-        ("len([1, 2, 3])", TestValue::Int(3)),
-        ("len([])", TestValue::Int(0)),
+        (r#"len("")"#, TestValue::I64(0)),
+        (r#"len("four")"#, TestValue::I64(4)),
+        ("len([1, 2, 3])", TestValue::I64(3)),
+        ("len([])", TestValue::I64(0)),
         (r#"puts("hello", "world!")"#, TestValue::Null),
-        ("first([1, 2, 3])", TestValue::Int(1)),
+        ("first([1, 2, 3])", TestValue::I64(1)),
         ("first([])", TestValue::Null),
-        ("last([1, 2, 3])", TestValue::Int(3)),
+        ("last([1, 2, 3])", TestValue::I64(3)),
         ("last([])", TestValue::Null),
         ("rest([1, 2, 3])", TestValue::IntArray(vec![2, 3])),
         ("rest([])", TestValue::Null),
@@ -525,27 +542,27 @@ fn closures() {
     let cases = vec![
         (
             "let newClosure = fn(a) { fn() { a; }; }; let closure = newClosure(99); closure();",
-            TestValue::Int(99),
+            TestValue::I64(99),
         ),
         (
             "let newAdder = fn(a, b) { fn(c) { a + b + c }; }; let adder = newAdder(1, 2); adder(8);",
-            TestValue::Int(11),
+            TestValue::I64(11),
         ),
         (
             "let newAdder = fn(a, b) { let c = a + b; fn(d) { c + d }; }; let adder = newAdder(1, 2); adder(8);",
-            TestValue::Int(11),
+            TestValue::I64(11),
         ),
         (
             "let newAdderOuter = fn(a, b) { let c = a + b; fn(d) { let e = d + c; fn(f) { e + f; }; }; }; let newAdderInner = newAdderOuter(1, 2); let adder = newAdderInner(3); adder(8);",
-            TestValue::Int(14),
+            TestValue::I64(14),
         ),
         (
             "let a = 1; let newAdderOuter = fn(b) { fn(c) { fn(d) { a + b + c + d }; }; }; let newAdderInner = newAdderOuter(2); let adder = newAdderInner(3); adder(8);",
-            TestValue::Int(14),
+            TestValue::I64(14),
         ),
         (
             "let newClosure = fn(a, b) { let one = fn() { a; }; let two = fn() { b; }; fn() { one() + two(); }; }; let closure = newClosure(9, 90); closure();",
-            TestValue::Int(99),
+            TestValue::I64(99),
         ),
     ];
 
@@ -559,21 +576,41 @@ fn recursive_functions() {
     let cases = vec![
         (
             "let countDown = fn(x) { if (x == 0) { return 0; } else { countDown(x - 1); } }; countDown(1);",
-            TestValue::Int(0),
+            TestValue::I64(0),
         ),
         (
             "let countDown = fn(x) { if (x == 0) { return 0; } else { countDown(x - 1); } }; let wrapper = fn() { countDown(1); }; wrapper();",
-            TestValue::Int(0),
+            TestValue::I64(0),
         ),
         (
             "let wrapper = fn() { let countDown = fn(x) { if (x == 0) { return 0; } else { countDown(x - 1); } }; countDown(1); }; wrapper();",
-            TestValue::Int(0),
+            TestValue::I64(0),
         ),
     ];
 
     for (input, expected) in cases {
         run_vm_test(input, expected);
     }
+}
+
+#[test]
+fn closure_captures_array_with_builtins() {
+    run_vm_test(
+        r#"
+        let sum = fn(arr) {
+            let iter = fn(idx, acc) {
+                if (idx == len(arr)) {
+                    acc
+                } else {
+                    iter(idx + 1, acc + arr[idx]);
+                }
+            };
+            iter(0, 0);
+        };
+        sum([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        "#,
+        TestValue::I64(55),
+    );
 }
 
 #[test]
@@ -593,6 +630,55 @@ fn recursive_fibonacci() {
         };
         fibonacci(15);
         "#,
-        TestValue::Int(610),
+        TestValue::I64(610),
     );
+}
+
+#[test]
+fn typed_integer_arithmetic() {
+    let cases = vec![
+        ("10i32 + 20i32", TestValue::I32(30)),
+        ("100i32 - 50i32", TestValue::I32(50)),
+        ("3i32 * 7i32", TestValue::I32(21)),
+        ("20i32 / 4i32", TestValue::I32(5)),
+        ("5usize + 3usize", TestValue::I64(8)),
+        ("10usize - 2usize", TestValue::I64(8)),
+        ("4usize * 5usize", TestValue::I64(20)),
+        ("20usize / 4usize", TestValue::I64(5)),
+    ];
+
+    for (input, expected) in cases {
+        run_vm_test(input, expected);
+    }
+}
+
+#[test]
+fn float_arithmetic() {
+    let cases = vec![
+        ("1.5f64 + 2.5f64", TestValue::F64(4.0)),
+        ("10.0f64 - 3.5f64", TestValue::F64(6.5)),
+        ("2.0f64 * 3.0f64", TestValue::F64(6.0)),
+        ("10.0f64 / 4.0f64", TestValue::F64(2.5)),
+    ];
+
+    for (input, expected) in cases {
+        run_vm_test(input, expected);
+    }
+}
+
+#[test]
+fn signed_negation() {
+    let cases = vec![
+        ("-5i32", TestValue::I32(-5)),
+        ("-1.5f64", TestValue::F64(-1.5)),
+    ];
+
+    for (input, expected) in cases {
+        run_vm_test(input, expected);
+    }
+}
+
+#[test]
+fn unsigned_negation_error() {
+    run_vm_error_test("-(5usize)", "unsupported type for negation");
 }
