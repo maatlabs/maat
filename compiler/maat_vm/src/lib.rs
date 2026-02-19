@@ -104,6 +104,14 @@ impl VM {
         }
     }
 
+    /// Returns a reference to the VM's global variable store.
+    ///
+    /// Used for REPL sessions where global values must persist across
+    /// multiple bytecode executions.
+    pub fn globals(&self) -> &[Object] {
+        &self.globals
+    }
+
     /// Returns the last value popped from the stack.
     ///
     /// After execution completes, the top-level expression result sits
