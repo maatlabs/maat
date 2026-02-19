@@ -4,6 +4,110 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-02-19
+
+Major feature release introducing a bytecode compiler and stack-based virtual machine, based on "Writing a Compiler in Go" by Thorsten Ball. Maat now compiles source code to bytecode and executes it on a VM, in addition to the existing tree-walking interpreter.
+
+### Added
+
+#### Bytecode Compiler
+
+- **`maat_bytecode` crate**: Bytecode instruction encoding and decoding
+  - 31 opcodes covering arithmetic, comparisons, control flow, data structures, functions, closures, and built-in dispatch
+  - Big-endian encoding with variable-width operands (8-bit and 16-bit)
+  - Human-readable instruction disassembly for debugging
+  - Compile-time constants for stack, globals, and frame limits
+
+- **`maat_codegen` crate**: AST-to-bytecode compilation
+  - Recursive AST traversal with scope-aware code generation
+  - Symbol table with lexical scoping (global, local, free, function, builtin)
+  - Constant pool management with overflow protection (65,535 constant limit)
+  - Free variable tracking and closure compilation
+  - Named function support for recursive closures via `OpCurrentClosure`
+  - Incremental compilation via `Compiler::with_state` for REPL sessions
+
+- **`maat_vm` crate**: Stack-based virtual machine
+  - Call frames with base pointer-relative local variable addressing
+  - Closure execution with captured free variables
+  - Built-in function dispatch via `OpGetBuiltin` + `OpCall`
+  - Checked arithmetic to prevent integer overflow in all build profiles
+  - Safe stack management with underflow/overflow guards using `checked_sub`
+  - Global variable persistence for REPL sessions via `VM::with_globals`
+
+#### New Opcodes
+
+| Opcode                                         | Description                                            |
+| ---------------------------------------------- | ------------------------------------------------------ |
+| `Constant`                                     | Push constant from pool onto stack                     |
+| `Pop`                                          | Discard top of stack                                   |
+| `Add`, `Sub`, `Mul`, `Div`                     | Integer arithmetic and string concatenation            |
+| `True`, `False`, `Null`                        | Push boolean/null literals                             |
+| `Equal`, `NotEqual`, `GreaterThan`, `LessThan` | Comparison operators                                   |
+| `Bang`, `Minus`                                | Unary operators                                        |
+| `Jump`, `CondJump`                             | Unconditional and conditional branching                |
+| `SetGlobal`, `GetGlobal`                       | Global variable storage and retrieval                  |
+| `SetLocal`, `GetLocal`                         | Frame-relative local variable access                   |
+| `Array`, `Hash`, `Index`                       | Data structure construction and indexing               |
+| `Call`, `ReturnValue`, `Return`                | Function invocation and return                         |
+| `GetBuiltin`                                   | Built-in function lookup by index                      |
+| `Closure`                                      | Create closure from compiled function + free variables |
+| `GetFree`                                      | Load captured free variable by index                   |
+| `CurrentClosure`                               | Push current closure for recursive self-reference      |
+
+#### Runtime Types
+
+- **`CompiledFunction`**: Bytecode representation of user-defined functions
+  - Instruction bytes, local variable count, and parameter count
+- **`Closure`**: Runtime wrapper pairing a compiled function with captured free variables
+
+#### Benchmarking Suite
+
+- Criterion-based benchmark suite in `tests/benches/benchmarks.rs`
+  - VM vs. tree-walking evaluator comparison at multiple Fibonacci depths
+  - Compile-only pipeline overhead measurement
+  - Pre-compiled VM execution (isolating dispatch overhead)
+  - Feature-specific benchmarks: closures, array iteration, string operations
+  - HTML report generation for visual performance analysis
+
+### Changed
+
+- **REPL**: Migrated from tree-walking evaluator to compiler+VM execution
+  - Persistent session state across iterations (symbol table, constants pool, globals store)
+  - Snapshot/rollback on compilation errors to preserve session integrity
+  - Suppresses output for let-only statements and null values
+  - Reports VM errors with descriptive messages
+
+- **AST**: Added optional `name` field to `Function` for recursive closure support
+  - Parser sets function name from `let` binding context
+
+- **`maat_runtime`**: Extended object system with compiler-specific types
+  - Added `CompiledFunction` and `Closure` variants to `Object`
+  - Added `Builtin` variant for built-in function pointers
+  - Centralized built-in function registry (`BUILTINS`) with name-to-index mapping
+
+- **`maat_eval`**: Decoupled the object system from the tree-walking interpreter
+  - Original `maat_eval` remains the evaluation engine
+  - New `maat_runtime` implements the object system
+
+- **`maat_driver`** orchestration layer completely removed
+- **`maat_parser`**: Renamed from `maat_parse`
+
+### Security
+
+- Checked arithmetic throughout the VM (prevents integer overflow panics in all build profiles)
+- Stack bounds checking with `checked_sub` to prevent underflow in release mode
+- Frame depth limit (`MAX_FRAMES = 1024`) to prevent stack overflow from unbounded recursion
+- No unsafe code
+
+### Performance
+
+- Bytecode VM provides significant speedup over tree-walking evaluation
+- Pre-allocated stack and globals stores minimize allocation overhead
+- Inline hints on hot-path VM methods (`current_frame`, `read_u16_operand`, `read_u8_operand`)
+- String concatenation pre-allocates capacity to avoid reallocation
+
+---
+
 ## [0.3.0] - 2026-02-07
 
 ### Changed - Major Architecture Restructuring
@@ -264,6 +368,7 @@ When adding entries to this changelog for future releases:
 3. **Audience**: Write for users, not developers (focus on impact, not implementation)
 4. **Links**: Add comparison links at the bottom: `[0.2.0]: https://github.com/maatlabs/maat/compare/v0.1.0...v0.2.0`
 
+[0.4.0]: https://github.com/maatlabs/maat/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/maatlabs/maat/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/maatlabs/maat/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/maatlabs/maat/releases/tag/v0.1.0
