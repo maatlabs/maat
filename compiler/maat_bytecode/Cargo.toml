@@ -1,12 +1,10 @@
 [package]
-name = "maat_parse"
+name = "maat_bytecode"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
 [dependencies]
-maat_span = { path = "../maat_span" }
 maat_errors = { path = "../maat_errors" }
-maat_lexer = { path = "../maat_lexer" }
-maat_ast = { path = "../maat_ast" }
+maat_runtime = { path = "../maat_runtime" }

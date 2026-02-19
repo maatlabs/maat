@@ -1,34 +1,30 @@
-use core::fmt;
-use std::error::Error as StdError;
-
 use maat_span::Span;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
-    Parse(ParseError),
-    Eval(EvalError),
+    #[error(transparent)]
+    Parse(#[from] ParseError),
+
+    #[error("eval error: {0}")]
+    Eval(#[from] EvalError),
+
+    #[error("compile error: {0}")]
+    Compile(#[from] CompileError),
+
+    #[error("vm error: {0}")]
+    Vm(#[from] VmError),
+
+    #[error("decode error: {0}")]
+    Decode(#[from] DecodeError),
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("parse error at {}..{}: {message}", span.start, span.end)]
 pub struct ParseError {
     pub message: String,
     pub span: Span,
-}
-
-#[derive(Debug)]
-pub enum EvalError {
-    Identifier(String),
-    IndexExpression(String),
-    PrefixExpression(String),
-    InfixExpression(String),
-    Boolean(String),
-    Number(String),
-    NotAFunction(String),
-    NotHashable(String),
-    Builtin(String),
-    ValueNotFound,
 }
 
 impl ParseError {
@@ -40,62 +36,116 @@ impl ParseError {
     }
 }
 
-impl StdError for Error {
-    fn source(&self) -> Option<&(dyn StdError + 'static)> {
-        match self {
-            Self::Parse(_) => None,
-            Self::Eval(inner) => Some(inner),
+#[derive(Debug, thiserror::Error)]
+pub enum EvalError {
+    #[error("{0}")]
+    Identifier(String),
+
+    #[error("{0}")]
+    IndexExpression(String),
+
+    #[error("{0}")]
+    PrefixExpression(String),
+
+    #[error("{0}")]
+    InfixExpression(String),
+
+    #[error("{0}")]
+    Boolean(String),
+
+    #[error("{0}")]
+    Number(String),
+
+    #[error("{0}")]
+    NotAFunction(String),
+
+    #[error("unusable as hash key: {0}")]
+    NotHashable(String),
+
+    #[error("{0}")]
+    Builtin(String),
+
+    #[error("value not found")]
+    ValueNotFound,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum CompileError {
+    #[error(
+        "constant pool overflow: exceeded maximum of {max} constants (attempted index: {attempted})"
+    )]
+    ConstantPoolOverflow { max: usize, attempted: usize },
+
+    #[error("unsupported operator '{operator}' in {context}")]
+    UnsupportedOperator { operator: String, context: String },
+
+    #[error(
+        "unsupported expression type '{expr_type}' (not yet implemented in this compiler phase)"
+    )]
+    UnsupportedExpression { expr_type: String },
+
+    #[error("invalid opcode 0x{opcode:02x} at instruction position {position}")]
+    InvalidOpcode { opcode: u8, position: usize },
+
+    #[error("undefined variable '{name}'")]
+    UndefinedVariable { name: String },
+
+    #[error(
+        "symbols table overflow: exceeded maximum of {max} global bindings (attempted to define '{name}')"
+    )]
+    SymbolsTableOverflow { max: usize, name: String },
+
+    #[error(
+        "local variable overflow: exceeded maximum of {max} local bindings in function scope (attempted to define '{name}')"
+    )]
+    LocalsOverflow { max: usize, name: String },
+
+    #[error("scope stack underflow: attempted to leave scope with no enclosing scope")]
+    ScopeUnderflow,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("{message}")]
+pub struct VmError {
+    pub message: String,
+}
+
+impl VmError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
         }
     }
 }
 
-impl StdError for EvalError {}
-impl StdError for ParseError {}
-
-impl From<EvalError> for Error {
-    fn from(e: EvalError) -> Self {
-        Self::Eval(e)
+impl From<String> for VmError {
+    fn from(message: String) -> Self {
+        Self { message }
     }
 }
 
-impl From<ParseError> for Error {
-    fn from(e: ParseError) -> Self {
-        Self::Parse(e)
-    }
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Parse(inner) => write!(f, "{inner}"),
-            Self::Eval(inner) => write!(f, "eval error: {inner}"),
+impl From<&str> for VmError {
+    fn from(message: &str) -> Self {
+        Self {
+            message: message.to_string(),
         }
     }
 }
 
-impl fmt::Display for ParseError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "parse error at {}..{}: {}",
-            self.span.start, self.span.end, self.message
-        )
-    }
-}
+#[derive(Debug, thiserror::Error)]
+pub enum DecodeError {
+    #[error(
+        "bytecode truncated: needed {needed} bytes at offset {offset}, but only {available} bytes available"
+    )]
+    UnexpectedEndOfBytecode {
+        offset: usize,
+        needed: usize,
+        available: usize,
+    },
 
-impl fmt::Display for EvalError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Identifier(msg) => write!(f, "{msg}"),
-            Self::IndexExpression(msg) => write!(f, "{msg}"),
-            Self::PrefixExpression(msg) => write!(f, "{msg}"),
-            Self::InfixExpression(msg) => write!(f, "{msg}"),
-            Self::Boolean(msg) => write!(f, "{msg}"),
-            Self::Number(msg) => write!(f, "{msg}"),
-            Self::NotAFunction(msg) => write!(f, "{msg}"),
-            Self::NotHashable(msg) => write!(f, "unusable as hash key: {msg}"),
-            Self::Builtin(msg) => write!(f, "{msg}"),
-            Self::ValueNotFound => write!(f, "value not found"),
-        }
-    }
+    #[error("unsupported operand width: {0} (valid widths: 1, 2, 4, 8)")]
+    UnsupportedOperandWidth(usize),
+
+    #[error("invalid opcode: 0x{0:02x}")]
+    InvalidOpcode(u8),
 }

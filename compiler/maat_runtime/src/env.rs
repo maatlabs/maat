@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use super::Object;
+use crate::Object;
 
 /// Represents the execution environment of the interpreter.
 #[derive(Debug, Clone, Default)]

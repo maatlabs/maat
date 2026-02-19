@@ -1,6 +1,6 @@
 use maat_errors::{EvalError, Result};
 
-use crate::object::{BuiltinFn, NULL, Object};
+use crate::{BuiltinFn, NULL, Object};
 
 /// The name of the `quote` special form for AST quoting.
 ///
@@ -13,6 +13,23 @@ pub const QUOTE: &str = "quote";
 /// Used within `quote` to evaluate and splice expressions into the quoted AST.
 /// This is a special form handled during quote evaluation, not a regular builtin.
 pub const UNQUOTE: &str = "unquote";
+
+/// Ordered registry of built-in functions for the compiler/VM pipeline.
+///
+/// Each entry maps a fixed index to a `(name, function)` pair. The compiler
+/// resolves builtin identifiers by name and emits `OpGetBuiltin` with the
+/// corresponding index. The VM retrieves the function by index at runtime.
+///
+/// The ordering must remain stable across compiler and VM sessions.
+pub const BUILTINS: &[(&str, BuiltinFn)] = &[
+    ("len", len),
+    ("puts", print),
+    ("print", print),
+    ("first", first),
+    ("last", last),
+    ("rest", rest),
+    ("push", push),
+];
 
 /// Attempts to retrieve a builtin by name. Returns `Some(fn)` or `None`.
 #[inline]
@@ -31,8 +48,8 @@ pub fn get_builtin(name: &str) -> Option<BuiltinFn> {
 pub fn len(args: &[Object]) -> Result<Object> {
     expect_arg_count(args, 1)?;
     match &args[0] {
-        Object::Array(arr) => Ok(Object::Usize(arr.len())),
-        Object::String(s) => Ok(Object::Usize(s.len())),
+        Object::Array(arr) => Ok(Object::I64(arr.len() as i64)),
+        Object::String(s) => Ok(Object::I64(s.len() as i64)),
         _ => Err(EvalError::Builtin(format!(
             "argument to `len` not supported: {}",
             args[0].type_name()

@@ -1,10 +1,10 @@
 [package]
-name = "maat_errors"
+name = "maat_runtime"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
 [dependencies]
-maat_span = { path = "../maat_span" }
-thiserror = "2.0"
+maat_ast = { path = "../maat_ast" }
+maat_errors = { path = "../maat_errors" }

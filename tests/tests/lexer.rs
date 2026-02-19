@@ -1,4 +1,4 @@
-use maat_driver::{Lexer, TokenKind};
+use maat_lexer::{Lexer, TokenKind};
 
 #[test]
 fn next_token() {

@@ -4,7 +4,7 @@ use std::fmt;
 use maat_ast::{BlockStatement, Node};
 use maat_errors::{Error, EvalError, Result};
 
-use crate::env::Env;
+use crate::Env;
 
 pub type BuiltinFn = fn(&[Object]) -> Result<Object>;
 
@@ -70,9 +70,67 @@ pub enum Object {
     ReturnValue(Box<Object>),
     /// A builtin function.
     Builtin(BuiltinFn),
+    /// A compiled function containing bytecode instructions.
+    CompiledFunction(CompiledFunction),
+    /// A closure wrapping a compiled function with captured free variables.
+    Closure(Closure),
 }
 
 impl Object {
+    /// Determines whether this object is truthy.
+    ///
+    /// Booleans return their value directly; null is falsy;
+    /// all other values (including integers) are truthy.
+    #[inline]
+    pub fn is_truthy(&self) -> bool {
+        match self {
+            Object::Boolean(b) => *b,
+            Object::Null => false,
+            _ => true,
+        }
+    }
+
+    /// Attempts to convert this object to a `usize` array index.
+    ///
+    /// Returns `Some(index)` for any integer type whose value fits in `usize`.
+    /// Returns `None` for negative values, out-of-range values, or non-integer types.
+    pub fn to_array_index(&self) -> Option<usize> {
+        match self {
+            Self::I8(v) => usize::try_from(*v).ok(),
+            Self::I16(v) => usize::try_from(*v).ok(),
+            Self::I32(v) => usize::try_from(*v).ok(),
+            Self::I64(v) => usize::try_from(*v).ok(),
+            Self::I128(v) => usize::try_from(*v).ok(),
+            Self::Isize(v) => usize::try_from(*v).ok(),
+            Self::U8(v) => Some(*v as usize),
+            Self::U16(v) => Some(*v as usize),
+            Self::U32(v) => Some(*v as usize),
+            Self::U64(v) => usize::try_from(*v).ok(),
+            Self::U128(v) => usize::try_from(*v).ok(),
+            Self::Usize(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    /// Returns `true` if this object is an integer type.
+    pub fn is_integer(&self) -> bool {
+        matches!(
+            self,
+            Self::I8(_)
+                | Self::I16(_)
+                | Self::I32(_)
+                | Self::I64(_)
+                | Self::I128(_)
+                | Self::Isize(_)
+                | Self::U8(_)
+                | Self::U16(_)
+                | Self::U32(_)
+                | Self::U64(_)
+                | Self::U128(_)
+                | Self::Usize(_)
+        )
+    }
+
     /// Returns a string representation of the object's type.
     pub fn type_name(&self) -> &'static str {
         match self {
@@ -100,6 +158,8 @@ impl Object {
             Self::Quote(_) => "Quote",
             Self::ReturnValue(_) => "ReturnValue",
             Self::Builtin(_) => "BuiltinFn",
+            Self::CompiledFunction(_) => "CompiledFunction",
+            Self::Closure(_) => "Closure",
         }
     }
 }
@@ -132,6 +192,8 @@ impl PartialEq for Object {
             (Quote(q1), Quote(q2)) => q1 == q2,
             (ReturnValue(o1), ReturnValue(o2)) => o1 == o2,
             (Builtin(f1), Builtin(f2)) => std::ptr::fn_addr_eq(*f1, *f2),
+            (CompiledFunction(c1), CompiledFunction(c2)) => c1 == c2,
+            (Closure(c1), Closure(c2)) => c1 == c2,
             _ => false,
         }
     }
@@ -157,6 +219,39 @@ pub struct Macro {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Quote {
     pub node: Node,
+}
+
+/// A compiled function object containing bytecode instructions.
+///
+/// Functions are compiled into bytecode and stored in the constant pool.
+/// The VM creates a new call frame for each invocation, using the
+/// `num_locals` field to reserve stack space for local bindings.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CompiledFunction {
+    /// The bytecode instructions for this function's body.
+    pub instructions: Vec<u8>,
+    /// The number of local bindings (parameters + let bindings) in this function.
+    pub num_locals: usize,
+    /// The number of parameters this function expects.
+    pub num_parameters: usize,
+}
+
+/// A closure binding a compiled function with its captured free variables.
+///
+/// At runtime, every function is wrapped in a closure, even those with zero
+/// free variables. This uniform representation simplifies the VM's call
+/// dispatch: there is a single code path for invoking user-defined functions.
+///
+/// Free variables are resolved at closure-creation time (`OpClosure`) and
+/// stored by value. Nested closures capture through the chain: an inner
+/// closure's free variable may itself be a free variable of its enclosing
+/// closure.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Closure {
+    /// The underlying compiled function.
+    pub func: CompiledFunction,
+    /// Captured free variables from enclosing scopes.
+    pub free_vars: Vec<Object>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -243,6 +338,8 @@ impl fmt::Display for Object {
             Self::Quote(quote) => quote.fmt(f),
             Self::ReturnValue(ret_val) => ret_val.fmt(f),
             Self::Builtin(_) => write!(f, "builtin function"),
+            Self::CompiledFunction(cf) => write!(f, "CompiledFunction[{:p}]", cf),
+            Self::Closure(cl) => write!(f, "Closure[{:p}]", &cl.func),
         }
     }
 }

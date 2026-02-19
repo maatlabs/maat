@@ -1,16 +1,7 @@
-use maat_driver::{Env, Hashable, Lexer, NULL, Object, Parser, Result, eval, *};
+use maat_runtime::{Hashable, NULL, Object};
 
-fn test_eval(input: &str) -> Result<Object> {
-    let lexer = Lexer::new(input);
-    let mut parser = Parser::new(lexer);
-    let program = parser.parse_program();
-    assert!(
-        parser.errors().is_empty(),
-        "parser errors: {:?}",
-        parser.errors()
-    );
-    let env = Env::default();
-    eval(Node::Program(program), &env)
+fn test_eval(input: &str) -> maat_errors::Result<Object> {
+    maat_tests::run_eval(input)
 }
 
 #[test]
@@ -323,11 +314,9 @@ fn eval_array_index_with_integer_types() {
 }
 
 #[test]
-fn eval_array_index_negative_error() {
-    let result = test_eval("[1, 2, 3][-1]");
-    assert!(result.is_err());
-    let err = result.unwrap_err();
-    assert!(err.to_string().contains("array index out of range"));
+fn eval_array_index_negative_returns_null() {
+    let result = test_eval("[1, 2, 3][-1]").unwrap();
+    assert_eq!(result, Object::Null);
 }
 
 #[test]
@@ -400,7 +389,7 @@ fn eval_builtin_len() {
     .for_each(|(input, expected)| match expected {
         Some(val) => {
             let result = test_eval(input).unwrap();
-            assert_eq!(result, Object::Usize(*val), "input: {}", input);
+            assert_eq!(result, Object::I64(*val as i64), "input: {}", input);
         }
         None => {
             assert!(test_eval(input).is_err(), "expected error for: {}", input);

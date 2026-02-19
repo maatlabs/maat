@@ -1,10 +1,21 @@
 use std::io::{self, BufRead, Write};
 
-use maat_driver::{Env, Lexer, Object, Parser, eval, maat_ast as ast};
+use maat_ast::{Node, Statement};
+use maat_codegen::{Compiler, SymbolsTable};
+use maat_eval::{define_macros, expand_macros};
+use maat_lexer::Lexer;
+use maat_parser::Parser;
+use maat_runtime::{Env, Object};
+use maat_vm::VM;
 
 const PROMPT: &str = ">> ";
 
 /// Starts the REPL (Read-Eval-Print Loop) for interactive Maat sessions.
+///
+/// The REPL compiles each line of input to bytecode and executes it on the
+/// bytecode VM. Global variable bindings, the constants pool, the global
+/// store, and the macro environment all persist across REPL iterations so
+/// that definitions from earlier lines remain visible in subsequent ones.
 ///
 /// # Examples
 ///
@@ -26,54 +37,91 @@ const PROMPT: &str = ">> ";
 /// 1. Displays the prompt (`>> `)
 /// 2. Reads a line of input
 /// 3. Parses the input into an AST
-/// 4. Evaluates the AST and prints the result
-/// 5. Reports errors if any occur during parsing or evaluation
-/// 6. Repeats
+/// 4. Expands macros (extracting definitions, then replacing macro calls)
+/// 5. Compiles the expanded AST to bytecode, reusing accumulated session state
+/// 6. Runs the bytecode on the VM, reusing the global store
+/// 7. Prints the last popped stack value (suppressing `null` and let-only outputs)
+/// 8. Reports errors from any phase without resetting the session
 ///
 /// The session terminates when the reader returns EOF (e.g., Ctrl+D on Unix,
 /// Ctrl+Z on Windows, or when reading from a closed pipe).
 pub fn start<R: BufRead, W: Write>(mut reader: R, writer: &mut W) -> io::Result<()> {
     let mut source = String::new();
-    let env = Env::default();
+    let mut symbols_table = SymbolsTable::new();
+    let mut constants: Vec<Object> = Vec::new();
+    let mut globals: Vec<Object> = Vec::new();
+    let macro_env = Env::default();
 
     loop {
         write!(writer, "{PROMPT}")?;
         writer.flush()?;
 
         source.clear();
-        let bytes_read = reader.read_line(&mut source)?;
-        if bytes_read == 0 {
+        if reader.read_line(&mut source)? == 0 {
             break;
         }
 
         let line = source.trim_end();
-        let lexer = Lexer::new(line);
-        let mut parser = Parser::new(lexer);
+        let mut parser = Parser::new(Lexer::new(line));
         let program = parser.parse_program();
 
         if !parser.errors().is_empty() {
             for err in parser.errors() {
                 writeln!(writer, "  {err}")?;
             }
-        } else {
-            // Check if the program contains only Let statements
-            let only_let_stmts = !program.statements.is_empty()
-                && program
-                    .statements
-                    .iter()
-                    .all(|stmt| matches!(stmt, ast::Statement::Let(_)));
+            continue;
+        }
 
-            match eval(ast::Node::Program(program), &env) {
-                Ok(result) => {
-                    // Suppress output for let-only statements and null values
-                    if only_let_stmts || matches!(result, Object::Null) {
-                        writeln!(writer)?
-                    } else {
-                        writeln!(writer, "{result}")?
-                    }
-                }
-                Err(e) => writeln!(writer, "  {e}")?,
+        let program = define_macros(program, &macro_env);
+        let expanded = expand_macros(Node::Program(program), &macro_env);
+        let program = match expanded {
+            Node::Program(p) => p,
+            _ => unreachable!("expand_macros preserves Program variant"),
+        };
+
+        let only_let_stmts = !program.statements.is_empty()
+            && program
+                .statements
+                .iter()
+                .all(|s| matches!(s, Statement::Let(_)));
+
+        let prev_symbols = symbols_table.clone();
+        let prev_constants = constants.clone();
+
+        let mut compiler = Compiler::with_state(symbols_table, constants);
+        if let Err(e) = compiler.compile(&Node::Program(program)) {
+            writeln!(writer, "  {e}")?;
+            symbols_table = prev_symbols;
+            constants = prev_constants;
+            continue;
+        }
+
+        let next_symbols = compiler.symbols_table().clone();
+        let bytecode = match compiler.bytecode() {
+            Ok(bc) => bc,
+            Err(e) => {
+                writeln!(writer, "  {e}")?;
+                symbols_table = next_symbols;
+                constants = prev_constants;
+                continue;
             }
+        };
+        let next_constants = bytecode.constants.clone();
+
+        let mut vm = VM::with_globals(bytecode, globals);
+        if let Err(e) = vm.run() {
+            writeln!(writer, "  {e}")?;
+        }
+
+        globals = vm.globals().to_vec();
+        symbols_table = next_symbols;
+        constants = next_constants;
+
+        match vm.last_popped_stack_elem() {
+            Some(val) if !only_let_stmts && !matches!(val, Object::Null) => {
+                writeln!(writer, "{val}")?;
+            }
+            _ => writeln!(writer)?,
         }
     }
 
@@ -173,7 +221,6 @@ mod tests {
 
         let result = String::from_utf8(output).expect("Invalid UTF-8");
         let outputs = extract_output(&result);
-        // Empty input evaluates to null, which is suppressed in REPL output
         assert_eq!(outputs.len(), 0);
     }
 
@@ -204,7 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn report_eval_errors() {
+    fn report_vm_errors() {
         let input = b"5 + true;\n";
         let mut output = Vec::new();
         start(&input[..], &mut output).expect("REPL failed");
@@ -212,7 +259,33 @@ mod tests {
         let result = String::from_utf8(output).expect("Invalid UTF-8");
         let outputs = extract_output(&result);
         assert_eq!(outputs.len(), 1);
-        assert!(outputs[0].contains("eval error"));
-        assert!(outputs[0].contains("invalid infix expression"));
+        assert!(outputs[0].contains("vm error"), "got: {:?}", outputs[0]);
+        assert!(
+            outputs[0].contains("unsupported types for binary operation"),
+            "got: {:?}",
+            outputs[0]
+        );
+    }
+
+    #[test]
+    fn eval_macro_expansion() {
+        let input = b"let double = macro(x) { quote(unquote(x) * 2) };\ndouble(21);\n";
+        let mut output = Vec::new();
+        start(&input[..], &mut output).expect("REPL failed");
+
+        let result = String::from_utf8(output).expect("Invalid UTF-8");
+        let outputs = extract_output(&result);
+        assert_eq!(outputs, vec!["42"]);
+    }
+
+    #[test]
+    fn globals_persist_across_iterations() {
+        let input = b"let x = 42;\nx * 2;\n";
+        let mut output = Vec::new();
+        start(&input[..], &mut output).expect("REPL failed");
+
+        let result = String::from_utf8(output).expect("Invalid UTF-8");
+        let outputs = extract_output(&result);
+        assert_eq!(outputs, vec!["84"]);
     }
 }

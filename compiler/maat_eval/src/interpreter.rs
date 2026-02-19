@@ -1,29 +1,26 @@
-//! Evaluation engine.
-//!
-//! This module implements a tree-walking interpreter that evaluates the AST nodes
+//! Implements a tree-walking interpreter that evaluates the AST nodes
 //! into runtime objects. It supports integers, booleans, functions, conditionals,
 //! and lexically-scoped environments.
 
 use std::collections::HashMap;
 
-use maat_ast::*;
+use maat_ast::{self as ast, *};
 use maat_errors::{EvalError, Result};
-
-use crate::builtins::{QUOTE, get_builtin};
-use crate::env::Env;
-use crate::macros::{define_macros, expand_macros};
-use crate::object::{FALSE, Function, HashObject, Hashable, Macro, NULL, Object, Quote, TRUE};
+use maat_runtime::{
+    Env, FALSE, Function, HashObject, Hashable, Macro, NULL, Object, QUOTE, Quote, TRUE, UNQUOTE,
+    get_builtin,
+};
 
 /// Evaluates an AST node in the given environment.
 ///
-/// This is the main entry point for the interpreter. It recursively traverses
-/// the AST, evaluating expressions and executing statements, producing runtime
-/// objects as results.
+/// This function performs pure tree-walking evaluation without macro processing.
+/// For full program evaluation with macro support, use [`crate::eval_program`].
 ///
 /// # Examples
 ///
 /// ```no_run
-/// # use maat_eval::{eval, Env};
+/// # use maat_eval::eval;
+/// # use maat_runtime::Env;
 /// # use maat_ast::Node;
 /// # let program = maat_ast::Program { statements: vec![] };
 /// let env = Env::default();
@@ -31,15 +28,7 @@ use crate::object::{FALSE, Function, HashObject, Hashable, Macro, NULL, Object, 
 /// ```
 pub fn eval(node: Node, env: &Env) -> Result<Object> {
     match node {
-        Node::Program(prog) => {
-            let p = define_macros(prog, env);
-            let n = expand_macros(Node::Program(p), env);
-            if let Node::Program(expanded_prog) = n {
-                eval_program(expanded_prog, env)
-            } else {
-                unreachable!("expand_macros should return a Program node")
-            }
-        }
+        Node::Program(prog) => eval_program(prog, env),
 
         Node::Statement(stmt) => match stmt {
             Statement::Let(ls) => {
@@ -107,8 +96,7 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
                         .into());
                     }
                     let node = Node::Expression(call_expr.arguments[0].clone());
-                    // Process `unquote` calls within the quoted expression
-                    let node = crate::macros::eval_unquote_calls(node, env);
+                    let node = eval_unquote_calls(node, env);
                     return Ok(Object::Quote(Quote { node }));
                 }
                 eval_function_call(call_expr, env)
@@ -169,11 +157,18 @@ fn eval_index_expression(idx_expr: IndexExpr, env: &Env) -> Result<Object> {
 
     match expr {
         Object::Array(arr) => {
-            let idx = to_array_index(&index)?;
-            if arr.is_empty() || idx >= arr.len() {
-                return Ok(NULL);
+            if index.is_integer() {
+                match index.to_array_index() {
+                    Some(idx) if idx < arr.len() => Ok(arr[idx].clone()),
+                    _ => Ok(NULL),
+                }
+            } else {
+                Err(EvalError::IndexExpression(format!(
+                    "array index must be an integer, got {}",
+                    index.type_name()
+                ))
+                .into())
             }
-            Ok(arr[idx].clone())
         }
         Object::Hash(hash) => {
             let key_hash = Hashable::try_from(index)?;
@@ -205,7 +200,7 @@ fn eval_prefix_expression(expr: PrefixExpr, env: &Env) -> Result<Object> {
 
     match operator.as_str() {
         "!" => match operand {
-            obj if !is_truthy(&obj) => Ok(TRUE),
+            obj if !obj.is_truthy() => Ok(TRUE),
             _ => Ok(FALSE),
         },
         "-" => match operand {
@@ -483,7 +478,7 @@ fn eval_infix_string(operator: &str, lhs: &str, rhs: &str) -> Result<Object> {
 fn eval_conditional_expression(expr: ConditionalExpr, env: &Env) -> Result<Object> {
     let condition = eval(Node::Expression(*expr.condition), env)?;
 
-    if is_truthy(&condition) {
+    if condition.is_truthy() {
         eval(Node::Statement(Statement::Block(expr.consequence)), env)
     } else if let Some(alt) = expr.alternative {
         eval(Node::Statement(Statement::Block(alt)), env)
@@ -492,9 +487,14 @@ fn eval_conditional_expression(expr: ConditionalExpr, env: &Env) -> Result<Objec
     }
 }
 
-fn is_truthy(obj: &Object) -> bool {
-    !(*obj == NULL || *obj == FALSE)
-}
+// #[inline]
+// fn is_truthy(obj: &Object) -> bool {
+//     match obj {
+//         Object::Boolean(b) => *b,
+//         Object::Null => false,
+//         _ => true,
+//     }
+// }
 
 fn eval_identifier(ident: String, env: &Env) -> Result<Object> {
     match env.get(&ident) {
@@ -529,46 +529,82 @@ fn eval_function_call(expr: CallExpr, env: &Env) -> Result<Object> {
     }
 }
 
-/// Converts any integer object to usize for array indexing.
+/// Evaluates `unquote` calls within a quoted AST node.
 ///
-/// Accepts all integer types and performs checked conversion to usize.
-/// Returns an error if the value is negative or out of range.
-fn to_array_index(obj: &Object) -> Result<usize> {
-    match obj {
-        Object::I8(v) => usize::try_from(*v).map_err(|_| {
-            EvalError::IndexExpression(format!("array index out of range: {v}")).into()
-        }),
-        Object::I16(v) => usize::try_from(*v).map_err(|_| {
-            EvalError::IndexExpression(format!("array index out of range: {v}")).into()
-        }),
-        Object::I32(v) => usize::try_from(*v).map_err(|_| {
-            EvalError::IndexExpression(format!("array index out of range: {v}")).into()
-        }),
-        Object::I64(v) => usize::try_from(*v).map_err(|_| {
-            EvalError::IndexExpression(format!("array index out of range: {v}")).into()
-        }),
-        Object::I128(v) => usize::try_from(*v).map_err(|_| {
-            EvalError::IndexExpression(format!("array index out of range: {v}")).into()
-        }),
-        Object::Isize(v) => usize::try_from(*v).map_err(|_| {
-            EvalError::IndexExpression(format!("array index out of range: {v}")).into()
-        }),
-        Object::U8(v) => Ok(*v as usize),
-        Object::U16(v) => Ok(*v as usize),
-        Object::U32(v) => Ok(*v as usize),
-        Object::U64(v) => usize::try_from(*v).map_err(|_| {
-            EvalError::IndexExpression(format!("array index out of range: {v}")).into()
-        }),
-        Object::U128(v) => usize::try_from(*v).map_err(|_| {
-            EvalError::IndexExpression(format!("array index out of range: {v}")).into()
-        }),
-        Object::Usize(v) => Ok(*v),
-        _ => Err(EvalError::IndexExpression(format!(
-            "array index must be an integer, got {}",
-            obj.type_name()
-        ))
-        .into()),
+/// Traverses the AST and replaces `unquote(expr)` calls with their evaluated
+/// results, enabling selective evaluation inside quoted expressions.
+fn eval_unquote_calls(quoted: Node, env: &Env) -> Node {
+    transform(quoted, &mut |node| {
+        if !is_unquote_call(&node) {
+            return node;
+        }
+
+        if let Node::Expression(Expression::Call(call)) = &node {
+            if call.arguments.len() != 1 {
+                return node;
+            }
+
+            let unquoted = match eval_expression(&call.arguments[0], env) {
+                Ok(obj) => obj,
+                Err(_) => return node,
+            };
+
+            match object_to_node(&unquoted) {
+                Some(ast_node) => ast_node,
+                None => node,
+            }
+        } else {
+            node
+        }
+    })
+}
+
+/// Checks if a node is a call to the `unquote` builtin.
+fn is_unquote_call(node: &Node) -> bool {
+    if let Node::Expression(Expression::Call(call)) = node
+        && let Expression::Identifier(ident) = &*call.function
+    {
+        return ident == UNQUOTE;
     }
+    false
+}
+
+/// Converts a runtime object back to an AST node.
+///
+/// Used to splice evaluated values back into quoted code.
+fn object_to_node(obj: &Object) -> Option<Node> {
+    use ast::Radix;
+
+    macro_rules! convert_int {
+        ($($obj:ident => $ast_name:ident($ast_type:ident)),* $(,)?) => {
+            match obj {
+                $(
+                    Object::$obj(v) => Some(Node::Expression(Expression::$ast_name(ast::$ast_type {
+                        radix: Radix::Dec,
+                        value: *v,
+                    }))),
+                )*
+                Object::Boolean(b) => Some(Node::Expression(Expression::Boolean(*b))),
+                Object::Quote(q) => Some(q.node.clone()),
+                _ => None,
+            }
+        };
+    }
+
+    convert_int!(
+        I8 => I8(I8),
+        I16 => I16(I16),
+        I32 => I32(I32),
+        I64 => I64(I64),
+        I128 => I128(I128),
+        Isize => Isize(Isize),
+        U8 => U8(U8),
+        U16 => U16(U16),
+        U32 => U32(U32),
+        U64 => U64(U64),
+        U128 => U128(U128),
+        Usize => Usize(Usize),
+    )
 }
 
 /// Unescapes a string literal by processing escape sequences.

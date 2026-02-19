@@ -4,7 +4,7 @@
 //!
 //! ```
 //! use maat_lexer::Lexer;
-//! use maat_parse::Parser;
+//! use maat_parser::Parser;
 //!
 //! let input = "let x = 5 + 10;";
 //! let lexer = Lexer::new(input);
@@ -44,7 +44,7 @@ impl<'a> Parser<'a> {
     ///
     /// ```
     /// use maat_lexer::Lexer;
-    /// use maat_parse::Parser;
+    /// use maat_parser::Parser;
     ///
     /// let lexer = Lexer::new("let x = 42;");
     /// let parser = Parser::new(lexer);
@@ -67,7 +67,7 @@ impl<'a> Parser<'a> {
     ///
     /// ```
     /// use maat_lexer::Lexer;
-    /// use maat_parse::Parser;
+    /// use maat_parser::Parser;
     ///
     /// let lexer = Lexer::new("let = 5;");
     /// let mut parser = Parser::new(lexer);
@@ -95,7 +95,7 @@ impl<'a> Parser<'a> {
     ///
     /// ```
     /// use maat_lexer::Lexer;
-    /// use maat_parse::Parser;
+    /// use maat_parser::Parser;
     ///
     /// let input = r#"
     ///     let x = 5;
@@ -139,7 +139,10 @@ impl<'a> Parser<'a> {
             return None;
         }
         self.next_token();
-        let value = self.parse_expression(LOWEST)?;
+        let mut value = self.parse_expression(LOWEST)?;
+        if let Expression::Function(ref mut func) = value {
+            func.name = Some(ident.clone());
+        }
         if self.peek_token_is(TokenKind::Semicolon) {
             self.next_token();
         }
@@ -503,7 +506,11 @@ impl<'a> Parser<'a> {
         }
         let body = self.parse_block_statement()?;
 
-        Some(Expression::Function(Function { params, body }))
+        Some(Expression::Function(Function {
+            name: None,
+            params,
+            body,
+        }))
     }
 
     fn parse_macro(&mut self) -> Option<Expression> {

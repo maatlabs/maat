@@ -1,14 +1,7 @@
-use maat_driver::{Lexer, Parser, *};
+use maat_ast::*;
 
 fn parse(input: &str) -> Program {
-    let mut parser = Parser::new(Lexer::new(input));
-    let program = parser.parse_program();
-    assert!(
-        parser.errors().is_empty(),
-        "parser errors: {:?}",
-        parser.errors()
-    );
-    program
+    maat_tests::parse(input)
 }
 
 fn expect_single_stmt(program: &Program) -> &Statement {
