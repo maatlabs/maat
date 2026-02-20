@@ -1,7 +1,7 @@
 use std::hint::black_box;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use maat_tests::{compile, run_eval};
+use maat_tests::compile;
 use maat_vm::VM;
 
 const FIB_DEF: &str = "
@@ -57,28 +57,12 @@ fn run_vm(source: &str) {
     black_box(vm.last_popped_stack_elem());
 }
 
-fn run_evaluator(source: &str) {
-    let result = run_eval(black_box(source)).expect("eval error");
-    black_box(result);
-}
-
 fn bench_fibonacci_vm(c: &mut Criterion) {
     let mut group = c.benchmark_group("fibonacci/vm");
     for n in [10u32, 15, 20] {
         let source = fib_source(n);
         group.bench_with_input(BenchmarkId::from_parameter(n), &source, |b, src| {
             b.iter(|| run_vm(src));
-        });
-    }
-    group.finish();
-}
-
-fn bench_fibonacci_eval(c: &mut Criterion) {
-    let mut group = c.benchmark_group("fibonacci/eval");
-    for n in [10u32, 15, 20] {
-        let source = fib_source(n);
-        group.bench_with_input(BenchmarkId::from_parameter(n), &source, |b, src| {
-            b.iter(|| run_evaluator(src));
         });
     }
     group.finish();
@@ -120,17 +104,11 @@ fn bench_closures(c: &mut Criterion) {
     c.bench_function("closures/vm", |b| {
         b.iter(|| run_vm(CLOSURE_SOURCE));
     });
-    c.bench_function("closures/eval", |b| {
-        b.iter(|| run_evaluator(CLOSURE_SOURCE));
-    });
 }
 
 fn bench_array_iteration(c: &mut Criterion) {
     c.bench_function("array_iteration/vm", |b| {
         b.iter(|| run_vm(ARRAY_SOURCE));
-    });
-    c.bench_function("array_iteration/eval", |b| {
-        b.iter(|| run_evaluator(ARRAY_SOURCE));
     });
 }
 
@@ -138,15 +116,12 @@ fn bench_string_operations(c: &mut Criterion) {
     c.bench_function("string_operations/vm", |b| {
         b.iter(|| run_vm(STRING_SOURCE));
     });
-    c.bench_function("string_operations/eval", |b| {
-        b.iter(|| run_evaluator(STRING_SOURCE));
-    });
 }
 
 criterion_group! {
     name = fibonacci_benches;
     config = Criterion::default().measurement_time(std::time::Duration::from_secs(10));
-    targets = bench_fibonacci_vm, bench_fibonacci_eval, bench_compile_fibonacci, bench_vm_exec_only
+    targets = bench_fibonacci_vm, bench_compile_fibonacci, bench_vm_exec_only
 }
 criterion_group!(
     feature_benches,

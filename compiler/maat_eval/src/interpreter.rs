@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use maat_ast::{self as ast, *};
+use maat_ast::*;
 use maat_errors::{EvalError, Result};
 use maat_runtime::{
     Env, FALSE, Function, HashObject, Hashable, Macro, NULL, Object, QUOTE, Quote, TRUE, UNQUOTE,
@@ -280,6 +280,213 @@ fn eval_infix_expression(expr: InfixExpr, env: &Env) -> Result<Object> {
     }
 }
 
+fn eval_infix_op<T: InfixOp>(operator: &str, lhs: T, rhs: T) -> Result<Object> {
+    match operator {
+        "+" => lhs
+            .checked_add(rhs)
+            .map(|v| v.into_object())
+            .ok_or_else(|| {
+                EvalError::Number(format!(
+                    "arithmetic overflow: {} + {} exceeds {} bounds",
+                    lhs,
+                    rhs,
+                    T::type_name()
+                ))
+                .into()
+            }),
+        "-" => lhs
+            .checked_sub(rhs)
+            .map(|v| v.into_object())
+            .ok_or_else(|| {
+                EvalError::Number(format!(
+                    "arithmetic overflow: {} - {} exceeds {} bounds",
+                    lhs,
+                    rhs,
+                    T::type_name()
+                ))
+                .into()
+            }),
+        "*" => lhs
+            .checked_mul(rhs)
+            .map(|v| v.into_object())
+            .ok_or_else(|| {
+                EvalError::Number(format!(
+                    "arithmetic overflow: {} * {} exceeds {} bounds",
+                    lhs,
+                    rhs,
+                    T::type_name()
+                ))
+                .into()
+            }),
+        "/" => lhs
+            .checked_div(rhs)
+            .map(|v| v.into_object())
+            .ok_or_else(|| {
+                EvalError::Number(format!(
+                    "division error: {} / {} (division by zero or overflow)",
+                    lhs, rhs
+                ))
+                .into()
+            }),
+
+        "<" => Ok(Object::Boolean(lhs < rhs)),
+        ">" => Ok(Object::Boolean(lhs > rhs)),
+        "<=" => Ok(Object::Boolean(lhs <= rhs)),
+        ">=" => Ok(Object::Boolean(lhs >= rhs)),
+        "==" => Ok(Object::Boolean(lhs == rhs)),
+        "!=" => Ok(Object::Boolean(lhs != rhs)),
+
+        _ => Err(EvalError::Number(format!(
+            "invalid {} operation: `{lhs} {operator} {rhs}`",
+            T::type_name()
+        ))
+        .into()),
+    }
+}
+
+fn eval_infix_bool(operator: &str, lhs: bool, rhs: bool) -> Result<Object> {
+    match operator {
+        "==" => Ok(Object::Boolean(lhs == rhs)),
+        "!=" => Ok(Object::Boolean(lhs != rhs)),
+        _ => Err(EvalError::Boolean(format!(
+            "invalid boolean operation: `{lhs} {operator} {rhs}`"
+        ))
+        .into()),
+    }
+}
+
+fn eval_infix_string(operator: &str, lhs: &str, rhs: &str) -> Result<Object> {
+    if operator != "+" {
+        return Err(EvalError::InfixExpression(format!(
+            "invalid concat operation: `{lhs} {operator} {rhs}`"
+        ))
+        .into());
+    }
+    Ok(Object::String(format!("{lhs}{rhs}")))
+}
+
+fn eval_conditional_expression(expr: ConditionalExpr, env: &Env) -> Result<Object> {
+    let condition = eval(Node::Expression(*expr.condition), env)?;
+
+    if condition.is_truthy() {
+        eval(Node::Statement(Statement::Block(expr.consequence)), env)
+    } else if let Some(alt) = expr.alternative {
+        eval(Node::Statement(Statement::Block(alt)), env)
+    } else {
+        Ok(NULL)
+    }
+}
+
+fn eval_identifier(ident: String, env: &Env) -> Result<Object> {
+    match env.get(&ident) {
+        Some(obj) => Ok(obj.clone()),
+        None => match get_builtin(&ident) {
+            Some(func) => Ok(Object::Builtin(func)),
+            None => Err(EvalError::Identifier(format!("unknown identifier: {ident}")).into()),
+        },
+    }
+}
+
+fn eval_function_call(expr: CallExpr, env: &Env) -> Result<Object> {
+    let object = eval(Node::Expression(*expr.function), env)?;
+    let expressions = eval_expressions(&expr.arguments, env)?;
+
+    match object {
+        Object::Function(func) => {
+            let env = Env::new_enclosed(&func.env);
+            func.params.iter().enumerate().for_each(|(i, param)| {
+                env.set(param.to_owned(), &expressions[i]);
+            });
+
+            let evaluated = eval(Node::Statement(Statement::Block(func.body)), &env)?;
+            if let Object::ReturnValue(val) = evaluated {
+                Ok(*val)
+            } else {
+                Ok(evaluated)
+            }
+        }
+        Object::Builtin(builtin_fn) => builtin_fn(&expressions),
+        obj => Err(EvalError::NotAFunction(format!("expected {obj} to be a function")).into()),
+    }
+}
+
+/// Evaluates `unquote` calls within a quoted AST node.
+///
+/// Traverses the AST and replaces `unquote(expr)` calls with their evaluated
+/// results, enabling selective evaluation inside quoted expressions.
+fn eval_unquote_calls(quoted: Node, env: &Env) -> Node {
+    transform(quoted, &mut |node| {
+        if !is_unquote_call(&node) {
+            return node;
+        }
+
+        if let Node::Expression(Expression::Call(call)) = &node {
+            if call.arguments.len() != 1 {
+                return node;
+            }
+
+            let unquoted = match eval_expression(&call.arguments[0], env) {
+                Ok(obj) => obj,
+                Err(_) => return node,
+            };
+
+            match Object::to_ast_node(&unquoted) {
+                Some(ast_node) => ast_node,
+                None => node,
+            }
+        } else {
+            node
+        }
+    })
+}
+
+/// Checks if a node is a call to the `unquote` builtin.
+fn is_unquote_call(node: &Node) -> bool {
+    if let Node::Expression(Expression::Call(call)) = node
+        && let Expression::Identifier(ident) = &*call.function
+    {
+        return ident == UNQUOTE;
+    }
+    false
+}
+
+/// Unescapes a string literal by processing escape sequences.
+///
+/// Supports standard escape sequences:
+/// - `\\` → backslash
+/// - `\"` → double quote
+/// - `\n` → newline
+/// - `\r` → carriage return
+/// - `\t` → tab
+/// - `\0` → null character
+///
+/// Invalid escape sequences are preserved as-is.
+fn unescape_string(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            match chars.next() {
+                Some('\\') => result.push('\\'),
+                Some('"') => result.push('"'),
+                Some('n') => result.push('\n'),
+                Some('r') => result.push('\r'),
+                Some('t') => result.push('\t'),
+                Some('0') => result.push('\0'),
+                Some(c) => {
+                    result.push('\\');
+                    result.push(c);
+                }
+                None => result.push('\\'),
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+    result
+}
+
 /// Trait for types that support infix numeric operations, both arithmetic and comparison.
 ///
 /// Provides checked arithmetic operations to prevent overflow panics. Integer types return `None` on overflow,
@@ -388,258 +595,4 @@ impl_infix_op_int! {
 impl_infix_op_float! {
     f32 => F32, "f32",
     f64 => F64, "f64",
-}
-
-fn eval_infix_op<T: InfixOp>(operator: &str, lhs: T, rhs: T) -> Result<Object> {
-    match operator {
-        "+" => lhs
-            .checked_add(rhs)
-            .map(|v| v.into_object())
-            .ok_or_else(|| {
-                EvalError::Number(format!(
-                    "arithmetic overflow: {} + {} exceeds {} bounds",
-                    lhs,
-                    rhs,
-                    T::type_name()
-                ))
-                .into()
-            }),
-        "-" => lhs
-            .checked_sub(rhs)
-            .map(|v| v.into_object())
-            .ok_or_else(|| {
-                EvalError::Number(format!(
-                    "arithmetic overflow: {} - {} exceeds {} bounds",
-                    lhs,
-                    rhs,
-                    T::type_name()
-                ))
-                .into()
-            }),
-        "*" => lhs
-            .checked_mul(rhs)
-            .map(|v| v.into_object())
-            .ok_or_else(|| {
-                EvalError::Number(format!(
-                    "arithmetic overflow: {} * {} exceeds {} bounds",
-                    lhs,
-                    rhs,
-                    T::type_name()
-                ))
-                .into()
-            }),
-        "/" => lhs
-            .checked_div(rhs)
-            .map(|v| v.into_object())
-            .ok_or_else(|| {
-                EvalError::Number(format!(
-                    "division error: {} / {} (division by zero or overflow)",
-                    lhs, rhs
-                ))
-                .into()
-            }),
-
-        "<" => Ok(Object::Boolean(lhs < rhs)),
-        ">" => Ok(Object::Boolean(lhs > rhs)),
-        "<=" => Ok(Object::Boolean(lhs <= rhs)),
-        ">=" => Ok(Object::Boolean(lhs >= rhs)),
-        "==" => Ok(Object::Boolean(lhs == rhs)),
-        "!=" => Ok(Object::Boolean(lhs != rhs)),
-
-        _ => Err(EvalError::Number(format!(
-            "invalid {} operation: `{lhs} {operator} {rhs}`",
-            T::type_name()
-        ))
-        .into()),
-    }
-}
-
-fn eval_infix_bool(operator: &str, lhs: bool, rhs: bool) -> Result<Object> {
-    match operator {
-        "==" => Ok(Object::Boolean(lhs == rhs)),
-        "!=" => Ok(Object::Boolean(lhs != rhs)),
-        _ => Err(EvalError::Boolean(format!(
-            "invalid boolean operation: `{lhs} {operator} {rhs}`"
-        ))
-        .into()),
-    }
-}
-
-fn eval_infix_string(operator: &str, lhs: &str, rhs: &str) -> Result<Object> {
-    if operator != "+" {
-        return Err(EvalError::InfixExpression(format!(
-            "invalid concat operation: `{lhs} {operator} {rhs}`"
-        ))
-        .into());
-    }
-    Ok(Object::String(format!("{lhs}{rhs}")))
-}
-
-fn eval_conditional_expression(expr: ConditionalExpr, env: &Env) -> Result<Object> {
-    let condition = eval(Node::Expression(*expr.condition), env)?;
-
-    if condition.is_truthy() {
-        eval(Node::Statement(Statement::Block(expr.consequence)), env)
-    } else if let Some(alt) = expr.alternative {
-        eval(Node::Statement(Statement::Block(alt)), env)
-    } else {
-        Ok(NULL)
-    }
-}
-
-// #[inline]
-// fn is_truthy(obj: &Object) -> bool {
-//     match obj {
-//         Object::Boolean(b) => *b,
-//         Object::Null => false,
-//         _ => true,
-//     }
-// }
-
-fn eval_identifier(ident: String, env: &Env) -> Result<Object> {
-    match env.get(&ident) {
-        Some(obj) => Ok(obj.clone()),
-        None => match get_builtin(&ident) {
-            Some(func) => Ok(Object::Builtin(func)),
-            None => Err(EvalError::Identifier(format!("unknown identifier: {ident}")).into()),
-        },
-    }
-}
-
-fn eval_function_call(expr: CallExpr, env: &Env) -> Result<Object> {
-    let object = eval(Node::Expression(*expr.function), env)?;
-    let expressions = eval_expressions(&expr.arguments, env)?;
-
-    match object {
-        Object::Function(func) => {
-            let env = Env::new_enclosed(&func.env);
-            func.params.iter().enumerate().for_each(|(i, param)| {
-                env.set(param.to_owned(), &expressions[i]);
-            });
-
-            let evaluated = eval(Node::Statement(Statement::Block(func.body)), &env)?;
-            if let Object::ReturnValue(val) = evaluated {
-                Ok(*val)
-            } else {
-                Ok(evaluated)
-            }
-        }
-        Object::Builtin(builtin_fn) => builtin_fn(&expressions),
-        obj => Err(EvalError::NotAFunction(format!("expected {obj} to be a function")).into()),
-    }
-}
-
-/// Evaluates `unquote` calls within a quoted AST node.
-///
-/// Traverses the AST and replaces `unquote(expr)` calls with their evaluated
-/// results, enabling selective evaluation inside quoted expressions.
-fn eval_unquote_calls(quoted: Node, env: &Env) -> Node {
-    transform(quoted, &mut |node| {
-        if !is_unquote_call(&node) {
-            return node;
-        }
-
-        if let Node::Expression(Expression::Call(call)) = &node {
-            if call.arguments.len() != 1 {
-                return node;
-            }
-
-            let unquoted = match eval_expression(&call.arguments[0], env) {
-                Ok(obj) => obj,
-                Err(_) => return node,
-            };
-
-            match object_to_node(&unquoted) {
-                Some(ast_node) => ast_node,
-                None => node,
-            }
-        } else {
-            node
-        }
-    })
-}
-
-/// Checks if a node is a call to the `unquote` builtin.
-fn is_unquote_call(node: &Node) -> bool {
-    if let Node::Expression(Expression::Call(call)) = node
-        && let Expression::Identifier(ident) = &*call.function
-    {
-        return ident == UNQUOTE;
-    }
-    false
-}
-
-/// Converts a runtime object back to an AST node.
-///
-/// Used to splice evaluated values back into quoted code.
-fn object_to_node(obj: &Object) -> Option<Node> {
-    use ast::Radix;
-
-    macro_rules! convert_int {
-        ($($obj:ident => $ast_name:ident($ast_type:ident)),* $(,)?) => {
-            match obj {
-                $(
-                    Object::$obj(v) => Some(Node::Expression(Expression::$ast_name(ast::$ast_type {
-                        radix: Radix::Dec,
-                        value: *v,
-                    }))),
-                )*
-                Object::Boolean(b) => Some(Node::Expression(Expression::Boolean(*b))),
-                Object::Quote(q) => Some(q.node.clone()),
-                _ => None,
-            }
-        };
-    }
-
-    convert_int!(
-        I8 => I8(I8),
-        I16 => I16(I16),
-        I32 => I32(I32),
-        I64 => I64(I64),
-        I128 => I128(I128),
-        Isize => Isize(Isize),
-        U8 => U8(U8),
-        U16 => U16(U16),
-        U32 => U32(U32),
-        U64 => U64(U64),
-        U128 => U128(U128),
-        Usize => Usize(Usize),
-    )
-}
-
-/// Unescapes a string literal by processing escape sequences.
-///
-/// Supports standard escape sequences:
-/// - `\\` → backslash
-/// - `\"` → double quote
-/// - `\n` → newline
-/// - `\r` → carriage return
-/// - `\t` → tab
-/// - `\0` → null character
-///
-/// Invalid escape sequences are preserved as-is.
-fn unescape_string(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars();
-
-    while let Some(ch) = chars.next() {
-        if ch == '\\' {
-            match chars.next() {
-                Some('\\') => result.push('\\'),
-                Some('"') => result.push('"'),
-                Some('n') => result.push('\n'),
-                Some('r') => result.push('\r'),
-                Some('t') => result.push('\t'),
-                Some('0') => result.push('\0'),
-                Some(c) => {
-                    result.push('\\');
-                    result.push(c);
-                }
-                None => result.push('\\'),
-            }
-        } else {
-            result.push(ch);
-        }
-    }
-    result
 }

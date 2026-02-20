@@ -78,6 +78,44 @@ pub enum Object {
 }
 
 impl Object {
+    /// Converts a runtime object back to an AST node.
+    ///
+    /// Used to splice evaluated values back into quoted code.
+    pub fn to_ast_node(obj: &Self) -> Option<Node> {
+        use maat_ast::{self as ast, *};
+
+        macro_rules! convert_int {
+        ($($obj:ident => $ast_name:ident($ast_type:ident)),* $(,)?) => {
+            match obj {
+                $(
+                    Self::$obj(v) => Some(Node::Expression(Expression::$ast_name(ast::$ast_type {
+                        radix: Radix::Dec,
+                        value: *v,
+                    }))),
+                )*
+                Self::Boolean(b) => Some(Node::Expression(Expression::Boolean(*b))),
+                Self::Quote(q) => Some(q.node.clone()),
+                _ => None,
+            }
+        };
+    }
+
+        convert_int!(
+            I8 => I8(I8),
+            I16 => I16(I16),
+            I32 => I32(I32),
+            I64 => I64(I64),
+            I128 => I128(I128),
+            Isize => Isize(Isize),
+            U8 => U8(U8),
+            U16 => U16(U16),
+            U32 => U32(U32),
+            U64 => U64(U64),
+            U128 => U128(U128),
+            Usize => Usize(Usize),
+        )
+    }
+
     /// Determines whether this object is truthy.
     ///
     /// Booleans return their value directly; null is falsy;
