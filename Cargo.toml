@@ -12,7 +12,6 @@ members = [
     "compiler/maat_codegen",
     "compiler/maat_vm",
     "compiler/maat",
-    "src/tools/maat-repl",
     "tests",
 ]
 

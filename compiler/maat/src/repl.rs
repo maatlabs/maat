@@ -1,3 +1,9 @@
+//! Interactive REPL for Maat.
+//!
+//! Compiles each line to bytecode and executes it on the VM.
+//! Session state (globals, constants, symbols, macros) persists
+//! across iterations.
+
 use std::io::{self, BufRead, Write};
 
 use maat_ast::{Node, Statement};
@@ -16,32 +22,6 @@ const PROMPT: &str = ">> ";
 /// bytecode VM. Global variable bindings, the constants pool, the global
 /// store, and the macro environment all persist across REPL iterations so
 /// that definitions from earlier lines remain visible in subsequent ones.
-///
-/// # Examples
-///
-/// ```no_run
-/// use std::io;
-/// // This function is called from the maat-repl binary
-/// # fn start<R, W>(_: R, _: &mut W) -> std::io::Result<()> { Ok(()) }
-/// # fn main() {
-/// let stdin = io::stdin().lock();
-/// let mut stdout = io::stdout().lock();
-/// start(stdin, &mut stdout).expect("REPL failed");
-/// # }
-/// ```
-///
-/// # Behavior
-///
-/// The REPL operates in an infinite loop until EOF is encountered:
-///
-/// 1. Displays the prompt (`>> `)
-/// 2. Reads a line of input
-/// 3. Parses the input into an AST
-/// 4. Expands macros (extracting definitions, then replacing macro calls)
-/// 5. Compiles the expanded AST to bytecode, reusing accumulated session state
-/// 6. Runs the bytecode on the VM, reusing the global store
-/// 7. Prints the last popped stack value (suppressing `null` and let-only outputs)
-/// 8. Reports errors from any phase without resetting the session
 ///
 /// The session terminates when the reader returns EOF (e.g., Ctrl+D on Unix,
 /// Ctrl+Z on Windows, or when reading from a closed pipe).

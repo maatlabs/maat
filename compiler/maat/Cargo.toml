@@ -10,3 +10,12 @@ name = "maat"
 path = "src/main.rs"
 
 [dependencies]
+clap = { version = "4", features = ["derive"] }
+
+maat_ast = { path = "../maat_ast" }
+maat_codegen = { path = "../maat_codegen" }
+maat_eval = { path = "../maat_eval" }
+maat_lexer = { path = "../maat_lexer" }
+maat_parser = { path = "../maat_parser" }
+maat_runtime = { path = "../maat_runtime" }
+maat_vm = { path = "../maat_vm" }
