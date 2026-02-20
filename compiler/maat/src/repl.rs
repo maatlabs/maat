@@ -42,6 +42,10 @@ pub fn start<R: BufRead, W: Write>(mut reader: R, writer: &mut W) -> io::Result<
         }
 
         let line = source.trim_end();
+        if line == "exit" || line == "quit" {
+            break;
+        }
+
         let mut parser = Parser::new(Lexer::new(line));
         let program = parser.parse_program();
 

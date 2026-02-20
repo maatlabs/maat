@@ -14,6 +14,7 @@ members = [
     "compiler/maat",
     "tests",
 ]
+default-members = ["compiler/maat"]
 
 [workspace.package]
 version = "0.4.0"

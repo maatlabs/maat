@@ -55,12 +55,13 @@ fn main() {
         Some(Command::Run { file }) => run::execute(&file),
 
         Some(Command::Repl) | None => {
-            let username = std::env::var("USER")
-                .or_else(|_| std::env::var("USERNAME"))
-                .unwrap_or_else(|_| String::from("user"));
-
-            println!("\nHello {username}! This is the Maat programming language!");
-            println!("Feel free to type in commands\n");
+            println!(
+                "\nMaat {} ({} {})",
+                env!("CARGO_PKG_VERSION"),
+                std::env::consts::OS,
+                std::env::consts::ARCH,
+            );
+            println!("Type \"exit\", \"quit\" or press Ctrl+D to quit.\n");
 
             let reader = io::stdin().lock();
             let mut writer = io::stdout().lock();
