@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use maat_ast::{BlockStatement, Expression, Node, Program, Statement};
 use maat_bytecode::{Bytecode, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, Opcode, encode};
 use maat_errors::{CompileError, Result};
@@ -347,7 +349,7 @@ impl Compiler {
                 }
 
                 let compiled_fn = Object::CompiledFunction(CompiledFunction {
-                    instructions: instructions.into(),
+                    instructions: Rc::from(instructions.as_bytes()),
                     num_locals,
                     num_parameters: func.params.len(),
                 });

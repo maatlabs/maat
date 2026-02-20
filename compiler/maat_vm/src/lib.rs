@@ -5,6 +5,7 @@
 //! invocations, maintaining a value stack, globals store, and frame stack.
 
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use maat_bytecode::{Bytecode, MAX_FRAMES, MAX_GLOBALS, MAX_STACK_SIZE, Opcode};
 use maat_errors::{Result, VmError};
@@ -145,7 +146,7 @@ impl VM {
     pub fn new(bytecode: Bytecode) -> Self {
         let main_closure = Closure {
             func: CompiledFunction {
-                instructions: bytecode.instructions.into(),
+                instructions: Rc::from(bytecode.instructions.as_bytes()),
                 num_locals: 0,
                 num_parameters: 0,
             },
@@ -169,7 +170,7 @@ impl VM {
     pub fn with_globals(bytecode: Bytecode, globals: Vec<Object>) -> Self {
         let main_closure = Closure {
             func: CompiledFunction {
-                instructions: bytecode.instructions.into(),
+                instructions: Rc::from(bytecode.instructions.as_bytes()),
                 num_locals: 0,
                 num_parameters: 0,
             },

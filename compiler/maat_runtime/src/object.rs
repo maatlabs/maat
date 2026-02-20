@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fmt;
+use std::rc::Rc;
 
 use maat_ast::{BlockStatement, Node};
 use maat_errors::{Error, EvalError, Result};
@@ -226,10 +227,17 @@ pub struct Quote {
 /// Functions are compiled into bytecode and stored in the constant pool.
 /// The VM creates a new call frame for each invocation, using the
 /// `num_locals` field to reserve stack space for local bindings.
+///
+/// Instructions are stored behind `Rc<[u8]>` so that closures created
+/// from the same function literal share instruction memory rather than
+/// cloning the entire byte vector on every call.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompiledFunction {
     /// The bytecode instructions for this function's body.
-    pub instructions: Vec<u8>,
+    ///
+    /// Reference-counted to allow zero-copy sharing across closures
+    /// instantiated from the same compiled function.
+    pub instructions: Rc<[u8]>,
     /// The number of local bindings (parameters + let bindings) in this function.
     pub num_locals: usize,
     /// The number of parameters this function expects.
