@@ -151,6 +151,27 @@ impl Object {
         }
     }
 
+    /// Converts any integer variant to `i128` for cross-type comparison.
+    ///
+    /// Returns `None` for non-integer types or `U128` values exceeding `i128::MAX`.
+    pub fn to_i128(&self) -> Option<i128> {
+        match self {
+            Self::I8(v) => Some(*v as i128),
+            Self::I16(v) => Some(*v as i128),
+            Self::I32(v) => Some(*v as i128),
+            Self::I64(v) => Some(*v as i128),
+            Self::I128(v) => Some(*v),
+            Self::Isize(v) => Some(*v as i128),
+            Self::U8(v) => Some(*v as i128),
+            Self::U16(v) => Some(*v as i128),
+            Self::U32(v) => Some(*v as i128),
+            Self::U64(v) => Some(*v as i128),
+            Self::U128(v) => i128::try_from(*v).ok(),
+            Self::Usize(v) => Some(*v as i128),
+            _ => None,
+        }
+    }
+
     /// Returns `true` if this object is an integer type.
     pub fn is_integer(&self) -> bool {
         matches!(

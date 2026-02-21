@@ -84,6 +84,7 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
                 body: macro_lit.body,
                 env: env.clone(),
             })),
+            Expression::Cast(cast_expr) => eval_cast_expression(cast_expr, env),
             Expression::Call(call_expr) => {
                 // Handle special `quote` builtin
                 if let Expression::Identifier(ref ident) = *call_expr.function
@@ -440,51 +441,135 @@ fn eval_unquote_calls(quoted: Node, env: &Env) -> Node {
     })
 }
 
-/// Checks if a node is a call to the `unquote` builtin.
-fn is_unquote_call(node: &Node) -> bool {
-    if let Node::Expression(Expression::Call(call)) = node
-        && let Expression::Identifier(ident) = &*call.function
-    {
-        return ident == UNQUOTE;
+fn eval_cast_expression(expr: CastExpr, env: &Env) -> Result<Object> {
+    /// Widened integer for cast dispatch.
+    enum WideInt {
+        Signed(i128),
+        Unsigned(u128),
     }
-    false
+
+    let value = eval(Node::Expression(*expr.expr), env)?;
+    let target = expr.target;
+
+    let wide = match &value {
+        Object::I8(v) => WideInt::Signed(*v as i128),
+        Object::I16(v) => WideInt::Signed(*v as i128),
+        Object::I32(v) => WideInt::Signed(*v as i128),
+        Object::I64(v) => WideInt::Signed(*v as i128),
+        Object::I128(v) => WideInt::Signed(*v),
+        Object::Isize(v) => WideInt::Signed(*v as i128),
+
+        Object::U8(v) => WideInt::Unsigned(*v as u128),
+        Object::U16(v) => WideInt::Unsigned(*v as u128),
+        Object::U32(v) => WideInt::Unsigned(*v as u128),
+        Object::U64(v) => WideInt::Unsigned(*v as u128),
+        Object::U128(v) => WideInt::Unsigned(*v),
+        Object::Usize(v) => WideInt::Unsigned(*v as u128),
+
+        Object::F32(v) => return eval_cast_from_float(*v as f64, target),
+        Object::F64(v) => return eval_cast_from_float(*v, target),
+        _ => {
+            return Err(EvalError::Number(format!(
+                "cannot cast {} to {}",
+                value.type_name(),
+                target.as_str()
+            ))
+            .into());
+        }
+    };
+
+    macro_rules! narrow {
+        ($target_ty:ty, $variant:ident, $name:expr) => {{
+            match wide {
+                WideInt::Signed(v) => {
+                    <$target_ty>::try_from(v)
+                        .map(Object::$variant)
+                        .map_err(|_| {
+                            EvalError::Number(format!("value {} out of range for {}", v, $name))
+                                .into()
+                        })
+                }
+                WideInt::Unsigned(v) => {
+                    <$target_ty>::try_from(v)
+                        .map(Object::$variant)
+                        .map_err(|_| {
+                            EvalError::Number(format!("value {} out of range for {}", v, $name))
+                                .into()
+                        })
+                }
+            }
+        }};
+    }
+
+    match target {
+        TypeAnnotation::I8 => narrow!(i8, I8, "i8"),
+        TypeAnnotation::I16 => narrow!(i16, I16, "i16"),
+        TypeAnnotation::I32 => narrow!(i32, I32, "i32"),
+        TypeAnnotation::I64 => narrow!(i64, I64, "i64"),
+        TypeAnnotation::I128 => narrow!(i128, I128, "i128"),
+        TypeAnnotation::Isize => narrow!(isize, Isize, "isize"),
+
+        TypeAnnotation::U8 => narrow!(u8, U8, "u8"),
+        TypeAnnotation::U16 => narrow!(u16, U16, "u16"),
+        TypeAnnotation::U32 => narrow!(u32, U32, "u32"),
+        TypeAnnotation::U64 => narrow!(u64, U64, "u64"),
+        TypeAnnotation::U128 => narrow!(u128, U128, "u128"),
+        TypeAnnotation::Usize => narrow!(usize, Usize, "usize"),
+
+        TypeAnnotation::F32 => Ok(Object::F32(match wide {
+            WideInt::Signed(v) => v as f32,
+            WideInt::Unsigned(v) => v as f32,
+        })),
+        TypeAnnotation::F64 => Ok(Object::F64(match wide {
+            WideInt::Signed(v) => v as f64,
+            WideInt::Unsigned(v) => v as f64,
+        })),
+    }
 }
 
-/// Unescapes a string literal by processing escape sequences.
-///
-/// Supports standard escape sequences:
-/// - `\\` → backslash
-/// - `\"` → double quote
-/// - `\n` → newline
-/// - `\r` → carriage return
-/// - `\t` → tab
-/// - `\0` → null character
-///
-/// Invalid escape sequences are preserved as-is.
-fn unescape_string(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars();
-
-    while let Some(ch) = chars.next() {
-        if ch == '\\' {
-            match chars.next() {
-                Some('\\') => result.push('\\'),
-                Some('"') => result.push('"'),
-                Some('n') => result.push('\n'),
-                Some('r') => result.push('\r'),
-                Some('t') => result.push('\t'),
-                Some('0') => result.push('\0'),
-                Some(c) => {
-                    result.push('\\');
-                    result.push(c);
-                }
-                None => result.push('\\'),
-            }
-        } else {
-            result.push(ch);
-        }
+fn eval_cast_from_float(v: f64, target: TypeAnnotation) -> Result<Object> {
+    if !v.is_finite() {
+        return Err(EvalError::Number(format!(
+            "cannot cast non-finite float to {}",
+            target.as_str()
+        ))
+        .into());
     }
-    result
+
+    macro_rules! float_to_int {
+        ($target_ty:ty, $variant:ident, $name:expr) => {{
+            let i = v as i128;
+            <$target_ty>::try_from(i)
+                .map(Object::$variant)
+                .map_err(|_| {
+                    EvalError::Number(format!("value {} out of range for {}", v, $name)).into()
+                })
+        }};
+    }
+
+    match target {
+        TypeAnnotation::I8 => float_to_int!(i8, I8, "i8"),
+        TypeAnnotation::I16 => float_to_int!(i16, I16, "i16"),
+        TypeAnnotation::I32 => float_to_int!(i32, I32, "i32"),
+        TypeAnnotation::I64 => float_to_int!(i64, I64, "i64"),
+        TypeAnnotation::I128 => Ok(Object::I128(v as i128)),
+        TypeAnnotation::Isize => float_to_int!(isize, Isize, "isize"),
+
+        TypeAnnotation::U8 => float_to_int!(u8, U8, "u8"),
+        TypeAnnotation::U16 => float_to_int!(u16, U16, "u16"),
+        TypeAnnotation::U32 => float_to_int!(u32, U32, "u32"),
+        TypeAnnotation::U64 => float_to_int!(u64, U64, "u64"),
+        TypeAnnotation::U128 => {
+            if v < 0.0 {
+                return Err(EvalError::Number(format!("value {v} out of range for u128")).into());
+            }
+            Ok(Object::U128(v as u128))
+        }
+        TypeAnnotation::Usize => float_to_int!(usize, Usize, "usize"),
+
+        TypeAnnotation::F32 => Ok(Object::F32(v as f32)),
+        TypeAnnotation::F64 => Ok(Object::F64(v)),
+    }
 }
 
 /// Trait for types that support infix numeric operations, both arithmetic and comparison.
@@ -595,4 +680,51 @@ impl_infix_op_int! {
 impl_infix_op_float! {
     f32 => F32, "f32",
     f64 => F64, "f64",
+}
+
+/// Unescapes a string literal by processing escape sequences.
+///
+/// Supports standard escape sequences:
+/// - `\\` → backslash
+/// - `\"` → double quote
+/// - `\n` → newline
+/// - `\r` → carriage return
+/// - `\t` → tab
+/// - `\0` → null character
+///
+/// Invalid escape sequences are preserved as-is.
+fn unescape_string(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            match chars.next() {
+                Some('\\') => result.push('\\'),
+                Some('"') => result.push('"'),
+                Some('n') => result.push('\n'),
+                Some('r') => result.push('\r'),
+                Some('t') => result.push('\t'),
+                Some('0') => result.push('\0'),
+                Some(c) => {
+                    result.push('\\');
+                    result.push(c);
+                }
+                None => result.push('\\'),
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+    result
+}
+
+/// Checks if a node is a call to the `unquote` builtin.
+fn is_unquote_call(node: &Node) -> bool {
+    if let Node::Expression(Expression::Call(call)) = node
+        && let Expression::Identifier(ident) = &*call.function
+    {
+        return ident == UNQUOTE;
+    }
+    false
 }
