@@ -87,6 +87,7 @@ pub enum Expression {
     Function(Function),
     Macro(MacroLiteral),
     Call(CallExpr),
+    Cast(CastExpr),
 }
 
 impl Expression {
@@ -121,6 +122,7 @@ impl Expression {
             Self::Function(_) => "function literal",
             Self::Macro(_) => "macro literal",
             Self::Call(_) => "function call",
+            Self::Cast(_) => "cast expression",
         }
     }
 }
@@ -255,6 +257,91 @@ pub struct CallExpr {
     pub arguments: Vec<Expression>,
 }
 
+/// Explicit type cast: `expression as type`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CastExpr {
+    pub expr: Box<Expression>,
+    pub target: TypeAnnotation,
+}
+
+/// Target type for cast expressions.
+///
+/// Represents the set of numeric types that a value can be explicitly
+/// converted to via the `as` operator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TypeAnnotation {
+    I8,
+    I16,
+    I32,
+    I64,
+    I128,
+    Isize,
+    U8,
+    U16,
+    U32,
+    U64,
+    U128,
+    Usize,
+    F32,
+    F64,
+}
+
+impl TypeAnnotation {
+    /// Returns the canonical string name of this type annotation.
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::I8 => "i8",
+            Self::I16 => "i16",
+            Self::I32 => "i32",
+            Self::I64 => "i64",
+            Self::I128 => "i128",
+            Self::Isize => "isize",
+            Self::U8 => "u8",
+            Self::U16 => "u16",
+            Self::U32 => "u32",
+            Self::U64 => "u64",
+            Self::U128 => "u128",
+            Self::Usize => "usize",
+            Self::F32 => "f32",
+            Self::F64 => "f64",
+        }
+    }
+}
+
+/// Parsing error for [`TypeAnnotation`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnknownTypeAnnotation;
+
+impl fmt::Display for UnknownTypeAnnotation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("unknown type annotation")
+    }
+}
+
+impl std::str::FromStr for TypeAnnotation {
+    type Err = UnknownTypeAnnotation;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "i8" => Ok(Self::I8),
+            "i16" => Ok(Self::I16),
+            "i32" => Ok(Self::I32),
+            "i64" => Ok(Self::I64),
+            "i128" => Ok(Self::I128),
+            "isize" => Ok(Self::Isize),
+            "u8" => Ok(Self::U8),
+            "u16" => Ok(Self::U16),
+            "u32" => Ok(Self::U32),
+            "u64" => Ok(Self::U64),
+            "u128" => Ok(Self::U128),
+            "usize" => Ok(Self::Usize),
+            "f32" => Ok(Self::F32),
+            "f64" => Ok(Self::F64),
+            _ => Err(UnknownTypeAnnotation),
+        }
+    }
+}
+
 impl fmt::Display for Node {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -364,6 +451,7 @@ impl fmt::Display for Expression {
             Self::Function(func_lit) => func_lit.fmt(f),
             Self::Macro(macro_lit) => macro_lit.fmt(f),
             Self::Call(call_expr) => call_expr.fmt(f),
+            Self::Cast(cast_expr) => cast_expr.fmt(f),
         }
     }
 }
@@ -458,5 +546,17 @@ impl fmt::Display for CallExpr {
                 .collect::<Vec<String>>()
                 .join(", ")
         )
+    }
+}
+
+impl fmt::Display for CastExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "({} as {})", self.expr, self.target.as_str())
+    }
+}
+
+impl fmt::Display for TypeAnnotation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
     }
 }

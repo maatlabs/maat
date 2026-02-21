@@ -38,6 +38,8 @@ pub enum TokenKind {
     Return,
     /// The `macro` keyword for macro definitions.
     Macro,
+    /// The `as` keyword for type cast expressions.
+    As,
 
     /// A user-defined identifier (variable, function name, etc.).
     Ident,
@@ -162,6 +164,7 @@ impl TokenKind {
             "fn" => Self::Function,
             "return" => Self::Return,
             "macro" => Self::Macro,
+            "as" => Self::As,
             _ => Self::Ident,
         }
     }

@@ -13,12 +13,14 @@ pub const LESSGREATER: u8 = 3;
 pub const SUM: u8 = 4;
 /// `*`, `/`
 pub const PRODUCT: u8 = 5;
+/// Type cast: `expr as type`
+pub const CAST: u8 = 6;
 /// Prefix ops: `-x`, `!x`
-pub const PREFIX: u8 = 6;
+pub const PREFIX: u8 = 7;
 /// Function calls: `f(x)`
-pub const CALL: u8 = 7;
+pub const CALL: u8 = 8;
 /// Array indexing and index expressions: `expr[i]`
-pub const INDEX: u8 = 8;
+pub const INDEX: u8 = 9;
 
 pub struct Precedence;
 
@@ -35,6 +37,7 @@ impl Precedence {
             | TokenKind::GreaterEqual => Some(LESSGREATER),
             TokenKind::Plus | TokenKind::Minus => Some(SUM),
             TokenKind::Asterisk | TokenKind::Slash => Some(PRODUCT),
+            TokenKind::As => Some(CAST),
             TokenKind::LParen => Some(CALL),
             TokenKind::LBracket => Some(INDEX),
             _ => None,

@@ -217,12 +217,14 @@ impl<'a> Parser<'a> {
                 | TokenKind::Greater
                 | TokenKind::LessEqual
                 | TokenKind::GreaterEqual
+                | TokenKind::As
                 | TokenKind::LParen
                 | TokenKind::LBracket => {
                     self.next_token();
                     lhs = match kind {
                         TokenKind::LParen => self.parse_call_expression(lhs)?,
                         TokenKind::LBracket => self.parse_index_expression(lhs)?,
+                        TokenKind::As => self.parse_cast_expression(lhs)?,
                         _ => self.parse_infix_expression(lhs)?,
                     };
                 }
@@ -247,6 +249,25 @@ impl<'a> Parser<'a> {
         self.next_token();
         let rhs = Box::new(self.parse_expression(prec)?);
         Some(Expression::Infix(InfixExpr { lhs, operator, rhs }))
+    }
+
+    fn parse_cast_expression(&mut self, lhs: Expression) -> Option<Expression> {
+        if !self.expect_peek(TokenKind::Ident) {
+            return None;
+        }
+
+        let target: TypeAnnotation = self.current.literal.parse().ok().or_else(|| {
+            self.push_error(format!(
+                "unknown type annotation `{}`",
+                self.current.literal
+            ));
+            None
+        })?;
+
+        Some(Expression::Cast(CastExpr {
+            expr: Box::new(lhs),
+            target,
+        }))
     }
 
     fn parse_identifier(&mut self) -> Option<Expression> {

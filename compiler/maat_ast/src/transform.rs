@@ -262,6 +262,15 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                     Expression::Call(call)
                 }
 
+                Expression::Cast(mut cast) => {
+                    cast.expr =
+                        Box::new(match transform(Node::Expression(*cast.expr), transformer) {
+                            Node::Expression(e) => e,
+                            _ => unreachable!("Expression transformation returned non-expression"),
+                        });
+                    Expression::Cast(cast)
+                }
+
                 // Leaf nodes (literals and identifiers) don't need transformation
                 expr => expr,
             };
