@@ -27,7 +27,7 @@ mod instruction;
 mod opcode;
 
 pub use instruction::{Instruction, Instructions, decode_operands, encode};
-pub use opcode::Opcode;
+pub use opcode::{Opcode, TypeTag};
 
 /// Maximum number of constants in the constant pool.
 ///

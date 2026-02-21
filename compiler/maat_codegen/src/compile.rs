@@ -1,7 +1,9 @@
 use std::rc::Rc;
 
-use maat_ast::{BlockStatement, Expression, Node, Program, Statement};
-use maat_bytecode::{Bytecode, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, Opcode, encode};
+use maat_ast::{BlockStatement, Expression, Node, Program, Statement, TypeAnnotation};
+use maat_bytecode::{
+    Bytecode, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, Opcode, TypeTag, encode,
+};
 use maat_errors::{CompileError, Result};
 use maat_runtime::{BUILTINS, CompiledFunction, Object};
 
@@ -367,10 +369,37 @@ impl Compiler {
                 Ok(())
             }
 
+            Expression::Cast(cast) => {
+                self.compile_expression(&cast.expr)?;
+                let tag = Self::type_annotation_to_tag(cast.target);
+                self.emit(Opcode::Convert, &[tag.to_byte() as usize]);
+                Ok(())
+            }
+
             Expression::Macro(_) => Err(CompileError::UnsupportedExpression {
                 expr_type: "macro literal".to_string(),
             }
             .into()),
+        }
+    }
+
+    /// Maps a source-level type annotation to a bytecode type tag.
+    fn type_annotation_to_tag(t: TypeAnnotation) -> TypeTag {
+        match t {
+            TypeAnnotation::I8 => TypeTag::I8,
+            TypeAnnotation::I16 => TypeTag::I16,
+            TypeAnnotation::I32 => TypeTag::I32,
+            TypeAnnotation::I64 => TypeTag::I64,
+            TypeAnnotation::I128 => TypeTag::I128,
+            TypeAnnotation::Isize => TypeTag::Isize,
+            TypeAnnotation::U8 => TypeTag::U8,
+            TypeAnnotation::U16 => TypeTag::U16,
+            TypeAnnotation::U32 => TypeTag::U32,
+            TypeAnnotation::U64 => TypeTag::U64,
+            TypeAnnotation::U128 => TypeTag::U128,
+            TypeAnnotation::Usize => TypeTag::Usize,
+            TypeAnnotation::F32 => TypeTag::F32,
+            TypeAnnotation::F64 => TypeTag::F64,
         }
     }
 
