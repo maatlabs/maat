@@ -4,8 +4,9 @@ use maat_ast::{BlockStatement, Expression, Node, Program, Statement, TypeAnnotat
 use maat_bytecode::{
     Bytecode, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, Opcode, TypeTag, encode,
 };
-use maat_errors::{CompileError, Result};
+use maat_errors::{CompileError, CompileErrorKind, Result};
 use maat_runtime::{BUILTINS, CompiledFunction, Object};
+use maat_span::{SourceMap, Span};
 
 use crate::{Symbol, SymbolScope, SymbolsTable};
 
@@ -19,6 +20,7 @@ struct CompilationScope {
     instructions: Instructions,
     last_instruction: Option<Instruction>,
     previous_instruction: Option<Instruction>,
+    source_map: SourceMap,
 }
 
 impl CompilationScope {
@@ -27,6 +29,7 @@ impl CompilationScope {
             instructions: Instructions::new(),
             last_instruction: None,
             previous_instruction: None,
+            source_map: SourceMap::new(),
         }
     }
 }
@@ -98,10 +101,14 @@ impl Compiler {
     /// Returns `CompileError::ScopeUnderflow` if the scope stack is empty,
     /// which indicates an internal compiler invariant violation.
     pub fn bytecode(mut self) -> Result<Bytecode> {
-        let scope = self.scopes.pop().ok_or(CompileError::ScopeUnderflow)?;
+        let scope = self
+            .scopes
+            .pop()
+            .ok_or(CompileError::new(CompileErrorKind::ScopeUnderflow))?;
         Ok(Bytecode {
             instructions: scope.instructions,
             constants: self.constants,
+            source_map: scope.source_map,
         })
     }
 
@@ -138,17 +145,21 @@ impl Compiler {
         match stmt {
             Statement::Expression(expr_stmt) => {
                 self.compile_expression(&expr_stmt.value)?;
-                self.emit(Opcode::Pop, &[]);
+                self.emit(Opcode::Pop, &[], expr_stmt.span);
                 Ok(())
             }
             Statement::Block(block) => self.compile_block_statement(block),
             Statement::Let(let_stmt) => {
+                let span = let_stmt.span;
                 self.compile_expression(&let_stmt.value)?;
-                let symbol = self.symbols_table.define_symbol(&let_stmt.ident)?;
+                let symbol = match self.symbols_table.define_symbol(&let_stmt.ident) {
+                    Ok(s) => s,
+                    Err(e) => return Err(self.attach_span(e, span)),
+                };
                 let (scope, index) = (symbol.scope, symbol.index);
                 match scope {
-                    SymbolScope::Global => self.emit(Opcode::SetGlobal, &[index]),
-                    SymbolScope::Local => self.emit(Opcode::SetLocal, &[index]),
+                    SymbolScope::Global => self.emit(Opcode::SetGlobal, &[index], span),
+                    SymbolScope::Local => self.emit(Opcode::SetLocal, &[index], span),
                     SymbolScope::Builtin | SymbolScope::Free | SymbolScope::Function => {
                         unreachable!("define_symbol never produces this scope")
                     }
@@ -157,7 +168,7 @@ impl Compiler {
             }
             Statement::Return(ret_stmt) => {
                 self.compile_expression(&ret_stmt.value)?;
-                self.emit(Opcode::ReturnValue, &[]);
+                self.emit(Opcode::ReturnValue, &[], ret_stmt.span);
                 Ok(())
             }
         }
@@ -172,35 +183,40 @@ impl Compiler {
     }
 
     /// Emits a constant-load instruction for a numeric literal.
-    fn compile_numeric_constant(&mut self, obj: Object) -> Result<()> {
+    fn compile_numeric_constant(&mut self, obj: Object, span: Span) -> Result<()> {
         let index = self.add_constant(obj)?;
-        self.emit(Opcode::Constant, &[index]);
+        self.emit(Opcode::Constant, &[index], span);
         Ok(())
     }
 
     /// Compiles an expression node into bytecode.
     fn compile_expression(&mut self, expr: &Expression) -> Result<()> {
+        let span = expr.span();
         match expr {
-            Expression::I8(lit) => self.compile_numeric_constant(Object::I8(lit.value)),
-            Expression::I16(lit) => self.compile_numeric_constant(Object::I16(lit.value)),
-            Expression::I32(lit) => self.compile_numeric_constant(Object::I32(lit.value)),
-            Expression::I64(lit) => self.compile_numeric_constant(Object::I64(lit.value)),
-            Expression::I128(lit) => self.compile_numeric_constant(Object::I128(lit.value)),
-            Expression::Isize(lit) => self.compile_numeric_constant(Object::Isize(lit.value)),
+            Expression::I8(lit) => self.compile_numeric_constant(Object::I8(lit.value), span),
+            Expression::I16(lit) => self.compile_numeric_constant(Object::I16(lit.value), span),
+            Expression::I32(lit) => self.compile_numeric_constant(Object::I32(lit.value), span),
+            Expression::I64(lit) => self.compile_numeric_constant(Object::I64(lit.value), span),
+            Expression::I128(lit) => self.compile_numeric_constant(Object::I128(lit.value), span),
+            Expression::Isize(lit) => self.compile_numeric_constant(Object::Isize(lit.value), span),
 
-            Expression::U8(lit) => self.compile_numeric_constant(Object::U8(lit.value)),
-            Expression::U16(lit) => self.compile_numeric_constant(Object::U16(lit.value)),
-            Expression::U32(lit) => self.compile_numeric_constant(Object::U32(lit.value)),
-            Expression::U64(lit) => self.compile_numeric_constant(Object::U64(lit.value)),
-            Expression::U128(lit) => self.compile_numeric_constant(Object::U128(lit.value)),
-            Expression::Usize(lit) => self.compile_numeric_constant(Object::Usize(lit.value)),
+            Expression::U8(lit) => self.compile_numeric_constant(Object::U8(lit.value), span),
+            Expression::U16(lit) => self.compile_numeric_constant(Object::U16(lit.value), span),
+            Expression::U32(lit) => self.compile_numeric_constant(Object::U32(lit.value), span),
+            Expression::U64(lit) => self.compile_numeric_constant(Object::U64(lit.value), span),
+            Expression::U128(lit) => self.compile_numeric_constant(Object::U128(lit.value), span),
+            Expression::Usize(lit) => self.compile_numeric_constant(Object::Usize(lit.value), span),
 
-            Expression::F32(lit) => self.compile_numeric_constant(Object::F32(f32::from(*lit))),
-            Expression::F64(lit) => self.compile_numeric_constant(Object::F64(f64::from(*lit))),
+            Expression::F32(lit) => {
+                self.compile_numeric_constant(Object::F32(f32::from(*lit)), span)
+            }
+            Expression::F64(lit) => {
+                self.compile_numeric_constant(Object::F64(f64::from(*lit)), span)
+            }
 
-            Expression::Boolean(value) => {
-                let opcode = if *value { Opcode::True } else { Opcode::False };
-                self.emit(opcode, &[]);
+            Expression::Boolean(b) => {
+                let opcode = if b.value { Opcode::True } else { Opcode::False };
+                self.emit(opcode, &[], span);
                 Ok(())
             }
 
@@ -211,15 +227,16 @@ impl Compiler {
                     "!" => Opcode::Bang,
                     "-" => Opcode::Minus,
                     op => {
-                        return Err(CompileError::UnsupportedOperator {
+                        return Err(CompileErrorKind::UnsupportedOperator {
                             operator: op.to_string(),
                             context: "prefix expression".to_string(),
                         }
+                        .at(span)
                         .into());
                     }
                 };
 
-                self.emit(opcode, &[]);
+                self.emit(opcode, &[], span);
                 Ok(())
             }
 
@@ -237,36 +254,38 @@ impl Compiler {
                     "==" => Opcode::Equal,
                     "!=" => Opcode::NotEqual,
                     op => {
-                        return Err(CompileError::UnsupportedOperator {
+                        return Err(CompileErrorKind::UnsupportedOperator {
                             operator: op.to_string(),
                             context: "infix expression".to_string(),
                         }
+                        .at(span)
                         .into());
                     }
                 };
 
-                self.emit(opcode, &[]);
+                self.emit(opcode, &[], span);
                 Ok(())
             }
 
             Expression::Conditional(cond) => {
                 self.compile_expression(&cond.condition)?;
 
-                let cond_jump_pos = self.emit(Opcode::CondJump, &[Self::JUMP_DUMMY_TARGET]);
+                let cond_jump_pos =
+                    self.emit(Opcode::CondJump, &[Self::JUMP_DUMMY_TARGET], cond.span);
 
                 self.compile_block_statement(&cond.consequence)?;
                 if self.last_instruction_is(Opcode::Pop) {
                     self.remove_last_pop();
                 }
 
-                let jump_pos = self.emit(Opcode::Jump, &[Self::JUMP_DUMMY_TARGET]);
+                let jump_pos = self.emit(Opcode::Jump, &[Self::JUMP_DUMMY_TARGET], cond.span);
 
                 let cons_pos = self.current_instructions().len();
                 self.replace_operand(cond_jump_pos, cons_pos)?;
 
                 match &cond.alternative {
                     None => {
-                        self.emit(Opcode::Null, &[]);
+                        self.emit(Opcode::Null, &[], cond.span);
                     }
                     Some(alt_block) => {
                         self.compile_block_statement(alt_block)?;
@@ -281,19 +300,24 @@ impl Compiler {
                 Ok(())
             }
 
-            Expression::Identifier(name) => {
+            Expression::Identifier(ident) => {
                 let symbol = self
                     .symbols_table
-                    .resolve_symbol(name)
-                    .ok_or_else(|| CompileError::UndefinedVariable { name: name.clone() })?;
-                self.load_symbol(&symbol);
+                    .resolve_symbol(&ident.value)
+                    .ok_or_else(|| {
+                        CompileErrorKind::UndefinedVariable {
+                            name: ident.value.clone(),
+                        }
+                        .at(ident.span)
+                    })?;
+                self.load_symbol(&symbol, span);
                 Ok(())
             }
 
-            Expression::String(value) => {
-                let constant = Object::String(value.clone());
+            Expression::String(s) => {
+                let constant = Object::String(s.value.clone());
                 let index = self.add_constant(constant)?;
-                self.emit(Opcode::Constant, &[index]);
+                self.emit(Opcode::Constant, &[index], span);
                 Ok(())
             }
 
@@ -301,7 +325,7 @@ impl Compiler {
                 for element in &array.elements {
                     self.compile_expression(element)?;
                 }
-                self.emit(Opcode::Array, &[array.elements.len()]);
+                self.emit(Opcode::Array, &[array.elements.len()], span);
                 Ok(())
             }
 
@@ -310,14 +334,14 @@ impl Compiler {
                     self.compile_expression(key)?;
                     self.compile_expression(value)?;
                 }
-                self.emit(Opcode::Hash, &[hash.pairs.len() * 2]);
+                self.emit(Opcode::Hash, &[hash.pairs.len() * 2], span);
                 Ok(())
             }
 
             Expression::Index(index_expr) => {
                 self.compile_expression(&index_expr.expr)?;
                 self.compile_expression(&index_expr.index)?;
-                self.emit(Opcode::Index, &[]);
+                self.emit(Opcode::Index, &[], span);
                 Ok(())
             }
 
@@ -329,7 +353,9 @@ impl Compiler {
                 }
 
                 for param in &func.params {
-                    self.symbols_table.define_symbol(param)?;
+                    if let Err(e) = self.symbols_table.define_symbol(param) {
+                        return Err(self.attach_span(e, func.span));
+                    }
                 }
 
                 self.compile_block_statement(&func.body)?;
@@ -338,25 +364,26 @@ impl Compiler {
                     self.replace_last_pop_with_return_value();
                 }
                 if !self.last_instruction_is(Opcode::ReturnValue) {
-                    self.emit(Opcode::Return, &[]);
+                    self.emit(Opcode::Return, &[], func.span);
                 }
 
                 let free_vars = self.symbols_table.free_vars().to_vec();
                 let num_free = free_vars.len();
                 let num_locals = self.symbols_table.num_definitions();
-                let instructions = self.leave_scope()?;
+                let (instructions, inner_source_map) = self.leave_scope()?;
 
                 for sym in &free_vars {
-                    self.load_symbol(sym);
+                    self.load_symbol(sym, func.span);
                 }
 
                 let compiled_fn = Object::CompiledFunction(CompiledFunction {
                     instructions: Rc::from(instructions.as_bytes()),
                     num_locals,
                     num_parameters: func.params.len(),
+                    source_map: inner_source_map,
                 });
                 let index = self.add_constant(compiled_fn)?;
-                self.emit(Opcode::Closure, &[index, num_free]);
+                self.emit(Opcode::Closure, &[index, num_free], span);
                 Ok(())
             }
 
@@ -365,20 +392,21 @@ impl Compiler {
                 for arg in &call.arguments {
                     self.compile_expression(arg)?;
                 }
-                self.emit(Opcode::Call, &[call.arguments.len()]);
+                self.emit(Opcode::Call, &[call.arguments.len()], span);
                 Ok(())
             }
 
             Expression::Cast(cast) => {
                 self.compile_expression(&cast.expr)?;
                 let tag = Self::type_annotation_to_tag(cast.target);
-                self.emit(Opcode::Convert, &[tag.to_byte() as usize]);
+                self.emit(Opcode::Convert, &[tag.to_byte() as usize], span);
                 Ok(())
             }
 
-            Expression::Macro(_) => Err(CompileError::UnsupportedExpression {
+            Expression::Macro(_) => Err(CompileErrorKind::UnsupportedExpression {
                 expr_type: "macro literal".to_string(),
             }
+            .at(span)
             .into()),
         }
     }
@@ -403,6 +431,18 @@ impl Compiler {
         }
     }
 
+    /// Attaches a span to a compile error that lacks one.
+    fn attach_span(&self, err: maat_errors::Error, span: Span) -> maat_errors::Error {
+        match err {
+            maat_errors::Error::Compile(ce) if ce.span.is_none() => CompileError {
+                kind: ce.kind,
+                span: Some(span),
+            }
+            .into(),
+            other => other,
+        }
+    }
+
     /// Adds a constant value to the constant pool and returns its index.
     ///
     /// # Errors
@@ -414,10 +454,10 @@ impl Compiler {
         let index = self.constants.len() - 1;
 
         if index > MAX_CONSTANT_POOL_SIZE {
-            return Err(CompileError::ConstantPoolOverflow {
+            return Err(CompileError::new(CompileErrorKind::ConstantPoolOverflow {
                 max: MAX_CONSTANT_POOL_SIZE,
                 attempted: index,
-            }
+            })
             .into());
         }
 
@@ -441,7 +481,8 @@ impl Compiler {
         self.symbols_table = SymbolsTable::new_enclosed(outer);
     }
 
-    /// Leaves the current compilation scope, returning its instructions.
+    /// Leaves the current compilation scope, returning its instructions
+    /// and source map.
     ///
     /// Restores the outer symbol table and pops the scope stack.
     ///
@@ -449,39 +490,46 @@ impl Compiler {
     ///
     /// Returns `CompileError::ScopeUnderflow` if the scope stack is empty
     /// or the enclosed symbol table has no outer table to restore.
-    fn leave_scope(&mut self) -> Result<Instructions> {
+    fn leave_scope(&mut self) -> Result<(Instructions, SourceMap)> {
         if self.scope_index == 0 {
-            return Err(CompileError::ScopeUnderflow.into());
+            return Err(CompileError::new(CompileErrorKind::ScopeUnderflow).into());
         }
-        let scope = self.scopes.pop().ok_or(CompileError::ScopeUnderflow)?;
+        let scope = self
+            .scopes
+            .pop()
+            .ok_or(CompileError::new(CompileErrorKind::ScopeUnderflow))?;
         self.scope_index -= 1;
 
         let current = std::mem::take(&mut self.symbols_table);
-        self.symbols_table = current.take_outer().ok_or(CompileError::ScopeUnderflow)?;
+        self.symbols_table = current
+            .take_outer()
+            .ok_or(CompileError::new(CompileErrorKind::ScopeUnderflow))?;
 
-        Ok(scope.instructions)
+        Ok((scope.instructions, scope.source_map))
     }
 
     /// Emits the appropriate load instruction for a resolved symbol.
     ///
     /// Dispatches to the correct opcode based on the symbol's scope:
     /// global, local, builtin, free variable, or current closure.
-    fn load_symbol(&mut self, symbol: &Symbol) {
+    fn load_symbol(&mut self, symbol: &Symbol, span: Span) {
         match symbol.scope {
-            SymbolScope::Global => self.emit(Opcode::GetGlobal, &[symbol.index]),
-            SymbolScope::Local => self.emit(Opcode::GetLocal, &[symbol.index]),
-            SymbolScope::Builtin => self.emit(Opcode::GetBuiltin, &[symbol.index]),
-            SymbolScope::Free => self.emit(Opcode::GetFree, &[symbol.index]),
-            SymbolScope::Function => self.emit(Opcode::CurrentClosure, &[]),
+            SymbolScope::Global => self.emit(Opcode::GetGlobal, &[symbol.index], span),
+            SymbolScope::Local => self.emit(Opcode::GetLocal, &[symbol.index], span),
+            SymbolScope::Builtin => self.emit(Opcode::GetBuiltin, &[symbol.index], span),
+            SymbolScope::Free => self.emit(Opcode::GetFree, &[symbol.index], span),
+            SymbolScope::Function => self.emit(Opcode::CurrentClosure, &[], span),
         };
     }
 
     /// Emits a bytecode instruction with the given opcode and operands.
     ///
+    /// Records the source span in the current scope's source map.
     /// Returns the starting position of the emitted instruction.
-    fn emit(&mut self, opcode: Opcode, operands: &[usize]) -> usize {
+    fn emit(&mut self, opcode: Opcode, operands: &[usize], span: Span) -> usize {
         let instruction = encode(opcode, operands);
         let pos = self.add_instruction(&instruction);
+        self.scopes[self.scope_index].source_map.add(pos, span);
         self.set_last_instruction(opcode, pos);
         pos
     }
@@ -548,10 +596,11 @@ impl Compiler {
     fn replace_operand(&mut self, op_pos: usize, operand: usize) -> Result<()> {
         let scope = &mut self.scopes[self.scope_index];
         let byte = scope.instructions.as_bytes()[op_pos];
-        let op = Opcode::from_byte(byte).ok_or(CompileError::InvalidOpcode {
-            opcode: byte,
-            position: op_pos,
-        })?;
+        let op =
+            Opcode::from_byte(byte).ok_or(CompileError::new(CompileErrorKind::InvalidOpcode {
+                opcode: byte,
+                position: op_pos,
+            }))?;
         let new_inst = encode(op, &[operand]);
         scope.instructions.replace_bytes(op_pos, &new_inst);
         Ok(())
@@ -580,7 +629,10 @@ mod tests {
         );
 
         match result.unwrap_err() {
-            Error::Compile(CompileError::ConstantPoolOverflow { max, attempted }) => {
+            Error::Compile(CompileError {
+                kind: CompileErrorKind::ConstantPoolOverflow { max, attempted },
+                ..
+            }) => {
                 assert_eq!(max, MAX_CONSTANT_POOL_SIZE);
                 assert_eq!(attempted, MAX_CONSTANT_POOL_SIZE + 1);
             }
@@ -597,11 +649,16 @@ mod tests {
             operand: Box::new(Expression::I64(I64 {
                 value: 5,
                 radix: Radix::Dec,
+                span: Span::ZERO,
             })),
+            span: Span::ZERO,
         });
 
         let program = Program {
-            statements: vec![Statement::Expression(ExpressionStatement { value: expr })],
+            statements: vec![Statement::Expression(ExpressionStatement {
+                value: expr,
+                span: Span::ZERO,
+            })],
         };
 
         let mut compiler = Compiler::new();
@@ -613,7 +670,10 @@ mod tests {
         );
 
         match result.unwrap_err() {
-            Error::Compile(CompileError::UnsupportedOperator { operator, context }) => {
+            Error::Compile(CompileError {
+                kind: CompileErrorKind::UnsupportedOperator { operator, context },
+                ..
+            }) => {
                 assert_eq!(operator, "~");
                 assert_eq!(context, "prefix expression");
             }
@@ -626,12 +686,12 @@ mod tests {
         let mut compiler = Compiler::new();
         assert_eq!(compiler.scope_index, 0);
 
-        compiler.emit(Opcode::Mul, &[]);
+        compiler.emit(Opcode::Mul, &[], Span::ZERO);
 
         compiler.enter_scope();
         assert_eq!(compiler.scope_index, 1);
 
-        compiler.emit(Opcode::Sub, &[]);
+        compiler.emit(Opcode::Sub, &[], Span::ZERO);
         assert_eq!(compiler.scopes[compiler.scope_index].instructions.len(), 1);
         assert_eq!(
             compiler.scopes[compiler.scope_index]
@@ -641,7 +701,7 @@ mod tests {
             Opcode::Sub
         );
 
-        let instructions = compiler.leave_scope().expect("should leave scope");
+        let (instructions, _source_map) = compiler.leave_scope().expect("should leave scope");
         assert_eq!(compiler.scope_index, 0);
         assert_eq!(instructions.len(), 1);
 
