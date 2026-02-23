@@ -131,6 +131,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_let_statement(&mut self) -> Option<LetStatement> {
+        let start = self.current.span;
         if !self.expect_peek(TokenKind::Ident) {
             return None;
         }
@@ -143,32 +144,50 @@ impl<'a> Parser<'a> {
         if let Expression::Function(ref mut func) = value {
             func.name = Some(ident.clone());
         }
-        if self.peek_token_is(TokenKind::Semicolon) {
+        let end = if self.peek_token_is(TokenKind::Semicolon) {
             self.next_token();
-        }
-        Some(LetStatement { ident, value })
+            self.current.span
+        } else {
+            value.span()
+        };
+        Some(LetStatement {
+            ident,
+            value,
+            span: start.merge(end),
+        })
     }
 
     fn parse_return_statement(&mut self) -> Option<ReturnStatement> {
+        let start = self.current.span;
         self.next_token();
         let value = self.parse_expression(LOWEST)?;
-        if self.peek_token_is(TokenKind::Semicolon) {
+        let end = if self.peek_token_is(TokenKind::Semicolon) {
             self.next_token();
-        }
-        Some(ReturnStatement { value })
+            self.current.span
+        } else {
+            value.span()
+        };
+        Some(ReturnStatement {
+            value,
+            span: start.merge(end),
+        })
     }
 
     fn parse_expression_statement(&mut self) -> Option<ExpressionStatement> {
         let value = self.parse_expression(LOWEST)?;
-        if self.peek.kind == TokenKind::Semicolon {
+        let span = if self.peek_token_is(TokenKind::Semicolon) {
+            let s = value.span().merge(self.peek.span);
             self.next_token();
-        }
-        Some(ExpressionStatement { value })
+            s
+        } else {
+            value.span()
+        };
+        Some(ExpressionStatement { value, span })
     }
 
-    /// Parse an expression using Pratt‐parsing:
+    /// Parse an expression using Pratt-parsing:
     /// 1. Parse a prefix subexpression.
-    /// 2. While the next token’s precedence is higher than `prec`,
+    /// 2. While the next token's precedence is higher than `prec`,
     ///    consume it and parse an infix operation.
     fn parse_expression(&mut self, prec: u8) -> Option<Expression> {
         let mut lhs = match self.current.kind {
@@ -236,26 +255,41 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_prefix_expression(&mut self) -> Option<Expression> {
+        let start = self.current.span;
         let operator = self.current.literal.to_string();
         self.next_token();
         let operand = Box::new(self.parse_expression(PREFIX)?);
-        Some(Expression::Prefix(PrefixExpr { operator, operand }))
+        let span = start.merge(operand.span());
+        Some(Expression::Prefix(PrefixExpr {
+            operator,
+            operand,
+            span,
+        }))
     }
 
     fn parse_infix_expression(&mut self, lhs: Expression) -> Option<Expression> {
+        let start = lhs.span();
         let lhs = Box::new(lhs);
         let operator = self.current.literal.to_string();
         let prec = self.current_prec();
         self.next_token();
         let rhs = Box::new(self.parse_expression(prec)?);
-        Some(Expression::Infix(InfixExpr { lhs, operator, rhs }))
+        let span = start.merge(rhs.span());
+        Some(Expression::Infix(InfixExpr {
+            lhs,
+            operator,
+            rhs,
+            span,
+        }))
     }
 
     fn parse_cast_expression(&mut self, lhs: Expression) -> Option<Expression> {
+        let start = lhs.span();
         if !self.expect_peek(TokenKind::Ident) {
             return None;
         }
 
+        let end = self.current.span;
         let target: TypeAnnotation = self.current.literal.parse().ok().or_else(|| {
             self.push_error(format!(
                 "unknown type annotation `{}`",
@@ -267,15 +301,22 @@ impl<'a> Parser<'a> {
         Some(Expression::Cast(CastExpr {
             expr: Box::new(lhs),
             target,
+            span: start.merge(end),
         }))
     }
 
     fn parse_identifier(&mut self) -> Option<Expression> {
-        Some(Expression::Identifier(self.current.literal.to_string()))
+        Some(Expression::Identifier(Ident {
+            value: self.current.literal.to_string(),
+            span: self.current.span,
+        }))
     }
 
     fn parse_boolean(&mut self) -> Option<Expression> {
-        Some(Expression::Boolean(self.cur_token_is(TokenKind::True)))
+        Some(Expression::Boolean(BooleanLiteral {
+            value: self.cur_token_is(TokenKind::True),
+            span: self.current.span,
+        }))
     }
 
     fn parse_int(&mut self) -> Option<Expression> {
@@ -311,6 +352,7 @@ impl<'a> Parser<'a> {
 
         let literal = strip_int_suffixes!(self.current.literal);
         let token_kind = self.current.kind;
+        let span = self.current.span;
 
         macro_rules! parse_int_type {
             ($rust_ty:ty, $variant:ident) => {{
@@ -347,7 +389,7 @@ impl<'a> Parser<'a> {
                     None
                 })?;
 
-                Expression::$variant($variant { radix, value })
+                Expression::$variant($variant { radix, value, span })
             }};
         }
 
@@ -382,6 +424,7 @@ impl<'a> Parser<'a> {
         }
 
         let literal = strip_float_suffixes!(self.current.literal);
+        let span = self.current.span;
 
         let expr = match self.current.kind {
             TokenKind::F32 => {
@@ -398,7 +441,10 @@ impl<'a> Parser<'a> {
                     return None;
                 }
 
-                Expression::F32(F32::from(value))
+                Expression::F32(F32 {
+                    bits: f32::to_bits(value),
+                    span,
+                })
             }
             TokenKind::F64 => {
                 let value = literal.parse::<f64>().ok().or_else(|| {
@@ -406,7 +452,10 @@ impl<'a> Parser<'a> {
                     None
                 })?;
 
-                Expression::F64(F64::from(value))
+                Expression::F64(F64 {
+                    bits: f64::to_bits(value),
+                    span,
+                })
             }
             _ => unreachable!(),
         };
@@ -415,16 +464,24 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_string_literal(&mut self) -> Option<Expression> {
-        Some(Expression::String(self.current.literal.to_owned()))
+        Some(Expression::String(StringLiteral {
+            value: self.current.literal.to_owned(),
+            span: self.current.span,
+        }))
     }
 
     fn parse_array_literal(&mut self) -> Option<Expression> {
+        let start = self.current.span;
+        let elements = self.parse_expression_list(TokenKind::RBracket)?;
+        let end = self.current.span;
         Some(Expression::Array(ArrayLiteral {
-            elements: self.parse_expression_list(TokenKind::RBracket)?,
+            elements,
+            span: start.merge(end),
         }))
     }
 
     fn parse_index_expression(&mut self, expr: Expression) -> Option<Expression> {
+        let start = expr.span();
         let expr = Box::new(expr);
         self.next_token();
         let index = Box::new(self.parse_expression(LOWEST)?);
@@ -432,10 +489,16 @@ impl<'a> Parser<'a> {
         if !self.expect_peek(TokenKind::RBracket) {
             return None;
         }
-        Some(Expression::Index(IndexExpr { expr, index }))
+        let end = self.current.span;
+        Some(Expression::Index(IndexExpr {
+            expr,
+            index,
+            span: start.merge(end),
+        }))
     }
 
     fn parse_hash_literal(&mut self) -> Option<Expression> {
+        let start = self.current.span;
         let mut pairs = Vec::new();
 
         while !self.peek_token_is(TokenKind::RBrace) {
@@ -459,7 +522,11 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        Some(Expression::Hash(HashLiteral { pairs }))
+        let end = self.current.span;
+        Some(Expression::Hash(HashLiteral {
+            pairs,
+            span: start.merge(end),
+        }))
     }
 
     fn parse_grouped_expression(&mut self) -> Option<Expression> {
@@ -472,6 +539,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_conditional_expression(&mut self) -> Option<Expression> {
+        let start = self.current.span;
         if !self.expect_peek(TokenKind::LParen) {
             return None;
         }
@@ -494,14 +562,19 @@ impl<'a> Parser<'a> {
             None
         };
 
+        let end = alternative
+            .as_ref()
+            .map_or(consequence.span, |alt| alt.span);
         Some(Expression::Conditional(ConditionalExpr {
             condition,
             consequence,
             alternative,
+            span: start.merge(end),
         }))
     }
 
     fn parse_block_statement(&mut self) -> Option<BlockStatement> {
+        let start = self.current.span;
         let mut statements = Vec::new();
         self.next_token();
 
@@ -514,10 +587,15 @@ impl<'a> Parser<'a> {
             self.next_token();
         }
 
-        Some(BlockStatement { statements })
+        let end = self.current.span;
+        Some(BlockStatement {
+            statements,
+            span: start.merge(end),
+        })
     }
 
     fn parse_function(&mut self) -> Option<Expression> {
+        let start = self.current.span;
         if !self.expect_peek(TokenKind::LParen) {
             return None;
         }
@@ -526,15 +604,18 @@ impl<'a> Parser<'a> {
             return None;
         }
         let body = self.parse_block_statement()?;
+        let end = self.current.span;
 
         Some(Expression::Function(Function {
             name: None,
             params,
             body,
+            span: start.merge(end),
         }))
     }
 
     fn parse_macro(&mut self) -> Option<Expression> {
+        let start = self.current.span;
         if !self.expect_peek(TokenKind::LParen) {
             return None;
         }
@@ -543,8 +624,13 @@ impl<'a> Parser<'a> {
             return None;
         }
         let body = self.parse_block_statement()?;
+        let end = self.current.span;
 
-        Some(Expression::Macro(MacroLiteral { params, body }))
+        Some(Expression::Macro(MacroLiteral {
+            params,
+            body,
+            span: start.merge(end),
+        }))
     }
 
     fn parse_parameters(&mut self) -> Option<Vec<String>> {
@@ -572,9 +658,13 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_call_expression(&mut self, func: Expression) -> Option<Expression> {
+        let start = func.span();
+        let arguments = self.parse_expression_list(TokenKind::RParen)?;
+        let end = self.current.span;
         Some(Expression::Call(CallExpr {
             function: Box::new(func),
-            arguments: self.parse_expression_list(TokenKind::RParen)?,
+            arguments,
+            span: start.merge(end),
         }))
     }
 
