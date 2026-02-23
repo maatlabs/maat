@@ -525,6 +525,7 @@ fn stack_underflow() {
     let bytecode = Bytecode {
         instructions,
         constants: vec![],
+        source_map: Default::default(),
     };
 
     let mut vm = VM::new(bytecode);
