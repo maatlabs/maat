@@ -64,13 +64,28 @@ pub enum EvalError {
 
     #[error("{0}")]
     Builtin(String),
-
-    #[error("value not found")]
-    ValueNotFound,
 }
 
+/// A compile-time error with an optional source span.
+///
+/// Wraps [`CompileErrorKind`] with location information for rich diagnostics.
 #[derive(Debug, thiserror::Error)]
-pub enum CompileError {
+#[error("{kind}")]
+pub struct CompileError {
+    pub kind: CompileErrorKind,
+    pub span: Option<Span>,
+}
+
+impl CompileError {
+    /// Creates a compile error from a kind with no associated span.
+    pub fn new(kind: CompileErrorKind) -> Self {
+        Self { kind, span: None }
+    }
+}
+
+/// The underlying variant of a compile-time error.
+#[derive(Debug, thiserror::Error)]
+pub enum CompileErrorKind {
     #[error(
         "constant pool overflow: exceeded maximum of {max} constants (attempted index: {attempted})"
     )]
@@ -104,23 +119,53 @@ pub enum CompileError {
     ScopeUnderflow,
 }
 
+impl CompileErrorKind {
+    /// Attaches a source span to this error kind, producing a [`CompileError`].
+    pub fn at(self, span: Span) -> CompileError {
+        CompileError {
+            kind: self,
+            span: Some(span),
+        }
+    }
+}
+
+impl From<CompileErrorKind> for CompileError {
+    fn from(kind: CompileErrorKind) -> Self {
+        Self { kind, span: None }
+    }
+}
+
+/// A runtime VM error with an optional source span.
 #[derive(Debug, thiserror::Error)]
 #[error("{message}")]
 pub struct VmError {
     pub message: String,
+    pub span: Option<Span>,
 }
 
 impl VmError {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
+            span: None,
+        }
+    }
+
+    /// Creates a VM error with an associated source span.
+    pub fn with_span(message: impl Into<String>, span: Span) -> Self {
+        Self {
+            message: message.into(),
+            span: Some(span),
         }
     }
 }
 
 impl From<String> for VmError {
     fn from(message: String) -> Self {
-        Self { message }
+        Self {
+            message,
+            span: None,
+        }
     }
 }
 
@@ -128,6 +173,7 @@ impl From<&str> for VmError {
     fn from(message: &str) -> Self {
         Self {
             message: message.to_string(),
+            span: None,
         }
     }
 }
