@@ -1,10 +1,105 @@
-//! Maat compiler and interpreter entry point.
+//! Maat CLI entry point.
+//!
+//! Provides the `maat` command with subcommands for running source files,
+//! starting the interactive REPL, compiling to bytecode, and executing
+//! pre-compiled bytecode.
 
-use std::process;
+mod build;
+mod diagnostic;
+mod exec;
+mod pipeline;
+mod repl;
+mod run;
+
+use std::io;
+use std::path::PathBuf;
+
+use clap::{Parser, Subcommand};
+
+/// The Maat programming language compiler and runtime.
+#[derive(Parser)]
+#[command(name = "maat", version, about = "Maat programming language")]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Compile and execute a Maat source file.
+    Run {
+        /// Path to the `.mt` source file.
+        file: PathBuf,
+    },
+
+    /// Start the interactive REPL.
+    Repl,
+
+    /// Compile a source file to bytecode.
+    Build {
+        /// Path to the `.mt` source file.
+        file: PathBuf,
+
+        /// Output path for the compiled `.mtc` bytecode file.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+
+    /// Execute a pre-compiled bytecode file.
+    Exec {
+        /// Path to the `.mtc` bytecode file.
+        file: PathBuf,
+    },
+}
+
+/// Validates that a file path has the expected extension, exiting with a
+/// diagnostic message if it does not.
+fn require_extension(path: &std::path::Path, expected: &str, command: &str) {
+    let actual = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    if actual != expected {
+        eprintln!(
+            "error: `maat {command}` expects a `.{expected}` file, got '{}'",
+            path.display(),
+        );
+        std::process::exit(1);
+    }
+}
 
 fn main() {
-    eprintln!("maat-v0.3.0");
-    eprintln!("To run the REPL, use: cargo run --bin repl");
-    eprintln!("\nFor more information, see: https://github.com/maatlabs/maat");
-    process::exit(1);
+    let cli = Cli::parse();
+
+    match cli.command {
+        Some(Command::Run { file }) => {
+            require_extension(&file, "mt", "run");
+            run::compile_and_run(&file);
+        }
+
+        Some(Command::Repl) | None => {
+            println!(
+                "\nMaat {} ({} {})",
+                env!("CARGO_PKG_VERSION"),
+                std::env::consts::OS,
+                std::env::consts::ARCH,
+            );
+            println!("Type \"exit\", \"quit\" or press Ctrl+D to quit.\n");
+
+            let reader = io::stdin().lock();
+            let mut writer = io::stdout().lock();
+
+            if let Err(e) = repl::start(reader, &mut writer) {
+                eprintln!("repl error: {e}");
+                std::process::exit(1);
+            }
+        }
+
+        Some(Command::Build { file, output }) => {
+            require_extension(&file, "mt", "build");
+            build::compile_to_file(&file, output.as_deref());
+        }
+
+        Some(Command::Exec { file }) => {
+            require_extension(&file, "mtc", "exec");
+            exec::execute_bytecode(&file);
+        }
+    }
 }

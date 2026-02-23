@@ -1,32 +1,18 @@
-//! Evaluation engine for Maat.
+//! Macro expansion engine for Maat.
 //!
-//! This crate provides two levels of evaluation:
+//! This crate provides the macro system that powers Maat's metaprogramming
+//! capabilities. It exposes two primary operations:
 //!
-//! - [`eval`] — Pure tree-walking evaluation of an AST node.
-//! - [`eval_program`] — Full evaluation pipeline that processes macro definitions,
-//!   expands macro calls, and then evaluates the resulting program.
+//! - [`define_macros`] — Extracts macro definitions from a program and stores
+//!   them in the environment.
+//! - [`expand_macros`] — Replaces macro calls in the AST with their expanded forms.
 //!
-//! Most callers should use [`eval_program`] for top-level program evaluation,
-//! while [`eval`] is available for evaluating individual nodes without macro processing.
+//! Internally, macro bodies are evaluated using a tree-walking interpreter
+//! ([`eval`]) that is not exposed as a general-purpose execution API. Program
+//! execution is handled exclusively by the bytecode VM (`maat_vm`).
 
 mod interpreter;
 mod macros;
 
 pub use interpreter::eval;
-use maat_ast::{Node, Program};
-use maat_errors::Result;
-use maat_runtime::{Env, Object};
 pub use macros::{define_macros, expand_macros};
-
-/// Evaluates a program through the full pipeline: macro definition, expansion, and evaluation.
-///
-/// This is the primary entry point for evaluating Maat programs. It performs three steps:
-///
-/// 1. Extracts and registers macro definitions from the program
-/// 2. Expands all macro calls in the AST
-/// 3. Evaluates the resulting program via the tree-walking interpreter
-pub fn eval_program(program: Program, env: &Env) -> Result<Object> {
-    let program = define_macros(program, env);
-    let node = expand_macros(Node::Program(program), env);
-    eval(node, env)
-}

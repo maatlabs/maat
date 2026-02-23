@@ -1,8 +1,11 @@
 use std::collections::HashMap;
 use std::fmt;
+use std::rc::Rc;
 
 use maat_ast::{BlockStatement, Node};
 use maat_errors::{Error, EvalError, Result};
+use maat_span::SourceMap;
+use serde::{Deserialize, Serialize};
 
 use crate::Env;
 
@@ -77,6 +80,49 @@ pub enum Object {
 }
 
 impl Object {
+    /// Converts a runtime object back to an AST node.
+    ///
+    /// Used to splice evaluated values back into quoted code.
+    pub fn to_ast_node(obj: &Self) -> Option<Node> {
+        use maat_ast::{self as ast, *};
+        use maat_span::Span;
+
+        macro_rules! convert_int {
+        ($($obj:ident => $ast_name:ident($ast_type:ident)),* $(,)?) => {
+            match obj {
+                $(
+                    Self::$obj(v) => Some(Node::Expression(Expression::$ast_name(ast::$ast_type {
+                        radix: Radix::Dec,
+                        value: *v,
+                        span: Span::ZERO,
+                    }))),
+                )*
+                Self::Boolean(b) => Some(Node::Expression(Expression::Boolean(BooleanLiteral {
+                    value: *b,
+                    span: Span::ZERO,
+                }))),
+                Self::Quote(q) => Some(q.node.clone()),
+                _ => None,
+            }
+        };
+    }
+
+        convert_int!(
+            I8 => I8(I8),
+            I16 => I16(I16),
+            I32 => I32(I32),
+            I64 => I64(I64),
+            I128 => I128(I128),
+            Isize => Isize(Isize),
+            U8 => U8(U8),
+            U16 => U16(U16),
+            U32 => U32(U32),
+            U64 => U64(U64),
+            U128 => U128(U128),
+            Usize => Usize(Usize),
+        )
+    }
+
     /// Determines whether this object is truthy.
     ///
     /// Booleans return their value directly; null is falsy;
@@ -108,6 +154,27 @@ impl Object {
             Self::U64(v) => usize::try_from(*v).ok(),
             Self::U128(v) => usize::try_from(*v).ok(),
             Self::Usize(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    /// Converts any integer variant to `i128` for cross-type comparison.
+    ///
+    /// Returns `None` for non-integer types or `U128` values exceeding `i128::MAX`.
+    pub fn to_i128(&self) -> Option<i128> {
+        match self {
+            Self::I8(v) => Some(*v as i128),
+            Self::I16(v) => Some(*v as i128),
+            Self::I32(v) => Some(*v as i128),
+            Self::I64(v) => Some(*v as i128),
+            Self::I128(v) => Some(*v),
+            Self::Isize(v) => Some(*v as i128),
+            Self::U8(v) => Some(*v as i128),
+            Self::U16(v) => Some(*v as i128),
+            Self::U32(v) => Some(*v as i128),
+            Self::U64(v) => Some(*v as i128),
+            Self::U128(v) => i128::try_from(*v).ok(),
+            Self::Usize(v) => Some(*v as i128),
             _ => None,
         }
     }
@@ -161,6 +228,105 @@ impl Object {
             Self::CompiledFunction(_) => "CompiledFunction",
             Self::Closure(_) => "Closure",
         }
+    }
+}
+
+/// Serialization proxy containing only the [`Object`] variants that can be
+/// represented in the bytecode binary format.
+///
+/// Non-serializable variants (`Function`, `Macro`, `Quote`, `ReturnValue`,
+/// `Builtin`) exist only at runtime and cannot appear in compiled bytecode.
+/// Attempting to serialize them produces an error.
+#[derive(Serialize, Deserialize)]
+enum SerializableObject {
+    Null,
+    I8(i8),
+    I16(i16),
+    I32(i32),
+    I64(i64),
+    I128(i128),
+    Isize(isize),
+    U8(u8),
+    U16(u16),
+    U32(u32),
+    U64(u64),
+    U128(u128),
+    Usize(usize),
+    F32(f32),
+    F64(f64),
+    Boolean(bool),
+    String(String),
+    Array(Vec<Object>),
+    Hash(HashObject),
+    CompiledFunction(CompiledFunction),
+    Closure(Closure),
+}
+
+impl Serialize for Object {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        let obj = match self {
+            Self::Null => SerializableObject::Null,
+            Self::I8(v) => SerializableObject::I8(*v),
+            Self::I16(v) => SerializableObject::I16(*v),
+            Self::I32(v) => SerializableObject::I32(*v),
+            Self::I64(v) => SerializableObject::I64(*v),
+            Self::I128(v) => SerializableObject::I128(*v),
+            Self::Isize(v) => SerializableObject::Isize(*v),
+            Self::U8(v) => SerializableObject::U8(*v),
+            Self::U16(v) => SerializableObject::U16(*v),
+            Self::U32(v) => SerializableObject::U32(*v),
+            Self::U64(v) => SerializableObject::U64(*v),
+            Self::U128(v) => SerializableObject::U128(*v),
+            Self::Usize(v) => SerializableObject::Usize(*v),
+            Self::F32(v) => SerializableObject::F32(*v),
+            Self::F64(v) => SerializableObject::F64(*v),
+            Self::Boolean(v) => SerializableObject::Boolean(*v),
+            Self::String(v) => SerializableObject::String(v.clone()),
+            Self::Array(v) => SerializableObject::Array(v.clone()),
+            Self::Hash(v) => SerializableObject::Hash(v.clone()),
+            Self::CompiledFunction(v) => SerializableObject::CompiledFunction(v.clone()),
+            Self::Closure(v) => SerializableObject::Closure(v.clone()),
+            other => {
+                return Err(serde::ser::Error::custom(format!(
+                    "non-serializable object type: {}",
+                    other.type_name()
+                )));
+            }
+        };
+        obj.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Object {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        SerializableObject::deserialize(deserializer).map(|obj| match obj {
+            SerializableObject::Null => Self::Null,
+            SerializableObject::I8(v) => Self::I8(v),
+            SerializableObject::I16(v) => Self::I16(v),
+            SerializableObject::I32(v) => Self::I32(v),
+            SerializableObject::I64(v) => Self::I64(v),
+            SerializableObject::I128(v) => Self::I128(v),
+            SerializableObject::Isize(v) => Self::Isize(v),
+            SerializableObject::U8(v) => Self::U8(v),
+            SerializableObject::U16(v) => Self::U16(v),
+            SerializableObject::U32(v) => Self::U32(v),
+            SerializableObject::U64(v) => Self::U64(v),
+            SerializableObject::U128(v) => Self::U128(v),
+            SerializableObject::Usize(v) => Self::Usize(v),
+            SerializableObject::F32(v) => Self::F32(v),
+            SerializableObject::F64(v) => Self::F64(v),
+            SerializableObject::Boolean(v) => Self::Boolean(v),
+            SerializableObject::String(v) => Self::String(v),
+            SerializableObject::Array(v) => Self::Array(v),
+            SerializableObject::Hash(v) => Self::Hash(v),
+            SerializableObject::CompiledFunction(v) => Self::CompiledFunction(v),
+            SerializableObject::Closure(v) => Self::Closure(v),
+        })
     }
 }
 
@@ -226,14 +392,23 @@ pub struct Quote {
 /// Functions are compiled into bytecode and stored in the constant pool.
 /// The VM creates a new call frame for each invocation, using the
 /// `num_locals` field to reserve stack space for local bindings.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// Instructions are stored behind `Rc<[u8]>` so that closures created
+/// from the same function literal share instruction memory rather than
+/// cloning the entire byte vector on every call.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CompiledFunction {
     /// The bytecode instructions for this function's body.
-    pub instructions: Vec<u8>,
+    ///
+    /// Reference-counted to allow zero-copy sharing across closures
+    /// instantiated from the same compiled function.
+    pub instructions: Rc<[u8]>,
     /// The number of local bindings (parameters + let bindings) in this function.
     pub num_locals: usize,
     /// The number of parameters this function expects.
     pub num_parameters: usize,
+    /// Maps instruction byte offsets to source spans within this function.
+    pub source_map: SourceMap,
 }
 
 /// A closure binding a compiled function with its captured free variables.
@@ -246,7 +421,7 @@ pub struct CompiledFunction {
 /// stored by value. Nested closures capture through the chain: an inner
 /// closure's free variable may itself be a free variable of its enclosing
 /// closure.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Closure {
     /// The underlying compiled function.
     pub func: CompiledFunction,
@@ -254,12 +429,12 @@ pub struct Closure {
     pub free_vars: Vec<Object>,
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct HashObject {
     pub pairs: HashMap<Hashable, Object>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Hashable {
     I8(i8),
     I16(i16),

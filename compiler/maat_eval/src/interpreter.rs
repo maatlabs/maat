@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use maat_ast::{self as ast, *};
+use maat_ast::*;
 use maat_errors::{EvalError, Result};
 use maat_runtime::{
     Env, FALSE, Function, HashObject, Hashable, Macro, NULL, Object, QUOTE, Quote, TRUE, UNQUOTE,
@@ -14,7 +14,6 @@ use maat_runtime::{
 /// Evaluates an AST node in the given environment.
 ///
 /// This function performs pure tree-walking evaluation without macro processing.
-/// For full program evaluation with macro support, use [`crate::eval_program`].
 ///
 /// # Examples
 ///
@@ -62,8 +61,8 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
             Expression::F32(v) => Ok(Object::F32(v.into())),
             Expression::F64(v) => Ok(Object::F64(v.into())),
 
-            Expression::Boolean(boolean) => Ok(Object::Boolean(boolean)),
-            Expression::String(string) => Ok(Object::String(unescape_string(&string))),
+            Expression::Boolean(b) => Ok(Object::Boolean(b.value)),
+            Expression::String(s) => Ok(Object::String(unescape_string(&s.value))),
             Expression::Array(array_lit) => {
                 let elements = eval_expressions(&array_lit.elements, env)?;
                 Ok(Object::Array(elements))
@@ -73,7 +72,7 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
             Expression::Prefix(prefix_expr) => eval_prefix_expression(prefix_expr, env),
             Expression::Infix(infix_expr) => eval_infix_expression(infix_expr, env),
             Expression::Conditional(cond_expr) => eval_conditional_expression(cond_expr, env),
-            Expression::Identifier(ident) => eval_identifier(ident, env),
+            Expression::Identifier(ident) => eval_identifier(ident.value, env),
             Expression::Function(func_lit) => Ok(Object::Function(Function {
                 params: func_lit.params,
                 body: func_lit.body,
@@ -84,10 +83,11 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
                 body: macro_lit.body,
                 env: env.clone(),
             })),
+            Expression::Cast(cast_expr) => eval_cast_expression(cast_expr, env),
             Expression::Call(call_expr) => {
                 // Handle special `quote` builtin
                 if let Expression::Identifier(ref ident) = *call_expr.function
-                    && ident == QUOTE
+                    && ident.value == QUOTE
                 {
                     if call_expr.arguments.len() != 1 {
                         return Err(EvalError::Builtin(format!(
@@ -280,6 +280,297 @@ fn eval_infix_expression(expr: InfixExpr, env: &Env) -> Result<Object> {
     }
 }
 
+fn eval_infix_op<T: InfixOp>(operator: &str, lhs: T, rhs: T) -> Result<Object> {
+    match operator {
+        "+" => lhs
+            .checked_add(rhs)
+            .map(|v| v.into_object())
+            .ok_or_else(|| {
+                EvalError::Number(format!(
+                    "arithmetic overflow: {} + {} exceeds {} bounds",
+                    lhs,
+                    rhs,
+                    T::type_name()
+                ))
+                .into()
+            }),
+        "-" => lhs
+            .checked_sub(rhs)
+            .map(|v| v.into_object())
+            .ok_or_else(|| {
+                EvalError::Number(format!(
+                    "arithmetic overflow: {} - {} exceeds {} bounds",
+                    lhs,
+                    rhs,
+                    T::type_name()
+                ))
+                .into()
+            }),
+        "*" => lhs
+            .checked_mul(rhs)
+            .map(|v| v.into_object())
+            .ok_or_else(|| {
+                EvalError::Number(format!(
+                    "arithmetic overflow: {} * {} exceeds {} bounds",
+                    lhs,
+                    rhs,
+                    T::type_name()
+                ))
+                .into()
+            }),
+        "/" => lhs
+            .checked_div(rhs)
+            .map(|v| v.into_object())
+            .ok_or_else(|| {
+                EvalError::Number(format!(
+                    "division error: {} / {} (division by zero or overflow)",
+                    lhs, rhs
+                ))
+                .into()
+            }),
+
+        "<" => Ok(Object::Boolean(lhs < rhs)),
+        ">" => Ok(Object::Boolean(lhs > rhs)),
+        "<=" => Ok(Object::Boolean(lhs <= rhs)),
+        ">=" => Ok(Object::Boolean(lhs >= rhs)),
+        "==" => Ok(Object::Boolean(lhs == rhs)),
+        "!=" => Ok(Object::Boolean(lhs != rhs)),
+
+        _ => Err(EvalError::Number(format!(
+            "invalid {} operation: `{lhs} {operator} {rhs}`",
+            T::type_name()
+        ))
+        .into()),
+    }
+}
+
+fn eval_infix_bool(operator: &str, lhs: bool, rhs: bool) -> Result<Object> {
+    match operator {
+        "==" => Ok(Object::Boolean(lhs == rhs)),
+        "!=" => Ok(Object::Boolean(lhs != rhs)),
+        _ => Err(EvalError::Boolean(format!(
+            "invalid boolean operation: `{lhs} {operator} {rhs}`"
+        ))
+        .into()),
+    }
+}
+
+fn eval_infix_string(operator: &str, lhs: &str, rhs: &str) -> Result<Object> {
+    if operator != "+" {
+        return Err(EvalError::InfixExpression(format!(
+            "invalid concat operation: `{lhs} {operator} {rhs}`"
+        ))
+        .into());
+    }
+    Ok(Object::String(format!("{lhs}{rhs}")))
+}
+
+fn eval_conditional_expression(expr: ConditionalExpr, env: &Env) -> Result<Object> {
+    let condition = eval(Node::Expression(*expr.condition), env)?;
+
+    if condition.is_truthy() {
+        eval(Node::Statement(Statement::Block(expr.consequence)), env)
+    } else if let Some(alt) = expr.alternative {
+        eval(Node::Statement(Statement::Block(alt)), env)
+    } else {
+        Ok(NULL)
+    }
+}
+
+fn eval_identifier(ident: String, env: &Env) -> Result<Object> {
+    match env.get(&ident) {
+        Some(obj) => Ok(obj.clone()),
+        None => match get_builtin(&ident) {
+            Some(func) => Ok(Object::Builtin(func)),
+            None => Err(EvalError::Identifier(format!("unknown identifier: {ident}")).into()),
+        },
+    }
+}
+
+fn eval_function_call(expr: CallExpr, env: &Env) -> Result<Object> {
+    let object = eval(Node::Expression(*expr.function), env)?;
+    let expressions = eval_expressions(&expr.arguments, env)?;
+
+    match object {
+        Object::Function(func) => {
+            let env = Env::new_enclosed(&func.env);
+            func.params.iter().enumerate().for_each(|(i, param)| {
+                env.set(param.to_owned(), &expressions[i]);
+            });
+
+            let evaluated = eval(Node::Statement(Statement::Block(func.body)), &env)?;
+            if let Object::ReturnValue(val) = evaluated {
+                Ok(*val)
+            } else {
+                Ok(evaluated)
+            }
+        }
+        Object::Builtin(builtin_fn) => builtin_fn(&expressions),
+        obj => Err(EvalError::NotAFunction(format!("expected {obj} to be a function")).into()),
+    }
+}
+
+/// Evaluates `unquote` calls within a quoted AST node.
+///
+/// Traverses the AST and replaces `unquote(expr)` calls with their evaluated
+/// results, enabling selective evaluation inside quoted expressions.
+fn eval_unquote_calls(quoted: Node, env: &Env) -> Node {
+    transform(quoted, &mut |node| {
+        if !is_unquote_call(&node) {
+            return node;
+        }
+
+        if let Node::Expression(Expression::Call(call)) = &node {
+            if call.arguments.len() != 1 {
+                return node;
+            }
+
+            let unquoted = match eval_expression(&call.arguments[0], env) {
+                Ok(obj) => obj,
+                Err(_) => return node,
+            };
+
+            match Object::to_ast_node(&unquoted) {
+                Some(ast_node) => ast_node,
+                None => node,
+            }
+        } else {
+            node
+        }
+    })
+}
+
+fn eval_cast_expression(expr: CastExpr, env: &Env) -> Result<Object> {
+    /// Widened integer for cast dispatch.
+    enum WideInt {
+        Signed(i128),
+        Unsigned(u128),
+    }
+
+    let value = eval(Node::Expression(*expr.expr), env)?;
+    let target = expr.target;
+
+    let wide = match &value {
+        Object::I8(v) => WideInt::Signed(*v as i128),
+        Object::I16(v) => WideInt::Signed(*v as i128),
+        Object::I32(v) => WideInt::Signed(*v as i128),
+        Object::I64(v) => WideInt::Signed(*v as i128),
+        Object::I128(v) => WideInt::Signed(*v),
+        Object::Isize(v) => WideInt::Signed(*v as i128),
+
+        Object::U8(v) => WideInt::Unsigned(*v as u128),
+        Object::U16(v) => WideInt::Unsigned(*v as u128),
+        Object::U32(v) => WideInt::Unsigned(*v as u128),
+        Object::U64(v) => WideInt::Unsigned(*v as u128),
+        Object::U128(v) => WideInt::Unsigned(*v),
+        Object::Usize(v) => WideInt::Unsigned(*v as u128),
+
+        Object::F32(v) => return eval_cast_from_float(*v as f64, target),
+        Object::F64(v) => return eval_cast_from_float(*v, target),
+        _ => {
+            return Err(EvalError::Number(format!(
+                "cannot cast {} to {}",
+                value.type_name(),
+                target.as_str()
+            ))
+            .into());
+        }
+    };
+
+    macro_rules! narrow {
+        ($target_ty:ty, $variant:ident, $name:expr) => {{
+            match wide {
+                WideInt::Signed(v) => {
+                    <$target_ty>::try_from(v)
+                        .map(Object::$variant)
+                        .map_err(|_| {
+                            EvalError::Number(format!("value {} out of range for {}", v, $name))
+                                .into()
+                        })
+                }
+                WideInt::Unsigned(v) => {
+                    <$target_ty>::try_from(v)
+                        .map(Object::$variant)
+                        .map_err(|_| {
+                            EvalError::Number(format!("value {} out of range for {}", v, $name))
+                                .into()
+                        })
+                }
+            }
+        }};
+    }
+
+    match target {
+        TypeAnnotation::I8 => narrow!(i8, I8, "i8"),
+        TypeAnnotation::I16 => narrow!(i16, I16, "i16"),
+        TypeAnnotation::I32 => narrow!(i32, I32, "i32"),
+        TypeAnnotation::I64 => narrow!(i64, I64, "i64"),
+        TypeAnnotation::I128 => narrow!(i128, I128, "i128"),
+        TypeAnnotation::Isize => narrow!(isize, Isize, "isize"),
+
+        TypeAnnotation::U8 => narrow!(u8, U8, "u8"),
+        TypeAnnotation::U16 => narrow!(u16, U16, "u16"),
+        TypeAnnotation::U32 => narrow!(u32, U32, "u32"),
+        TypeAnnotation::U64 => narrow!(u64, U64, "u64"),
+        TypeAnnotation::U128 => narrow!(u128, U128, "u128"),
+        TypeAnnotation::Usize => narrow!(usize, Usize, "usize"),
+
+        TypeAnnotation::F32 => Ok(Object::F32(match wide {
+            WideInt::Signed(v) => v as f32,
+            WideInt::Unsigned(v) => v as f32,
+        })),
+        TypeAnnotation::F64 => Ok(Object::F64(match wide {
+            WideInt::Signed(v) => v as f64,
+            WideInt::Unsigned(v) => v as f64,
+        })),
+    }
+}
+
+fn eval_cast_from_float(v: f64, target: TypeAnnotation) -> Result<Object> {
+    if !v.is_finite() {
+        return Err(EvalError::Number(format!(
+            "cannot cast non-finite float to {}",
+            target.as_str()
+        ))
+        .into());
+    }
+
+    macro_rules! float_to_int {
+        ($target_ty:ty, $variant:ident, $name:expr) => {{
+            let i = v as i128;
+            <$target_ty>::try_from(i)
+                .map(Object::$variant)
+                .map_err(|_| {
+                    EvalError::Number(format!("value {} out of range for {}", v, $name)).into()
+                })
+        }};
+    }
+
+    match target {
+        TypeAnnotation::I8 => float_to_int!(i8, I8, "i8"),
+        TypeAnnotation::I16 => float_to_int!(i16, I16, "i16"),
+        TypeAnnotation::I32 => float_to_int!(i32, I32, "i32"),
+        TypeAnnotation::I64 => float_to_int!(i64, I64, "i64"),
+        TypeAnnotation::I128 => Ok(Object::I128(v as i128)),
+        TypeAnnotation::Isize => float_to_int!(isize, Isize, "isize"),
+
+        TypeAnnotation::U8 => float_to_int!(u8, U8, "u8"),
+        TypeAnnotation::U16 => float_to_int!(u16, U16, "u16"),
+        TypeAnnotation::U32 => float_to_int!(u32, U32, "u32"),
+        TypeAnnotation::U64 => float_to_int!(u64, U64, "u64"),
+        TypeAnnotation::U128 => {
+            if v < 0.0 {
+                return Err(EvalError::Number(format!("value {v} out of range for u128")).into());
+            }
+            Ok(Object::U128(v as u128))
+        }
+        TypeAnnotation::Usize => float_to_int!(usize, Usize, "usize"),
+
+        TypeAnnotation::F32 => Ok(Object::F32(v as f32)),
+        TypeAnnotation::F64 => Ok(Object::F64(v)),
+    }
+}
+
 /// Trait for types that support infix numeric operations, both arithmetic and comparison.
 ///
 /// Provides checked arithmetic operations to prevent overflow panics. Integer types return `None` on overflow,
@@ -390,223 +681,6 @@ impl_infix_op_float! {
     f64 => F64, "f64",
 }
 
-fn eval_infix_op<T: InfixOp>(operator: &str, lhs: T, rhs: T) -> Result<Object> {
-    match operator {
-        "+" => lhs
-            .checked_add(rhs)
-            .map(|v| v.into_object())
-            .ok_or_else(|| {
-                EvalError::Number(format!(
-                    "arithmetic overflow: {} + {} exceeds {} bounds",
-                    lhs,
-                    rhs,
-                    T::type_name()
-                ))
-                .into()
-            }),
-        "-" => lhs
-            .checked_sub(rhs)
-            .map(|v| v.into_object())
-            .ok_or_else(|| {
-                EvalError::Number(format!(
-                    "arithmetic overflow: {} - {} exceeds {} bounds",
-                    lhs,
-                    rhs,
-                    T::type_name()
-                ))
-                .into()
-            }),
-        "*" => lhs
-            .checked_mul(rhs)
-            .map(|v| v.into_object())
-            .ok_or_else(|| {
-                EvalError::Number(format!(
-                    "arithmetic overflow: {} * {} exceeds {} bounds",
-                    lhs,
-                    rhs,
-                    T::type_name()
-                ))
-                .into()
-            }),
-        "/" => lhs
-            .checked_div(rhs)
-            .map(|v| v.into_object())
-            .ok_or_else(|| {
-                EvalError::Number(format!(
-                    "division error: {} / {} (division by zero or overflow)",
-                    lhs, rhs
-                ))
-                .into()
-            }),
-
-        "<" => Ok(Object::Boolean(lhs < rhs)),
-        ">" => Ok(Object::Boolean(lhs > rhs)),
-        "<=" => Ok(Object::Boolean(lhs <= rhs)),
-        ">=" => Ok(Object::Boolean(lhs >= rhs)),
-        "==" => Ok(Object::Boolean(lhs == rhs)),
-        "!=" => Ok(Object::Boolean(lhs != rhs)),
-
-        _ => Err(EvalError::Number(format!(
-            "invalid {} operation: `{lhs} {operator} {rhs}`",
-            T::type_name()
-        ))
-        .into()),
-    }
-}
-
-fn eval_infix_bool(operator: &str, lhs: bool, rhs: bool) -> Result<Object> {
-    match operator {
-        "==" => Ok(Object::Boolean(lhs == rhs)),
-        "!=" => Ok(Object::Boolean(lhs != rhs)),
-        _ => Err(EvalError::Boolean(format!(
-            "invalid boolean operation: `{lhs} {operator} {rhs}`"
-        ))
-        .into()),
-    }
-}
-
-fn eval_infix_string(operator: &str, lhs: &str, rhs: &str) -> Result<Object> {
-    if operator != "+" {
-        return Err(EvalError::InfixExpression(format!(
-            "invalid concat operation: `{lhs} {operator} {rhs}`"
-        ))
-        .into());
-    }
-    Ok(Object::String(format!("{lhs}{rhs}")))
-}
-
-fn eval_conditional_expression(expr: ConditionalExpr, env: &Env) -> Result<Object> {
-    let condition = eval(Node::Expression(*expr.condition), env)?;
-
-    if condition.is_truthy() {
-        eval(Node::Statement(Statement::Block(expr.consequence)), env)
-    } else if let Some(alt) = expr.alternative {
-        eval(Node::Statement(Statement::Block(alt)), env)
-    } else {
-        Ok(NULL)
-    }
-}
-
-// #[inline]
-// fn is_truthy(obj: &Object) -> bool {
-//     match obj {
-//         Object::Boolean(b) => *b,
-//         Object::Null => false,
-//         _ => true,
-//     }
-// }
-
-fn eval_identifier(ident: String, env: &Env) -> Result<Object> {
-    match env.get(&ident) {
-        Some(obj) => Ok(obj.clone()),
-        None => match get_builtin(&ident) {
-            Some(func) => Ok(Object::Builtin(func)),
-            None => Err(EvalError::Identifier(format!("unknown identifier: {ident}")).into()),
-        },
-    }
-}
-
-fn eval_function_call(expr: CallExpr, env: &Env) -> Result<Object> {
-    let object = eval(Node::Expression(*expr.function), env)?;
-    let expressions = eval_expressions(&expr.arguments, env)?;
-
-    match object {
-        Object::Function(func) => {
-            let env = Env::new_enclosed(&func.env);
-            func.params.iter().enumerate().for_each(|(i, param)| {
-                env.set(param.to_owned(), &expressions[i]);
-            });
-
-            let evaluated = eval(Node::Statement(Statement::Block(func.body)), &env)?;
-            if let Object::ReturnValue(val) = evaluated {
-                Ok(*val)
-            } else {
-                Ok(evaluated)
-            }
-        }
-        Object::Builtin(builtin_fn) => builtin_fn(&expressions),
-        obj => Err(EvalError::NotAFunction(format!("expected {obj} to be a function")).into()),
-    }
-}
-
-/// Evaluates `unquote` calls within a quoted AST node.
-///
-/// Traverses the AST and replaces `unquote(expr)` calls with their evaluated
-/// results, enabling selective evaluation inside quoted expressions.
-fn eval_unquote_calls(quoted: Node, env: &Env) -> Node {
-    transform(quoted, &mut |node| {
-        if !is_unquote_call(&node) {
-            return node;
-        }
-
-        if let Node::Expression(Expression::Call(call)) = &node {
-            if call.arguments.len() != 1 {
-                return node;
-            }
-
-            let unquoted = match eval_expression(&call.arguments[0], env) {
-                Ok(obj) => obj,
-                Err(_) => return node,
-            };
-
-            match object_to_node(&unquoted) {
-                Some(ast_node) => ast_node,
-                None => node,
-            }
-        } else {
-            node
-        }
-    })
-}
-
-/// Checks if a node is a call to the `unquote` builtin.
-fn is_unquote_call(node: &Node) -> bool {
-    if let Node::Expression(Expression::Call(call)) = node
-        && let Expression::Identifier(ident) = &*call.function
-    {
-        return ident == UNQUOTE;
-    }
-    false
-}
-
-/// Converts a runtime object back to an AST node.
-///
-/// Used to splice evaluated values back into quoted code.
-fn object_to_node(obj: &Object) -> Option<Node> {
-    use ast::Radix;
-
-    macro_rules! convert_int {
-        ($($obj:ident => $ast_name:ident($ast_type:ident)),* $(,)?) => {
-            match obj {
-                $(
-                    Object::$obj(v) => Some(Node::Expression(Expression::$ast_name(ast::$ast_type {
-                        radix: Radix::Dec,
-                        value: *v,
-                    }))),
-                )*
-                Object::Boolean(b) => Some(Node::Expression(Expression::Boolean(*b))),
-                Object::Quote(q) => Some(q.node.clone()),
-                _ => None,
-            }
-        };
-    }
-
-    convert_int!(
-        I8 => I8(I8),
-        I16 => I16(I16),
-        I32 => I32(I32),
-        I64 => I64(I64),
-        I128 => I128(I128),
-        Isize => Isize(Isize),
-        U8 => U8(U8),
-        U16 => U16(U16),
-        U32 => U32(U32),
-        U64 => U64(U64),
-        U128 => U128(U128),
-        Usize => Usize(Usize),
-    )
-}
-
 /// Unescapes a string literal by processing escape sequences.
 ///
 /// Supports standard escape sequences:
@@ -642,4 +716,14 @@ fn unescape_string(s: &str) -> String {
         }
     }
     result
+}
+
+/// Checks if a node is a call to the `unquote` builtin.
+fn is_unquote_call(node: &Node) -> bool {
+    if let Node::Expression(Expression::Call(call)) = node
+        && let Expression::Identifier(ident) = &*call.function
+    {
+        return ident.value == UNQUOTE;
+    }
+    false
 }

@@ -22,12 +22,14 @@
 //! ```
 
 use maat_runtime::Object;
+use maat_span::SourceMap;
 
 mod instruction;
 mod opcode;
+mod serialize;
 
 pub use instruction::{Instruction, Instructions, decode_operands, encode};
-pub use opcode::Opcode;
+pub use opcode::{Opcode, TypeTag};
 
 /// Maximum number of constants in the constant pool.
 ///
@@ -112,7 +114,7 @@ pub const MAX_FRAMES: usize = 1024;
 /// instructions.extend(&Instructions::from(encode(Opcode::Add, &[])));        // Add them
 /// instructions.extend(&Instructions::from(encode(Opcode::Pop, &[])));        // Pop result
 ///
-/// let bytecode = Bytecode { instructions, constants };
+/// let bytecode = Bytecode { instructions, constants, source_map: Default::default() };
 /// ```
 ///
 /// When executed by the VM:
@@ -120,7 +122,7 @@ pub const MAX_FRAMES: usize = 1024;
 /// 2. `OpConstant 1` pushes `Object::I64(2)` onto the stack
 /// 3. `OpAdd` pops both values, adds them, and pushes `Object::I64(3)`
 /// 4. `OpPop` removes the result from the stack
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Bytecode {
     /// The sequence of bytecode instructions to execute.
     ///
@@ -134,4 +136,7 @@ pub struct Bytecode {
     /// The index into this array is encoded as a 2-byte operand (allowing up to
     /// 65,535 distinct constants).
     pub constants: Vec<Object>,
+
+    /// Maps instruction byte offsets to source spans for error reporting.
+    pub source_map: SourceMap,
 }

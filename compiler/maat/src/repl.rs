@@ -1,14 +1,24 @@
+//! Interactive REPL for Maat.
+//!
+//! Compiles each line to bytecode and executes it on the VM.
+//! Session state (globals, constants, symbols, macros) persists
+//! across iterations.
+
 use std::io::{self, BufRead, Write};
 
 use maat_ast::{Node, Statement};
 use maat_codegen::{Compiler, SymbolsTable};
+use maat_errors::Error;
 use maat_eval::{define_macros, expand_macros};
 use maat_lexer::Lexer;
 use maat_parser::Parser;
 use maat_runtime::{Env, Object};
 use maat_vm::VM;
 
+use crate::diagnostic;
+
 const PROMPT: &str = ">> ";
+const REPL_SOURCE: &str = "<repl>";
 
 /// Starts the REPL (Read-Eval-Print Loop) for interactive Maat sessions.
 ///
@@ -16,32 +26,6 @@ const PROMPT: &str = ">> ";
 /// bytecode VM. Global variable bindings, the constants pool, the global
 /// store, and the macro environment all persist across REPL iterations so
 /// that definitions from earlier lines remain visible in subsequent ones.
-///
-/// # Examples
-///
-/// ```no_run
-/// use std::io;
-/// // This function is called from the maat-repl binary
-/// # fn start<R, W>(_: R, _: &mut W) -> std::io::Result<()> { Ok(()) }
-/// # fn main() {
-/// let stdin = io::stdin().lock();
-/// let mut stdout = io::stdout().lock();
-/// start(stdin, &mut stdout).expect("REPL failed");
-/// # }
-/// ```
-///
-/// # Behavior
-///
-/// The REPL operates in an infinite loop until EOF is encountered:
-///
-/// 1. Displays the prompt (`>> `)
-/// 2. Reads a line of input
-/// 3. Parses the input into an AST
-/// 4. Expands macros (extracting definitions, then replacing macro calls)
-/// 5. Compiles the expanded AST to bytecode, reusing accumulated session state
-/// 6. Runs the bytecode on the VM, reusing the global store
-/// 7. Prints the last popped stack value (suppressing `null` and let-only outputs)
-/// 8. Reports errors from any phase without resetting the session
 ///
 /// The session terminates when the reader returns EOF (e.g., Ctrl+D on Unix,
 /// Ctrl+Z on Windows, or when reading from a closed pipe).
@@ -62,13 +46,18 @@ pub fn start<R: BufRead, W: Write>(mut reader: R, writer: &mut W) -> io::Result<
         }
 
         let line = source.trim_end();
+        if line == "exit" || line == "quit" {
+            break;
+        }
+
         let mut parser = Parser::new(Lexer::new(line));
         let program = parser.parse_program();
 
         if !parser.errors().is_empty() {
             for err in parser.errors() {
-                writeln!(writer, "  {err}")?;
+                diagnostic::report_parse_error(REPL_SOURCE, line, err);
             }
+            writeln!(writer)?;
             continue;
         }
 
@@ -90,7 +79,8 @@ pub fn start<R: BufRead, W: Write>(mut reader: R, writer: &mut W) -> io::Result<
 
         let mut compiler = Compiler::with_state(symbols_table, constants);
         if let Err(e) = compiler.compile(&Node::Program(program)) {
-            writeln!(writer, "  {e}")?;
+            report_error(line, &e);
+            writeln!(writer)?;
             symbols_table = prev_symbols;
             constants = prev_constants;
             continue;
@@ -100,7 +90,8 @@ pub fn start<R: BufRead, W: Write>(mut reader: R, writer: &mut W) -> io::Result<
         let bytecode = match compiler.bytecode() {
             Ok(bc) => bc,
             Err(e) => {
-                writeln!(writer, "  {e}")?;
+                report_error(line, &e);
+                writeln!(writer)?;
                 symbols_table = next_symbols;
                 constants = prev_constants;
                 continue;
@@ -110,7 +101,8 @@ pub fn start<R: BufRead, W: Write>(mut reader: R, writer: &mut W) -> io::Result<
 
         let mut vm = VM::with_globals(bytecode, globals);
         if let Err(e) = vm.run() {
-            writeln!(writer, "  {e}")?;
+            report_error(line, &e);
+            writeln!(writer)?;
         }
 
         globals = vm.globals().to_vec();
@@ -126,6 +118,16 @@ pub fn start<R: BufRead, W: Write>(mut reader: R, writer: &mut W) -> io::Result<
     }
 
     Ok(())
+}
+
+/// Routes a REPL error to the diagnostic module.
+fn report_error(source: &str, error: &Error) {
+    match error {
+        Error::Parse(e) => diagnostic::report_parse_error(REPL_SOURCE, source, e),
+        Error::Compile(e) => diagnostic::report_compile_error(REPL_SOURCE, source, e),
+        Error::Vm(e) => diagnostic::report_vm_error(REPL_SOURCE, source, e),
+        _ => eprintln!("{REPL_SOURCE}: {error}"),
+    }
 }
 
 #[cfg(test)]
@@ -241,13 +243,10 @@ mod tests {
         let mut output = Vec::new();
         start(&input[..], &mut output).expect("REPL failed");
 
+        // Parse errors now go to stderr via ariadne, so stdout output is empty
         let result = String::from_utf8(output).expect("Invalid UTF-8");
         let outputs = extract_output(&result);
-        assert!(
-            outputs
-                .iter()
-                .any(|line| line.contains("no prefix parse function"))
-        );
+        assert_eq!(outputs.len(), 0);
     }
 
     #[test]
@@ -256,15 +255,10 @@ mod tests {
         let mut output = Vec::new();
         start(&input[..], &mut output).expect("REPL failed");
 
+        // VM errors now go to stderr via ariadne, so stdout output is empty
         let result = String::from_utf8(output).expect("Invalid UTF-8");
         let outputs = extract_output(&result);
-        assert_eq!(outputs.len(), 1);
-        assert!(outputs[0].contains("vm error"), "got: {:?}", outputs[0]);
-        assert!(
-            outputs[0].contains("unsupported types for binary operation"),
-            "got: {:?}",
-            outputs[0]
-        );
+        assert_eq!(outputs.len(), 0);
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use maat_bytecode::{Instructions, Opcode, encode};
+use maat_bytecode::{Bytecode, Instructions, Opcode, encode};
 use maat_runtime::Object;
 
 /// A constant expectation that can be either an integer or a compiled function's instructions.
@@ -9,7 +9,7 @@ enum Constant {
 
 type ConstantTestCase<'a> = (&'a str, Vec<Constant>, Vec<Vec<u8>>);
 
-fn assert_constants(bytecode: &maat_bytecode::Bytecode, expected: &[Constant], input: &str) {
+fn assert_constants(bytecode: &Bytecode, expected: &[Constant], input: &str) {
     assert_eq!(
         bytecode.constants.len(),
         expected.len(),
@@ -26,7 +26,7 @@ fn assert_constants(bytecode: &maat_bytecode::Bytecode, expected: &[Constant], i
             }
             (Constant::Fn(expected_insts), Object::CompiledFunction(cf)) => {
                 let expected_ins = concat_instructions(expected_insts);
-                let actual_ins = Instructions::from_bytes(cf.instructions.clone());
+                let actual_ins = Instructions::from_bytes(cf.instructions.to_vec());
                 assert_eq!(
                     actual_ins.as_bytes(),
                     expected_ins.as_bytes(),
@@ -51,7 +51,7 @@ fn concat_instructions(instructions: &[Vec<u8>]) -> Instructions {
     result
 }
 
-fn assert_integer_constants(bytecode: &maat_bytecode::Bytecode, expected: &[i64], input: &str) {
+fn assert_integer_constants(bytecode: &Bytecode, expected: &[i64], input: &str) {
     assert_eq!(
         bytecode.constants.len(),
         expected.len(),
@@ -74,7 +74,7 @@ fn assert_integer_constants(bytecode: &maat_bytecode::Bytecode, expected: &[i64]
     }
 }
 
-fn assert_instructions(bytecode: &maat_bytecode::Bytecode, expected: &[Vec<u8>], input: &str) {
+fn assert_instructions(bytecode: &Bytecode, expected: &[Vec<u8>], input: &str) {
     let expected_ins = concat_instructions(expected);
     assert_eq!(
         bytecode.instructions.as_bytes(),

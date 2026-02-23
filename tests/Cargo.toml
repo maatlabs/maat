@@ -15,6 +15,7 @@ maat_eval = { path = "../compiler/maat_eval" }
 maat_lexer = { path = "../compiler/maat_lexer" }
 maat_parser = { path = "../compiler/maat_parser" }
 maat_runtime = { path = "../compiler/maat_runtime" }
+maat_span = { path = "../compiler/maat_span" }
 maat_vm = { path = "../compiler/maat_vm" }
 
 [dev-dependencies]

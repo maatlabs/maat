@@ -1,9 +1,11 @@
 use maat_ast::*;
+use maat_span::Span;
 
 fn one() -> Expression {
     Expression::I64(I64 {
         radix: Radix::Dec,
         value: 1,
+        span: Span::ZERO,
     })
 }
 
@@ -11,6 +13,7 @@ fn two() -> Expression {
     Expression::I64(I64 {
         radix: Radix::Dec,
         value: 2,
+        span: Span::ZERO,
     })
 }
 
@@ -20,6 +23,7 @@ fn turn_one_into_two(node: Node) -> Node {
             Node::Expression(Expression::I64(I64 {
                 radix: i.radix,
                 value: 2,
+                span: i.span,
             }))
         }
         n => n,
@@ -41,8 +45,14 @@ fn transform_integers() {
 fn transform_program() {
     let program = Program {
         statements: vec![
-            Statement::Expression(ExpressionStatement { value: one() }),
-            Statement::Expression(ExpressionStatement { value: two() }),
+            Statement::Expression(ExpressionStatement {
+                value: one(),
+                span: Span::ZERO,
+            }),
+            Statement::Expression(ExpressionStatement {
+                value: two(),
+                span: Span::ZERO,
+            }),
         ],
     };
 
@@ -55,6 +65,7 @@ fn transform_program() {
             match &prog.statements[0] {
                 Statement::Expression(ExpressionStatement {
                     value: Expression::I64(i),
+                    ..
                 }) => {
                     assert_eq!(i.value, 2);
                 }
@@ -64,6 +75,7 @@ fn transform_program() {
             match &prog.statements[1] {
                 Statement::Expression(ExpressionStatement {
                     value: Expression::I64(i),
+                    ..
                 }) => {
                     assert_eq!(i.value, 2);
                 }
@@ -80,6 +92,7 @@ fn transform_infix_expression() {
         lhs: Box::new(one()),
         operator: "+".to_string(),
         rhs: Box::new(two()),
+        span: Span::ZERO,
     });
 
     let modified = transform(Node::Expression(input), &mut turn_one_into_two);
@@ -104,6 +117,7 @@ fn transform_prefix_expression() {
     let input = Expression::Prefix(PrefixExpr {
         operator: "-".to_string(),
         operand: Box::new(one()),
+        span: Span::ZERO,
     });
 
     let modified = transform(Node::Expression(input), &mut turn_one_into_two);
@@ -122,6 +136,7 @@ fn transform_index_expression() {
     let input = Expression::Index(IndexExpr {
         expr: Box::new(one()),
         index: Box::new(one()),
+        span: Span::ZERO,
     });
 
     let modified = transform(Node::Expression(input), &mut turn_one_into_two);
@@ -146,11 +161,20 @@ fn transform_conditional_expression() {
     let input = Expression::Conditional(ConditionalExpr {
         condition: Box::new(one()),
         consequence: BlockStatement {
-            statements: vec![Statement::Expression(ExpressionStatement { value: one() })],
+            statements: vec![Statement::Expression(ExpressionStatement {
+                value: one(),
+                span: Span::ZERO,
+            })],
+            span: Span::ZERO,
         },
         alternative: Some(BlockStatement {
-            statements: vec![Statement::Expression(ExpressionStatement { value: one() })],
+            statements: vec![Statement::Expression(ExpressionStatement {
+                value: one(),
+                span: Span::ZERO,
+            })],
+            span: Span::ZERO,
         }),
+        span: Span::ZERO,
     });
 
     let modified = transform(Node::Expression(input), &mut turn_one_into_two);
@@ -165,6 +189,7 @@ fn transform_conditional_expression() {
             match &cond.consequence.statements[0] {
                 Statement::Expression(ExpressionStatement {
                     value: Expression::I64(i),
+                    ..
                 }) => {
                     assert_eq!(i.value, 2);
                 }
@@ -175,6 +200,7 @@ fn transform_conditional_expression() {
                 match &alt.statements[0] {
                     Statement::Expression(ExpressionStatement {
                         value: Expression::I64(i),
+                        ..
                     }) => {
                         assert_eq!(i.value, 2);
                     }
@@ -190,7 +216,10 @@ fn transform_conditional_expression() {
 
 #[test]
 fn transform_return_statement() {
-    let stmt = Statement::Return(ReturnStatement { value: one() });
+    let stmt = Statement::Return(ReturnStatement {
+        value: one(),
+        span: Span::ZERO,
+    });
 
     let modified = transform(Node::Statement(stmt), &mut turn_one_into_two);
 
@@ -208,6 +237,7 @@ fn transform_let_statement() {
     let stmt = Statement::Let(LetStatement {
         ident: "x".to_string(),
         value: one(),
+        span: Span::ZERO,
     });
 
     let modified = transform(Node::Statement(stmt), &mut turn_one_into_two);
@@ -227,8 +257,13 @@ fn transform_function_literal() {
         name: None,
         params: vec!["x".to_string()],
         body: BlockStatement {
-            statements: vec![Statement::Expression(ExpressionStatement { value: one() })],
+            statements: vec![Statement::Expression(ExpressionStatement {
+                value: one(),
+                span: Span::ZERO,
+            })],
+            span: Span::ZERO,
         },
+        span: Span::ZERO,
     });
 
     let modified = transform(Node::Expression(func), &mut turn_one_into_two);
@@ -237,6 +272,7 @@ fn transform_function_literal() {
         Node::Expression(Expression::Function(f)) => match &f.body.statements[0] {
             Statement::Expression(ExpressionStatement {
                 value: Expression::I64(i),
+                ..
             }) => {
                 assert_eq!(i.value, 2);
             }
@@ -249,8 +285,12 @@ fn transform_function_literal() {
 #[test]
 fn transform_function_call() {
     let call = Expression::Call(CallExpr {
-        function: Box::new(Expression::Identifier("myFunc".to_string())),
+        function: Box::new(Expression::Identifier(Ident {
+            value: "myFunc".to_string(),
+            span: Span::ZERO,
+        })),
         arguments: vec![one(), one()],
+        span: Span::ZERO,
     });
 
     let modified = transform(Node::Expression(call), &mut turn_one_into_two);
@@ -277,6 +317,7 @@ fn transform_function_call() {
 fn transform_array_literal() {
     let array = Expression::Array(ArrayLiteral {
         elements: vec![one(), one()],
+        span: Span::ZERO,
     });
 
     let modified = transform(Node::Expression(array), &mut turn_one_into_two);
@@ -303,6 +344,7 @@ fn transform_array_literal() {
 fn transform_hash_literal() {
     let hash = Expression::Hash(HashLiteral {
         pairs: vec![(one(), one()), (one(), one())],
+        span: Span::ZERO,
     });
 
     let modified = transform(Node::Expression(hash), &mut turn_one_into_two);
@@ -334,12 +376,16 @@ fn transform_nested_structures() {
             value: Expression::Infix(InfixExpr {
                 lhs: Box::new(Expression::Array(ArrayLiteral {
                     elements: vec![one(), two()],
+                    span: Span::ZERO,
                 })),
                 operator: "+".to_string(),
                 rhs: Box::new(Expression::Hash(HashLiteral {
                     pairs: vec![(one(), two())],
+                    span: Span::ZERO,
                 })),
+                span: Span::ZERO,
             }),
+            span: Span::ZERO,
         })],
     };
 

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use maat_bytecode::{MAX_GLOBALS, MAX_LOCALS};
-use maat_errors::{CompileError, Result};
+use maat_errors::{CompileError, CompileErrorKind, Result};
 
 /// Compile-time symbols table for tracking variable bindings.
 ///
@@ -83,7 +83,7 @@ impl SymbolsTable {
     ///
     /// # Errors
     ///
-    /// Returns `CompileError::SymbolsTableOverflow` if the maximum number
+    /// Returns `CompileErrorKind::SymbolsTableOverflow` if the maximum number
     /// of global bindings has been reached (only checked for global scope).
     pub fn define_symbol(&mut self, name: &str) -> Result<&Symbol> {
         let scope = if self.outer.is_some() {
@@ -94,17 +94,17 @@ impl SymbolsTable {
 
         match scope {
             SymbolScope::Global if self.num_definitions > MAX_GLOBALS => {
-                return Err(CompileError::SymbolsTableOverflow {
+                return Err(CompileError::new(CompileErrorKind::SymbolsTableOverflow {
                     max: MAX_GLOBALS,
                     name: name.to_string(),
-                }
+                })
                 .into());
             }
             SymbolScope::Local if self.num_definitions > MAX_LOCALS => {
-                return Err(CompileError::LocalsOverflow {
+                return Err(CompileError::new(CompileErrorKind::LocalsOverflow {
                     max: MAX_LOCALS,
                     name: name.to_string(),
-                }
+                })
                 .into());
             }
             _ => {}

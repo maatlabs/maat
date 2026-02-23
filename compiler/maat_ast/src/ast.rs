@@ -2,6 +2,8 @@
 
 use std::fmt;
 
+use maat_span::Span;
+
 /// Top-level AST node wrapper for all language items.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Node {
@@ -26,35 +28,51 @@ pub enum Statement {
     Block(BlockStatement),
 }
 
+impl Statement {
+    /// Returns the source span covering this statement.
+    pub fn span(&self) -> Span {
+        match self {
+            Self::Let(s) => s.span,
+            Self::Return(s) => s.span,
+            Self::Expression(s) => s.span,
+            Self::Block(s) => s.span,
+        }
+    }
+}
+
 /// A `let` binding: `let <ident> = <value>;`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LetStatement {
     pub ident: String,
     pub value: Expression,
+    pub span: Span,
 }
 
 /// A `return` statement: `return <value>;`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ReturnStatement {
     pub value: Expression,
+    pub span: Span,
 }
 
 /// An expression used as a statement.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ExpressionStatement {
     pub value: Expression,
+    pub span: Span,
 }
 
 /// A block of statements: `{ ... }`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BlockStatement {
     pub statements: Vec<Statement>,
+    pub span: Span,
 }
 
 /// All possible expression types in Maat.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Expression {
-    Identifier(String),
+    Identifier(Ident),
 
     // Signed integer types
     I8(I8),
@@ -76,8 +94,8 @@ pub enum Expression {
     F32(F32),
     F64(F64),
 
-    Boolean(bool),
-    String(String),
+    Boolean(BooleanLiteral),
+    String(StringLiteral),
     Array(ArrayLiteral),
     Index(IndexExpr),
     Hash(HashLiteral),
@@ -87,9 +105,43 @@ pub enum Expression {
     Function(Function),
     Macro(MacroLiteral),
     Call(CallExpr),
+    Cast(CastExpr),
 }
 
 impl Expression {
+    /// Returns the source span covering this expression.
+    pub fn span(&self) -> Span {
+        match self {
+            Self::Identifier(v) => v.span,
+            Self::I8(v) => v.span,
+            Self::I16(v) => v.span,
+            Self::I32(v) => v.span,
+            Self::I64(v) => v.span,
+            Self::I128(v) => v.span,
+            Self::Isize(v) => v.span,
+            Self::U8(v) => v.span,
+            Self::U16(v) => v.span,
+            Self::U32(v) => v.span,
+            Self::U64(v) => v.span,
+            Self::U128(v) => v.span,
+            Self::Usize(v) => v.span,
+            Self::F32(v) => v.span,
+            Self::F64(v) => v.span,
+            Self::Boolean(v) => v.span,
+            Self::String(v) => v.span,
+            Self::Array(v) => v.span,
+            Self::Index(v) => v.span,
+            Self::Hash(v) => v.span,
+            Self::Prefix(v) => v.span,
+            Self::Infix(v) => v.span,
+            Self::Conditional(v) => v.span,
+            Self::Function(v) => v.span,
+            Self::Macro(v) => v.span,
+            Self::Call(v) => v.span,
+            Self::Cast(v) => v.span,
+        }
+    }
+
     /// Returns a human-readable name for this expression type.
     ///
     /// Used primarily for error reporting.
@@ -121,8 +173,30 @@ impl Expression {
             Self::Function(_) => "function literal",
             Self::Macro(_) => "macro literal",
             Self::Call(_) => "function call",
+            Self::Cast(_) => "cast expression",
         }
     }
+}
+
+/// An identifier reference.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Ident {
+    pub value: String,
+    pub span: Span,
+}
+
+/// A boolean literal (`true` or `false`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BooleanLiteral {
+    pub value: bool,
+    pub span: Span,
+}
+
+/// A string literal.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StringLiteral {
+    pub value: String,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -141,6 +215,7 @@ macro_rules! define_int_type {
         pub struct $name {
             pub radix: Radix,
             pub value: $native,
+            pub span: Span,
         }
     };
 }
@@ -150,17 +225,23 @@ macro_rules! define_float_type {
     ($name:ident, $native:ty, $bits:ty, $doc:expr) => {
         #[doc = $doc]
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-        pub struct $name(pub $bits);
+        pub struct $name {
+            pub bits: $bits,
+            pub span: Span,
+        }
 
         impl From<$native> for $name {
             fn from(value: $native) -> Self {
-                Self(<$native>::to_bits(value))
+                Self {
+                    bits: <$native>::to_bits(value),
+                    span: Span::ZERO,
+                }
             }
         }
 
         impl From<$name> for $native {
             fn from(value: $name) -> Self {
-                <$native>::from_bits(value.0)
+                <$native>::from_bits(value.bits)
             }
         }
     };
@@ -190,6 +271,7 @@ define_float_type!(F64, f64, u64, "64-bit floating-point literal.");
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ArrayLiteral {
     pub elements: Vec<Expression>,
+    pub span: Span,
 }
 
 /// Indexing operation: `<lhs>[<index>]`
@@ -197,12 +279,14 @@ pub struct ArrayLiteral {
 pub struct IndexExpr {
     pub expr: Box<Expression>,
     pub index: Box<Expression>,
+    pub span: Span,
 }
 
 /// Hash literal: `{ key: value, ... }`
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HashLiteral {
     pub pairs: Vec<(Expression, Expression)>,
+    pub span: Span,
 }
 
 /// Prefix expression: `!<expr>`, `-<expr>`.
@@ -210,6 +294,7 @@ pub struct HashLiteral {
 pub struct PrefixExpr {
     pub operator: String,
     pub operand: Box<Expression>,
+    pub span: Span,
 }
 
 /// Binary/infix expression: `<lhs> <operator> <rhs>`.
@@ -218,6 +303,7 @@ pub struct InfixExpr {
     pub lhs: Box<Expression>,
     pub operator: String,
     pub rhs: Box<Expression>,
+    pub span: Span,
 }
 
 /// Conditional (if/else) expression.
@@ -226,6 +312,7 @@ pub struct ConditionalExpr {
     pub condition: Box<Expression>,
     pub consequence: BlockStatement,
     pub alternative: Option<BlockStatement>,
+    pub span: Span,
 }
 
 /// Function literal with optional name for recursive self-reference.
@@ -239,6 +326,7 @@ pub struct Function {
     pub name: Option<String>,
     pub params: Vec<String>,
     pub body: BlockStatement,
+    pub span: Span,
 }
 
 /// Macro literal
@@ -246,6 +334,7 @@ pub struct Function {
 pub struct MacroLiteral {
     pub params: Vec<String>,
     pub body: BlockStatement,
+    pub span: Span,
 }
 
 /// Function call
@@ -253,6 +342,93 @@ pub struct MacroLiteral {
 pub struct CallExpr {
     pub function: Box<Expression>,
     pub arguments: Vec<Expression>,
+    pub span: Span,
+}
+
+/// Explicit type cast: `expression as type`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CastExpr {
+    pub expr: Box<Expression>,
+    pub target: TypeAnnotation,
+    pub span: Span,
+}
+
+/// Target type for cast expressions.
+///
+/// Represents the set of numeric types that a value can be explicitly
+/// converted to via the `as` operator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TypeAnnotation {
+    I8,
+    I16,
+    I32,
+    I64,
+    I128,
+    Isize,
+    U8,
+    U16,
+    U32,
+    U64,
+    U128,
+    Usize,
+    F32,
+    F64,
+}
+
+impl TypeAnnotation {
+    /// Returns the canonical string name of this type annotation.
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::I8 => "i8",
+            Self::I16 => "i16",
+            Self::I32 => "i32",
+            Self::I64 => "i64",
+            Self::I128 => "i128",
+            Self::Isize => "isize",
+            Self::U8 => "u8",
+            Self::U16 => "u16",
+            Self::U32 => "u32",
+            Self::U64 => "u64",
+            Self::U128 => "u128",
+            Self::Usize => "usize",
+            Self::F32 => "f32",
+            Self::F64 => "f64",
+        }
+    }
+}
+
+/// Parsing error for [`TypeAnnotation`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnknownTypeAnnotation;
+
+impl fmt::Display for UnknownTypeAnnotation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("unknown type annotation")
+    }
+}
+
+impl std::str::FromStr for TypeAnnotation {
+    type Err = UnknownTypeAnnotation;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "i8" => Ok(Self::I8),
+            "i16" => Ok(Self::I16),
+            "i32" => Ok(Self::I32),
+            "i64" => Ok(Self::I64),
+            "i128" => Ok(Self::I128),
+            "isize" => Ok(Self::Isize),
+            "u8" => Ok(Self::U8),
+            "u16" => Ok(Self::U16),
+            "u32" => Ok(Self::U32),
+            "u64" => Ok(Self::U64),
+            "u128" => Ok(Self::U128),
+            "usize" => Ok(Self::Usize),
+            "f32" => Ok(Self::F32),
+            "f64" => Ok(Self::F64),
+            _ => Err(UnknownTypeAnnotation),
+        }
+    }
 }
 
 impl fmt::Display for Node {
@@ -327,7 +503,7 @@ impl fmt::Display for Expression {
         }
 
         match self {
-            Self::Identifier(ident) => ident.fmt(f),
+            Self::Identifier(ident) => ident.value.fmt(f),
 
             // Integer types
             Self::I8(v) => fmt_int!(v),
@@ -353,8 +529,8 @@ impl fmt::Display for Expression {
                 write!(f, "{val}")
             }
 
-            Self::Boolean(boolean) => boolean.fmt(f),
-            Self::String(string) => string.fmt(f),
+            Self::Boolean(b) => b.value.fmt(f),
+            Self::String(s) => s.value.fmt(f),
             Self::Array(array_lit) => array_lit.fmt(f),
             Self::Index(index_expr) => index_expr.fmt(f),
             Self::Hash(hash_lit) => hash_lit.fmt(f),
@@ -364,6 +540,7 @@ impl fmt::Display for Expression {
             Self::Function(func_lit) => func_lit.fmt(f),
             Self::Macro(macro_lit) => macro_lit.fmt(f),
             Self::Call(call_expr) => call_expr.fmt(f),
+            Self::Cast(cast_expr) => cast_expr.fmt(f),
         }
     }
 }
@@ -458,5 +635,17 @@ impl fmt::Display for CallExpr {
                 .collect::<Vec<String>>()
                 .join(", ")
         )
+    }
+}
+
+impl fmt::Display for CastExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "({} as {})", self.expr, self.target.as_str())
+    }
+}
+
+impl fmt::Display for TypeAnnotation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
     }
 }

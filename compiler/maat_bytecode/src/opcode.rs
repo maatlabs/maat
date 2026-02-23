@@ -128,6 +128,10 @@ pub enum Opcode {
     /// Push the current closure onto the stack for recursive self-reference.
     /// Operands: none
     CurrentClosure = 30,
+
+    /// Convert a numeric value to a different numeric type.
+    /// Operands: [u8] - target type tag (see [`TypeTag`])
+    Convert = 31,
 }
 
 impl Opcode {
@@ -166,6 +170,7 @@ impl Opcode {
             Self::Closure => "OpClosure",
             Self::GetFree => "OpGetFree",
             Self::CurrentClosure => "OpCurrentClosure",
+            Self::Convert => "OpConvert",
         }
     }
 
@@ -184,7 +189,12 @@ impl Opcode {
             | Self::Array
             | Self::Hash => &[2],
             Self::Closure => &[2, 1],
-            Self::Call | Self::GetLocal | Self::SetLocal | Self::GetBuiltin | Self::GetFree => &[1],
+            Self::Call
+            | Self::GetLocal
+            | Self::SetLocal
+            | Self::GetBuiltin
+            | Self::GetFree
+            | Self::Convert => &[1],
             Self::Add
             | Self::Pop
             | Self::Sub
@@ -241,6 +251,7 @@ impl Opcode {
             28 => Some(Self::Closure),
             29 => Some(Self::GetFree),
             30 => Some(Self::CurrentClosure),
+            31 => Some(Self::Convert),
             _ => None,
         }
     }
@@ -252,13 +263,87 @@ impl Opcode {
     }
 }
 
+/// Numeric type tags for the `OpConvert` instruction operand.
+///
+/// Each variant corresponds to a runtime numeric type and is encoded
+/// as a single byte in the instruction stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum TypeTag {
+    I8 = 0,
+    I16 = 1,
+    I32 = 2,
+    I64 = 3,
+    I128 = 4,
+    Isize = 5,
+    U8 = 6,
+    U16 = 7,
+    U32 = 8,
+    U64 = 9,
+    U128 = 10,
+    Usize = 11,
+    F32 = 12,
+    F64 = 13,
+}
+
+impl TypeTag {
+    /// Converts a byte to a type tag.
+    #[inline]
+    pub const fn from_byte(byte: u8) -> Option<Self> {
+        match byte {
+            0 => Some(Self::I8),
+            1 => Some(Self::I16),
+            2 => Some(Self::I32),
+            3 => Some(Self::I64),
+            4 => Some(Self::I128),
+            5 => Some(Self::Isize),
+            6 => Some(Self::U8),
+            7 => Some(Self::U16),
+            8 => Some(Self::U32),
+            9 => Some(Self::U64),
+            10 => Some(Self::U128),
+            11 => Some(Self::Usize),
+            12 => Some(Self::F32),
+            13 => Some(Self::F64),
+            _ => None,
+        }
+    }
+
+    /// Converts this type tag to its byte representation.
+    #[inline]
+    pub const fn to_byte(self) -> u8 {
+        self as u8
+    }
+
+    /// Returns the human-readable name of this type.
+    #[inline]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::I8 => "i8",
+            Self::I16 => "i16",
+            Self::I32 => "i32",
+            Self::I64 => "i64",
+            Self::I128 => "i128",
+            Self::Isize => "isize",
+            Self::U8 => "u8",
+            Self::U16 => "u16",
+            Self::U32 => "u32",
+            Self::U64 => "u64",
+            Self::U128 => "u128",
+            Self::Usize => "usize",
+            Self::F32 => "f32",
+            Self::F64 => "f64",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn opcode_roundtrip() {
-        for byte in 0..=30 {
+        for byte in 0..=31 {
             let opcode = Opcode::from_byte(byte).unwrap();
             assert_eq!(opcode.to_byte(), byte);
         }

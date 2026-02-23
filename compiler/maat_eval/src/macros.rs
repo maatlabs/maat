@@ -65,7 +65,7 @@ pub fn expand_macros(program: Node, env: &Env) -> Node {
     transform(program, &mut |node| {
         if let Node::Expression(Expression::Call(call_expr)) = &node
             && let Expression::Identifier(ident) = &*call_expr.function
-            && let Some(Object::Macro(obj)) = env.get(ident)
+            && let Some(Object::Macro(obj)) = env.get(&ident.value)
         {
             let args = call_expr
                 .arguments

@@ -4,6 +4,71 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-02-23
+
+CLI toolchain and language foundation release. Maat now supports file-based compilation and execution via `maat run`, `maat build`, and `maat exec`, with source-location error reporting, cast expressions, bytecode serialization, and shared instruction memory.
+
+### Added
+
+#### CLI Toolchain
+
+- **`maat run <file.mt>`**: Compile and execute a Maat source file in a single step
+- **`maat build <file.mt> -o <output.mtc>`**: Compile a source file to serialized bytecode
+- **`maat exec <file.mtc>`**: Execute a pre-compiled bytecode file
+- **`maat repl`**: Interactive REPL (formerly the standalone `repl` binary)
+- File extension validation: `.mt` for source files, `.mtc` for compiled bytecode
+- Shared compilation pipeline (`pipeline.rs`) used by all subcommands
+
+#### Bytecode Serialization
+
+- Binary serialization format using `serde` + `postcard`
+- `MAAT` magic header (`4D 41 41 54`) and version byte for format identification
+- Round-trip serialization of all constant pool object types (numeric literals, strings, compiled functions with `Rc<[u8]>` instructions)
+- Source map included in serialized format for error reporting from pre-compiled bytecode
+- Custom `Serialize`/`Deserialize` implementations for `Object` that reject non-serializable variants
+
+#### Source-Location Error Reporting
+
+- `Span` field on every AST node (all `Statement` and `Expression` variants)
+- Source map in bytecode: `Vec<Span>` mapping instruction offsets to source positions
+- Rich terminal diagnostics via [`ariadne`](https://docs.rs/ariadne) with colored output, source snippets, and underlined spans
+- File:line:col context in all error messages when running from source files
+
+#### Cast Expressions
+
+- `as` operator for explicit numeric type conversion (`expression as type`)
+- `CastExpr` AST node with support for all numeric types (`i8`, `i16`, ..., `f64`, `usize`)
+- `OpConvert` opcode with source/target type tag operands
+- Runtime rejection of lossy casts (e.g., `256i64 as u8` produces an error)
+
+#### Testing & Examples
+
+- 12 serialization round-trip integration tests
+- 6 example programs: `fibonacci.mt`, `factorial.mt`, `closures.mt`, `macros.mt`, `map_reduce.mt`, `binary_search.mt`
+
+### Changed
+
+- **`CompiledFunction::instructions`**: `Vec<u8>` → `Rc<[u8]>` (closures from the same function literal share instruction memory)
+- **`len()` built-in**: Returns `Object::Usize` instead of `Object::I64` (its natural type; use `len(x) as i64` for explicit conversion)
+- **REPL**: Moved from standalone `repl` binary (`src/tools/maat-repl/`) into the main `maat` binary as the `maat repl` subcommand
+- **`maat_eval`**: Reduced to macro-expansion engine; `eval()` and `eval_program()` removed as public execution APIs; only `define_macros()` and `expand_macros()` remain
+- **Benchmarks**: Evaluator benchmarks removed; benchmark suite now covers VM-only execution paths
+- **Opcode count**: 31 -> 32 (`OpConvert` added)
+
+### Security
+
+- `serde` + `postcard` for serialization (no arbitrary code execution during deserialization)
+- Custom `Serialize`/`Deserialize` for `Object` rejects non-serializable variants at the type level
+
+### Dependencies
+
+- Added `serde` 1.x with `derive` and `rc` features
+- Added `postcard` 1.x with `alloc` feature
+- Added `clap` for CLI argument parsing
+- Added `ariadne` 0.6 for rich error diagnostics
+
+---
+
 ## [0.4.0] - 2026-02-19
 
 Major feature release introducing a bytecode compiler and stack-based virtual machine, based on "Writing a Compiler in Go" by Thorsten Ball. Maat now compiles source code to bytecode and executes it on a VM, in addition to the existing tree-walking interpreter.
@@ -368,6 +433,7 @@ When adding entries to this changelog for future releases:
 3. **Audience**: Write for users, not developers (focus on impact, not implementation)
 4. **Links**: Add comparison links at the bottom: `[0.2.0]: https://github.com/maatlabs/maat/compare/v0.1.0...v0.2.0`
 
+[0.5.0]: https://github.com/maatlabs/maat/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/maatlabs/maat/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/maatlabs/maat/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/maatlabs/maat/compare/v0.1.0...v0.2.0

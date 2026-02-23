@@ -7,6 +7,7 @@ enum TestValue {
     I64(i64),
     I32(i32),
     F64(f64),
+    Usize(usize),
     Bool(bool),
     Str(String),
     IntArray(Vec<i64>),
@@ -42,6 +43,12 @@ fn run_vm_test(input: &str, expected: TestValue) {
                 assert_eq!(val, expected_val, "wrong I32 value for input: {input}")
             }
             _ => panic!("expected I32 object, got: {:?}", stack_elem),
+        },
+        TestValue::Usize(expected_val) => match stack_elem {
+            Object::Usize(val) => {
+                assert_eq!(val, expected_val, "wrong Usize value for input: {input}")
+            }
+            _ => panic!("expected Usize object, got: {:?}", stack_elem),
         },
         TestValue::F64(expected_val) => match stack_elem {
             Object::F64(val) => {
@@ -474,10 +481,10 @@ fn calling_functions_with_wrong_arguments() {
 #[test]
 fn builtin_functions() {
     let cases = vec![
-        (r#"len("")"#, TestValue::I64(0)),
-        (r#"len("four")"#, TestValue::I64(4)),
-        ("len([1, 2, 3])", TestValue::I64(3)),
-        ("len([])", TestValue::I64(0)),
+        (r#"len("")"#, TestValue::Usize(0)),
+        (r#"len("four")"#, TestValue::Usize(4)),
+        ("len([1, 2, 3])", TestValue::Usize(3)),
+        ("len([])", TestValue::Usize(0)),
         (r#"puts("hello", "world!")"#, TestValue::Null),
         ("first([1, 2, 3])", TestValue::I64(1)),
         ("first([])", TestValue::Null),
@@ -518,6 +525,7 @@ fn stack_underflow() {
     let bytecode = Bytecode {
         instructions,
         constants: vec![],
+        source_map: Default::default(),
     };
 
     let mut vm = VM::new(bytecode);
@@ -641,10 +649,10 @@ fn typed_integer_arithmetic() {
         ("100i32 - 50i32", TestValue::I32(50)),
         ("3i32 * 7i32", TestValue::I32(21)),
         ("20i32 / 4i32", TestValue::I32(5)),
-        ("5usize + 3usize", TestValue::I64(8)),
-        ("10usize - 2usize", TestValue::I64(8)),
-        ("4usize * 5usize", TestValue::I64(20)),
-        ("20usize / 4usize", TestValue::I64(5)),
+        ("5usize + 3usize", TestValue::Usize(8)),
+        ("10usize - 2usize", TestValue::Usize(8)),
+        ("4usize * 5usize", TestValue::Usize(20)),
+        ("20usize / 4usize", TestValue::Usize(5)),
     ];
 
     for (input, expected) in cases {
@@ -681,4 +689,59 @@ fn signed_negation() {
 #[test]
 fn unsigned_negation_error() {
     run_vm_error_test("-(5usize)", "unsupported type for negation");
+}
+
+#[test]
+fn cast_expressions() {
+    let cases = vec![
+        ("42 as i32", TestValue::I32(42)),
+        ("255u8 as i32", TestValue::I32(255)),
+        ("1000i32 as i64", TestValue::I64(1000)),
+        ("10 as usize", TestValue::Usize(10)),
+        ("42 as f64", TestValue::F64(42.0)),
+        ("3.14f64 as i64", TestValue::I64(3)),
+        ("5usize as i64", TestValue::I64(5)),
+    ];
+
+    for (input, expected) in cases {
+        run_vm_test(input, expected);
+    }
+}
+
+#[test]
+fn cast_expression_errors() {
+    let cases = vec![
+        ("256 as u8", "out of range for u8"),
+        ("-1 as u8", "out of range for u8"),
+        ("-1 as usize", "out of range for usize"),
+    ];
+
+    for (input, expected_error) in cases {
+        run_vm_error_test(input, expected_error);
+    }
+}
+
+#[test]
+fn len_returns_usize() {
+    run_vm_test("len([1, 2, 3])", TestValue::Usize(3));
+    run_vm_test(r#"len("hello")"#, TestValue::Usize(5));
+}
+
+#[test]
+fn len_with_cast() {
+    run_vm_test("len([1, 2, 3]) as i64", TestValue::I64(3));
+}
+
+#[test]
+fn cross_type_integer_comparison() {
+    let cases = vec![
+        ("5 == len([1, 2, 3, 4, 5])", TestValue::Bool(true)),
+        ("5 != len([1, 2, 3, 4, 5])", TestValue::Bool(false)),
+        ("10 > len([1, 2, 3])", TestValue::Bool(true)),
+        ("1 < len([1, 2, 3])", TestValue::Bool(true)),
+    ];
+
+    for (input, expected) in cases {
+        run_vm_test(input, expected);
+    }
 }

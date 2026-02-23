@@ -17,6 +17,7 @@ pub type TransformFn<'a> = &'a mut dyn FnMut(Node) -> Node;
 ///
 /// ```
 /// use maat_ast::{ast::*, transform};
+/// use maat_span::Span;
 ///
 /// // Double all integer values
 /// let mut program = Program {
@@ -24,7 +25,9 @@ pub type TransformFn<'a> = &'a mut dyn FnMut(Node) -> Node;
 ///         value: Expression::I64(I64 {
 ///             radix: Radix::Dec,
 ///             value: 5,
+///             span: Span::ZERO,
 ///         }),
+///         span: Span::ZERO,
 ///     })],
 /// };
 ///
@@ -260,6 +263,15 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                         })
                         .collect();
                     Expression::Call(call)
+                }
+
+                Expression::Cast(mut cast) => {
+                    cast.expr =
+                        Box::new(match transform(Node::Expression(*cast.expr), transformer) {
+                            Node::Expression(e) => e,
+                            _ => unreachable!("Expression transformation returned non-expression"),
+                        });
+                    Expression::Cast(cast)
                 }
 
                 // Leaf nodes (literals and identifiers) don't need transformation

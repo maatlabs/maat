@@ -9,6 +9,7 @@ repository.workspace = true
 maat_bytecode = { path = "../maat_bytecode" }
 maat_errors = { path = "../maat_errors" }
 maat_runtime = { path = "../maat_runtime" }
+maat_span = { path = "../maat_span" }
 
 [dev-dependencies]
 maat_ast = { path = "../maat_ast" }
