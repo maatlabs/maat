@@ -22,6 +22,7 @@
 //! ```
 
 use maat_runtime::Object;
+use maat_span::SourceMap;
 
 mod instruction;
 mod opcode;
@@ -112,7 +113,7 @@ pub const MAX_FRAMES: usize = 1024;
 /// instructions.extend(&Instructions::from(encode(Opcode::Add, &[])));        // Add them
 /// instructions.extend(&Instructions::from(encode(Opcode::Pop, &[])));        // Pop result
 ///
-/// let bytecode = Bytecode { instructions, constants };
+/// let bytecode = Bytecode { instructions, constants, source_map: Default::default() };
 /// ```
 ///
 /// When executed by the VM:
@@ -134,4 +135,7 @@ pub struct Bytecode {
     /// The index into this array is encoded as a 2-byte operand (allowing up to
     /// 65,535 distinct constants).
     pub constants: Vec<Object>,
+
+    /// Maps instruction byte offsets to source spans for error reporting.
+    pub source_map: SourceMap,
 }

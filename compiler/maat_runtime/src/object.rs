@@ -4,6 +4,7 @@ use std::rc::Rc;
 
 use maat_ast::{BlockStatement, Node};
 use maat_errors::{Error, EvalError, Result};
+use maat_span::SourceMap;
 
 use crate::Env;
 
@@ -83,6 +84,7 @@ impl Object {
     /// Used to splice evaluated values back into quoted code.
     pub fn to_ast_node(obj: &Self) -> Option<Node> {
         use maat_ast::{self as ast, *};
+        use maat_span::Span;
 
         macro_rules! convert_int {
         ($($obj:ident => $ast_name:ident($ast_type:ident)),* $(,)?) => {
@@ -91,9 +93,13 @@ impl Object {
                     Self::$obj(v) => Some(Node::Expression(Expression::$ast_name(ast::$ast_type {
                         radix: Radix::Dec,
                         value: *v,
+                        span: Span::ZERO,
                     }))),
                 )*
-                Self::Boolean(b) => Some(Node::Expression(Expression::Boolean(*b))),
+                Self::Boolean(b) => Some(Node::Expression(Expression::Boolean(BooleanLiteral {
+                    value: *b,
+                    span: Span::ZERO,
+                }))),
                 Self::Quote(q) => Some(q.node.clone()),
                 _ => None,
             }
@@ -301,6 +307,8 @@ pub struct CompiledFunction {
     pub num_locals: usize,
     /// The number of parameters this function expects.
     pub num_parameters: usize,
+    /// Maps instruction byte offsets to source spans within this function.
+    pub source_map: SourceMap,
 }
 
 /// A closure binding a compiled function with its captured free variables.

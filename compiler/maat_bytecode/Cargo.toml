@@ -8,3 +8,4 @@ repository.workspace = true
 [dependencies]
 maat_errors = { path = "../maat_errors" }
 maat_runtime = { path = "../maat_runtime" }
+maat_span = { path = "../maat_span" }
