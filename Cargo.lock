@@ -401,7 +401,7 @@ dependencies = [
 
 [[package]]
 name = "maat"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "ariadne",
  "clap",
@@ -419,14 +419,14 @@ dependencies = [
 
 [[package]]
 name = "maat_ast"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "maat_span",
 ]
 
 [[package]]
 name = "maat_bytecode"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "maat_errors",
  "maat_runtime",
@@ -437,7 +437,7 @@ dependencies = [
 
 [[package]]
 name = "maat_codegen"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "maat_ast",
  "maat_bytecode",
@@ -450,7 +450,7 @@ dependencies = [
 
 [[package]]
 name = "maat_errors"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "maat_span",
  "thiserror",
@@ -458,7 +458,7 @@ dependencies = [
 
 [[package]]
 name = "maat_eval"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "maat_ast",
  "maat_errors",
@@ -467,7 +467,7 @@ dependencies = [
 
 [[package]]
 name = "maat_lexer"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "maat_span",
  "unicode-xid",
@@ -475,7 +475,7 @@ dependencies = [
 
 [[package]]
 name = "maat_parser"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "maat_ast",
  "maat_errors",
@@ -485,7 +485,7 @@ dependencies = [
 
 [[package]]
 name = "maat_runtime"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "maat_ast",
  "maat_errors",
@@ -495,14 +495,14 @@ dependencies = [
 
 [[package]]
 name = "maat_span"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "maat_tests"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "criterion",
  "maat_ast",
@@ -519,7 +519,7 @@ dependencies = [
 
 [[package]]
 name = "maat_vm"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "maat_ast",
  "maat_bytecode",
