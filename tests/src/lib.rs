@@ -36,3 +36,19 @@ pub fn compile(input: &str) -> Bytecode {
         .expect("compilation failed");
     compiler.bytecode().expect("bytecode extraction failed")
 }
+
+/// Compiles the given source string, serializes the bytecode, deserializes
+/// it, and returns the restored [`Bytecode`].
+///
+/// This exercises the full round-trip through the binary format, ensuring
+/// that execution from deserialized bytecode produces the same results as
+/// direct compilation.
+///
+/// # Panics
+///
+/// Panics if parsing, compilation, serialization, or deserialization fails.
+pub fn roundtrip(input: &str) -> Bytecode {
+    let bytecode = compile(input);
+    let bytes = bytecode.serialize().expect("serialization failed");
+    Bytecode::deserialize(&bytes).expect("deserialization failed")
+}

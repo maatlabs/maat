@@ -18,6 +18,9 @@ pub enum Error {
 
     #[error("decode error: {0}")]
     Decode(#[from] DecodeError),
+
+    #[error("serialization error: {0}")]
+    Serialization(#[from] SerializationError),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -194,4 +197,33 @@ pub enum DecodeError {
 
     #[error("invalid opcode: 0x{0:02x}")]
     InvalidOpcode(u8),
+}
+
+/// Errors arising during bytecode serialization or deserialization.
+///
+/// Header-level errors (`InvalidMagic`, `UnsupportedVersion`, `UnexpectedEof`)
+/// are checked before the payload is decoded. Payload-level errors are
+/// reported by `postcard` via `serde` and surfaced as `PostcardEncode` or
+/// `PostcardDecode`.
+#[derive(Debug, thiserror::Error)]
+pub enum SerializationError {
+    /// The file does not begin with the expected `MAAT` magic bytes.
+    #[error("invalid magic bytes: expected MAAT header")]
+    InvalidMagic,
+
+    /// The format version in the header is not supported by this build.
+    #[error("unsupported bytecode format version: {0}")]
+    UnsupportedVersion(u32),
+
+    /// The byte stream was truncated before the header could be fully read.
+    #[error("unexpected end of bytecode at offset {offset}: needed {needed} more bytes")]
+    UnexpectedEof { offset: usize, needed: usize },
+
+    /// An error occurred while encoding bytecode with postcard.
+    #[error("bytecode encode error: {0}")]
+    PostcardEncode(String),
+
+    /// An error occurred while decoding bytecode with postcard.
+    #[error("bytecode decode error: {0}")]
+    PostcardDecode(String),
 }

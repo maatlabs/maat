@@ -26,6 +26,7 @@ use maat_span::SourceMap;
 
 mod instruction;
 mod opcode;
+mod serialize;
 
 pub use instruction::{Instruction, Instructions, decode_operands, encode};
 pub use opcode::{Opcode, TypeTag};
@@ -121,7 +122,7 @@ pub const MAX_FRAMES: usize = 1024;
 /// 2. `OpConstant 1` pushes `Object::I64(2)` onto the stack
 /// 3. `OpAdd` pops both values, adds them, and pushes `Object::I64(3)`
 /// 4. `OpPop` removes the result from the stack
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Bytecode {
     /// The sequence of bytecode instructions to execute.
     ///

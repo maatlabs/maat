@@ -5,6 +5,7 @@ use std::rc::Rc;
 use maat_ast::{BlockStatement, Node};
 use maat_errors::{Error, EvalError, Result};
 use maat_span::SourceMap;
+use serde::{Deserialize, Serialize};
 
 use crate::Env;
 
@@ -230,6 +231,105 @@ impl Object {
     }
 }
 
+/// Serialization proxy containing only the [`Object`] variants that can be
+/// represented in the bytecode binary format.
+///
+/// Non-serializable variants (`Function`, `Macro`, `Quote`, `ReturnValue`,
+/// `Builtin`) exist only at runtime and cannot appear in compiled bytecode.
+/// Attempting to serialize them produces an error.
+#[derive(Serialize, Deserialize)]
+enum SerializableObject {
+    Null,
+    I8(i8),
+    I16(i16),
+    I32(i32),
+    I64(i64),
+    I128(i128),
+    Isize(isize),
+    U8(u8),
+    U16(u16),
+    U32(u32),
+    U64(u64),
+    U128(u128),
+    Usize(usize),
+    F32(f32),
+    F64(f64),
+    Boolean(bool),
+    String(String),
+    Array(Vec<Object>),
+    Hash(HashObject),
+    CompiledFunction(CompiledFunction),
+    Closure(Closure),
+}
+
+impl Serialize for Object {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        let obj = match self {
+            Self::Null => SerializableObject::Null,
+            Self::I8(v) => SerializableObject::I8(*v),
+            Self::I16(v) => SerializableObject::I16(*v),
+            Self::I32(v) => SerializableObject::I32(*v),
+            Self::I64(v) => SerializableObject::I64(*v),
+            Self::I128(v) => SerializableObject::I128(*v),
+            Self::Isize(v) => SerializableObject::Isize(*v),
+            Self::U8(v) => SerializableObject::U8(*v),
+            Self::U16(v) => SerializableObject::U16(*v),
+            Self::U32(v) => SerializableObject::U32(*v),
+            Self::U64(v) => SerializableObject::U64(*v),
+            Self::U128(v) => SerializableObject::U128(*v),
+            Self::Usize(v) => SerializableObject::Usize(*v),
+            Self::F32(v) => SerializableObject::F32(*v),
+            Self::F64(v) => SerializableObject::F64(*v),
+            Self::Boolean(v) => SerializableObject::Boolean(*v),
+            Self::String(v) => SerializableObject::String(v.clone()),
+            Self::Array(v) => SerializableObject::Array(v.clone()),
+            Self::Hash(v) => SerializableObject::Hash(v.clone()),
+            Self::CompiledFunction(v) => SerializableObject::CompiledFunction(v.clone()),
+            Self::Closure(v) => SerializableObject::Closure(v.clone()),
+            other => {
+                return Err(serde::ser::Error::custom(format!(
+                    "non-serializable object type: {}",
+                    other.type_name()
+                )));
+            }
+        };
+        obj.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Object {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        SerializableObject::deserialize(deserializer).map(|obj| match obj {
+            SerializableObject::Null => Self::Null,
+            SerializableObject::I8(v) => Self::I8(v),
+            SerializableObject::I16(v) => Self::I16(v),
+            SerializableObject::I32(v) => Self::I32(v),
+            SerializableObject::I64(v) => Self::I64(v),
+            SerializableObject::I128(v) => Self::I128(v),
+            SerializableObject::Isize(v) => Self::Isize(v),
+            SerializableObject::U8(v) => Self::U8(v),
+            SerializableObject::U16(v) => Self::U16(v),
+            SerializableObject::U32(v) => Self::U32(v),
+            SerializableObject::U64(v) => Self::U64(v),
+            SerializableObject::U128(v) => Self::U128(v),
+            SerializableObject::Usize(v) => Self::Usize(v),
+            SerializableObject::F32(v) => Self::F32(v),
+            SerializableObject::F64(v) => Self::F64(v),
+            SerializableObject::Boolean(v) => Self::Boolean(v),
+            SerializableObject::String(v) => Self::String(v),
+            SerializableObject::Array(v) => Self::Array(v),
+            SerializableObject::Hash(v) => Self::Hash(v),
+            SerializableObject::CompiledFunction(v) => Self::CompiledFunction(v),
+            SerializableObject::Closure(v) => Self::Closure(v),
+        })
+    }
+}
+
 impl PartialEq for Object {
     fn eq(&self, other: &Self) -> bool {
         use Object::*;
@@ -296,7 +396,7 @@ pub struct Quote {
 /// Instructions are stored behind `Rc<[u8]>` so that closures created
 /// from the same function literal share instruction memory rather than
 /// cloning the entire byte vector on every call.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CompiledFunction {
     /// The bytecode instructions for this function's body.
     ///
@@ -321,7 +421,7 @@ pub struct CompiledFunction {
 /// stored by value. Nested closures capture through the chain: an inner
 /// closure's free variable may itself be a free variable of its enclosing
 /// closure.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Closure {
     /// The underlying compiled function.
     pub func: CompiledFunction,
@@ -329,12 +429,12 @@ pub struct Closure {
     pub free_vars: Vec<Object>,
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct HashObject {
     pub pairs: HashMap<Hashable, Object>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Hashable {
     I8(i8),
     I16(i16),

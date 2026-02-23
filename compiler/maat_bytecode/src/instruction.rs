@@ -1,6 +1,7 @@
 use std::fmt;
 
 use maat_errors::DecodeError;
+use serde::{Deserialize, Serialize};
 
 use crate::Opcode;
 
@@ -9,7 +10,7 @@ use crate::Opcode;
 /// Instructions are represented as a byte vector where each instruction
 /// consists of an opcode byte followed by zero or more operand bytes.
 /// All multi-byte operands are encoded in big-endian format.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Instructions(Vec<u8>);
 
 /// Tracks the most recently emitted instruction for peephole operations.

@@ -24,4 +24,6 @@ repository = "https://github.com/maatlabs/maat"
 
 [workspace.dependencies]
 ariadne = "0.6"
+postcard = { version = "1", features = ["alloc"] }
+serde = { version = "1", features = ["derive", "rc"] }
 unicode-xid = "0.2"

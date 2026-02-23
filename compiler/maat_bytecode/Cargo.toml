@@ -6,6 +6,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+postcard.workspace = true
+serde.workspace = true
+
 maat_errors = { path = "../maat_errors" }
 maat_runtime = { path = "../maat_runtime" }
 maat_span = { path = "../maat_span" }

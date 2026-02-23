@@ -1,8 +1,10 @@
+use serde::{Deserialize, Serialize};
+
 /// A span representing a range of source code positions.
 ///
 /// Enables precise error reporting by
 /// tracking where each token and expression originated in the source code.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Span {
     /// Byte offset of the start of the span (inclusive).
     pub start: usize,
@@ -52,7 +54,7 @@ impl Default for Span {
 /// The source map enables the VM to report precise source locations when
 /// runtime errors occur. Entries are stored sorted by instruction offset
 /// and looked up via binary search.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct SourceMap {
     entries: Vec<(usize, Span)>,
 }
