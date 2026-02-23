@@ -4,6 +4,7 @@
 //! starting the interactive REPL, and compiling to
 //! bytecode and executing pre-compiled bytecode.
 
+mod diagnostic;
 mod repl;
 mod run;
 

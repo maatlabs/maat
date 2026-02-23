@@ -8,11 +8,14 @@ use std::{fs, process};
 
 use maat_ast::Node;
 use maat_codegen::Compiler;
+use maat_errors::Error;
 use maat_eval::{define_macros, expand_macros};
 use maat_lexer::Lexer;
 use maat_parser::Parser;
 use maat_runtime::Env;
 use maat_vm::VM;
+
+use crate::diagnostic;
 
 /// Reads, compiles, and executes a Maat source file.
 ///
@@ -25,13 +28,14 @@ use maat_vm::VM;
 /// 6. Print the result of the last expression (if non-null)
 pub fn execute(path: &Path) {
     let source = read_source_file(path);
+    let filename = path.display().to_string();
 
     let mut parser = Parser::new(Lexer::new(&source));
     let program = parser.parse_program();
 
     if !parser.errors().is_empty() {
         for err in parser.errors() {
-            eprintln!("{}: {err}", path.display());
+            diagnostic::report_parse_error(&filename, &source, err);
         }
         process::exit(1);
     }
@@ -46,26 +50,36 @@ pub fn execute(path: &Path) {
 
     let mut compiler = Compiler::new();
     if let Err(e) = compiler.compile(&Node::Program(program)) {
-        eprintln!("{}: {e}", path.display());
+        report_error(&filename, &source, &e);
         process::exit(1);
     }
 
     let bytecode = match compiler.bytecode() {
         Ok(bc) => bc,
         Err(e) => {
-            eprintln!("{}: {e}", path.display());
+            report_error(&filename, &source, &e);
             process::exit(1);
         }
     };
 
     let mut vm = VM::new(bytecode);
     if let Err(e) = vm.run() {
-        eprintln!("{}: {e}", path.display());
+        report_error(&filename, &source, &e);
         process::exit(1);
     }
 
     if let Some(result) = vm.last_popped_stack_elem() {
         println!("{result}");
+    }
+}
+
+/// Routes an [`Error`] to the appropriate diagnostic reporter.
+fn report_error(path: &str, source: &str, error: &Error) {
+    match error {
+        Error::Parse(e) => diagnostic::report_parse_error(path, source, e),
+        Error::Compile(e) => diagnostic::report_compile_error(path, source, e),
+        Error::Vm(e) => diagnostic::report_vm_error(path, source, e),
+        _ => eprintln!("{path}: {error}"),
     }
 }
 
