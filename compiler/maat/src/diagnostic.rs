@@ -10,13 +10,12 @@ use maat_span::Span;
 
 /// Renders a parse error with a source snippet to stderr.
 pub fn report_parse_error(path: &str, source: &str, error: &ParseError) {
-    let span = error.span;
-    let range = byte_range_to_char_range(source, span);
+    let range = byte_range_to_char_range(source, error.span);
 
-    Report::build(ReportKind::Error, path, range.0)
+    Report::build(ReportKind::Error, (path, range.clone()))
         .with_message("parse error")
         .with_label(
-            Label::new((path, range.0..range.1))
+            Label::new((path, range))
                 .with_message(&error.message)
                 .with_color(Color::Red),
         )
@@ -33,10 +32,10 @@ pub fn report_compile_error(path: &str, source: &str, error: &CompileError) {
         Some(span) => {
             let range = byte_range_to_char_range(source, span);
 
-            Report::build(ReportKind::Error, path, range.0)
+            Report::build(ReportKind::Error, (path, range.clone()))
                 .with_message("compile error")
                 .with_label(
-                    Label::new((path, range.0..range.1))
+                    Label::new((path, range))
                         .with_message(error.kind.to_string())
                         .with_color(Color::Red),
                 )
@@ -56,10 +55,10 @@ pub fn report_vm_error(path: &str, source: &str, error: &VmError) {
         Some(span) => {
             let range = byte_range_to_char_range(source, span);
 
-            Report::build(ReportKind::Error, path, range.0)
+            Report::build(ReportKind::Error, (path, range.clone()))
                 .with_message("runtime error")
                 .with_label(
-                    Label::new((path, range.0..range.1))
+                    Label::new((path, range))
                         .with_message(&error.message)
                         .with_color(Color::Red),
                 )
@@ -77,8 +76,8 @@ pub fn report_vm_error(path: &str, source: &str, error: &VmError) {
 /// Ariadne operates on character indices rather than byte offsets. This
 /// function walks the source string to translate byte positions into their
 /// corresponding character positions.
-fn byte_range_to_char_range(source: &str, span: Span) -> (usize, usize) {
+fn byte_range_to_char_range(source: &str, span: Span) -> std::ops::Range<usize> {
     let start = source[..span.start.min(source.len())].chars().count();
     let end = source[..span.end.min(source.len())].chars().count();
-    (start, end.max(start + 1))
+    start..end.max(start + 1)
 }

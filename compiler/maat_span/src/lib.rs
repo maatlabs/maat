@@ -39,32 +39,6 @@ impl Span {
         };
         Self { start, end }
     }
-
-    /// Converts a byte offset span to line and column numbers.
-    pub fn to_line_col(&self, source: &str) -> (usize, usize) {
-        let mut line = 1;
-        let mut col = 1;
-
-        for (i, ch) in source.char_indices() {
-            if i >= self.start {
-                break;
-            }
-            if ch == '\n' {
-                line += 1;
-                col = 1;
-            } else {
-                col += 1;
-            }
-        }
-
-        (line, col)
-    }
-
-    /// Extracts the source text covered by this span.
-    #[inline]
-    pub fn text<'a>(&self, source: &'a str) -> &'a str {
-        source.get(self.start..self.end).unwrap_or("")
-    }
 }
 
 impl Default for Span {

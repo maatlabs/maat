@@ -68,7 +68,9 @@ pub fn execute(path: &Path) {
         process::exit(1);
     }
 
-    if let Some(result) = vm.last_popped_stack_elem() {
+    if let Some(result) = vm.last_popped_stack_elem()
+        && !matches!(result, maat_runtime::Object::Null)
+    {
         println!("{result}");
     }
 }
