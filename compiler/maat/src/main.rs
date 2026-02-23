@@ -52,11 +52,27 @@ enum Command {
     },
 }
 
+/// Validates that a file path has the expected extension, exiting with a
+/// diagnostic message if it does not.
+fn require_extension(path: &std::path::Path, expected: &str, command: &str) {
+    let actual = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    if actual != expected {
+        eprintln!(
+            "error: `maat {command}` expects a `.{expected}` file, got '{}'",
+            path.display(),
+        );
+        std::process::exit(1);
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Command::Run { file }) => run::compile_and_run(&file),
+        Some(Command::Run { file }) => {
+            require_extension(&file, "mt", "run");
+            run::compile_and_run(&file);
+        }
 
         Some(Command::Repl) | None => {
             println!(
@@ -77,9 +93,13 @@ fn main() {
         }
 
         Some(Command::Build { file, output }) => {
+            require_extension(&file, "mt", "build");
             build::compile_to_file(&file, output.as_deref());
         }
 
-        Some(Command::Exec { file }) => exec::execute_bytecode(&file),
+        Some(Command::Exec { file }) => {
+            require_extension(&file, "mtc", "exec");
+            exec::execute_bytecode(&file);
+        }
     }
 }
