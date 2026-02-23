@@ -41,10 +41,8 @@ impl Bytecode {
     ///
     /// # Errors
     ///
-    /// Returns [`SerializationError::NonSerializableObject`] (via serde) if
-    /// the constant pool contains object types that cannot be represented in
-    /// the binary format (e.g., `Builtin` function pointers or tree-walking
-    /// `Function` objects).
+    /// Returns an error if the constant pool contains object types that cannot be represented in
+    /// the binary format (e.g., `Builtin` function pointers or tree-walking `Function` objects).
     pub fn serialize(&self) -> Result<Vec<u8>> {
         let payload = postcard::to_allocvec(self)
             .map_err(|e| SerializationError::PostcardEncode(e.to_string()))?;

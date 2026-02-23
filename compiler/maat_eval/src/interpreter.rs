@@ -14,7 +14,6 @@ use maat_runtime::{
 /// Evaluates an AST node in the given environment.
 ///
 /// This function performs pure tree-walking evaluation without macro processing.
-/// For full program evaluation with macro support, use [`crate::eval_program`].
 ///
 /// # Examples
 ///
