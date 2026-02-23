@@ -62,8 +62,8 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
             Expression::F32(v) => Ok(Object::F32(v.into())),
             Expression::F64(v) => Ok(Object::F64(v.into())),
 
-            Expression::Boolean(boolean) => Ok(Object::Boolean(boolean)),
-            Expression::String(string) => Ok(Object::String(unescape_string(&string))),
+            Expression::Boolean(b) => Ok(Object::Boolean(b.value)),
+            Expression::String(s) => Ok(Object::String(unescape_string(&s.value))),
             Expression::Array(array_lit) => {
                 let elements = eval_expressions(&array_lit.elements, env)?;
                 Ok(Object::Array(elements))
@@ -73,7 +73,7 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
             Expression::Prefix(prefix_expr) => eval_prefix_expression(prefix_expr, env),
             Expression::Infix(infix_expr) => eval_infix_expression(infix_expr, env),
             Expression::Conditional(cond_expr) => eval_conditional_expression(cond_expr, env),
-            Expression::Identifier(ident) => eval_identifier(ident, env),
+            Expression::Identifier(ident) => eval_identifier(ident.value, env),
             Expression::Function(func_lit) => Ok(Object::Function(Function {
                 params: func_lit.params,
                 body: func_lit.body,
@@ -88,7 +88,7 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
             Expression::Call(call_expr) => {
                 // Handle special `quote` builtin
                 if let Expression::Identifier(ref ident) = *call_expr.function
-                    && ident == QUOTE
+                    && ident.value == QUOTE
                 {
                     if call_expr.arguments.len() != 1 {
                         return Err(EvalError::Builtin(format!(
@@ -724,7 +724,7 @@ fn is_unquote_call(node: &Node) -> bool {
     if let Node::Expression(Expression::Call(call)) = node
         && let Expression::Identifier(ident) = &*call.function
     {
-        return ident == UNQUOTE;
+        return ident.value == UNQUOTE;
     }
     false
 }

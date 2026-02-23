@@ -49,11 +49,12 @@ fn parse_identifier_expression() {
     let program = parse("foobar;");
     let Statement::Expression(ExpressionStatement {
         value: Expression::Identifier(ident),
+        ..
     }) = expect_single_stmt(&program)
     else {
         panic!("expected identifier expression");
     };
-    assert_eq!(ident, "foobar");
+    assert_eq!(ident.value, "foobar");
 }
 
 #[test]
@@ -61,6 +62,7 @@ fn parse_integer_literal_expression() {
     let program = parse("5;");
     let Statement::Expression(ExpressionStatement {
         value: Expression::I64(I64 { value, .. }),
+        ..
     }) = expect_single_stmt(&program)
     else {
         panic!("expected I64 expression");
@@ -76,11 +78,12 @@ fn parse_boolean_expression() {
             let program = parse(input);
             let Statement::Expression(ExpressionStatement {
                 value: Expression::Boolean(value),
+                ..
             }) = expect_single_stmt(&program)
             else {
                 panic!("expected Boolean expression");
             };
-            assert_eq!(*value, *expected);
+            assert_eq!(value.value, *expected);
         });
 }
 
@@ -99,6 +102,7 @@ fn parse_prefix_expressions() {
         let program = parse(input);
         let Statement::Expression(ExpressionStatement {
             value: Expression::Prefix(prefix),
+            ..
         }) = expect_single_stmt(&program)
         else {
             panic!("expected Prefix expression");
@@ -130,6 +134,7 @@ fn parse_infix_expressions() {
         let program = parse(input);
         let Statement::Expression(ExpressionStatement {
             value: Expression::Infix(infix),
+            ..
         }) = expect_single_stmt(&program)
         else {
             panic!("expected Infix expression");
@@ -152,11 +157,12 @@ fn parse_string_literal() {
         let program = parse(input);
         let Statement::Expression(ExpressionStatement {
             value: Expression::String(s),
+            ..
         }) = expect_single_stmt(&program)
         else {
             panic!("expected string literal");
         };
-        assert_eq!(s, *expected);
+        assert_eq!(s.value, *expected);
     });
 }
 
@@ -174,6 +180,7 @@ fn parse_float_literal() {
         let program = parse(input);
         let Statement::Expression(ExpressionStatement {
             value: Expression::F64(float),
+            ..
         }) = expect_single_stmt(&program)
         else {
             panic!("expected float literal");
@@ -188,6 +195,7 @@ fn parse_array_literal() {
     let program = parse("[1, 2 * 2, 3 + 3]");
     let Statement::Expression(ExpressionStatement {
         value: Expression::Array(array),
+        ..
     }) = expect_single_stmt(&program)
     else {
         panic!("expected array literal");
@@ -203,6 +211,7 @@ fn parse_empty_array() {
     let program = parse("[]");
     let Statement::Expression(ExpressionStatement {
         value: Expression::Array(array),
+        ..
     }) = expect_single_stmt(&program)
     else {
         panic!("expected array literal");
@@ -215,11 +224,12 @@ fn parse_index_expression() {
     let program = parse("myArray[1 + 1]");
     let Statement::Expression(ExpressionStatement {
         value: Expression::Index(index),
+        ..
     }) = expect_single_stmt(&program)
     else {
         panic!("expected index expression");
     };
-    assert!(matches!(&*index.expr, Expression::Identifier(id) if id == "myArray"));
+    assert!(matches!(&*index.expr, Expression::Identifier(id) if id.value == "myArray"));
     assert_eq!(index.index.to_string(), "(1 + 1)");
 }
 
@@ -228,6 +238,7 @@ fn parse_hash_literal() {
     let program = parse(r#"{"one": 1, "two": 2, "three": 3}"#);
     let Statement::Expression(ExpressionStatement {
         value: Expression::Hash(hash),
+        ..
     }) = expect_single_stmt(&program)
     else {
         panic!("expected hash literal");
@@ -249,6 +260,7 @@ fn parse_empty_hash() {
     let program = parse("{}");
     let Statement::Expression(ExpressionStatement {
         value: Expression::Hash(hash),
+        ..
     }) = expect_single_stmt(&program)
     else {
         panic!("expected hash literal");
@@ -261,6 +273,7 @@ fn parse_hash_with_expressions() {
     let program = parse(r#"{"one": 0 + 1, "two": 10 - 8}"#);
     let Statement::Expression(ExpressionStatement {
         value: Expression::Hash(hash),
+        ..
     }) = expect_single_stmt(&program)
     else {
         panic!("expected hash literal");
@@ -276,6 +289,7 @@ fn parse_binary_literals() {
             let program = parse(input);
             let Statement::Expression(ExpressionStatement {
                 value: Expression::I64(int64),
+                ..
             }) = expect_single_stmt(&program)
             else {
                 panic!("expected I64 expression");
@@ -293,6 +307,7 @@ fn parse_octal_literals() {
             let program = parse(input);
             let Statement::Expression(ExpressionStatement {
                 value: Expression::I64(int64),
+                ..
             }) = expect_single_stmt(&program)
             else {
                 panic!("expected I64 expression");
@@ -310,6 +325,7 @@ fn parse_hex_literals() {
             let program = parse(input);
             let Statement::Expression(ExpressionStatement {
                 value: Expression::I64(int64),
+                ..
             }) = expect_single_stmt(&program)
             else {
                 panic!("expected I64 expression");
@@ -324,6 +340,7 @@ fn parse_rust_style_suffixes() {
     let program = parse("123i64;");
     let Statement::Expression(ExpressionStatement {
         value: Expression::I64(i64_lit),
+        ..
     }) = expect_single_stmt(&program)
     else {
         panic!("expected I64 expression");
@@ -333,6 +350,7 @@ fn parse_rust_style_suffixes() {
     let program = parse("3.15f64;");
     let Statement::Expression(ExpressionStatement {
         value: Expression::F64(f64_lit),
+        ..
     }) = expect_single_stmt(&program)
     else {
         panic!("expected F64 expression");
@@ -390,6 +408,7 @@ fn parse_if_expression() {
     let program = parse("if (x < y) { x }");
     let Statement::Expression(ExpressionStatement {
         value: Expression::Conditional(cond),
+        ..
     }) = expect_single_stmt(&program)
     else {
         panic!("expected Conditional expression");
@@ -409,6 +428,7 @@ fn parse_if_else_expression() {
     let program = parse("if (x < y) { x } else { y }");
     let Statement::Expression(ExpressionStatement {
         value: Expression::Conditional(cond),
+        ..
     }) = expect_single_stmt(&program)
     else {
         panic!("expected Conditional expression");
@@ -427,6 +447,7 @@ fn parse_function_literal() {
     let program = parse("fn(x, y) { x + y; }");
     let Statement::Expression(ExpressionStatement {
         value: Expression::Function(func),
+        ..
     }) = expect_single_stmt(&program)
     else {
         panic!("expected Function expression");
@@ -449,6 +470,7 @@ fn parse_function_parameters() {
         let program = parse(input);
         let Statement::Expression(ExpressionStatement {
             value: Expression::Function(func),
+            ..
         }) = expect_single_stmt(&program)
         else {
             panic!("expected Function expression");
@@ -462,6 +484,7 @@ fn parse_call_expression() {
     let program = parse("add(1, 2 * 3, 4 + 5);");
     let Statement::Expression(ExpressionStatement {
         value: Expression::Call(call),
+        ..
     }) = expect_single_stmt(&program)
     else {
         panic!("expected Call expression");
@@ -490,6 +513,7 @@ fn parse_call_arguments() {
         let program = parse(input);
         let Statement::Expression(ExpressionStatement {
             value: Expression::Call(call),
+            ..
         }) = expect_single_stmt(&program)
         else {
             panic!("expected Call expression");
