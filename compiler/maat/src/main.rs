@@ -1,10 +1,13 @@
 //! Maat CLI entry point.
 //!
 //! Provides the `maat` command with subcommands for running source files,
-//! starting the interactive REPL, and compiling to
-//! bytecode and executing pre-compiled bytecode.
+//! starting the interactive REPL, compiling to bytecode, and executing
+//! pre-compiled bytecode.
 
+mod build;
 mod diagnostic;
+mod exec;
+mod pipeline;
 mod repl;
 mod run;
 
@@ -53,7 +56,7 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Command::Run { file }) => run::execute(&file),
+        Some(Command::Run { file }) => run::compile_and_run(&file),
 
         Some(Command::Repl) | None => {
             println!(
@@ -73,14 +76,10 @@ fn main() {
             }
         }
 
-        Some(Command::Build { .. }) => {
-            eprintln!("maat build: not yet implemented");
-            std::process::exit(1);
+        Some(Command::Build { file, output }) => {
+            build::compile_to_file(&file, output.as_deref());
         }
 
-        Some(Command::Exec { .. }) => {
-            eprintln!("maat exec: not yet implemented");
-            std::process::exit(1);
-        }
+        Some(Command::Exec { file }) => exec::execute_bytecode(&file),
     }
 }

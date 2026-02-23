@@ -14,6 +14,7 @@ ariadne.workspace = true
 clap = { version = "4", features = ["derive"] }
 
 maat_ast = { path = "../maat_ast" }
+maat_bytecode = { path = "../maat_bytecode" }
 maat_codegen = { path = "../maat_codegen" }
 maat_errors = { path = "../maat_errors" }
 maat_eval = { path = "../maat_eval" }
