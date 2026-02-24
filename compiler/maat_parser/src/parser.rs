@@ -325,37 +325,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_int(&mut self) -> Option<Expression> {
-        macro_rules! strip_int_suffixes {
-            ($lit:expr) => {{
-                $lit.strip_suffix("_i8")
-                    .or_else(|| $lit.strip_suffix("i8"))
-                    .or_else(|| $lit.strip_suffix("_i16"))
-                    .or_else(|| $lit.strip_suffix("i16"))
-                    .or_else(|| $lit.strip_suffix("_i32"))
-                    .or_else(|| $lit.strip_suffix("i32"))
-                    .or_else(|| $lit.strip_suffix("_i64"))
-                    .or_else(|| $lit.strip_suffix("i64"))
-                    .or_else(|| $lit.strip_suffix("_i128"))
-                    .or_else(|| $lit.strip_suffix("i128"))
-                    .or_else(|| $lit.strip_suffix("_isize"))
-                    .or_else(|| $lit.strip_suffix("isize"))
-                    .or_else(|| $lit.strip_suffix("_u8"))
-                    .or_else(|| $lit.strip_suffix("u8"))
-                    .or_else(|| $lit.strip_suffix("_u16"))
-                    .or_else(|| $lit.strip_suffix("u16"))
-                    .or_else(|| $lit.strip_suffix("_u32"))
-                    .or_else(|| $lit.strip_suffix("u32"))
-                    .or_else(|| $lit.strip_suffix("_u64"))
-                    .or_else(|| $lit.strip_suffix("u64"))
-                    .or_else(|| $lit.strip_suffix("_u128"))
-                    .or_else(|| $lit.strip_suffix("u128"))
-                    .or_else(|| $lit.strip_suffix("_usize"))
-                    .or_else(|| $lit.strip_suffix("usize"))
-                    .unwrap_or($lit)
-            }};
-        }
-
-        let literal = strip_int_suffixes!(self.current.literal);
+        let literal = self.current.literal;
         let token_kind = self.current.kind;
         let span = self.current.span;
 
@@ -418,17 +388,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_float(&mut self) -> Option<Expression> {
-        macro_rules! strip_float_suffixes {
-            ($lit:expr) => {{
-                $lit.strip_suffix("_f32")
-                    .or_else(|| $lit.strip_suffix("f32"))
-                    .or_else(|| $lit.strip_suffix("_f64"))
-                    .or_else(|| $lit.strip_suffix("f64"))
-                    .unwrap_or($lit)
-            }};
-        }
-
-        let literal = strip_float_suffixes!(self.current.literal);
+        let literal = self.current.literal;
         let span = self.current.span;
 
         let expr = match self.current.kind {

@@ -367,10 +367,10 @@ fn float64_literals() {
 fn number_suffixes() {
     let source = "123_i64 456_f64 0_i64 999_f64";
     let expected = [
-        (TokenKind::I64, "123_i64"),
-        (TokenKind::F64, "456_f64"),
-        (TokenKind::I64, "0_i64"),
-        (TokenKind::F64, "999_f64"),
+        (TokenKind::I64, "123"),
+        (TokenKind::F64, "456"),
+        (TokenKind::I64, "0"),
+        (TokenKind::F64, "999"),
         (TokenKind::Eof, ""),
     ];
 
@@ -410,9 +410,9 @@ fn scientific_notation() {
 fn mixed_numbers() {
     let source = "3.15_f64 1.5e10_f64 100_i64";
     let expected = [
-        (TokenKind::F64, "3.15_f64"),
-        (TokenKind::F64, "1.5e10_f64"),
-        (TokenKind::I64, "100_i64"),
+        (TokenKind::F64, "3.15"),
+        (TokenKind::F64, "1.5e10"),
+        (TokenKind::I64, "100"),
         (TokenKind::Eof, ""),
     ];
 
@@ -509,10 +509,10 @@ fn hex_literals() {
 fn rust_style_suffixes() {
     let source = "123i64 456f64 0i64 999f64";
     let expected = [
-        (TokenKind::I64, "123i64"),
-        (TokenKind::F64, "456f64"),
-        (TokenKind::I64, "0i64"),
-        (TokenKind::F64, "999f64"),
+        (TokenKind::I64, "123"),
+        (TokenKind::F64, "456"),
+        (TokenKind::I64, "0"),
+        (TokenKind::F64, "999"),
         (TokenKind::Eof, ""),
     ];
 
@@ -529,9 +529,9 @@ fn rust_style_suffixes() {
 fn mixed_radix_and_suffixes() {
     let source = "0b1010i64 0xFFi64 3.15f64";
     let expected = [
-        (TokenKind::I64, "0b1010i64"),
-        (TokenKind::I64, "0xFFi64"),
-        (TokenKind::F64, "3.15f64"),
+        (TokenKind::I64, "0b1010"),
+        (TokenKind::I64, "0xFF"),
+        (TokenKind::F64, "3.15"),
         (TokenKind::Eof, ""),
     ];
 
@@ -590,16 +590,13 @@ fn arrays_and_hashes() {
 fn signed_integer_suffixes() {
     let source = "42i8 42_i8 127i16 32767i32 2147483647i64 170141183460469231731687303715884105727i128 42isize";
     let expected = [
-        (TokenKind::I8, "42i8"),
-        (TokenKind::I8, "42_i8"),
-        (TokenKind::I16, "127i16"),
-        (TokenKind::I32, "32767i32"),
-        (TokenKind::I64, "2147483647i64"),
-        (
-            TokenKind::I128,
-            "170141183460469231731687303715884105727i128",
-        ),
-        (TokenKind::Isize, "42isize"),
+        (TokenKind::I8, "42"),
+        (TokenKind::I8, "42"),
+        (TokenKind::I16, "127"),
+        (TokenKind::I32, "32767"),
+        (TokenKind::I64, "2147483647"),
+        (TokenKind::I128, "170141183460469231731687303715884105727"),
+        (TokenKind::Isize, "42"),
         (TokenKind::Eof, ""),
     ];
 
@@ -616,16 +613,13 @@ fn signed_integer_suffixes() {
 fn unsigned_integer_suffixes() {
     let source = "42u8 42_u8 255u16 65535u32 4294967295u64 340282366920938463463374607431768211455u128 42usize";
     let expected = [
-        (TokenKind::U8, "42u8"),
-        (TokenKind::U8, "42_u8"),
-        (TokenKind::U16, "255u16"),
-        (TokenKind::U32, "65535u32"),
-        (TokenKind::U64, "4294967295u64"),
-        (
-            TokenKind::U128,
-            "340282366920938463463374607431768211455u128",
-        ),
-        (TokenKind::Usize, "42usize"),
+        (TokenKind::U8, "42"),
+        (TokenKind::U8, "42"),
+        (TokenKind::U16, "255"),
+        (TokenKind::U32, "65535"),
+        (TokenKind::U64, "4294967295"),
+        (TokenKind::U128, "340282366920938463463374607431768211455"),
+        (TokenKind::Usize, "42"),
         (TokenKind::Eof, ""),
     ];
 
@@ -642,12 +636,12 @@ fn unsigned_integer_suffixes() {
 fn float_suffixes() {
     let source = "3.15f32 3.15_f32 2.718f64 2.718_f64 1e10f32 1.5e-5f64";
     let expected = [
-        (TokenKind::F32, "3.15f32"),
-        (TokenKind::F32, "3.15_f32"),
-        (TokenKind::F64, "2.718f64"),
-        (TokenKind::F64, "2.718_f64"),
-        (TokenKind::F32, "1e10f32"),
-        (TokenKind::F64, "1.5e-5f64"),
+        (TokenKind::F32, "3.15"),
+        (TokenKind::F32, "3.15"),
+        (TokenKind::F64, "2.718"),
+        (TokenKind::F64, "2.718"),
+        (TokenKind::F32, "1e10"),
+        (TokenKind::F64, "1.5e-5"),
         (TokenKind::Eof, ""),
     ];
 
@@ -692,12 +686,12 @@ fn suffix_boundary_checking() {
 fn radix_with_suffix() {
     let source = "0b1010i8 0o755u16 0xFFi32 0b11111111u8 0xDEADBEEFu64 0o777isize";
     let expected = [
-        (TokenKind::I8, "0b1010i8"),
-        (TokenKind::U16, "0o755u16"),
-        (TokenKind::I32, "0xFFi32"),
-        (TokenKind::U8, "0b11111111u8"),
-        (TokenKind::U64, "0xDEADBEEFu64"),
-        (TokenKind::Isize, "0o777isize"),
+        (TokenKind::I8, "0b1010"),
+        (TokenKind::U16, "0o755"),
+        (TokenKind::I32, "0xFF"),
+        (TokenKind::U8, "0b11111111"),
+        (TokenKind::U64, "0xDEADBEEF"),
+        (TokenKind::Isize, "0o777"),
         (TokenKind::Eof, ""),
     ];
 
