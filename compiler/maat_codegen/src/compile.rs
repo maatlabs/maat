@@ -10,6 +10,23 @@ use maat_span::{SourceMap, Span};
 
 use crate::{Symbol, SymbolScope, SymbolsTable};
 
+/// Tracks jump targets for break/continue within a loop.
+///
+/// Each loop pushes a context onto the compiler's loop stack. `break`
+/// emits a forward jump whose position is recorded in `break_jumps` for
+/// back-patching once the loop exit address is known. `continue` either
+/// jumps directly to `continue_target` (when the address is known at
+/// compile time, e.g. `loop` and `while`) or records the jump position
+/// in `continue_jumps` for back-patching (e.g. `for` loops where
+/// `continue` must jump to the increment section, whose address is only
+/// known after body compilation).
+#[derive(Debug, Clone)]
+struct LoopContext {
+    continue_target: Option<usize>,
+    break_jumps: Vec<usize>,
+    continue_jumps: Vec<usize>,
+}
+
 /// Per-scope compilation state.
 ///
 /// Each function body (and the top-level program) gets its own scope
@@ -46,6 +63,8 @@ pub struct Compiler {
     symbols_table: SymbolsTable,
     scopes: Vec<CompilationScope>,
     scope_index: usize,
+    loop_contexts: Vec<LoopContext>,
+    for_loop_counter: usize,
 }
 
 impl Default for Compiler {
@@ -67,6 +86,8 @@ impl Compiler {
             symbols_table,
             scopes: vec![CompilationScope::new()],
             scope_index: 0,
+            loop_contexts: Vec::new(),
+            for_loop_counter: 0,
         }
     }
 
@@ -82,6 +103,8 @@ impl Compiler {
             symbols_table,
             scopes: vec![CompilationScope::new()],
             scope_index: 0,
+            loop_contexts: Vec::new(),
+            for_loop_counter: 0,
         }
     }
 
@@ -169,6 +192,168 @@ impl Compiler {
             Statement::Return(ret_stmt) => {
                 self.compile_expression(&ret_stmt.value)?;
                 self.emit(Opcode::ReturnValue, &[], ret_stmt.span);
+                Ok(())
+            }
+
+            Statement::Loop(loop_stmt) => {
+                let start = self.current_instructions().len();
+
+                self.loop_contexts.push(LoopContext {
+                    continue_target: Some(start),
+                    break_jumps: Vec::new(),
+                    continue_jumps: Vec::new(),
+                });
+
+                self.compile_block_statement(&loop_stmt.body)?;
+
+                self.emit(Opcode::Jump, &[start], loop_stmt.span);
+
+                let exit = self.current_instructions().len();
+                let ctx = self
+                    .loop_contexts
+                    .pop()
+                    .expect("loop context was just pushed");
+                for jump_pos in ctx.break_jumps {
+                    self.replace_operand(jump_pos, exit)?;
+                }
+
+                Ok(())
+            }
+
+            Statement::While(while_stmt) => {
+                let start = self.current_instructions().len();
+
+                self.loop_contexts.push(LoopContext {
+                    continue_target: Some(start),
+                    break_jumps: Vec::new(),
+                    continue_jumps: Vec::new(),
+                });
+
+                self.compile_expression(&while_stmt.condition)?;
+                let exit_jump = self.emit(
+                    Opcode::CondJump,
+                    &[Self::JUMP_DUMMY_TARGET],
+                    while_stmt.span,
+                );
+
+                self.compile_block_statement(&while_stmt.body)?;
+
+                self.emit(Opcode::Jump, &[start], while_stmt.span);
+
+                let loop_exit = self.current_instructions().len();
+                self.replace_operand(exit_jump, loop_exit)?;
+
+                let ctx = self
+                    .loop_contexts
+                    .pop()
+                    .expect("loop context was just pushed");
+                for jump_pos in ctx.break_jumps {
+                    self.replace_operand(jump_pos, loop_exit)?;
+                }
+
+                Ok(())
+            }
+
+            Statement::For(for_stmt) => {
+                // Desugar: evaluate iterable, bind a hidden counter, iterate via index.
+                //
+                //   let __iter = <iterable>;
+                //   let __len  = len(__iter);
+                //   let __i    = 0;
+                //   loop_start:
+                //       if !(__i < __len) goto loop_exit
+                //       let <ident> = __iter[__i];
+                //       <body>
+                //   continue_target:
+                //       __i = __i + 1
+                //       goto loop_start
+                //   loop_exit:
+                //       null
+
+                let span = for_stmt.span;
+                let id = self.for_loop_counter;
+                self.for_loop_counter += 1;
+
+                let iter_name = format!("__iter_{id}");
+                let len_name = format!("__len_{id}");
+                let i_name = format!("__i_{id}");
+
+                // __iter_N
+                self.compile_expression(&for_stmt.iterable)?;
+                let iter_sym = self.define_and_set(&iter_name, span)?;
+
+                // __len_N = len(__iter_N)
+                let len_builtin = self
+                    .symbols_table
+                    .resolve_symbol("len")
+                    .ok_or_else(|| {
+                        CompileErrorKind::UndefinedVariable {
+                            name: "len".to_string(),
+                        }
+                        .at(span)
+                    })?
+                    .clone();
+                self.load_symbol(&len_builtin, span);
+                self.load_symbol(&iter_sym, span);
+                self.emit(Opcode::Call, &[1], span);
+                let len_sym = self.define_and_set(&len_name, span)?;
+
+                // __i_N = 0
+                let zero_idx = self.add_constant(Object::I64(0))?;
+                self.emit(Opcode::Constant, &[zero_idx], span);
+                let i_sym = self.define_and_set(&i_name, span)?;
+
+                // loop_start: condition check (__i < __len)
+                let loop_start = self.current_instructions().len();
+
+                // continue_target is None — continue jumps are deferred and
+                // patched to point to the increment section after body compilation.
+                self.loop_contexts.push(LoopContext {
+                    continue_target: None,
+                    break_jumps: Vec::new(),
+                    continue_jumps: Vec::new(),
+                });
+
+                self.load_symbol(&i_sym, span);
+                self.load_symbol(&len_sym, span);
+                self.emit(Opcode::LessThan, &[], span);
+
+                let exit_jump = self.emit(Opcode::CondJump, &[Self::JUMP_DUMMY_TARGET], span);
+
+                // let <ident> = __iter[__i]
+                self.load_symbol(&iter_sym, span);
+                self.load_symbol(&i_sym, span);
+                self.emit(Opcode::Index, &[], span);
+                let elem_sym = self.define_and_set(&for_stmt.ident, span)?;
+                let _ = elem_sym; // used only for side effect of defining the binding
+
+                // body
+                self.compile_block_statement(&for_stmt.body)?;
+
+                // continue_target: __i = __i + 1
+                let continue_target = self.current_instructions().len();
+                self.load_symbol(&i_sym, span);
+                let one_idx = self.add_constant(Object::I64(1))?;
+                self.emit(Opcode::Constant, &[one_idx], span);
+                self.emit(Opcode::Add, &[], span);
+                self.emit_set_symbol(&i_sym, span);
+
+                self.emit(Opcode::Jump, &[loop_start], span);
+
+                let loop_exit = self.current_instructions().len();
+                self.replace_operand(exit_jump, loop_exit)?;
+
+                let ctx = self
+                    .loop_contexts
+                    .pop()
+                    .expect("loop context was just pushed");
+                for jump_pos in ctx.break_jumps {
+                    self.replace_operand(jump_pos, loop_exit)?;
+                }
+                for jump_pos in ctx.continue_jumps {
+                    self.replace_operand(jump_pos, continue_target)?;
+                }
+
                 Ok(())
             }
         }
@@ -403,6 +588,54 @@ impl Compiler {
                 Ok(())
             }
 
+            Expression::Break(break_expr) => {
+                if self.loop_contexts.is_empty() {
+                    return Err(CompileErrorKind::BreakOutsideLoop
+                        .at(break_expr.span)
+                        .into());
+                }
+
+                match &break_expr.value {
+                    Some(val) => self.compile_expression(val)?,
+                    None => {
+                        self.emit(Opcode::Null, &[], break_expr.span);
+                    }
+                }
+
+                let jump_pos = self.emit(Opcode::Jump, &[Self::JUMP_DUMMY_TARGET], break_expr.span);
+                self.loop_contexts
+                    .last_mut()
+                    .expect("loop context was just verified")
+                    .break_jumps
+                    .push(jump_pos);
+
+                Ok(())
+            }
+
+            Expression::Continue(cont_expr) => {
+                let ctx = self
+                    .loop_contexts
+                    .last()
+                    .ok_or_else(|| CompileErrorKind::ContinueOutsideLoop.at(cont_expr.span))?;
+
+                match ctx.continue_target {
+                    Some(target) => {
+                        self.emit(Opcode::Jump, &[target], cont_expr.span);
+                    }
+                    None => {
+                        let jump_pos =
+                            self.emit(Opcode::Jump, &[Self::JUMP_DUMMY_TARGET], cont_expr.span);
+                        self.loop_contexts
+                            .last_mut()
+                            .expect("loop context was just verified")
+                            .continue_jumps
+                            .push(jump_pos);
+                    }
+                }
+
+                Ok(())
+            }
+
             Expression::Macro(_) => Err(CompileErrorKind::UnsupportedExpression {
                 expr_type: "macro literal".to_string(),
             }
@@ -506,6 +739,29 @@ impl Compiler {
             .ok_or(CompileError::new(CompileErrorKind::ScopeUnderflow))?;
 
         Ok((scope.instructions, scope.source_map))
+    }
+
+    /// Defines a symbol and emits the corresponding store instruction.
+    fn define_and_set(&mut self, name: &str, span: Span) -> Result<Symbol> {
+        let symbol = match self.symbols_table.define_symbol(name) {
+            Ok(s) => s.clone(),
+            Err(e) => return Err(self.attach_span(e, span)),
+        };
+        self.emit_set_symbol(&symbol, span);
+        Ok(symbol)
+    }
+
+    /// Emits the appropriate store instruction for a resolved symbol.
+    ///
+    /// Dispatches to `SetGlobal` or `SetLocal` based on the symbol's scope.
+    fn emit_set_symbol(&mut self, symbol: &Symbol, span: Span) {
+        match symbol.scope {
+            SymbolScope::Global => self.emit(Opcode::SetGlobal, &[symbol.index], span),
+            SymbolScope::Local => self.emit(Opcode::SetLocal, &[symbol.index], span),
+            SymbolScope::Builtin | SymbolScope::Free | SymbolScope::Function => {
+                unreachable!("define_symbol never produces this scope")
+            }
+        };
     }
 
     /// Emits the appropriate load instruction for a resolved symbol.

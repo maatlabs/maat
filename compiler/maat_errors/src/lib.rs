@@ -120,6 +120,12 @@ pub enum CompileErrorKind {
 
     #[error("scope stack underflow: attempted to leave scope with no enclosing scope")]
     ScopeUnderflow,
+
+    #[error("`break` outside of a loop")]
+    BreakOutsideLoop,
+
+    #[error("`continue` outside of a loop")]
+    ContinueOutsideLoop,
 }
 
 impl CompileErrorKind {

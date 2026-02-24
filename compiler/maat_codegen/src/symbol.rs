@@ -75,7 +75,12 @@ impl SymbolsTable {
         self.num_definitions
     }
 
-    /// Defines a new symbol, assigning it the next available index.
+    /// Defines a symbol, assigning it the next available index.
+    ///
+    /// If a symbol with the same name already exists at the same scope
+    /// level (Global or Local), the existing index is reused. This
+    /// enables idiomatic rebinding inside loops (`let x = x + 1;`)
+    /// without allocating a new storage slot on each iteration.
     ///
     /// The symbol's scope is determined by whether this table has an
     /// outer (enclosing) table: global scope if no outer, local scope otherwise.
@@ -90,6 +95,15 @@ impl SymbolsTable {
         } else {
             SymbolScope::Global
         };
+
+        // Reuse the existing index when rebinding a name at the same scope level.
+        if self
+            .store
+            .get(name)
+            .is_some_and(|existing| existing.scope == scope)
+        {
+            return Ok(&self.store[name]);
+        }
 
         match scope {
             SymbolScope::Global if self.num_definitions > MAX_GLOBALS => {
