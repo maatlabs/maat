@@ -126,6 +126,9 @@ impl<'a> Parser<'a> {
         match self.current.kind {
             TokenKind::Let => self.parse_let_statement().map(Statement::Let),
             TokenKind::Return => self.parse_return_statement().map(Statement::Return),
+            TokenKind::Loop => self.parse_loop_statement().map(Statement::Loop),
+            TokenKind::While => self.parse_while_statement().map(Statement::While),
+            TokenKind::For => self.parse_for_statement().map(Statement::For),
             _ => self.parse_expression_statement().map(Statement::Expression),
         }
     }
@@ -217,6 +220,8 @@ impl<'a> Parser<'a> {
             TokenKind::Macro => self.parse_macro()?,
             TokenKind::LBracket => self.parse_array_literal()?,
             TokenKind::LBrace => self.parse_hash_literal()?,
+            TokenKind::Break => self.parse_break_expression()?,
+            TokenKind::Continue => self.parse_continue_expression()?,
             kind => {
                 self.prefix_parse_error(kind);
                 return None;
@@ -570,6 +575,89 @@ impl<'a> Parser<'a> {
             consequence,
             alternative,
             span: start.merge(end),
+        }))
+    }
+
+    fn parse_loop_statement(&mut self) -> Option<LoopStatement> {
+        let start = self.current.span;
+        if !self.expect_peek(TokenKind::LBrace) {
+            return None;
+        }
+        let body = self.parse_block_statement()?;
+        let end = self.current.span;
+        Some(LoopStatement {
+            body,
+            span: start.merge(end),
+        })
+    }
+
+    fn parse_while_statement(&mut self) -> Option<WhileStatement> {
+        let start = self.current.span;
+        if !self.expect_peek(TokenKind::LParen) {
+            return None;
+        }
+        self.next_token();
+        let condition = Box::new(self.parse_expression(LOWEST)?);
+        if !self.expect_peek(TokenKind::RParen) {
+            return None;
+        }
+        if !self.expect_peek(TokenKind::LBrace) {
+            return None;
+        }
+        let body = self.parse_block_statement()?;
+        let end = self.current.span;
+        Some(WhileStatement {
+            condition,
+            body,
+            span: start.merge(end),
+        })
+    }
+
+    fn parse_for_statement(&mut self) -> Option<ForStatement> {
+        let start = self.current.span;
+        if !self.expect_peek(TokenKind::Ident) {
+            return None;
+        }
+        let ident = self.current.literal.to_string();
+        if !self.expect_peek(TokenKind::In) {
+            return None;
+        }
+        self.next_token();
+        let iterable = Box::new(self.parse_expression(LOWEST)?);
+        if !self.expect_peek(TokenKind::LBrace) {
+            return None;
+        }
+        let body = self.parse_block_statement()?;
+        let end = self.current.span;
+        Some(ForStatement {
+            ident,
+            iterable,
+            body,
+            span: start.merge(end),
+        })
+    }
+
+    fn parse_break_expression(&mut self) -> Option<Expression> {
+        let start = self.current.span;
+        let value = if !self.peek_token_is(TokenKind::Semicolon)
+            && !self.peek_token_is(TokenKind::RBrace)
+            && !self.peek_token_is(TokenKind::Eof)
+        {
+            self.next_token();
+            Some(Box::new(self.parse_expression(LOWEST)?))
+        } else {
+            None
+        };
+        let end = value.as_ref().map_or(start, |v| v.span());
+        Some(Expression::Break(BreakExpr {
+            value,
+            span: start.merge(end),
+        }))
+    }
+
+    fn parse_continue_expression(&mut self) -> Option<Expression> {
+        Some(Expression::Continue(ContinueExpr {
+            span: self.current.span,
         }))
     }
 

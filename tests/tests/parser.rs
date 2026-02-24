@@ -528,3 +528,83 @@ fn parse_call_arguments() {
         );
     });
 }
+
+#[test]
+fn parse_loop_statement() {
+    let program = parse("loop { 1; }");
+    let Statement::Loop(loop_stmt) = expect_single_stmt(&program) else {
+        panic!("expected Loop statement");
+    };
+    assert_eq!(loop_stmt.body.statements.len(), 1);
+    assert_eq!(loop_stmt.body.statements[0].to_string(), "1");
+}
+
+#[test]
+fn parse_while_statement() {
+    let program = parse("while (x < 10) { x; }");
+    let Statement::While(while_stmt) = expect_single_stmt(&program) else {
+        panic!("expected While statement");
+    };
+    assert_eq!(while_stmt.condition.to_string(), "(x < 10)");
+    assert_eq!(while_stmt.body.statements.len(), 1);
+    assert_eq!(while_stmt.body.statements[0].to_string(), "x");
+}
+
+#[test]
+fn parse_for_statement() {
+    let program = parse("for x in [1, 2, 3] { x; }");
+    let Statement::For(for_stmt) = expect_single_stmt(&program) else {
+        panic!("expected For statement");
+    };
+    assert_eq!(for_stmt.ident, "x");
+    assert_eq!(for_stmt.iterable.to_string(), "[1, 2, 3]");
+    assert_eq!(for_stmt.body.statements.len(), 1);
+    assert_eq!(for_stmt.body.statements[0].to_string(), "x");
+}
+
+#[test]
+fn parse_break_expression() {
+    let program = parse("loop { break; }");
+    let Statement::Loop(loop_stmt) = expect_single_stmt(&program) else {
+        panic!("expected Loop statement");
+    };
+    let Statement::Expression(ExpressionStatement {
+        value: Expression::Break(break_expr),
+        ..
+    }) = &loop_stmt.body.statements[0]
+    else {
+        panic!("expected Break expression");
+    };
+    assert!(break_expr.value.is_none());
+}
+
+#[test]
+fn parse_break_with_value() {
+    let program = parse("loop { break 42; }");
+    let Statement::Loop(loop_stmt) = expect_single_stmt(&program) else {
+        panic!("expected Loop statement");
+    };
+    let Statement::Expression(ExpressionStatement {
+        value: Expression::Break(break_expr),
+        ..
+    }) = &loop_stmt.body.statements[0]
+    else {
+        panic!("expected Break expression");
+    };
+    assert_eq!(break_expr.value.as_ref().unwrap().to_string(), "42");
+}
+
+#[test]
+fn parse_continue_expression() {
+    let program = parse("loop { continue; }");
+    let Statement::Loop(loop_stmt) = expect_single_stmt(&program) else {
+        panic!("expected Loop statement");
+    };
+    let Statement::Expression(ExpressionStatement {
+        value: Expression::Continue(_),
+        ..
+    }) = &loop_stmt.body.statements[0]
+    else {
+        panic!("expected Continue expression");
+    };
+}

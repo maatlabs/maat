@@ -26,6 +26,9 @@ pub enum Statement {
     Return(ReturnStatement),
     Expression(ExpressionStatement),
     Block(BlockStatement),
+    Loop(LoopStatement),
+    While(WhileStatement),
+    For(ForStatement),
 }
 
 impl Statement {
@@ -36,6 +39,9 @@ impl Statement {
             Self::Return(s) => s.span,
             Self::Expression(s) => s.span,
             Self::Block(s) => s.span,
+            Self::Loop(s) => s.span,
+            Self::While(s) => s.span,
+            Self::For(s) => s.span,
         }
     }
 }
@@ -106,6 +112,8 @@ pub enum Expression {
     Macro(MacroLiteral),
     Call(CallExpr),
     Cast(CastExpr),
+    Break(BreakExpr),
+    Continue(ContinueExpr),
 }
 
 impl Expression {
@@ -139,6 +147,8 @@ impl Expression {
             Self::Macro(v) => v.span,
             Self::Call(v) => v.span,
             Self::Cast(v) => v.span,
+            Self::Break(v) => v.span,
+            Self::Continue(v) => v.span,
         }
     }
 
@@ -174,6 +184,8 @@ impl Expression {
             Self::Macro(_) => "macro literal",
             Self::Call(_) => "function call",
             Self::Cast(_) => "cast expression",
+            Self::Break(_) => "break expression",
+            Self::Continue(_) => "continue expression",
         }
     }
 }
@@ -353,6 +365,53 @@ pub struct CastExpr {
     pub span: Span,
 }
 
+/// An infinite loop: `loop { <body> }`.
+///
+/// Exits only via `break`. The optional break value becomes
+/// the loop expression's result.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct LoopStatement {
+    pub body: BlockStatement,
+    pub span: Span,
+}
+
+/// A conditional loop: `while <condition> { <body> }`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct WhileStatement {
+    pub condition: Box<Expression>,
+    pub body: BlockStatement,
+    pub span: Span,
+}
+
+/// An iterator loop: `for <ident> in <iterable> { <body> }`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ForStatement {
+    pub ident: String,
+    pub iterable: Box<Expression>,
+    pub body: BlockStatement,
+    pub span: Span,
+}
+
+/// A break expression: `break` or `break <value>`.
+///
+/// When used inside a `loop`, the optional value becomes the
+/// loop's result. In `while` and `for` loops, break takes no value.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BreakExpr {
+    pub value: Option<Box<Expression>>,
+    pub span: Span,
+}
+
+/// A continue expression: `continue`.
+///
+/// Skips the remainder of the current loop iteration and jumps
+/// to the loop's condition check (for `while`) or next iteration
+/// (for `loop` and `for`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ContinueExpr {
+    pub span: Span,
+}
+
 /// Target type for cast expressions.
 ///
 /// Represents the set of numeric types that a value can be explicitly
@@ -457,6 +516,9 @@ impl fmt::Display for Statement {
             Self::Return(ret_stmt) => ret_stmt.fmt(f)?,
             Self::Expression(expr_stmt) => expr_stmt.fmt(f)?,
             Self::Block(block_stmt) => block_stmt.fmt(f)?,
+            Self::Loop(loop_stmt) => loop_stmt.fmt(f)?,
+            Self::While(while_stmt) => while_stmt.fmt(f)?,
+            Self::For(for_stmt) => for_stmt.fmt(f)?,
         }
         Ok(())
     }
@@ -541,6 +603,8 @@ impl fmt::Display for Expression {
             Self::Macro(macro_lit) => macro_lit.fmt(f),
             Self::Call(call_expr) => call_expr.fmt(f),
             Self::Cast(cast_expr) => cast_expr.fmt(f),
+            Self::Break(break_expr) => break_expr.fmt(f),
+            Self::Continue(cont_expr) => cont_expr.fmt(f),
         }
     }
 }
@@ -641,6 +705,43 @@ impl fmt::Display for CallExpr {
 impl fmt::Display for CastExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "({} as {})", self.expr, self.target.as_str())
+    }
+}
+
+impl fmt::Display for LoopStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "loop {{ {} }}", self.body)
+    }
+}
+
+impl fmt::Display for WhileStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "while {} {{ {} }}", self.condition, self.body)
+    }
+}
+
+impl fmt::Display for ForStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "for {} in {} {{ {} }}",
+            self.ident, self.iterable, self.body
+        )
+    }
+}
+
+impl fmt::Display for BreakExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.value {
+            Some(val) => write!(f, "break {val}"),
+            None => write!(f, "break"),
+        }
+    }
+}
+
+impl fmt::Display for ContinueExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "continue")
     }
 }
 

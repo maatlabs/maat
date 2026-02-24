@@ -111,6 +111,51 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                         .collect();
                     Statement::Block(block)
                 }
+
+                Statement::Loop(mut loop_stmt) => {
+                    loop_stmt.body = match transform(
+                        Node::Statement(Statement::Block(loop_stmt.body)),
+                        transformer,
+                    ) {
+                        Node::Statement(Statement::Block(b)) => b,
+                        _ => unreachable!("Block transformation returned non-block"),
+                    };
+                    Statement::Loop(loop_stmt)
+                }
+
+                Statement::While(mut while_stmt) => {
+                    while_stmt.condition = Box::new(
+                        match transform(Node::Expression(*while_stmt.condition), transformer) {
+                            Node::Expression(e) => e,
+                            _ => unreachable!("Expression transformation returned non-expression"),
+                        },
+                    );
+                    while_stmt.body = match transform(
+                        Node::Statement(Statement::Block(while_stmt.body)),
+                        transformer,
+                    ) {
+                        Node::Statement(Statement::Block(b)) => b,
+                        _ => unreachable!("Block transformation returned non-block"),
+                    };
+                    Statement::While(while_stmt)
+                }
+
+                Statement::For(mut for_stmt) => {
+                    for_stmt.iterable = Box::new(
+                        match transform(Node::Expression(*for_stmt.iterable), transformer) {
+                            Node::Expression(e) => e,
+                            _ => unreachable!("Expression transformation returned non-expression"),
+                        },
+                    );
+                    for_stmt.body = match transform(
+                        Node::Statement(Statement::Block(for_stmt.body)),
+                        transformer,
+                    ) {
+                        Node::Statement(Statement::Block(b)) => b,
+                        _ => unreachable!("Block transformation returned non-block"),
+                    };
+                    Statement::For(for_stmt)
+                }
             };
             Node::Statement(new_stmt)
         }
@@ -274,7 +319,17 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                     Expression::Cast(cast)
                 }
 
-                // Leaf nodes (literals and identifiers) don't need transformation
+                Expression::Break(mut break_expr) => {
+                    break_expr.value = break_expr.value.map(|v| {
+                        Box::new(match transform(Node::Expression(*v), transformer) {
+                            Node::Expression(e) => e,
+                            _ => unreachable!("Expression transformation returned non-expression"),
+                        })
+                    });
+                    Expression::Break(break_expr)
+                }
+
+                // Leaf nodes (literals, identifiers, continue) don't need transformation
                 expr => expr,
             };
             Node::Expression(new_expr)

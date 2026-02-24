@@ -40,6 +40,18 @@ pub enum TokenKind {
     Macro,
     /// The `as` keyword for type cast expressions.
     As,
+    /// The `loop` keyword for infinite loops.
+    Loop,
+    /// The `while` keyword for conditional loops.
+    While,
+    /// The `for` keyword for iterator loops.
+    For,
+    /// The `in` keyword for iterator binding.
+    In,
+    /// The `break` keyword for loop termination.
+    Break,
+    /// The `continue` keyword for loop continuation.
+    Continue,
 
     /// A user-defined identifier (variable, function name, etc.).
     Ident,
@@ -165,6 +177,12 @@ impl TokenKind {
             "return" => Self::Return,
             "macro" => Self::Macro,
             "as" => Self::As,
+            "loop" => Self::Loop,
+            "while" => Self::While,
+            "for" => Self::For,
+            "in" => Self::In,
+            "break" => Self::Break,
+            "continue" => Self::Continue,
             _ => Self::Ident,
         }
     }
