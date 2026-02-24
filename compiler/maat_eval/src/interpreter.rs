@@ -40,6 +40,9 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
             }
             Statement::Expression(es) => eval(Node::Expression(es.value), env),
             Statement::Block(bs) => eval_block_statement(&bs, env),
+            Statement::Loop(loop_stmt) => eval_loop_statement(loop_stmt, env),
+            Statement::While(while_stmt) => eval_while_statement(while_stmt, env),
+            Statement::For(for_stmt) => eval_for_statement(for_stmt, env),
         },
 
         Node::Expression(expr) => match expr {
@@ -82,6 +85,15 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
                 body: macro_lit.body,
                 env: env.clone(),
             })),
+            Expression::Break(break_expr) => {
+                let value = break_expr
+                    .value
+                    .map(|v| eval(Node::Expression(*v), env))
+                    .transpose()?
+                    .unwrap_or(NULL);
+                Ok(Object::Break(Box::new(value)))
+            }
+            Expression::Continue(_) => Ok(Object::Continue),
             Expression::Cast(cast_expr) => eval_cast_expression(cast_expr, env),
             Expression::Call(call_expr) => {
                 // Handle special `quote` builtin
@@ -109,10 +121,16 @@ fn eval_program(prog: Program, env: &Env) -> Result<Object> {
 
     for stmt in &prog.statements {
         result = eval(Node::Statement(stmt.clone()), env)?;
-        // handle early return statements, "unwrapping" the inner value
-        // and terminating the program.
-        if let Object::ReturnValue(val) = result {
-            return Ok(*val);
+        match result {
+            // Unwrap early returns at program level.
+            Object::ReturnValue(val) => return Ok(*val),
+            // Break/Continue outside a loop is a semantic error.
+            Object::Break(_) | Object::Continue => {
+                return Err(
+                    EvalError::Identifier("break/continue outside of a loop".to_string()).into(),
+                );
+            }
+            _ => {}
         }
     }
     Ok(result)
@@ -123,13 +141,70 @@ pub(crate) fn eval_block_statement(block: &BlockStatement, env: &Env) -> Result<
 
     for stmt in &block.statements {
         result = eval(Node::Statement(stmt.clone()), env)?;
-        // handle early return statements by terminating the block,
-        // not the entire program.
-        if let Object::ReturnValue(_) = result {
+        // Propagate control flow signals up to the enclosing loop or function.
+        if matches!(
+            result,
+            Object::ReturnValue(_) | Object::Break(_) | Object::Continue
+        ) {
             return Ok(result);
         }
     }
     Ok(result)
+}
+
+fn eval_loop_statement(loop_stmt: LoopStatement, env: &Env) -> Result<Object> {
+    loop {
+        let result = eval_block_statement(&loop_stmt.body, env)?;
+        match result {
+            Object::Break(val) => return Ok(*val),
+            Object::ReturnValue(_) => return Ok(result),
+            Object::Continue => continue,
+            _ => {}
+        }
+    }
+}
+
+fn eval_while_statement(while_stmt: WhileStatement, env: &Env) -> Result<Object> {
+    loop {
+        let condition = eval(Node::Expression(*while_stmt.condition.clone()), env)?;
+        if !condition.is_truthy() {
+            break;
+        }
+        let result = eval_block_statement(&while_stmt.body, env)?;
+        match result {
+            Object::Break(val) => return Ok(*val),
+            Object::ReturnValue(_) => return Ok(result),
+            Object::Continue => continue,
+            _ => {}
+        }
+    }
+    Ok(NULL)
+}
+
+fn eval_for_statement(for_stmt: ForStatement, env: &Env) -> Result<Object> {
+    let iterable = eval(Node::Expression(*for_stmt.iterable), env)?;
+    let elements = match iterable {
+        Object::Array(elems) => elems,
+        other => {
+            return Err(EvalError::Identifier(format!(
+                "for..in requires an array, got {}",
+                other.type_name()
+            ))
+            .into());
+        }
+    };
+
+    for elem in elements {
+        env.set(for_stmt.ident.clone(), &elem);
+        let result = eval_block_statement(&for_stmt.body, env)?;
+        match result {
+            Object::Break(val) => return Ok(*val),
+            Object::ReturnValue(_) => return Ok(result),
+            Object::Continue => continue,
+            _ => {}
+        }
+    }
+    Ok(NULL)
 }
 
 /// Evaluates an expression in the given environment.
@@ -398,10 +473,13 @@ fn eval_function_call(expr: CallExpr, env: &Env) -> Result<Object> {
             });
 
             let evaluated = eval(Node::Statement(Statement::Block(func.body)), &env)?;
-            if let Object::ReturnValue(val) = evaluated {
-                Ok(*val)
-            } else {
-                Ok(evaluated)
+            match evaluated {
+                Object::ReturnValue(val) => Ok(*val),
+                Object::Break(_) | Object::Continue => Err(EvalError::Identifier(
+                    "break/continue outside of a loop".to_string(),
+                )
+                .into()),
+                other => Ok(other),
             }
         }
         Object::Builtin(builtin_fn) => builtin_fn(&expressions),

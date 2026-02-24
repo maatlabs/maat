@@ -71,6 +71,10 @@ pub enum Object {
     Quote(Quote),
     /// Wraps a return value for early function/block termination.
     ReturnValue(Box<Object>),
+    /// Signals a `break` from a loop, optionally carrying a value.
+    Break(Box<Object>),
+    /// Signals a `continue` to the next loop iteration.
+    Continue,
     /// A builtin function.
     Builtin(BuiltinFn),
     /// A compiled function containing bytecode instructions.
@@ -224,6 +228,8 @@ impl Object {
             Self::Macro(_) => "Macro",
             Self::Quote(_) => "Quote",
             Self::ReturnValue(_) => "ReturnValue",
+            Self::Break(_) => "Break",
+            Self::Continue => "Continue",
             Self::Builtin(_) => "BuiltinFn",
             Self::CompiledFunction(_) => "CompiledFunction",
             Self::Closure(_) => "Closure",
@@ -357,6 +363,8 @@ impl PartialEq for Object {
             (Macro(m1), Macro(m2)) => m1 == m2,
             (Quote(q1), Quote(q2)) => q1 == q2,
             (ReturnValue(o1), ReturnValue(o2)) => o1 == o2,
+            (Break(o1), Break(o2)) => o1 == o2,
+            (Continue, Continue) => true,
             (Builtin(f1), Builtin(f2)) => std::ptr::fn_addr_eq(*f1, *f2),
             (CompiledFunction(c1), CompiledFunction(c2)) => c1 == c2,
             (Closure(c1), Closure(c2)) => c1 == c2,
@@ -512,6 +520,8 @@ impl fmt::Display for Object {
             Self::Macro(macro_obj) => macro_obj.fmt(f),
             Self::Quote(quote) => quote.fmt(f),
             Self::ReturnValue(ret_val) => ret_val.fmt(f),
+            Self::Break(val) => write!(f, "break {val}"),
+            Self::Continue => write!(f, "continue"),
             Self::Builtin(_) => write!(f, "builtin function"),
             Self::CompiledFunction(cf) => write!(f, "CompiledFunction[{:p}]", cf),
             Self::Closure(cl) => write!(f, "Closure[{:p}]", &cl.func),
