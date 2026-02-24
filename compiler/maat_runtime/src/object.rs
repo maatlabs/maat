@@ -1,7 +1,7 @@
-use std::collections::HashMap;
 use std::fmt;
 use std::rc::Rc;
 
+use indexmap::IndexMap;
 use maat_ast::{BlockStatement, Node};
 use maat_errors::{Error, EvalError, Result};
 use maat_span::SourceMap;
@@ -347,8 +347,8 @@ impl PartialEq for Object {
             (U64(a), U64(b)) => a == b,
             (U128(a), U128(b)) => a == b,
             (Usize(a), Usize(b)) => a == b,
-            (F32(a), F32(b)) => a == b,
-            (F64(a), F64(b)) => a == b,
+            (F32(a), F32(b)) => a.total_cmp(b).is_eq(),
+            (F64(a), F64(b)) => a.total_cmp(b).is_eq(),
             (Boolean(a), Boolean(b)) => a == b,
             (String(a), String(b)) => a == b,
             (Array(a1), Array(a2)) => a1 == a2,
@@ -431,7 +431,7 @@ pub struct Closure {
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct HashObject {
-    pub pairs: HashMap<Hashable, Object>,
+    pub pairs: IndexMap<Hashable, Object>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

@@ -4,9 +4,9 @@
 //! compiled bytecode instructions. The VM uses call frames for function
 //! invocations, maintaining a value stack, globals store, and frame stack.
 
-use std::collections::HashMap;
 use std::rc::Rc;
 
+use indexmap::IndexMap;
 use maat_bytecode::{Bytecode, MAX_FRAMES, MAX_GLOBALS, MAX_STACK_SIZE, Opcode, TypeTag};
 use maat_errors::{Result, VmError};
 use maat_runtime::{
@@ -52,10 +52,12 @@ macro_rules! float_binop {
     };
 }
 
-/// Dispatches ordered comparison across all 14 numeric variants.
+/// Dispatches ordered comparison across all 12 integer variants.
 ///
-/// Returns `None` if the operands are not the same numeric type.
-macro_rules! numeric_cmp {
+/// Returns `None` if the operands are not the same integer type.
+/// Float comparisons are handled separately via `total_cmp` for
+/// deterministic ordering of NaN, negative zero, and infinity.
+macro_rules! int_cmp {
     ($left:expr, $right:expr, $op:tt) => {
         match ($left, $right) {
             (Object::I8(l), Object::I8(r)) => Some(*l $op *r),
@@ -70,8 +72,35 @@ macro_rules! numeric_cmp {
             (Object::U64(l), Object::U64(r)) => Some(*l $op *r),
             (Object::U128(l), Object::U128(r)) => Some(*l $op *r),
             (Object::Usize(l), Object::Usize(r)) => Some(*l $op *r),
-            (Object::F32(l), Object::F32(r)) => Some(*l $op *r),
-            (Object::F64(l), Object::F64(r)) => Some(*l $op *r),
+            _ => None,
+        }
+    };
+}
+
+/// Dispatches float comparison using `total_cmp` for deterministic ordering.
+///
+/// Unlike IEEE 754 partial ordering, `total_cmp` provides a total order where:
+/// - NaN values are ordered (negative NaN < -Inf < ... < Inf < positive NaN)
+/// - Negative zero is less than positive zero (-0.0 < 0.0)
+///
+/// This guarantees deterministic comparison results regardless of NaN payload
+/// or zero sign bit.
+macro_rules! float_cmp {
+    ($left:expr, $right:expr, $op:tt) => {
+        match ($left, $right) {
+            (Object::F32(l), Object::F32(r)) => Some(l.total_cmp(r) $op std::cmp::Ordering::Equal),
+            (Object::F64(l), Object::F64(r)) => Some(l.total_cmp(r) $op std::cmp::Ordering::Equal),
+            _ => None,
+        }
+    };
+}
+
+/// Dispatches ordered float comparison using `total_cmp`.
+macro_rules! float_ord {
+    ($left:expr, $right:expr, $ord:pat) => {
+        match ($left, $right) {
+            (Object::F32(l), Object::F32(r)) => Some(matches!(l.total_cmp(r), $ord)),
+            (Object::F64(l), Object::F64(r)) => Some(matches!(l.total_cmp(r), $ord)),
             _ => None,
         }
     };
@@ -698,15 +727,21 @@ impl VM {
         }
     }
 
-    /// Attempts same-type numeric comparison across all 14 numeric variants.
+    /// Attempts same-type numeric comparison across all numeric variants.
+    ///
+    /// Integer comparisons use standard operators. Float comparisons use
+    /// `total_cmp` for deterministic ordering of NaN, negative zero, and
+    /// infinity values.
     ///
     /// Returns `None` if the operands are not the same numeric type.
     fn compare_numeric(&self, op: Opcode, left: &Object, right: &Object) -> Option<bool> {
         match op {
-            Opcode::Equal => numeric_cmp!(left, right, ==),
-            Opcode::NotEqual => numeric_cmp!(left, right, !=),
-            Opcode::GreaterThan => numeric_cmp!(left, right, >),
-            Opcode::LessThan => numeric_cmp!(left, right, <),
+            Opcode::Equal => int_cmp!(left, right, ==).or_else(|| float_cmp!(left, right, ==)),
+            Opcode::NotEqual => int_cmp!(left, right, !=).or_else(|| float_cmp!(left, right, !=)),
+            Opcode::GreaterThan => int_cmp!(left, right, >)
+                .or_else(|| float_ord!(left, right, std::cmp::Ordering::Greater)),
+            Opcode::LessThan => int_cmp!(left, right, <)
+                .or_else(|| float_ord!(left, right, std::cmp::Ordering::Less)),
             _ => None,
         }
     }
@@ -895,7 +930,7 @@ impl VM {
             )));
         }
         let start = self.sp - num_elements;
-        let mut pairs = HashMap::with_capacity(num_elements / 2);
+        let mut pairs = IndexMap::with_capacity(num_elements / 2);
 
         for i in (start..self.sp).step_by(2) {
             let key = self.stack[i].clone();

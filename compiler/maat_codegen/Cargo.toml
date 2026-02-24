@@ -6,6 +6,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+indexmap.workspace = true
 maat_ast = { path = "../maat_ast" }
 maat_bytecode = { path = "../maat_bytecode" }
 maat_errors = { path = "../maat_errors" }

@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-
+use indexmap::IndexMap;
 use maat_bytecode::{MAX_GLOBALS, MAX_LOCALS};
 use maat_errors::{CompileError, CompileErrorKind, Result};
 
@@ -17,7 +16,7 @@ use maat_errors::{CompileError, CompileErrorKind, Result};
 /// the appropriate load instructions at closure-creation time.
 #[derive(Debug, Clone, Default)]
 pub struct SymbolsTable {
-    store: HashMap<String, Symbol>,
+    store: IndexMap<String, Symbol>,
     num_definitions: usize,
     outer: Option<Box<SymbolsTable>>,
     free_vars: Vec<Symbol>,
@@ -64,7 +63,7 @@ impl SymbolsTable {
     /// while resolution walks up to the outer table for undefined names.
     pub fn new_enclosed(outer: SymbolsTable) -> Self {
         Self {
-            store: HashMap::new(),
+            store: IndexMap::new(),
             num_definitions: 0,
             outer: Some(Box::new(outer)),
             free_vars: Vec::new(),

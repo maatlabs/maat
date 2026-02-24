@@ -2,8 +2,7 @@
 //! into runtime objects. It supports integers, booleans, functions, conditionals,
 //! and lexically-scoped environments.
 
-use std::collections::HashMap;
-
+use indexmap::IndexMap;
 use maat_ast::*;
 use maat_errors::{EvalError, Result};
 use maat_runtime::{
@@ -182,7 +181,7 @@ fn eval_index_expression(idx_expr: IndexExpr, env: &Env) -> Result<Object> {
 }
 
 fn eval_hash_literal(expr: HashLiteral, env: &Env) -> Result<Object> {
-    let mut pairs = HashMap::new();
+    let mut pairs = IndexMap::new();
 
     for (key_expr, val_expr) in &expr.pairs {
         let key = eval(Node::Expression(key_expr.clone()), env)?;

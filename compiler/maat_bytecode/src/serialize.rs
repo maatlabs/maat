@@ -169,7 +169,7 @@ mod tests {
 
     #[test]
     fn hash_constant() {
-        let mut pairs = std::collections::HashMap::new();
+        let mut pairs = indexmap::IndexMap::new();
         pairs.insert(Hashable::I64(1), Object::String("one".to_owned()));
         pairs.insert(Hashable::String("key".to_owned()), Object::Boolean(true));
 

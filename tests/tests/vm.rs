@@ -745,3 +745,19 @@ fn cross_type_integer_comparison() {
         run_vm_test(input, expected);
     }
 }
+
+#[test]
+fn float_comparison_total_ordering() {
+    let cases = vec![
+        ("1.0f64 < 2.0f64", TestValue::Bool(true)),
+        ("2.0f64 > 1.0f64", TestValue::Bool(true)),
+        ("1.0f64 == 1.0f64", TestValue::Bool(true)),
+        ("1.0f64 != 2.0f64", TestValue::Bool(true)),
+        ("1.5f64 < 1.5f64", TestValue::Bool(false)),
+        ("1.5f64 > 1.5f64", TestValue::Bool(false)),
+    ];
+
+    for (input, expected) in cases {
+        run_vm_test(input, expected);
+    }
+}
