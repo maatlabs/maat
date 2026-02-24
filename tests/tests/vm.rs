@@ -485,7 +485,7 @@ fn builtin_functions() {
         (r#"len("four")"#, TestValue::Usize(4)),
         ("len([1, 2, 3])", TestValue::Usize(3)),
         ("len([])", TestValue::Usize(0)),
-        (r#"puts("hello", "world!")"#, TestValue::Null),
+        (r#"print("hello", "world!")"#, TestValue::Null),
         ("first([1, 2, 3])", TestValue::I64(1)),
         ("first([])", TestValue::Null),
         ("last([1, 2, 3])", TestValue::I64(3)),

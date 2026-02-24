@@ -722,7 +722,7 @@ fn compile_builtins() {
                 encode(Opcode::Array, &[0]),
                 encode(Opcode::Call, &[1]),
                 encode(Opcode::Pop, &[]),
-                encode(Opcode::GetBuiltin, &[6]),
+                encode(Opcode::GetBuiltin, &[5]),
                 encode(Opcode::Array, &[0]),
                 encode(Opcode::Constant, &[0]),
                 encode(Opcode::Call, &[2]),
