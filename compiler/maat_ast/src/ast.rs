@@ -46,10 +46,11 @@ impl Statement {
     }
 }
 
-/// A `let` binding: `let <ident> = <value>;`.
+/// A `let` binding: `let <ident> = <value>;` or `let <ident>: <type> = <value>;`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LetStatement {
     pub ident: String,
+    pub type_annotation: Option<TypeExpr>,
     pub value: Expression,
     pub span: Span,
 }
@@ -333,12 +334,28 @@ pub struct ConditionalExpr {
 /// `let` binding (e.g., `let foo = fn(x) { ... }`). The name enables
 /// recursive closures to reference themselves without capturing an
 /// outer binding.
+///
+/// Supports optional type annotations on parameters, an optional return
+/// type, and generic type parameters:
+///
+/// ```text
+/// fn<T>(x: T, y: i64) -> T { x }
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Function {
     pub name: Option<String>,
-    pub params: Vec<String>,
+    pub params: Vec<TypedParam>,
+    pub generic_params: Vec<GenericParam>,
+    pub return_type: Option<TypeExpr>,
     pub body: BlockStatement,
     pub span: Span,
+}
+
+impl Function {
+    /// Returns an iterator over the parameter names.
+    pub fn param_names(&self) -> impl Iterator<Item = &str> {
+        self.params.iter().map(|p| p.name.as_str())
+    }
 }
 
 /// Macro literal
@@ -409,6 +426,84 @@ pub struct BreakExpr {
 /// (for `loop` and `for`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ContinueExpr {
+    pub span: Span,
+}
+
+/// A parsed type expression used in type annotations.
+///
+/// Appears in `let` bindings (`let x: TypeExpr = ...`), function
+/// parameters (`fn(x: TypeExpr)`), and return types (`-> TypeExpr`).
+///
+/// # Variants
+///
+/// - `Named` — a simple named type like `i64`, `bool`, or a user-defined
+///   type like `Point`.
+/// - `Array` — `[T]`, an array of element type `T`.
+/// - `Hash` — `{K: V}`, a hash map from key type `K` to value type `V`.
+/// - `Fn` — `fn(A, B) -> R`, a function type.
+/// - `Generic` — a parameterized type like `Option<T>` or `Result<T, E>`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum TypeExpr {
+    Named(NamedType),
+    Array(Box<TypeExpr>, Span),
+    Hash(Box<TypeExpr>, Box<TypeExpr>, Span),
+    Fn(Vec<TypeExpr>, Box<TypeExpr>, Span),
+    Generic(String, Vec<TypeExpr>, Span),
+}
+
+impl TypeExpr {
+    /// Returns the source span covering this type expression.
+    pub fn span(&self) -> Span {
+        match self {
+            Self::Named(n) => n.span,
+            Self::Array(_, s)
+            | Self::Hash(_, _, s)
+            | Self::Fn(_, _, s)
+            | Self::Generic(_, _, s) => *s,
+        }
+    }
+}
+
+/// A simple named type reference (e.g., `i64`, `bool`, `String`, `Point`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct NamedType {
+    pub name: String,
+    pub span: Span,
+}
+
+/// A function parameter with an optional type annotation.
+///
+/// ```text
+/// fn(x: i64, y)  // x has type annotation, y does not
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TypedParam {
+    pub name: String,
+    pub type_expr: Option<TypeExpr>,
+    pub span: Span,
+}
+
+/// A generic type parameter with optional trait bounds.
+///
+/// ```text
+/// fn<T, U: Display + Clone>(...)
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct GenericParam {
+    pub name: String,
+    pub bounds: Vec<TraitBound>,
+    pub span: Span,
+}
+
+/// A trait bound on a generic type parameter.
+///
+/// ```text
+/// T: Display + Clone
+///    ^^^^^^^   ^^^^^
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TraitBound {
+    pub name: String,
     pub span: Span,
 }
 
@@ -526,7 +621,10 @@ impl fmt::Display for Statement {
 
 impl fmt::Display for LetStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "let {} = {};", self.ident, self.value)
+        match &self.type_annotation {
+            Some(ty) => write!(f, "let {}: {} = {};", self.ident, ty, self.value),
+            None => write!(f, "let {} = {};", self.ident, self.value),
+        }
     }
 }
 
@@ -538,7 +636,7 @@ impl fmt::Display for ReturnStatement {
 
 impl fmt::Display for ExpressionStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.value)
+        write!(f, "{};", self.value)
     }
 }
 
@@ -669,14 +767,34 @@ impl fmt::Display for ConditionalExpr {
 
 impl fmt::Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let params = self
+            .params
+            .iter()
+            .map(|p| p.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        let generics = if self.generic_params.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "<{}>",
+                self.generic_params
+                    .iter()
+                    .map(|g| g.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
+
+        let ret = self
+            .return_type
+            .as_ref()
+            .map_or(String::new(), |t| format!(" -> {t}"));
+
         match &self.name {
-            Some(name) => write!(
-                f,
-                "fn<{name}>({}) {{\n{}\n}}",
-                self.params.join(", "),
-                self.body
-            ),
-            None => write!(f, "fn({}) {{\n{}\n}}", self.params.join(", "), self.body),
+            Some(name) => write!(f, "fn{name}{generics}({params}){ret} {{\n{}\n}}", self.body),
+            None => write!(f, "fn{generics}({params}){ret} {{\n{}\n}}", self.body),
         }
     }
 }
@@ -742,6 +860,63 @@ impl fmt::Display for BreakExpr {
 impl fmt::Display for ContinueExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "continue")
+    }
+}
+
+impl fmt::Display for TypeExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Named(n) => f.write_str(&n.name),
+            Self::Array(elem, _) => write!(f, "[{elem}]"),
+            Self::Hash(k, v, _) => write!(f, "{{{k}: {v}}}"),
+            Self::Fn(params, ret, _) => {
+                let params = params
+                    .iter()
+                    .map(|p| p.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "fn({params}) -> {ret}")
+            }
+            Self::Generic(name, args, _) => {
+                let args = args
+                    .iter()
+                    .map(|a| a.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "{name}<{args}>")
+            }
+        }
+    }
+}
+
+impl fmt::Display for TypedParam {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.type_expr {
+            Some(ty) => write!(f, "{}: {ty}", self.name),
+            None => f.write_str(&self.name),
+        }
+    }
+}
+
+impl fmt::Display for GenericParam {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.bounds.is_empty() {
+            f.write_str(&self.name)
+        } else {
+            let bounds = self
+                .bounds
+                .iter()
+                .map(|b| b.name.as_str())
+                .collect::<Vec<_>>()
+                .join(" + ");
+            write!(f, "{}: {bounds}", self.name)
+        }
+    }
+}
+
+impl fmt::Display for TraitBound {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.name)
     }
 }
 
