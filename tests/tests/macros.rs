@@ -53,7 +53,7 @@ fn test_define_macros() {
         assert_eq!(macro_obj.params.len(), 2);
         assert_eq!(macro_obj.params[0], "x");
         assert_eq!(macro_obj.params[1], "y");
-        assert_eq!(format!("{}", macro_obj.body), "(x + y)");
+        assert_eq!(format!("{}", macro_obj.body), "{\n(x + y)\n}");
     } else {
         panic!("Expected macro object");
     }

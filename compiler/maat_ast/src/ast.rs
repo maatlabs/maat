@@ -636,16 +636,22 @@ impl fmt::Display for ReturnStatement {
 
 impl fmt::Display for ExpressionStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{};", self.value)
+        write!(f, "{}", self.value)
     }
 }
 
 impl fmt::Display for BlockStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for stmt in &self.statements {
-            stmt.fmt(f)?;
+        if self.statements.is_empty() {
+            write!(f, "{{}}")
+        } else {
+            writeln!(f, "{{")?;
+            for stmt in &self.statements {
+                stmt.fmt(f)?;
+                writeln!(f)?;
+            }
+            write!(f, "}}")
         }
-        Ok(())
     }
 }
 
@@ -755,12 +761,10 @@ impl fmt::Display for InfixExpr {
 
 impl fmt::Display for ConditionalExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "if {} {{ {} }}", self.condition, self.consequence)?;
-
+        write!(f, "if {} {}", self.condition, self.consequence)?;
         if let Some(alternative) = &self.alternative {
-            write!(f, " else {{ {alternative} }}")?;
+            write!(f, " else {}", alternative)?;
         }
-
         Ok(())
     }
 }
@@ -793,15 +797,15 @@ impl fmt::Display for Function {
             .map_or(String::new(), |t| format!(" -> {t}"));
 
         match &self.name {
-            Some(name) => write!(f, "fn{name}{generics}({params}){ret} {{\n{}\n}}", self.body),
-            None => write!(f, "fn{generics}({params}){ret} {{\n{}\n}}", self.body),
+            Some(name) => write!(f, "fn {name}{generics}({params}){ret} {}", self.body),
+            None => write!(f, "fn{generics}({params}){ret} {}", self.body),
         }
     }
 }
 
 impl fmt::Display for MacroLiteral {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "macro({}) {{\n{}\n}}", self.params.join(", "), self.body)
+        write!(f, "macro({}) {}", self.params.join(", "), self.body)
     }
 }
 
@@ -828,23 +832,19 @@ impl fmt::Display for CastExpr {
 
 impl fmt::Display for LoopStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "loop {{ {} }}", self.body)
+        write!(f, "loop {}", self.body)
     }
 }
 
 impl fmt::Display for WhileStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "while {} {{ {} }}", self.condition, self.body)
+        write!(f, "while {} {}", self.condition, self.body)
     }
 }
 
 impl fmt::Display for ForStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "for {} in {} {{ {} }}",
-            self.ident, self.iterable, self.body
-        )
+        write!(f, "for {} in {} {}", self.ident, self.iterable, self.body)
     }
 }
 
