@@ -52,6 +52,8 @@ pub enum TokenKind {
     Break,
     /// The `continue` keyword for loop continuation.
     Continue,
+    /// The `where` keyword for trait bound clauses.
+    Where,
 
     /// A user-defined identifier (variable, function name, etc.).
     Ident,
@@ -134,6 +136,8 @@ pub enum TokenKind {
     LBracket,
     /// The right bracket `]`.
     RBracket,
+    /// The return type arrow `->`.
+    Arrow,
 
     /// An invalid or unrecognized token.
     Invalid,
@@ -183,6 +187,7 @@ impl TokenKind {
             "in" => Self::In,
             "break" => Self::Break,
             "continue" => Self::Continue,
+            "where" => Self::Where,
             _ => Self::Ident,
         }
     }

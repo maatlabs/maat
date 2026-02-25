@@ -110,7 +110,19 @@ impl<'a> Lexer<'a> {
             }
 
             b'+' => self.yield_token(start, TokenKind::Plus),
-            b'-' => self.yield_token(start, TokenKind::Minus),
+            b'-' => {
+                self.advance_pos();
+                if self.peek_pos() == Some(b'>') {
+                    self.yield_token(start, TokenKind::Arrow)
+                } else {
+                    let end = self.pos;
+                    Token::new(
+                        TokenKind::Minus,
+                        &self.source[start..end],
+                        Span::new(start, end),
+                    )
+                }
+            }
             b'*' => self.yield_token(start, TokenKind::Asterisk),
             b'/' => self.yield_token(start, TokenKind::Slash),
 
