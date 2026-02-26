@@ -13,6 +13,7 @@ use maat_eval::{define_macros, expand_macros};
 use maat_lexer::Lexer;
 use maat_parser::Parser;
 use maat_runtime::{Env, Object};
+use maat_types::{TypeChecker, fold_constants};
 use maat_vm::VM;
 
 use crate::diagnostic;
@@ -63,10 +64,28 @@ pub fn start<R: BufRead, W: Write>(mut reader: R, writer: &mut W) -> io::Result<
 
         let program = define_macros(program, &macro_env);
         let expanded = expand_macros(Node::Program(program), &macro_env);
-        let program = match expanded {
+        let mut program = match expanded {
             Node::Program(p) => p,
             _ => unreachable!("expand_macros preserves Program variant"),
         };
+
+        let type_errors = TypeChecker::new().check_program(&mut program);
+        if !type_errors.is_empty() {
+            for err in &type_errors {
+                diagnostic::report_type_error(REPL_SOURCE, line, err);
+            }
+            writeln!(writer)?;
+            continue;
+        }
+
+        let fold_errors = fold_constants(&mut program);
+        if !fold_errors.is_empty() {
+            for err in &fold_errors {
+                diagnostic::report_type_error(REPL_SOURCE, line, err);
+            }
+            writeln!(writer)?;
+            continue;
+        }
 
         let only_let_stmts = !program.statements.is_empty()
             && program
@@ -125,6 +144,7 @@ fn report_error(source: &str, error: &Error) {
     match error {
         Error::Parse(e) => diagnostic::report_parse_error(REPL_SOURCE, source, e),
         Error::Compile(e) => diagnostic::report_compile_error(REPL_SOURCE, source, e),
+        Error::Type(e) => diagnostic::report_type_error(REPL_SOURCE, source, e),
         Error::Vm(e) => diagnostic::report_vm_error(REPL_SOURCE, source, e),
         _ => eprintln!("{REPL_SOURCE}: {error}"),
     }

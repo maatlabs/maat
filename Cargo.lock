@@ -438,6 +438,7 @@ dependencies = [
  "maat_parser",
  "maat_runtime",
  "maat_span",
+ "maat_types",
  "maat_vm",
 ]
 
@@ -542,7 +543,18 @@ dependencies = [
  "maat_parser",
  "maat_runtime",
  "maat_span",
+ "maat_types",
  "maat_vm",
+]
+
+[[package]]
+name = "maat_types"
+version = "0.5.0"
+dependencies = [
+ "indexmap",
+ "maat_ast",
+ "maat_errors",
+ "maat_span",
 ]
 
 [[package]]

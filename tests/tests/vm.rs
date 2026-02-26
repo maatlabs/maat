@@ -130,7 +130,7 @@ fn run_vm_test(input: &str, expected: TestValue) {
 }
 
 fn run_vm_error_test(input: &str, expected_error: &str) {
-    let bytecode = maat_tests::compile(input);
+    let bytecode = maat_tests::compile_raw(input);
     let mut vm = VM::new(bytecode);
     let result = vm.run();
 

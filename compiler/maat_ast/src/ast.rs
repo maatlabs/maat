@@ -31,21 +31,6 @@ pub enum Statement {
     For(ForStatement),
 }
 
-impl Statement {
-    /// Returns the source span covering this statement.
-    pub fn span(&self) -> Span {
-        match self {
-            Self::Let(s) => s.span,
-            Self::Return(s) => s.span,
-            Self::Expression(s) => s.span,
-            Self::Block(s) => s.span,
-            Self::Loop(s) => s.span,
-            Self::While(s) => s.span,
-            Self::For(s) => s.span,
-        }
-    }
-}
-
 /// A `let` binding: `let <ident> = <value>;` or `let <ident>: <type> = <value>;`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LetStatement {
@@ -153,40 +138,52 @@ impl Expression {
         }
     }
 
-    /// Returns a human-readable name for this expression type.
+    /// Returns `true` if the expression is an integer literal (any width, signed or unsigned),
+    /// including negated integer literals (e.g., `-100`).
     ///
-    /// Used primarily for error reporting.
-    pub fn type_name(&self) -> &'static str {
+    /// Used to determine whether a literal can coerce to a declared numeric type
+    /// without requiring explicit suffixes or casts.
+    pub fn is_integer_literal(&self) -> bool {
         match self {
-            Self::Identifier(_) => "identifier",
-            Self::I8(_) => "i8 literal",
-            Self::I16(_) => "i16 literal",
-            Self::I32(_) => "i32 literal",
-            Self::I64(_) => "i64 literal",
-            Self::I128(_) => "i128 literal",
-            Self::Isize(_) => "isize literal",
-            Self::U8(_) => "u8 literal",
-            Self::U16(_) => "u16 literal",
-            Self::U32(_) => "u32 literal",
-            Self::U64(_) => "u64 literal",
-            Self::U128(_) => "u128 literal",
-            Self::Usize(_) => "usize literal",
-            Self::F32(_) => "f32 literal",
-            Self::F64(_) => "f64 literal",
-            Self::Boolean(_) => "boolean literal",
-            Self::String(_) => "string literal",
-            Self::Array(_) => "array literal",
-            Self::Index(_) => "index expression",
-            Self::Hash(_) => "hash literal",
-            Self::Prefix(_) => "prefix expression",
-            Self::Infix(_) => "infix expression",
-            Self::Conditional(_) => "conditional expression",
-            Self::Function(_) => "function literal",
-            Self::Macro(_) => "macro literal",
-            Self::Call(_) => "function call",
-            Self::Cast(_) => "cast expression",
-            Self::Break(_) => "break expression",
-            Self::Continue(_) => "continue expression",
+            Self::I8(_)
+            | Self::I16(_)
+            | Self::I32(_)
+            | Self::I64(_)
+            | Self::I128(_)
+            | Self::Isize(_)
+            | Self::U8(_)
+            | Self::U16(_)
+            | Self::U32(_)
+            | Self::U64(_)
+            | Self::U128(_)
+            | Self::Usize(_) => true,
+            // Negated literals: `-100` is `Prefix("-", I64(100))`
+            Self::Prefix(prefix) if prefix.operator == "-" => prefix.operand.is_integer_literal(),
+            _ => false,
+        }
+    }
+
+    /// Extracts the compile-time integer value from a literal expression (including negated literals).
+    ///
+    /// Returns the value as `i128` (wide enough for all integer types).
+    pub fn extract_integer_value(&self) -> Option<i128> {
+        match self {
+            Self::I8(lit) => Some(lit.value as i128),
+            Self::I16(lit) => Some(lit.value as i128),
+            Self::I32(lit) => Some(lit.value as i128),
+            Self::I64(lit) => Some(lit.value as i128),
+            Self::I128(lit) => Some(lit.value),
+            Self::Isize(lit) => Some(lit.value as i128),
+            Self::U8(lit) => Some(lit.value as i128),
+            Self::U16(lit) => Some(lit.value as i128),
+            Self::U32(lit) => Some(lit.value as i128),
+            Self::U64(lit) => Some(lit.value as i128),
+            Self::U128(lit) => Some(lit.value as i128),
+            Self::Usize(lit) => Some(lit.value as i128),
+            Self::Prefix(prefix) if prefix.operator == "-" => {
+                prefix.operand.extract_integer_value().map(|v| -v)
+            }
+            _ => None,
         }
     }
 }

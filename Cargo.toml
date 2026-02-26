@@ -9,6 +9,7 @@ members = [
     "compiler/maat_eval",
     "compiler/maat_runtime",
     "compiler/maat_bytecode",
+    "compiler/maat_types",
     "compiler/maat_codegen",
     "compiler/maat_vm",
     "compiler/maat",

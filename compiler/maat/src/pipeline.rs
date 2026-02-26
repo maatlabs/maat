@@ -15,6 +15,7 @@ use maat_eval::{define_macros, expand_macros};
 use maat_lexer::Lexer;
 use maat_parser::Parser;
 use maat_runtime::Env;
+use maat_types::{TypeChecker, fold_constants};
 
 use crate::diagnostic;
 
@@ -39,10 +40,26 @@ pub fn compile_source(path: &Path) -> Bytecode {
     let macro_env = Env::default();
     let program = define_macros(program, &macro_env);
     let expanded = expand_macros(Node::Program(program), &macro_env);
-    let program = match expanded {
+    let mut program = match expanded {
         Node::Program(p) => p,
         _ => unreachable!("expand_macros preserves Program variant"),
     };
+
+    let type_errors = TypeChecker::new().check_program(&mut program);
+    if !type_errors.is_empty() {
+        for err in &type_errors {
+            diagnostic::report_type_error(&filename, &source, err);
+        }
+        process::exit(1);
+    }
+
+    let fold_errors = fold_constants(&mut program);
+    if !fold_errors.is_empty() {
+        for err in &fold_errors {
+            diagnostic::report_type_error(&filename, &source, err);
+        }
+        process::exit(1);
+    }
 
     let mut compiler = Compiler::new();
     if let Err(e) = compiler.compile(&Node::Program(program)) {
@@ -64,6 +81,7 @@ fn report_error(path: &str, source: &str, error: &Error) {
     match error {
         Error::Parse(e) => diagnostic::report_parse_error(path, source, e),
         Error::Compile(e) => diagnostic::report_compile_error(path, source, e),
+        Error::Type(e) => diagnostic::report_type_error(path, source, e),
         Error::Vm(e) => diagnostic::report_vm_error(path, source, e),
         _ => eprintln!("{path}: {error}"),
     }
