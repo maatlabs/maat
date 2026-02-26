@@ -130,7 +130,7 @@ fn run_vm_test(input: &str, expected: TestValue) {
 }
 
 fn run_vm_error_test(input: &str, expected_error: &str) {
-    let bytecode = maat_tests::compile(input);
+    let bytecode = maat_tests::compile_raw(input);
     let mut vm = VM::new(bytecode);
     let result = vm.run();
 
@@ -485,7 +485,7 @@ fn builtin_functions() {
         (r#"len("four")"#, TestValue::Usize(4)),
         ("len([1, 2, 3])", TestValue::Usize(3)),
         ("len([])", TestValue::Usize(0)),
-        (r#"puts("hello", "world!")"#, TestValue::Null),
+        (r#"print("hello", "world!")"#, TestValue::Null),
         ("first([1, 2, 3])", TestValue::I64(1)),
         ("first([])", TestValue::Null),
         ("last([1, 2, 3])", TestValue::I64(3)),
@@ -744,4 +744,221 @@ fn cross_type_integer_comparison() {
     for (input, expected) in cases {
         run_vm_test(input, expected);
     }
+}
+
+#[test]
+fn float_comparison_total_ordering() {
+    let cases = vec![
+        ("1.0f64 < 2.0f64", TestValue::Bool(true)),
+        ("2.0f64 > 1.0f64", TestValue::Bool(true)),
+        ("1.0f64 == 1.0f64", TestValue::Bool(true)),
+        ("1.0f64 != 2.0f64", TestValue::Bool(true)),
+        ("1.5f64 < 1.5f64", TestValue::Bool(false)),
+        ("1.5f64 > 1.5f64", TestValue::Bool(false)),
+    ];
+
+    for (input, expected) in cases {
+        run_vm_test(input, expected);
+    }
+}
+
+#[test]
+fn loop_with_break() {
+    run_vm_test(
+        r#"
+        let x = 0;
+        loop {
+            let x = x + 1;
+            if (x == 5) {
+                break;
+            }
+        }
+        x;
+        "#,
+        TestValue::I64(5),
+    );
+}
+
+#[test]
+fn loop_with_return_from_function() {
+    run_vm_test(
+        r#"
+        let find_first = fn(arr, target) {
+            let i = 0;
+            loop {
+                if (i == len(arr) as i64) {
+                    return -1;
+                }
+                if (arr[i] == target) {
+                    return i;
+                }
+                let i = i + 1;
+            }
+        };
+        find_first([10, 20, 30, 40], 30);
+        "#,
+        TestValue::I64(2),
+    );
+}
+
+#[test]
+fn while_loop() {
+    run_vm_test(
+        r#"
+        let x = 0;
+        let sum = 0;
+        while (x < 5) {
+            let x = x + 1;
+            let sum = sum + x;
+        }
+        sum;
+        "#,
+        TestValue::I64(15),
+    );
+}
+
+#[test]
+fn while_loop_false_condition() {
+    run_vm_test(
+        r#"
+        let x = 10;
+        while (x < 5) {
+            let x = x + 1;
+        }
+        x;
+        "#,
+        TestValue::I64(10),
+    );
+}
+
+#[test]
+fn for_loop_over_array() {
+    run_vm_test(
+        r#"
+        let sum = 0;
+        for x in [1, 2, 3, 4, 5] {
+            let sum = sum + x;
+        }
+        sum;
+        "#,
+        TestValue::I64(15),
+    );
+}
+
+#[test]
+fn for_loop_empty_array() {
+    run_vm_test(
+        r#"
+        let sum = 0;
+        for x in [] {
+            let sum = sum + 1;
+        }
+        sum;
+        "#,
+        TestValue::I64(0),
+    );
+}
+
+#[test]
+fn nested_loops() {
+    run_vm_test(
+        r#"
+        let total = 0;
+        let i = 0;
+        while (i < 3) {
+            let j = 0;
+            while (j < 3) {
+                let total = total + 1;
+                let j = j + 1;
+            }
+            let i = i + 1;
+        }
+        total;
+        "#,
+        TestValue::I64(9),
+    );
+}
+
+#[test]
+fn while_with_break() {
+    run_vm_test(
+        r#"
+        let x = 0;
+        while (x < 100) {
+            let x = x + 1;
+            if (x == 7) {
+                break;
+            }
+        }
+        x;
+        "#,
+        TestValue::I64(7),
+    );
+}
+
+#[test]
+fn for_with_break() {
+    run_vm_test(
+        r#"
+        let result = 0;
+        for x in [10, 20, 30, 40, 50] {
+            if (x == 30) {
+                break;
+            }
+            let result = result + x;
+        }
+        result;
+        "#,
+        TestValue::I64(30),
+    );
+}
+
+#[test]
+fn loop_in_function() {
+    run_vm_test(
+        r#"
+        let countdown = fn(n) {
+            let result = 0;
+            let i = n;
+            while (i > 0) {
+                let result = result + i;
+                let i = i - 1;
+            }
+            result;
+        };
+        countdown(10);
+        "#,
+        TestValue::I64(55),
+    );
+}
+
+#[test]
+fn nested_for_loops() {
+    run_vm_test(
+        r#"
+        let sum = 0;
+        for x in [1, 2, 3] {
+            for y in [10, 20] {
+                let sum = sum + x + y;
+            }
+        }
+        sum;
+        "#,
+        TestValue::I64(102),
+    );
+}
+
+#[test]
+fn for_loop_with_function_calls() {
+    run_vm_test(
+        r#"
+        let double = fn(x) { x * 2; };
+        let sum = 0;
+        for x in [1, 2, 3] {
+            let sum = sum + double(x);
+        }
+        sum;
+        "#,
+        TestValue::I64(12),
+    );
 }

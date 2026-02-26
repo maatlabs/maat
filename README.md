@@ -150,9 +150,11 @@ cargo doc --all-features --no-deps --open
 
 ## Architecture
 
-Maat uses a single compilation pipeline: source code is parsed into an AST, macro-expanded via `maat_eval`, compiled to bytecode by `maat_codegen`, and executed on the stack-based `maat_vm`. The `maat_eval` crate (the tree-walking evaluator) is reduced to a macro-expansion-only engine (`define_macros`/`expand_macros`).
+Maat uses a single compilation pipeline: source code is parsed into an AST, macro-expanded via `maat_eval`, type-checked by `maat_types` using Hindley-Milner inference (Algorithm W), compiled to bytecode by `maat_codegen`, and executed on the stack-based `maat_vm`. The `maat_eval` crate (the tree-walking evaluator) is reduced to a macro-expansion-only engine (`define_macros`/`expand_macros`).
 
-Errors are reported with precise file:line:col locations using source maps and [`ariadne`](https://docs.rs/ariadne) diagnostics. Compiled bytecode can be serialized to `.mtc` files and deserialized for later execution, enabling the `build`/`exec` workflow.
+The type checker infers types for the entire program, catching mismatches at compile time. Type annotations are optional--the inference engine deduces types from usage-— but can be provided on `let` bindings, function parameters, and return types for documentation or to constrain polymorphism. Generic functions with parametric polymorphism are supported (`fn identity<T>(x: T) -> T { x }`).
+
+Errors are reported with precise `file:line:col` locations using source maps and [`ariadne`](https://docs.rs/ariadne) diagnostics. Compiled bytecode can be serialized to `.mtc` files and deserialized for later execution, enabling the `build`/`exec` workflow.
 
 ### Crate Organization
 
@@ -165,6 +167,7 @@ Errors are reported with precise file:line:col locations using source maps and [
 | `maat_parser`   | Pratt parser with operator precedence                            |
 | `maat_eval`     | Macro expansion engine (`quote`/`unquote`)                       |
 | `maat_runtime`  | Object system, built-in functions, and compiled types            |
+| `maat_types`    | Hindley-Milner type inference (Algorithm W)                      |
 | `maat_bytecode` | Instruction set encoding/decoding and serialization (32 opcodes) |
 | `maat_codegen`  | AST-to-bytecode compiler with scope analysis                     |
 | `maat_vm`       | Stack-based virtual machine                                      |
@@ -181,18 +184,31 @@ Unless you explicitly state otherwise, any contribution intentionally submitted 
 
 ## Status
 
-Maat is currently at version 0.5 and is still going through several improvements in order to deliver the best-in-class experience as a fully-fledged Turing-complete PDD programming language.
+Maat is currently at version 0.6 and is still going through several improvements in order to deliver the best-in-class experience as a fully-fledged Turing-complete ZK programming language.
 
 ## Disclaimer
 
-Early adopters should be aware that Maat 0.5 is a transient accomplishment towards Maat 1.0, for which a formal audit process is expected. In the meantime, we invite you to know and experiment with Maat, but we don't recommend using it to build mission-critical systems.
+Early adopters should be aware that Maat 0.6 is a transient accomplishment towards Maat 1.0, for which a formal audit process is expected. In the meantime, we invite you to know and experiment with Maat, but we don't recommend using it to build mission-critical systems.
 
 ## Acknowledgments
 
-Maat v0.5.0 is based on the following excellent sources:
+Maat v0.6.0 is based on the following excellent sources:
 
 1. [Writing An Interpreter In Go (WAIIG)](https://interpreterbook.com), which implements the `Monkey` programming language.
 2. [The Lost Chapter: A Macro System for Monkey](https://interpreterbook.com/lost/), a follow-up to `WAIIG`.
 3. [Writing A Compiler In Go (WACIG)](https://compilerbook.com), the compiler and virtual machine sequel to `WAIIG`.
 
-The Maat implementation translates `Monkey`'s tree-walking interpreter, macro system, bytecode compiler, and stack-based virtual machine from Go to Rust, with significant enhancements including comprehensive numeric type support, cast expressions, string escape sequences, AST transformation infrastructure, runtime metaprogramming capabilities, closure compilation with free variable tracking, shared instruction memory (`Rc<[u8]>`), source-location error reporting with `ariadne` diagnostics, bytecode serialization, a CLI toolchain with `run`/`build`/`exec`/`repl` subcommands, and a Criterion-based benchmarking suite.
+The Maat implementation translates `Monkey`'s tree-walking interpreter, macro system, bytecode compiler, and stack-based virtual machine from Go to Rust, with significant enhancements including:
+
+- comprehensive numeric type support
+- cast expressions
+- string escape sequences
+- AST transformation infrastructure
+- Hindley-Milner type inference with parametric polymorphism, and loop constructs (`for`, `while`, `loop`)
+- runtime metaprogramming capabilities
+- closure compilation with free variable tracking
+- shared instruction memory (`Rc<[u8]>`)
+- source-location error reporting with `ariadne` diagnostics
+- bytecode serialization
+- a CLI toolchain with `run`/`build`/`exec`/`repl` subcommands, and
+- a Criterion-based benchmarking suite.

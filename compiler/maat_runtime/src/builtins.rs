@@ -14,35 +14,50 @@ pub const QUOTE: &str = "quote";
 /// This is a special form handled during quote evaluation, not a regular builtin.
 pub const UNQUOTE: &str = "unquote";
 
-/// Ordered registry of built-in functions for the compiler/VM pipeline.
+/// Declares the builtin function registry.
 ///
-/// Each entry maps a fixed index to a `(name, function)` pair. The compiler
-/// resolves builtin identifiers by name and emits `OpGetBuiltin` with the
-/// corresponding index. The VM retrieves the function by index at runtime.
+/// Generates three items:
+/// - `BUILTINS`: ordered `&[(&str, BuiltinFn)]` array (one entry per name, preserving
+///   index order for the compiler/VM pipeline)
+/// - `BUILTIN_COUNT`: `usize` constant equal to `BUILTINS.len()`
+/// - `get_builtin()`: name-to-function lookup
 ///
-/// The ordering must remain stable across compiler and VM sessions.
-pub const BUILTINS: &[(&str, BuiltinFn)] = &[
-    ("len", len),
-    ("puts", print),
-    ("print", print),
-    ("first", first),
-    ("last", last),
-    ("rest", rest),
-    ("push", push),
-];
+/// Each aliased name occupies its own index in `BUILTINS`, preserving the stable
+/// index-based semantics that the compiler and VM depend on.
+macro_rules! define_builtins {
+    ( $( $( $name:literal )|+ => $func:ident ),* $(,)? ) => {
+        /// Ordered registry of built-in functions for the compiler/VM pipeline.
+        ///
+        /// Each entry maps a fixed index to a `(name, function)` pair. The compiler
+        /// resolves builtin identifiers by name and emits `OpGetBuiltin` with the
+        /// corresponding index. The VM retrieves the function by index at runtime.
+        ///
+        /// The ordering must remain stable across compiler and VM sessions.
+        pub const BUILTINS: &[(&str, BuiltinFn)] = &[
+            $( $( ($name, $func), )+ )*
+        ];
 
-/// Attempts to retrieve a builtin by name. Returns `Some(fn)` or `None`.
-#[inline]
-pub fn get_builtin(name: &str) -> Option<BuiltinFn> {
-    match name {
-        "len" => Some(len),
-        "print" | "puts" => Some(print),
-        "first" => Some(first),
-        "last" => Some(last),
-        "rest" => Some(rest),
-        "push" => Some(push),
-        _ => None,
-    }
+        /// The total number of registered builtin entries.
+        pub const BUILTIN_COUNT: usize = BUILTINS.len();
+
+        /// Attempts to retrieve a builtin by name. Returns `Some(fn)` or `None`.
+        #[inline]
+        pub fn get_builtin(name: &str) -> Option<BuiltinFn> {
+            match name {
+                $( $( $name )|+ => Some($func), )*
+                _ => None,
+            }
+        }
+    };
+}
+
+define_builtins! {
+    "len" => len,
+    "print" => print,
+    "first" => first,
+    "last" => last,
+    "rest" => rest,
+    "push" => push,
 }
 
 pub fn len(args: &[Object]) -> Result<Object> {

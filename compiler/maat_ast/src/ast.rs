@@ -26,24 +26,16 @@ pub enum Statement {
     Return(ReturnStatement),
     Expression(ExpressionStatement),
     Block(BlockStatement),
+    Loop(LoopStatement),
+    While(WhileStatement),
+    For(ForStatement),
 }
 
-impl Statement {
-    /// Returns the source span covering this statement.
-    pub fn span(&self) -> Span {
-        match self {
-            Self::Let(s) => s.span,
-            Self::Return(s) => s.span,
-            Self::Expression(s) => s.span,
-            Self::Block(s) => s.span,
-        }
-    }
-}
-
-/// A `let` binding: `let <ident> = <value>;`.
+/// A `let` binding: `let <ident> = <value>;` or `let <ident>: <type> = <value>;`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LetStatement {
     pub ident: String,
+    pub type_annotation: Option<TypeExpr>,
     pub value: Expression,
     pub span: Span,
 }
@@ -106,6 +98,8 @@ pub enum Expression {
     Macro(MacroLiteral),
     Call(CallExpr),
     Cast(CastExpr),
+    Break(BreakExpr),
+    Continue(ContinueExpr),
 }
 
 impl Expression {
@@ -139,41 +133,57 @@ impl Expression {
             Self::Macro(v) => v.span,
             Self::Call(v) => v.span,
             Self::Cast(v) => v.span,
+            Self::Break(v) => v.span,
+            Self::Continue(v) => v.span,
         }
     }
 
-    /// Returns a human-readable name for this expression type.
+    /// Returns `true` if the expression is an integer literal (any width, signed or unsigned),
+    /// including negated integer literals (e.g., `-100`).
     ///
-    /// Used primarily for error reporting.
-    pub fn type_name(&self) -> &'static str {
+    /// Used to determine whether a literal can coerce to a declared numeric type
+    /// without requiring explicit suffixes or casts.
+    pub fn is_integer_literal(&self) -> bool {
         match self {
-            Self::Identifier(_) => "identifier",
-            Self::I8(_) => "i8 literal",
-            Self::I16(_) => "i16 literal",
-            Self::I32(_) => "i32 literal",
-            Self::I64(_) => "i64 literal",
-            Self::I128(_) => "i128 literal",
-            Self::Isize(_) => "isize literal",
-            Self::U8(_) => "u8 literal",
-            Self::U16(_) => "u16 literal",
-            Self::U32(_) => "u32 literal",
-            Self::U64(_) => "u64 literal",
-            Self::U128(_) => "u128 literal",
-            Self::Usize(_) => "usize literal",
-            Self::F32(_) => "f32 literal",
-            Self::F64(_) => "f64 literal",
-            Self::Boolean(_) => "boolean literal",
-            Self::String(_) => "string literal",
-            Self::Array(_) => "array literal",
-            Self::Index(_) => "index expression",
-            Self::Hash(_) => "hash literal",
-            Self::Prefix(_) => "prefix expression",
-            Self::Infix(_) => "infix expression",
-            Self::Conditional(_) => "conditional expression",
-            Self::Function(_) => "function literal",
-            Self::Macro(_) => "macro literal",
-            Self::Call(_) => "function call",
-            Self::Cast(_) => "cast expression",
+            Self::I8(_)
+            | Self::I16(_)
+            | Self::I32(_)
+            | Self::I64(_)
+            | Self::I128(_)
+            | Self::Isize(_)
+            | Self::U8(_)
+            | Self::U16(_)
+            | Self::U32(_)
+            | Self::U64(_)
+            | Self::U128(_)
+            | Self::Usize(_) => true,
+            // Negated literals: `-100` is `Prefix("-", I64(100))`
+            Self::Prefix(prefix) if prefix.operator == "-" => prefix.operand.is_integer_literal(),
+            _ => false,
+        }
+    }
+
+    /// Extracts the compile-time integer value from a literal expression (including negated literals).
+    ///
+    /// Returns the value as `i128` (wide enough for all integer types).
+    pub fn extract_integer_value(&self) -> Option<i128> {
+        match self {
+            Self::I8(lit) => Some(lit.value as i128),
+            Self::I16(lit) => Some(lit.value as i128),
+            Self::I32(lit) => Some(lit.value as i128),
+            Self::I64(lit) => Some(lit.value as i128),
+            Self::I128(lit) => Some(lit.value),
+            Self::Isize(lit) => Some(lit.value as i128),
+            Self::U8(lit) => Some(lit.value as i128),
+            Self::U16(lit) => Some(lit.value as i128),
+            Self::U32(lit) => Some(lit.value as i128),
+            Self::U64(lit) => Some(lit.value as i128),
+            Self::U128(lit) => Some(lit.value as i128),
+            Self::Usize(lit) => Some(lit.value as i128),
+            Self::Prefix(prefix) if prefix.operator == "-" => {
+                prefix.operand.extract_integer_value().map(|v| -v)
+            }
+            _ => None,
         }
     }
 }
@@ -321,12 +331,28 @@ pub struct ConditionalExpr {
 /// `let` binding (e.g., `let foo = fn(x) { ... }`). The name enables
 /// recursive closures to reference themselves without capturing an
 /// outer binding.
+///
+/// Supports optional type annotations on parameters, an optional return
+/// type, and generic type parameters:
+///
+/// ```text
+/// fn<T>(x: T, y: i64) -> T { x }
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Function {
     pub name: Option<String>,
-    pub params: Vec<String>,
+    pub params: Vec<TypedParam>,
+    pub generic_params: Vec<GenericParam>,
+    pub return_type: Option<TypeExpr>,
     pub body: BlockStatement,
     pub span: Span,
+}
+
+impl Function {
+    /// Returns an iterator over the parameter names.
+    pub fn param_names(&self) -> impl Iterator<Item = &str> {
+        self.params.iter().map(|p| p.name.as_str())
+    }
 }
 
 /// Macro literal
@@ -350,6 +376,131 @@ pub struct CallExpr {
 pub struct CastExpr {
     pub expr: Box<Expression>,
     pub target: TypeAnnotation,
+    pub span: Span,
+}
+
+/// An infinite loop: `loop { <body> }`.
+///
+/// Exits only via `break`. The optional break value becomes
+/// the loop expression's result.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct LoopStatement {
+    pub body: BlockStatement,
+    pub span: Span,
+}
+
+/// A conditional loop: `while <condition> { <body> }`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct WhileStatement {
+    pub condition: Box<Expression>,
+    pub body: BlockStatement,
+    pub span: Span,
+}
+
+/// An iterator loop: `for <ident> in <iterable> { <body> }`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ForStatement {
+    pub ident: String,
+    pub iterable: Box<Expression>,
+    pub body: BlockStatement,
+    pub span: Span,
+}
+
+/// A break expression: `break` or `break <value>`.
+///
+/// When used inside a `loop`, the optional value becomes the
+/// loop's result. In `while` and `for` loops, break takes no value.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BreakExpr {
+    pub value: Option<Box<Expression>>,
+    pub span: Span,
+}
+
+/// A continue expression: `continue`.
+///
+/// Skips the remainder of the current loop iteration and jumps
+/// to the loop's condition check (for `while`) or next iteration
+/// (for `loop` and `for`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ContinueExpr {
+    pub span: Span,
+}
+
+/// A parsed type expression used in type annotations.
+///
+/// Appears in `let` bindings (`let x: TypeExpr = ...`), function
+/// parameters (`fn(x: TypeExpr)`), and return types (`-> TypeExpr`).
+///
+/// # Variants
+///
+/// - `Named` — a simple named type like `i64`, `bool`, or a user-defined
+///   type like `Point`.
+/// - `Array` — `[T]`, an array of element type `T`.
+/// - `Hash` — `{K: V}`, a hash map from key type `K` to value type `V`.
+/// - `Fn` — `fn(A, B) -> R`, a function type.
+/// - `Generic` — a parameterized type like `Option<T>` or `Result<T, E>`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum TypeExpr {
+    Named(NamedType),
+    Array(Box<TypeExpr>, Span),
+    Hash(Box<TypeExpr>, Box<TypeExpr>, Span),
+    Fn(Vec<TypeExpr>, Box<TypeExpr>, Span),
+    Generic(String, Vec<TypeExpr>, Span),
+}
+
+impl TypeExpr {
+    /// Returns the source span covering this type expression.
+    pub fn span(&self) -> Span {
+        match self {
+            Self::Named(n) => n.span,
+            Self::Array(_, s)
+            | Self::Hash(_, _, s)
+            | Self::Fn(_, _, s)
+            | Self::Generic(_, _, s) => *s,
+        }
+    }
+}
+
+/// A simple named type reference (e.g., `i64`, `bool`, `String`, `Point`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct NamedType {
+    pub name: String,
+    pub span: Span,
+}
+
+/// A function parameter with an optional type annotation.
+///
+/// ```text
+/// fn(x: i64, y)  // x has type annotation, y does not
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TypedParam {
+    pub name: String,
+    pub type_expr: Option<TypeExpr>,
+    pub span: Span,
+}
+
+/// A generic type parameter with optional trait bounds.
+///
+/// ```text
+/// fn<T, U: Display + Clone>(...)
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct GenericParam {
+    pub name: String,
+    pub bounds: Vec<TraitBound>,
+    pub span: Span,
+}
+
+/// A trait bound on a generic type parameter.
+///
+/// ```text
+/// T: Display + Clone
+///    ^^^^^^^   ^^^^^
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TraitBound {
+    pub name: String,
     pub span: Span,
 }
 
@@ -457,6 +608,9 @@ impl fmt::Display for Statement {
             Self::Return(ret_stmt) => ret_stmt.fmt(f)?,
             Self::Expression(expr_stmt) => expr_stmt.fmt(f)?,
             Self::Block(block_stmt) => block_stmt.fmt(f)?,
+            Self::Loop(loop_stmt) => loop_stmt.fmt(f)?,
+            Self::While(while_stmt) => while_stmt.fmt(f)?,
+            Self::For(for_stmt) => for_stmt.fmt(f)?,
         }
         Ok(())
     }
@@ -464,7 +618,10 @@ impl fmt::Display for Statement {
 
 impl fmt::Display for LetStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "let {} = {};", self.ident, self.value)
+        match &self.type_annotation {
+            Some(ty) => write!(f, "let {}: {} = {};", self.ident, ty, self.value),
+            None => write!(f, "let {} = {};", self.ident, self.value),
+        }
     }
 }
 
@@ -482,10 +639,16 @@ impl fmt::Display for ExpressionStatement {
 
 impl fmt::Display for BlockStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for stmt in &self.statements {
-            stmt.fmt(f)?;
+        if self.statements.is_empty() {
+            write!(f, "{{}}")
+        } else {
+            writeln!(f, "{{")?;
+            for stmt in &self.statements {
+                stmt.fmt(f)?;
+                writeln!(f)?;
+            }
+            write!(f, "}}")
         }
-        Ok(())
     }
 }
 
@@ -541,6 +704,8 @@ impl fmt::Display for Expression {
             Self::Macro(macro_lit) => macro_lit.fmt(f),
             Self::Call(call_expr) => call_expr.fmt(f),
             Self::Cast(cast_expr) => cast_expr.fmt(f),
+            Self::Break(break_expr) => break_expr.fmt(f),
+            Self::Continue(cont_expr) => cont_expr.fmt(f),
         }
     }
 }
@@ -593,33 +758,51 @@ impl fmt::Display for InfixExpr {
 
 impl fmt::Display for ConditionalExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "if {} {{ {} }}", self.condition, self.consequence)?;
-
+        write!(f, "if {} {}", self.condition, self.consequence)?;
         if let Some(alternative) = &self.alternative {
-            write!(f, " else {{ {alternative} }}")?;
+            write!(f, " else {}", alternative)?;
         }
-
         Ok(())
     }
 }
 
 impl fmt::Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let params = self
+            .params
+            .iter()
+            .map(|p| p.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        let generics = if self.generic_params.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "<{}>",
+                self.generic_params
+                    .iter()
+                    .map(|g| g.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
+
+        let ret = self
+            .return_type
+            .as_ref()
+            .map_or(String::new(), |t| format!(" -> {t}"));
+
         match &self.name {
-            Some(name) => write!(
-                f,
-                "fn<{name}>({}) {{\n{}\n}}",
-                self.params.join(", "),
-                self.body
-            ),
-            None => write!(f, "fn({}) {{\n{}\n}}", self.params.join(", "), self.body),
+            Some(name) => write!(f, "fn {name}{generics}({params}){ret} {}", self.body),
+            None => write!(f, "fn{generics}({params}){ret} {}", self.body),
         }
     }
 }
 
 impl fmt::Display for MacroLiteral {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "macro({}) {{\n{}\n}}", self.params.join(", "), self.body)
+        write!(f, "macro({}) {}", self.params.join(", "), self.body)
     }
 }
 
@@ -641,6 +824,96 @@ impl fmt::Display for CallExpr {
 impl fmt::Display for CastExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "({} as {})", self.expr, self.target.as_str())
+    }
+}
+
+impl fmt::Display for LoopStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "loop {}", self.body)
+    }
+}
+
+impl fmt::Display for WhileStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "while {} {}", self.condition, self.body)
+    }
+}
+
+impl fmt::Display for ForStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "for {} in {} {}", self.ident, self.iterable, self.body)
+    }
+}
+
+impl fmt::Display for BreakExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.value {
+            Some(val) => write!(f, "break {val}"),
+            None => write!(f, "break"),
+        }
+    }
+}
+
+impl fmt::Display for ContinueExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "continue")
+    }
+}
+
+impl fmt::Display for TypeExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Named(n) => f.write_str(&n.name),
+            Self::Array(elem, _) => write!(f, "[{elem}]"),
+            Self::Hash(k, v, _) => write!(f, "{{{k}: {v}}}"),
+            Self::Fn(params, ret, _) => {
+                let params = params
+                    .iter()
+                    .map(|p| p.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "fn({params}) -> {ret}")
+            }
+            Self::Generic(name, args, _) => {
+                let args = args
+                    .iter()
+                    .map(|a| a.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "{name}<{args}>")
+            }
+        }
+    }
+}
+
+impl fmt::Display for TypedParam {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.type_expr {
+            Some(ty) => write!(f, "{}: {ty}", self.name),
+            None => f.write_str(&self.name),
+        }
+    }
+}
+
+impl fmt::Display for GenericParam {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.bounds.is_empty() {
+            f.write_str(&self.name)
+        } else {
+            let bounds = self
+                .bounds
+                .iter()
+                .map(|b| b.name.as_str())
+                .collect::<Vec<_>>()
+                .join(" + ");
+            write!(f, "{}: {bounds}", self.name)
+        }
+    }
+}
+
+impl fmt::Display for TraitBound {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.name)
     }
 }
 

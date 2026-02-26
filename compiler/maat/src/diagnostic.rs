@@ -5,7 +5,7 @@
 //! source span is available.
 
 use ariadne::{Color, Label, Report, ReportKind, Source};
-use maat_errors::{CompileError, ParseError, VmError};
+use maat_errors::{CompileError, ParseError, TypeError, VmError};
 use maat_span::Span;
 
 /// Renders a parse error with a source snippet to stderr.
@@ -68,6 +68,22 @@ pub fn report_vm_error(path: &str, source: &str, error: &VmError) {
         }
         None => eprintln!("{path}: vm error: {}", error.message),
     }
+}
+
+/// Renders a type error with a source snippet to stderr.
+pub fn report_type_error(path: &str, source: &str, error: &TypeError) {
+    let range = byte_range_to_char_range(source, error.span);
+
+    Report::build(ReportKind::Error, (path, range.clone()))
+        .with_message("type error")
+        .with_label(
+            Label::new((path, range))
+                .with_message(error.kind.to_string())
+                .with_color(Color::Red),
+        )
+        .finish()
+        .eprint((path, Source::from(source)))
+        .ok();
 }
 
 /// Converts a byte-offset [`Span`] to a character-offset range suitable for

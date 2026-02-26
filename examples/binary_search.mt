@@ -1,5 +1,5 @@
-let binary_search = fn(arr, target) {
-    let search = fn(low, high) {
+let binary_search = fn(arr, target: i64) -> i64 {
+    let search = fn(low: i64, high: i64) -> i64 {
         if (low > high) {
             -1
         } else {

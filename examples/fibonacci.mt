@@ -1,13 +1,12 @@
-let fibonacci = fn(x) {
-    if (x == 0) {
-        0
+let fibonacci = fn(n: i64) -> i64 {
+    if (n < 2) {
+        n
     } else {
-        if (x == 1) {
-            return 1;
-        } else {
-            fibonacci(x - 1) + fibonacci(x - 2);
-        }
+        fibonacci(n - 1) + fibonacci(n - 2);
     }
 };
 
-fibonacci(20);
+print(fibonacci(0));
+print(fibonacci(1));
+print(fibonacci(10));
+print(fibonacci(20));

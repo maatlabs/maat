@@ -110,7 +110,19 @@ impl<'a> Lexer<'a> {
             }
 
             b'+' => self.yield_token(start, TokenKind::Plus),
-            b'-' => self.yield_token(start, TokenKind::Minus),
+            b'-' => {
+                self.advance_pos();
+                if self.peek_pos() == Some(b'>') {
+                    self.yield_token(start, TokenKind::Arrow)
+                } else {
+                    let end = self.pos;
+                    Token::new(
+                        TokenKind::Minus,
+                        &self.source[start..end],
+                        Span::new(start, end),
+                    )
+                }
+            }
             b'*' => self.yield_token(start, TokenKind::Asterisk),
             b'/' => self.yield_token(start, TokenKind::Slash),
 
@@ -274,34 +286,37 @@ impl<'a> Lexer<'a> {
                     self.advance_pos(); // Skip '0'
                     self.advance_pos(); // Skip 'b'
                     self.read_binary_digits();
+                    let value_end = self.pos;
                     let kind = self
                         .try_read_suffix()
                         .map(|s| s.to_token_kind())
                         .unwrap_or(TokenKind::I64);
                     let end = self.pos;
-                    return Token::new(kind, &self.source[start..end], Span::new(start, end));
+                    return Token::new(kind, &self.source[start..value_end], Span::new(start, end));
                 }
                 b'o' | b'O' => {
                     self.advance_pos();
                     self.advance_pos();
                     self.read_octal_digits();
+                    let value_end = self.pos;
                     let kind = self
                         .try_read_suffix()
                         .map(|s| s.to_token_kind())
                         .unwrap_or(TokenKind::I64);
                     let end = self.pos;
-                    return Token::new(kind, &self.source[start..end], Span::new(start, end));
+                    return Token::new(kind, &self.source[start..value_end], Span::new(start, end));
                 }
                 b'x' | b'X' => {
                     self.advance_pos();
                     self.advance_pos();
                     self.read_hex_digits();
+                    let value_end = self.pos;
                     let kind = self
                         .try_read_suffix()
                         .map(|s| s.to_token_kind())
                         .unwrap_or(TokenKind::I64);
                     let end = self.pos;
-                    return Token::new(kind, &self.source[start..end], Span::new(start, end));
+                    return Token::new(kind, &self.source[start..value_end], Span::new(start, end));
                 }
                 _ => {}
             }
@@ -315,6 +330,7 @@ impl<'a> Lexer<'a> {
             is_float = true;
         }
 
+        let value_end = self.pos;
         let kind = if let Some(suf) = self.try_read_suffix() {
             suf.to_token_kind()
         } else if is_float {
@@ -324,7 +340,7 @@ impl<'a> Lexer<'a> {
         };
 
         let end = self.pos;
-        Token::new(kind, &self.source[start..end], Span::new(start, end))
+        Token::new(kind, &self.source[start..value_end], Span::new(start, end))
     }
 
     #[inline]

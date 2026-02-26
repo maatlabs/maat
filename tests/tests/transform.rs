@@ -236,6 +236,7 @@ fn transform_return_statement() {
 fn transform_let_statement() {
     let stmt = Statement::Let(LetStatement {
         ident: "x".to_string(),
+        type_annotation: None,
         value: one(),
         span: Span::ZERO,
     });
@@ -255,7 +256,13 @@ fn transform_let_statement() {
 fn transform_function_literal() {
     let func = Expression::Function(Function {
         name: None,
-        params: vec!["x".to_string()],
+        params: vec![TypedParam {
+            name: "x".to_string(),
+            type_expr: None,
+            span: Span::ZERO,
+        }],
+        generic_params: vec![],
+        return_type: None,
         body: BlockStatement {
             statements: vec![Statement::Expression(ExpressionStatement {
                 value: one(),
@@ -373,6 +380,7 @@ fn transform_nested_structures() {
     let program = Program {
         statements: vec![Statement::Let(LetStatement {
             ident: "x".to_string(),
+            type_annotation: None,
             value: Expression::Infix(InfixExpr {
                 lhs: Box::new(Expression::Array(ArrayLiteral {
                     elements: vec![one(), two()],

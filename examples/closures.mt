@@ -1,5 +1,5 @@
-let make_adder = fn(x) {
-    fn(y) { x + y };
+let make_adder = fn(x: i64) {
+    fn(y: i64) -> i64 { x + y; };
 };
 
 let add5 = make_adder(5);

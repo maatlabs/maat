@@ -1,6 +1,7 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::rc::Rc;
+
+use indexmap::IndexMap;
 
 use crate::Object;
 
@@ -12,7 +13,7 @@ pub struct Env {
 
 #[derive(Debug, Default)]
 struct EnvInner {
-    store: HashMap<String, Object>,
+    store: IndexMap<String, Object>,
     outer: Option<Env>,
 }
 
@@ -24,7 +25,7 @@ impl Env {
     pub fn new_enclosed(outer: &Self) -> Self {
         Self {
             inner: Rc::new(RefCell::new(EnvInner {
-                store: HashMap::new(),
+                store: IndexMap::new(),
                 outer: Some(outer.clone()),
             })),
         }

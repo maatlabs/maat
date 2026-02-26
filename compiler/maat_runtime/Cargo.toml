@@ -6,6 +6,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+indexmap.workspace = true
 serde.workspace = true
 
 maat_ast = { path = "../maat_ast" }

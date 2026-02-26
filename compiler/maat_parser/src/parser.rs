@@ -126,6 +126,9 @@ impl<'a> Parser<'a> {
         match self.current.kind {
             TokenKind::Let => self.parse_let_statement().map(Statement::Let),
             TokenKind::Return => self.parse_return_statement().map(Statement::Return),
+            TokenKind::Loop => self.parse_loop_statement().map(Statement::Loop),
+            TokenKind::While => self.parse_while_statement().map(Statement::While),
+            TokenKind::For => self.parse_for_statement().map(Statement::For),
             _ => self.parse_expression_statement().map(Statement::Expression),
         }
     }
@@ -136,6 +139,15 @@ impl<'a> Parser<'a> {
             return None;
         }
         let ident = self.current.literal.to_string();
+
+        let type_annotation = if self.peek_token_is(TokenKind::Colon) {
+            self.next_token();
+            self.next_token();
+            Some(self.parse_type_expr()?)
+        } else {
+            None
+        };
+
         if !self.expect_peek(TokenKind::Assign) {
             return None;
         }
@@ -152,6 +164,7 @@ impl<'a> Parser<'a> {
         };
         Some(LetStatement {
             ident,
+            type_annotation,
             value,
             span: start.merge(end),
         })
@@ -217,6 +230,8 @@ impl<'a> Parser<'a> {
             TokenKind::Macro => self.parse_macro()?,
             TokenKind::LBracket => self.parse_array_literal()?,
             TokenKind::LBrace => self.parse_hash_literal()?,
+            TokenKind::Break => self.parse_break_expression()?,
+            TokenKind::Continue => self.parse_continue_expression()?,
             kind => {
                 self.prefix_parse_error(kind);
                 return None;
@@ -320,37 +335,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_int(&mut self) -> Option<Expression> {
-        macro_rules! strip_int_suffixes {
-            ($lit:expr) => {{
-                $lit.strip_suffix("_i8")
-                    .or_else(|| $lit.strip_suffix("i8"))
-                    .or_else(|| $lit.strip_suffix("_i16"))
-                    .or_else(|| $lit.strip_suffix("i16"))
-                    .or_else(|| $lit.strip_suffix("_i32"))
-                    .or_else(|| $lit.strip_suffix("i32"))
-                    .or_else(|| $lit.strip_suffix("_i64"))
-                    .or_else(|| $lit.strip_suffix("i64"))
-                    .or_else(|| $lit.strip_suffix("_i128"))
-                    .or_else(|| $lit.strip_suffix("i128"))
-                    .or_else(|| $lit.strip_suffix("_isize"))
-                    .or_else(|| $lit.strip_suffix("isize"))
-                    .or_else(|| $lit.strip_suffix("_u8"))
-                    .or_else(|| $lit.strip_suffix("u8"))
-                    .or_else(|| $lit.strip_suffix("_u16"))
-                    .or_else(|| $lit.strip_suffix("u16"))
-                    .or_else(|| $lit.strip_suffix("_u32"))
-                    .or_else(|| $lit.strip_suffix("u32"))
-                    .or_else(|| $lit.strip_suffix("_u64"))
-                    .or_else(|| $lit.strip_suffix("u64"))
-                    .or_else(|| $lit.strip_suffix("_u128"))
-                    .or_else(|| $lit.strip_suffix("u128"))
-                    .or_else(|| $lit.strip_suffix("_usize"))
-                    .or_else(|| $lit.strip_suffix("usize"))
-                    .unwrap_or($lit)
-            }};
-        }
-
-        let literal = strip_int_suffixes!(self.current.literal);
+        let literal = self.current.literal;
         let token_kind = self.current.kind;
         let span = self.current.span;
 
@@ -413,17 +398,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_float(&mut self) -> Option<Expression> {
-        macro_rules! strip_float_suffixes {
-            ($lit:expr) => {{
-                $lit.strip_suffix("_f32")
-                    .or_else(|| $lit.strip_suffix("f32"))
-                    .or_else(|| $lit.strip_suffix("_f64"))
-                    .or_else(|| $lit.strip_suffix("f64"))
-                    .unwrap_or($lit)
-            }};
-        }
-
-        let literal = strip_float_suffixes!(self.current.literal);
+        let literal = self.current.literal;
         let span = self.current.span;
 
         let expr = match self.current.kind {
@@ -573,6 +548,89 @@ impl<'a> Parser<'a> {
         }))
     }
 
+    fn parse_loop_statement(&mut self) -> Option<LoopStatement> {
+        let start = self.current.span;
+        if !self.expect_peek(TokenKind::LBrace) {
+            return None;
+        }
+        let body = self.parse_block_statement()?;
+        let end = self.current.span;
+        Some(LoopStatement {
+            body,
+            span: start.merge(end),
+        })
+    }
+
+    fn parse_while_statement(&mut self) -> Option<WhileStatement> {
+        let start = self.current.span;
+        if !self.expect_peek(TokenKind::LParen) {
+            return None;
+        }
+        self.next_token();
+        let condition = Box::new(self.parse_expression(LOWEST)?);
+        if !self.expect_peek(TokenKind::RParen) {
+            return None;
+        }
+        if !self.expect_peek(TokenKind::LBrace) {
+            return None;
+        }
+        let body = self.parse_block_statement()?;
+        let end = self.current.span;
+        Some(WhileStatement {
+            condition,
+            body,
+            span: start.merge(end),
+        })
+    }
+
+    fn parse_for_statement(&mut self) -> Option<ForStatement> {
+        let start = self.current.span;
+        if !self.expect_peek(TokenKind::Ident) {
+            return None;
+        }
+        let ident = self.current.literal.to_string();
+        if !self.expect_peek(TokenKind::In) {
+            return None;
+        }
+        self.next_token();
+        let iterable = Box::new(self.parse_expression(LOWEST)?);
+        if !self.expect_peek(TokenKind::LBrace) {
+            return None;
+        }
+        let body = self.parse_block_statement()?;
+        let end = self.current.span;
+        Some(ForStatement {
+            ident,
+            iterable,
+            body,
+            span: start.merge(end),
+        })
+    }
+
+    fn parse_break_expression(&mut self) -> Option<Expression> {
+        let start = self.current.span;
+        let value = if !self.peek_token_is(TokenKind::Semicolon)
+            && !self.peek_token_is(TokenKind::RBrace)
+            && !self.peek_token_is(TokenKind::Eof)
+        {
+            self.next_token();
+            Some(Box::new(self.parse_expression(LOWEST)?))
+        } else {
+            None
+        };
+        let end = value.as_ref().map_or(start, |v| v.span());
+        Some(Expression::Break(BreakExpr {
+            value,
+            span: start.merge(end),
+        }))
+    }
+
+    fn parse_continue_expression(&mut self) -> Option<Expression> {
+        Some(Expression::Continue(ContinueExpr {
+            span: self.current.span,
+        }))
+    }
+
     fn parse_block_statement(&mut self) -> Option<BlockStatement> {
         let start = self.current.span;
         let mut statements = Vec::new();
@@ -596,10 +654,27 @@ impl<'a> Parser<'a> {
 
     fn parse_function(&mut self) -> Option<Expression> {
         let start = self.current.span;
+
+        let generic_params = if self.peek_token_is(TokenKind::Less) {
+            self.next_token();
+            self.parse_generic_params()?
+        } else {
+            vec![]
+        };
+
         if !self.expect_peek(TokenKind::LParen) {
             return None;
         }
-        let params = self.parse_parameters()?;
+        let params = self.parse_typed_parameters()?;
+
+        let return_type = if self.peek_token_is(TokenKind::Arrow) {
+            self.next_token();
+            self.next_token();
+            Some(self.parse_type_expr()?)
+        } else {
+            None
+        };
+
         if !self.expect_peek(TokenKind::LBrace) {
             return None;
         }
@@ -609,6 +684,8 @@ impl<'a> Parser<'a> {
         Some(Expression::Function(Function {
             name: None,
             params,
+            generic_params,
+            return_type,
             body,
             span: start.merge(end),
         }))
@@ -655,6 +732,205 @@ impl<'a> Parser<'a> {
         }
 
         Some(identifiers)
+    }
+
+    fn parse_typed_parameters(&mut self) -> Option<Vec<TypedParam>> {
+        let mut params = Vec::new();
+
+        if self.peek_token_is(TokenKind::RParen) {
+            self.next_token();
+            return Some(params);
+        }
+
+        self.next_token();
+        params.push(self.parse_typed_param()?);
+
+        while self.peek_token_is(TokenKind::Comma) {
+            self.next_token();
+            self.next_token();
+            params.push(self.parse_typed_param()?);
+        }
+
+        if !self.expect_peek(TokenKind::RParen) {
+            return None;
+        }
+
+        Some(params)
+    }
+
+    fn parse_typed_param(&mut self) -> Option<TypedParam> {
+        let start = self.current.span;
+        let name = self.current.literal.to_string();
+
+        let type_expr = if self.peek_token_is(TokenKind::Colon) {
+            self.next_token();
+            self.next_token();
+            let ty = self.parse_type_expr()?;
+            Some(ty)
+        } else {
+            None
+        };
+
+        let end = type_expr.as_ref().map_or(start, |t| t.span());
+
+        Some(TypedParam {
+            name,
+            type_expr,
+            span: start.merge(end),
+        })
+    }
+
+    /// Parses a type expression.
+    ///
+    /// Handles: `i64`, `bool`, `String`, `[T]`, `{K: V}`, `fn(A) -> B`,
+    /// `Foo<T, U>`, and other named types.
+    fn parse_type_expr(&mut self) -> Option<TypeExpr> {
+        match self.current.kind {
+            TokenKind::LBracket => {
+                let start = self.current.span;
+                self.next_token();
+                let elem = self.parse_type_expr()?;
+                if !self.expect_peek(TokenKind::RBracket) {
+                    return None;
+                }
+                let end = self.current.span;
+                Some(TypeExpr::Array(Box::new(elem), start.merge(end)))
+            }
+            TokenKind::LBrace => {
+                let start = self.current.span;
+                self.next_token();
+                let key = self.parse_type_expr()?;
+                if !self.expect_peek(TokenKind::Colon) {
+                    return None;
+                }
+                self.next_token();
+                let value = self.parse_type_expr()?;
+                if !self.expect_peek(TokenKind::RBrace) {
+                    return None;
+                }
+                let end = self.current.span;
+                Some(TypeExpr::Hash(
+                    Box::new(key),
+                    Box::new(value),
+                    start.merge(end),
+                ))
+            }
+            TokenKind::Function => {
+                let start = self.current.span;
+                if !self.expect_peek(TokenKind::LParen) {
+                    return None;
+                }
+                let mut param_types = Vec::new();
+                if !self.peek_token_is(TokenKind::RParen) {
+                    self.next_token();
+                    param_types.push(self.parse_type_expr()?);
+                    while self.peek_token_is(TokenKind::Comma) {
+                        self.next_token();
+                        self.next_token();
+                        param_types.push(self.parse_type_expr()?);
+                    }
+                }
+                if !self.expect_peek(TokenKind::RParen) {
+                    return None;
+                }
+                if !self.expect_peek(TokenKind::Arrow) {
+                    return None;
+                }
+                self.next_token();
+                let ret = self.parse_type_expr()?;
+                let end = ret.span();
+                Some(TypeExpr::Fn(param_types, Box::new(ret), start.merge(end)))
+            }
+            TokenKind::Ident => {
+                let start = self.current.span;
+                let name = self.current.literal.to_string();
+
+                if self.peek_token_is(TokenKind::Less) {
+                    self.next_token();
+                    self.next_token();
+                    let mut args = vec![self.parse_type_expr()?];
+                    while self.peek_token_is(TokenKind::Comma) {
+                        self.next_token();
+                        self.next_token();
+                        args.push(self.parse_type_expr()?);
+                    }
+                    if !self.expect_peek(TokenKind::Greater) {
+                        return None;
+                    }
+                    let end = self.current.span;
+                    Some(TypeExpr::Generic(name, args, start.merge(end)))
+                } else {
+                    Some(TypeExpr::Named(NamedType { name, span: start }))
+                }
+            }
+            _ => {
+                self.push_error(format!(
+                    "expected type expression, got `{:?}`",
+                    self.current.kind
+                ));
+                None
+            }
+        }
+    }
+
+    /// Parses generic type parameters: `<T>`, `<T, U>`, `<T: Bound + Bound>`.
+    ///
+    /// Called when current token is `<`.
+    fn parse_generic_params(&mut self) -> Option<Vec<GenericParam>> {
+        let mut params = Vec::new();
+
+        if self.peek_token_is(TokenKind::Greater) {
+            self.next_token();
+            return Some(params);
+        }
+
+        self.next_token();
+        params.push(self.parse_generic_param()?);
+
+        while self.peek_token_is(TokenKind::Comma) {
+            self.next_token();
+            self.next_token();
+            params.push(self.parse_generic_param()?);
+        }
+
+        if !self.expect_peek(TokenKind::Greater) {
+            return None;
+        }
+
+        Some(params)
+    }
+
+    fn parse_generic_param(&mut self) -> Option<GenericParam> {
+        let start = self.current.span;
+        let name = self.current.literal.to_string();
+
+        let mut bounds = Vec::new();
+        if self.peek_token_is(TokenKind::Colon) {
+            self.next_token();
+            self.next_token();
+            let bound_start = self.current.span;
+            bounds.push(TraitBound {
+                name: self.current.literal.to_string(),
+                span: bound_start,
+            });
+            while self.peek_token_is(TokenKind::Plus) {
+                self.next_token();
+                self.next_token();
+                let bound_start = self.current.span;
+                bounds.push(TraitBound {
+                    name: self.current.literal.to_string(),
+                    span: bound_start,
+                });
+            }
+        }
+
+        let end = bounds.last().map_or(start, |b| b.span);
+
+        Some(GenericParam {
+            name,
+            bounds,
+            span: start.merge(end),
+        })
     }
 
     fn parse_call_expression(&mut self, func: Expression) -> Option<Expression> {

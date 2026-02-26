@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-
+use indexmap::IndexMap;
 use maat_bytecode::{MAX_GLOBALS, MAX_LOCALS};
 use maat_errors::{CompileError, CompileErrorKind, Result};
 
@@ -17,7 +16,7 @@ use maat_errors::{CompileError, CompileErrorKind, Result};
 /// the appropriate load instructions at closure-creation time.
 #[derive(Debug, Clone, Default)]
 pub struct SymbolsTable {
-    store: HashMap<String, Symbol>,
+    store: IndexMap<String, Symbol>,
     num_definitions: usize,
     outer: Option<Box<SymbolsTable>>,
     free_vars: Vec<Symbol>,
@@ -64,7 +63,7 @@ impl SymbolsTable {
     /// while resolution walks up to the outer table for undefined names.
     pub fn new_enclosed(outer: SymbolsTable) -> Self {
         Self {
-            store: HashMap::new(),
+            store: IndexMap::new(),
             num_definitions: 0,
             outer: Some(Box::new(outer)),
             free_vars: Vec::new(),
@@ -76,7 +75,12 @@ impl SymbolsTable {
         self.num_definitions
     }
 
-    /// Defines a new symbol, assigning it the next available index.
+    /// Defines a symbol, assigning it the next available index.
+    ///
+    /// If a symbol with the same name already exists at the same scope
+    /// level (Global or Local), the existing index is reused. This
+    /// enables idiomatic rebinding inside loops (`let x = x + 1;`)
+    /// without allocating a new storage slot on each iteration.
     ///
     /// The symbol's scope is determined by whether this table has an
     /// outer (enclosing) table: global scope if no outer, local scope otherwise.
@@ -91,6 +95,15 @@ impl SymbolsTable {
         } else {
             SymbolScope::Global
         };
+
+        // Reuse the existing index when rebinding a name at the same scope level.
+        if self
+            .store
+            .get(name)
+            .is_some_and(|existing| existing.scope == scope)
+        {
+            return Ok(&self.store[name]);
+        }
 
         match scope {
             SymbolScope::Global if self.num_definitions > MAX_GLOBALS => {

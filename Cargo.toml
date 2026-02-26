@@ -9,6 +9,7 @@ members = [
     "compiler/maat_eval",
     "compiler/maat_runtime",
     "compiler/maat_bytecode",
+    "compiler/maat_types",
     "compiler/maat_codegen",
     "compiler/maat_vm",
     "compiler/maat",
@@ -17,13 +18,14 @@ members = [
 default-members = ["compiler/maat"]
 
 [workspace.package]
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/maatlabs/maat"
 
 [workspace.dependencies]
 ariadne = "0.6"
+indexmap = { version = "2", features = ["serde"] }
 postcard = { version = "1", features = ["alloc"] }
 serde = { version = "1", features = ["derive", "rc"] }
 unicode-xid = "0.2"

@@ -1,5 +1,5 @@
 [package]
-name = "maat_eval"
+name = "maat_types"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,4 +9,4 @@ repository.workspace = true
 indexmap.workspace = true
 maat_ast = { path = "../maat_ast" }
 maat_errors = { path = "../maat_errors" }
-maat_runtime = { path = "../maat_runtime" }
+maat_span = { path = "../maat_span" }

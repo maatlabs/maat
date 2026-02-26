@@ -150,7 +150,7 @@ fn compile_integer_arithmetic() {
     ];
 
     for (input, expected_constants, expected_instructions) in cases {
-        let bytecode = maat_tests::compile(input);
+        let bytecode = maat_tests::compile_raw(input);
         assert_instructions(&bytecode, &expected_instructions, input);
         assert_integer_constants(&bytecode, &expected_constants, input);
     }
@@ -232,7 +232,7 @@ fn compile_boolean_expressions() {
     ];
 
     for (input, expected_instructions) in tests {
-        let bytecode = maat_tests::compile(input);
+        let bytecode = maat_tests::compile_raw(input);
         assert_instructions(&bytecode, &expected_instructions, input);
     }
 }
@@ -271,7 +271,7 @@ fn compile_conditionals() {
     ];
 
     for (input, expected_constants, expected_instructions) in tests {
-        let bytecode = maat_tests::compile(input);
+        let bytecode = maat_tests::compile_raw(input);
         assert_instructions(&bytecode, &expected_instructions, input);
         assert_integer_constants(&bytecode, &expected_constants, input);
     }
@@ -315,7 +315,7 @@ fn compile_global_let_statements() {
     ];
 
     for (input, expected_constants, expected_instructions) in tests {
-        let bytecode = maat_tests::compile(input);
+        let bytecode = maat_tests::compile_raw(input);
         assert_instructions(&bytecode, &expected_instructions, input);
         assert_integer_constants(&bytecode, &expected_constants, input);
     }
@@ -342,7 +342,7 @@ fn compile_strings() {
     ];
 
     for (input, expected_constants, expected_instructions) in cases {
-        let bytecode = maat_tests::compile(input);
+        let bytecode = maat_tests::compile_raw(input);
         assert_instructions(&bytecode, &expected_instructions, input);
 
         assert_eq!(
@@ -401,7 +401,7 @@ fn compile_arrays() {
     ];
 
     for (input, expected_constants, expected_instructions) in cases {
-        let bytecode = maat_tests::compile(input);
+        let bytecode = maat_tests::compile_raw(input);
         assert_instructions(&bytecode, &expected_instructions, input);
         assert_integer_constants(&bytecode, &expected_constants, input);
     }
@@ -448,7 +448,7 @@ fn compile_hashes() {
     ];
 
     for (input, expected_constants, expected_instructions) in cases {
-        let bytecode = maat_tests::compile(input);
+        let bytecode = maat_tests::compile_raw(input);
         assert_instructions(&bytecode, &expected_instructions, input);
         assert_integer_constants(&bytecode, &expected_constants, input);
     }
@@ -489,7 +489,7 @@ fn compile_index_expressions() {
     ];
 
     for (input, expected_constants, expected_instructions) in cases {
-        let bytecode = maat_tests::compile(input);
+        let bytecode = maat_tests::compile_raw(input);
         assert_instructions(&bytecode, &expected_instructions, input);
         assert_integer_constants(&bytecode, &expected_constants, input);
     }
@@ -543,7 +543,7 @@ fn compile_functions() {
     ];
 
     for (input, expected_consts, expected_insts) in cases {
-        let bytecode = maat_tests::compile(input);
+        let bytecode = maat_tests::compile_raw(input);
         assert_instructions(&bytecode, &expected_insts, input);
         assert_constants(&bytecode, &expected_consts, input);
     }
@@ -558,7 +558,7 @@ fn compile_functions_without_return_value() {
     )];
 
     for (input, expected_consts, expected_insts) in cases {
-        let bytecode = maat_tests::compile(input);
+        let bytecode = maat_tests::compile_raw(input);
         assert_instructions(&bytecode, &expected_insts, input);
         assert_constants(&bytecode, &expected_consts, input);
     }
@@ -646,7 +646,7 @@ fn compile_function_calls() {
     ];
 
     for (input, expected_consts, expected_insts) in cases {
-        let bytecode = maat_tests::compile(input);
+        let bytecode = maat_tests::compile_raw(input);
         assert_instructions(&bytecode, &expected_insts, input);
         assert_constants(&bytecode, &expected_consts, input);
     }
@@ -705,7 +705,7 @@ fn compile_let_statement_scopes() {
     ];
 
     for (input, expected_consts, expected_insts) in cases {
-        let bytecode = maat_tests::compile(input);
+        let bytecode = maat_tests::compile_raw(input);
         assert_instructions(&bytecode, &expected_insts, input);
         assert_constants(&bytecode, &expected_consts, input);
     }
@@ -722,7 +722,7 @@ fn compile_builtins() {
                 encode(Opcode::Array, &[0]),
                 encode(Opcode::Call, &[1]),
                 encode(Opcode::Pop, &[]),
-                encode(Opcode::GetBuiltin, &[6]),
+                encode(Opcode::GetBuiltin, &[5]),
                 encode(Opcode::Array, &[0]),
                 encode(Opcode::Constant, &[0]),
                 encode(Opcode::Call, &[2]),
@@ -742,7 +742,7 @@ fn compile_builtins() {
     ];
 
     for (input, expected_consts, expected_insts) in cases {
-        let bytecode = maat_tests::compile(input);
+        let bytecode = maat_tests::compile_raw(input);
         assert_instructions(&bytecode, &expected_insts, input);
         assert_constants(&bytecode, &expected_consts, input);
     }
@@ -850,7 +850,7 @@ fn compile_closures() {
     ];
 
     for (input, expected_consts, expected_insts) in cases {
-        let bytecode = maat_tests::compile(input);
+        let bytecode = maat_tests::compile_raw(input);
         assert_instructions(&bytecode, &expected_insts, input);
         assert_constants(&bytecode, &expected_consts, input);
     }
@@ -921,7 +921,7 @@ fn compile_recursive_functions() {
     ];
 
     for (input, expected_consts, expected_insts) in cases {
-        let bytecode = maat_tests::compile(input);
+        let bytecode = maat_tests::compile_raw(input);
         assert_instructions(&bytecode, &expected_insts, input);
         assert_constants(&bytecode, &expected_consts, input);
     }

@@ -1,7 +1,7 @@
-use std::collections::HashMap;
 use std::fmt;
 use std::rc::Rc;
 
+use indexmap::IndexMap;
 use maat_ast::{BlockStatement, Node};
 use maat_errors::{Error, EvalError, Result};
 use maat_span::SourceMap;
@@ -68,9 +68,13 @@ pub enum Object {
     /// A macro object with parameters, body, and closure environment.
     Macro(Macro),
     /// A quoted AST node for metaprogramming.
-    Quote(Quote),
+    Quote(Box<Quote>),
     /// Wraps a return value for early function/block termination.
     ReturnValue(Box<Object>),
+    /// Signals a `break` from a loop, optionally carrying a value.
+    Break(Box<Object>),
+    /// Signals a `continue` to the next loop iteration.
+    Continue,
     /// A builtin function.
     Builtin(BuiltinFn),
     /// A compiled function containing bytecode instructions.
@@ -224,6 +228,8 @@ impl Object {
             Self::Macro(_) => "Macro",
             Self::Quote(_) => "Quote",
             Self::ReturnValue(_) => "ReturnValue",
+            Self::Break(_) => "Break",
+            Self::Continue => "Continue",
             Self::Builtin(_) => "BuiltinFn",
             Self::CompiledFunction(_) => "CompiledFunction",
             Self::Closure(_) => "Closure",
@@ -347,8 +353,8 @@ impl PartialEq for Object {
             (U64(a), U64(b)) => a == b,
             (U128(a), U128(b)) => a == b,
             (Usize(a), Usize(b)) => a == b,
-            (F32(a), F32(b)) => a == b,
-            (F64(a), F64(b)) => a == b,
+            (F32(a), F32(b)) => a.total_cmp(b).is_eq(),
+            (F64(a), F64(b)) => a.total_cmp(b).is_eq(),
             (Boolean(a), Boolean(b)) => a == b,
             (String(a), String(b)) => a == b,
             (Array(a1), Array(a2)) => a1 == a2,
@@ -357,6 +363,8 @@ impl PartialEq for Object {
             (Macro(m1), Macro(m2)) => m1 == m2,
             (Quote(q1), Quote(q2)) => q1 == q2,
             (ReturnValue(o1), ReturnValue(o2)) => o1 == o2,
+            (Break(o1), Break(o2)) => o1 == o2,
+            (Continue, Continue) => true,
             (Builtin(f1), Builtin(f2)) => std::ptr::fn_addr_eq(*f1, *f2),
             (CompiledFunction(c1), CompiledFunction(c2)) => c1 == c2,
             (Closure(c1), Closure(c2)) => c1 == c2,
@@ -431,7 +439,7 @@ pub struct Closure {
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct HashObject {
-    pub pairs: HashMap<Hashable, Object>,
+    pub pairs: IndexMap<Hashable, Object>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -512,6 +520,8 @@ impl fmt::Display for Object {
             Self::Macro(macro_obj) => macro_obj.fmt(f),
             Self::Quote(quote) => quote.fmt(f),
             Self::ReturnValue(ret_val) => ret_val.fmt(f),
+            Self::Break(val) => write!(f, "break {val}"),
+            Self::Continue => write!(f, "continue"),
             Self::Builtin(_) => write!(f, "builtin function"),
             Self::CompiledFunction(cf) => write!(f, "CompiledFunction[{:p}]", cf),
             Self::Closure(cl) => write!(f, "Closure[{:p}]", &cl.func),

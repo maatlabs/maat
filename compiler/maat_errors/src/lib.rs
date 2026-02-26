@@ -13,6 +13,9 @@ pub enum Error {
     #[error("compile error: {0}")]
     Compile(#[from] CompileError),
 
+    #[error("type error: {0}")]
+    Type(#[from] TypeError),
+
     #[error("vm error: {0}")]
     Vm(#[from] VmError),
 
@@ -69,6 +72,44 @@ pub enum EvalError {
     Builtin(String),
 }
 
+/// A type-checking error with a source span.
+///
+/// Wraps [`TypeErrorKind`] with location information for rich diagnostics.
+#[derive(Debug, thiserror::Error)]
+#[error("{kind}")]
+pub struct TypeError {
+    pub kind: TypeErrorKind,
+    pub span: Span,
+}
+
+/// The underlying variant of a type-checking error.
+#[derive(Debug, thiserror::Error)]
+pub enum TypeErrorKind {
+    #[error("type mismatch: expected `{expected}`, found `{found}`")]
+    Mismatch { expected: String, found: String },
+
+    #[error("infinite type: `{0}` occurs in its own definition")]
+    OccursCheck(String),
+
+    #[error("wrong number of arguments: expected {expected}, found {found}")]
+    WrongArity { expected: usize, found: usize },
+
+    #[error("expression of type `{0}` is not callable")]
+    NotCallable(String),
+
+    #[error("numeric overflow: `{value}` out of range for `{target}`")]
+    NumericOverflow { value: String, target: String },
+    #[error("implicit float promotion is not allowed; use an explicit `as` cast")]
+    ImplicitFloatPromotion,
+}
+
+impl TypeErrorKind {
+    /// Attaches a source span to this error kind, producing a [`TypeError`].
+    pub fn at(self, span: Span) -> TypeError {
+        TypeError { kind: self, span }
+    }
+}
+
 /// A compile-time error with an optional source span.
 ///
 /// Wraps [`CompileErrorKind`] with location information for rich diagnostics.
@@ -120,6 +161,12 @@ pub enum CompileErrorKind {
 
     #[error("scope stack underflow: attempted to leave scope with no enclosing scope")]
     ScopeUnderflow,
+
+    #[error("`break` outside of a loop")]
+    BreakOutsideLoop,
+
+    #[error("`continue` outside of a loop")]
+    ContinueOutsideLoop,
 }
 
 impl CompileErrorKind {

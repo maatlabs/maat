@@ -4,6 +4,68 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-02-26
+
+Type system foundation release. Maat now performs Hindley-Milner type inference (Algorithm W) over the entire program, catching type errors at compile time. This release also introduces loop constructs (`for`, `while`, `loop`), typed function parameters, return type annotations, generic type parameters, and trait bounds--laying the groundwork for custom types in a future release.
+
+### Added
+
+#### Type System (Hindley-Milner / Algorithm W)
+
+- **`maat_types` crate**: Full Hindley-Milner type inference engine
+  - Algorithm W with unification and occurs-check for sound polymorphism
+  - Type inference for `let` bindings, function literals, calls, conditionals, loops, arrays, hashes, index expressions, and cast expressions
+  - Type annotations on `let` bindings (`let x: i64 = 5;`) enforced via unification
+  - Typed function parameters (`fn(x: i64, y: i64) -> i64 { x + y }`)
+  - Return type annotations validated against inferred body type
+  - Generic functions (`fn identity<T>(x: T) -> T { x }`) with parametric polymorphism
+  - Compile-time type errors for mismatches (e.g., `let x: i8 = 256;` is rejected)
+  - Constant folding: `1 + 2` folds to `3` at compile time
+
+#### Loops and Control Flow
+
+- **`for` loops**: `for x in collection { body }` iteration over arrays
+- **`while` loops**: `while condition { body }` conditional loops
+- **`loop` loops**: `loop { body }` infinite loops (exit via `break`)
+- **`break` statement**: Exit from any loop construct
+- **`continue` statement**: Skip to the next loop iteration
+- Full compilation to bytecode for all loop constructs
+
+#### Typed Syntax Extensions
+
+- **Arrow token (`->`)**: Return type annotation syntax for functions
+- **`where` keyword**: Reserved for future trait bound clauses
+- **Type expressions**: Parser support for type annotations (`i8`, `i16`, ..., `f64`, `usize`, `bool`, `str`, named types, generic types `T<U>`, array types `[T]`, function types `fn(T) -> U`)
+- **Typed parameters**: Function parameters with optional type annotations (`x: i64`)
+- **Generic parameters**: Type parameter lists on functions (`fn foo<T, U>(...)`)
+- **Trait bounds**: Bound syntax on generic parameters (`T: Display + Clone`)
+
+#### Testing & Examples
+
+- New example programs exercising the type checker: typed functions, generics, type errors
+- Existing example programs updated with type annotations
+- `Display` implementation tests for all AST node types
+
+### Changed
+
+- **Lexer**: Added `Arrow` (`->`) and `Where` keyword tokens
+- **AST**: Extended with `TypeExpr`, `TypedParam`, `GenericParam`, and `TraitBound` nodes; function literals carry optional generic parameters and return type annotations
+- **Parser**: Refactored to parse type annotations, typed parameters, generic parameter lists, and trait bounds
+- **Runtime `Object`**: Extended to support `for`, `while`, and `loop` evaluation
+- **Evaluator**: Added evaluation logic for `for`, `while`, `loop`, `break`, and `continue`
+- **Compiler**: Added bytecode compilation for `for`, `while`, and `loop` statements
+- **Builtins**: Consolidated built-in function registry into a single location
+- **Parser internals**: Removed numeric suffix strip macros (superseded by type system)
+- **VM**: Eliminated non-determinism; `F32`/`F64` retained in standard execution mode for now
+
+### Security
+
+- Type checking catches type mismatches at compile time, preventing classes of runtime errors
+- Occurs-check in unification prevents infinite types (soundness guarantee)
+- No unsafe code
+
+---
+
 ## [0.5.0] - 2026-02-23
 
 CLI toolchain and language foundation release. Maat now supports file-based compilation and execution via `maat run`, `maat build`, and `maat exec`, with source-location error reporting, cast expressions, bytecode serialization, and shared instruction memory.
@@ -433,6 +495,7 @@ When adding entries to this changelog for future releases:
 3. **Audience**: Write for users, not developers (focus on impact, not implementation)
 4. **Links**: Add comparison links at the bottom: `[0.2.0]: https://github.com/maatlabs/maat/compare/v0.1.0...v0.2.0`
 
+[0.6.0]: https://github.com/maatlabs/maat/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/maatlabs/maat/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/maatlabs/maat/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/maatlabs/maat/compare/v0.2.0...v0.3.0

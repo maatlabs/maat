@@ -40,6 +40,20 @@ pub enum TokenKind {
     Macro,
     /// The `as` keyword for type cast expressions.
     As,
+    /// The `loop` keyword for infinite loops.
+    Loop,
+    /// The `while` keyword for conditional loops.
+    While,
+    /// The `for` keyword for iterator loops.
+    For,
+    /// The `in` keyword for iterator binding.
+    In,
+    /// The `break` keyword for loop termination.
+    Break,
+    /// The `continue` keyword for loop continuation.
+    Continue,
+    /// The `where` keyword for trait bound clauses.
+    Where,
 
     /// A user-defined identifier (variable, function name, etc.).
     Ident,
@@ -90,9 +104,11 @@ pub enum TokenKind {
     /// The division operator `/`.
     Slash,
 
-    /// The less-than comparison operator `<`.
+    /// The less-than comparison operator or
+    /// left angle bracket `<`.
     Less,
-    /// The greater-than comparison operator `>`.
+    /// The greater-than comparison operator or
+    /// right angle bracket `>`.
     Greater,
     /// The less-than-or-equal comparison operator `<=`.
     LessEqual,
@@ -122,6 +138,8 @@ pub enum TokenKind {
     LBracket,
     /// The right bracket `]`.
     RBracket,
+    /// The return type arrow `->`.
+    Arrow,
 
     /// An invalid or unrecognized token.
     Invalid,
@@ -165,6 +183,13 @@ impl TokenKind {
             "return" => Self::Return,
             "macro" => Self::Macro,
             "as" => Self::As,
+            "loop" => Self::Loop,
+            "while" => Self::While,
+            "for" => Self::For,
+            "in" => Self::In,
+            "break" => Self::Break,
+            "continue" => Self::Continue,
+            "where" => Self::Where,
             _ => Self::Ident,
         }
     }
