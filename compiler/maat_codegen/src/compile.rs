@@ -537,7 +537,7 @@ impl Compiler {
                     self.symbols_table.define_function_name(name);
                 }
 
-                for param in &func.params {
+                for param in func.param_names() {
                     if let Err(e) = self.symbols_table.define_symbol(param) {
                         return Err(self.attach_span(e, func.span));
                     }
