@@ -453,7 +453,7 @@ fn parse_function_literal() {
         panic!("expected Function expression");
     };
 
-    assert_eq!(func.params, vec!["x", "y"]);
+    assert_eq!(func.param_names().collect::<Vec<_>>(), vec!["x", "y"]);
     assert_eq!(func.body.statements.len(), 1);
     assert_eq!(func.body.statements[0].to_string(), "(x + y)");
 }
@@ -475,7 +475,8 @@ fn parse_function_parameters() {
         else {
             panic!("expected Function expression");
         };
-        assert_eq!(func.params, *expected_params);
+        let names: Vec<&str> = func.param_names().collect();
+        assert_eq!(names, *expected_params);
     });
 }
 

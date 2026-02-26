@@ -104,9 +104,11 @@ pub enum TokenKind {
     /// The division operator `/`.
     Slash,
 
-    /// The less-than comparison operator `<`.
+    /// The less-than comparison operator or
+    /// left angle bracket `<`.
     Less,
-    /// The greater-than comparison operator `>`.
+    /// The greater-than comparison operator or
+    /// right angle bracket `>`.
     Greater,
     /// The less-than-or-equal comparison operator `<=`.
     LessEqual,
