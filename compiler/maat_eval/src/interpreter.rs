@@ -76,7 +76,7 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
             Expression::Conditional(cond_expr) => eval_conditional_expression(cond_expr, env),
             Expression::Identifier(ident) => eval_identifier(ident.value, env),
             Expression::Function(func_lit) => Ok(Object::Function(Function {
-                params: func_lit.params,
+                params: func_lit.param_names().map(String::from).collect(),
                 body: func_lit.body,
                 env: env.clone(),
             })),
@@ -108,7 +108,7 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
                     }
                     let node = Node::Expression(call_expr.arguments[0].clone());
                     let node = eval_unquote_calls(node, env);
-                    return Ok(Object::Quote(Quote { node }));
+                    return Ok(Object::Quote(Box::new(Quote { node })));
                 }
                 eval_function_call(call_expr, env)
             }

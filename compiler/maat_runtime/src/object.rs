@@ -68,7 +68,7 @@ pub enum Object {
     /// A macro object with parameters, body, and closure environment.
     Macro(Macro),
     /// A quoted AST node for metaprogramming.
-    Quote(Quote),
+    Quote(Box<Quote>),
     /// Wraps a return value for early function/block termination.
     ReturnValue(Box<Object>),
     /// Signals a `break` from a loop, optionally carrying a value.

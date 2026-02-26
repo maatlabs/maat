@@ -71,9 +71,9 @@ pub fn expand_macros(program: Node, env: &Env) -> Node {
                 .arguments
                 .iter()
                 .map(|arg| {
-                    Object::Quote(Quote {
+                    Object::Quote(Box::new(Quote {
                         node: Node::Expression(arg.clone()),
-                    })
+                    }))
                 })
                 .collect::<Vec<_>>();
 
