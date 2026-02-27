@@ -130,8 +130,8 @@ mod tests {
                 Object::Usize(42),
                 Object::F32(std::f32::consts::PI),
                 Object::F64(std::f64::consts::E),
-                Object::Boolean(true),
-                Object::Boolean(false),
+                Object::Bool(true),
+                Object::Bool(false),
             ],
             source_map: SourceMap::new(),
         };
@@ -143,9 +143,9 @@ mod tests {
         let bc = Bytecode {
             instructions: Instructions::new(),
             constants: vec![
-                Object::String(String::new()),
-                Object::String("hello, world!".to_owned()),
-                Object::String("\u{1F600}".to_owned()),
+                Object::Str(String::new()),
+                Object::Str("hello, world!".to_owned()),
+                Object::Str("\u{1F600}".to_owned()),
             ],
             source_map: SourceMap::new(),
         };
@@ -158,8 +158,8 @@ mod tests {
             instructions: Instructions::new(),
             constants: vec![Object::Array(vec![
                 Object::I64(1),
-                Object::String("two".to_owned()),
-                Object::Boolean(true),
+                Object::Str("two".to_owned()),
+                Object::Bool(true),
                 Object::Array(vec![Object::I64(3), Object::I64(4)]),
             ])],
             source_map: SourceMap::new(),
@@ -170,8 +170,8 @@ mod tests {
     #[test]
     fn hash_constant() {
         let mut pairs = indexmap::IndexMap::new();
-        pairs.insert(Hashable::I64(1), Object::String("one".to_owned()));
-        pairs.insert(Hashable::String("key".to_owned()), Object::Boolean(true));
+        pairs.insert(Hashable::I64(1), Object::Str("one".to_owned()));
+        pairs.insert(Hashable::Str("key".to_owned()), Object::Bool(true));
 
         let bc = Bytecode {
             instructions: Instructions::new(),
@@ -207,7 +207,7 @@ mod tests {
         };
         let closure = Closure {
             func: cf,
-            free_vars: vec![Object::I64(42), Object::String("captured".to_owned())],
+            free_vars: vec![Object::I64(42), Object::Str("captured".to_owned())],
         };
         let bc = Bytecode {
             instructions: Instructions::new(),
@@ -300,7 +300,7 @@ mod tests {
     fn roundtrip_identity() {
         let bc = Bytecode {
             instructions: Instructions::from(vec![0, 0, 1, 1, 2]),
-            constants: vec![Object::I64(42), Object::String("test".to_owned())],
+            constants: vec![Object::I64(42), Object::Str("test".to_owned())],
             source_map: SourceMap::new(),
         };
         let bytes = bc.serialize().expect("serialize failed");

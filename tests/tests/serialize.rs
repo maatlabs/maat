@@ -25,21 +25,21 @@ fn integer_arithmetic() {
 
 #[test]
 fn boolean_expressions() {
-    run_roundtrip_test("true", Object::Boolean(true));
-    run_roundtrip_test("false", Object::Boolean(false));
-    run_roundtrip_test("1 < 2", Object::Boolean(true));
-    run_roundtrip_test("1 > 2", Object::Boolean(false));
-    run_roundtrip_test("1 == 1", Object::Boolean(true));
-    run_roundtrip_test("1 != 2", Object::Boolean(true));
+    run_roundtrip_test("true", Object::Bool(true));
+    run_roundtrip_test("false", Object::Bool(false));
+    run_roundtrip_test("1 < 2", Object::Bool(true));
+    run_roundtrip_test("1 > 2", Object::Bool(false));
+    run_roundtrip_test("1 == 1", Object::Bool(true));
+    run_roundtrip_test("1 != 2", Object::Bool(true));
 }
 
 #[test]
 fn string_expressions() {
     run_roundtrip_test(
         r#""hello" + " " + "world""#,
-        Object::String("hello world".to_owned()),
+        Object::Str("hello world".to_owned()),
     );
-    run_roundtrip_test(r#""maat""#, Object::String("maat".to_owned()));
+    run_roundtrip_test(r#""maat""#, Object::Str("maat".to_owned()));
 }
 
 #[test]

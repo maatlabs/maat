@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use maat_ast::{BlockStatement, Expression, Node, Program, Statement, TypeAnnotation};
+use maat_ast::{BlockStmt, Expr, Node, Program, Stmt, TypeAnnotation};
 use maat_bytecode::{
     Bytecode, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, Opcode, TypeTag, encode,
 };
@@ -150,8 +150,8 @@ impl Compiler {
     pub fn compile(&mut self, node: &Node) -> Result<()> {
         match node {
             Node::Program(program) => self.compile_program(program),
-            Node::Statement(stmt) => self.compile_statement(stmt),
-            Node::Expression(expr) => self.compile_expression(expr),
+            Node::Stmt(stmt) => self.compile_statement(stmt),
+            Node::Expr(expr) => self.compile_expression(expr),
         }
     }
 
@@ -164,15 +164,15 @@ impl Compiler {
     }
 
     /// Compiles a statement node.
-    fn compile_statement(&mut self, stmt: &Statement) -> Result<()> {
+    fn compile_statement(&mut self, stmt: &Stmt) -> Result<()> {
         match stmt {
-            Statement::Expression(expr_stmt) => {
+            Stmt::Expr(expr_stmt) => {
                 self.compile_expression(&expr_stmt.value)?;
                 self.emit(Opcode::Pop, &[], expr_stmt.span);
                 Ok(())
             }
-            Statement::Block(block) => self.compile_block_statement(block),
-            Statement::Let(let_stmt) => {
+            Stmt::Block(block) => self.compile_block_statement(block),
+            Stmt::Let(let_stmt) => {
                 let span = let_stmt.span;
                 self.compile_expression(&let_stmt.value)?;
                 let symbol = match self.symbols_table.define_symbol(&let_stmt.ident) {
@@ -189,13 +189,13 @@ impl Compiler {
                 };
                 Ok(())
             }
-            Statement::Return(ret_stmt) => {
+            Stmt::Return(ret_stmt) => {
                 self.compile_expression(&ret_stmt.value)?;
                 self.emit(Opcode::ReturnValue, &[], ret_stmt.span);
                 Ok(())
             }
 
-            Statement::Loop(loop_stmt) => {
+            Stmt::Loop(loop_stmt) => {
                 let start = self.current_instructions().len();
 
                 self.loop_contexts.push(LoopContext {
@@ -220,7 +220,7 @@ impl Compiler {
                 Ok(())
             }
 
-            Statement::While(while_stmt) => {
+            Stmt::While(while_stmt) => {
                 let start = self.current_instructions().len();
 
                 self.loop_contexts.push(LoopContext {
@@ -254,7 +254,7 @@ impl Compiler {
                 Ok(())
             }
 
-            Statement::For(for_stmt) => {
+            Stmt::For(for_stmt) => {
                 // Desugar: evaluate iterable, bind a hidden counter, iterate via index.
                 //
                 //   let __iter = <iterable>;
@@ -360,7 +360,7 @@ impl Compiler {
     }
 
     /// Compiles a sequence of statements.
-    fn compile_block_statement(&mut self, block: &BlockStatement) -> Result<()> {
+    fn compile_block_statement(&mut self, block: &BlockStmt) -> Result<()> {
         for stmt in &block.statements {
             self.compile_statement(stmt)?;
         }
@@ -375,37 +375,33 @@ impl Compiler {
     }
 
     /// Compiles an expression node into bytecode.
-    fn compile_expression(&mut self, expr: &Expression) -> Result<()> {
+    fn compile_expression(&mut self, expr: &Expr) -> Result<()> {
         let span = expr.span();
         match expr {
-            Expression::I8(lit) => self.compile_numeric_constant(Object::I8(lit.value), span),
-            Expression::I16(lit) => self.compile_numeric_constant(Object::I16(lit.value), span),
-            Expression::I32(lit) => self.compile_numeric_constant(Object::I32(lit.value), span),
-            Expression::I64(lit) => self.compile_numeric_constant(Object::I64(lit.value), span),
-            Expression::I128(lit) => self.compile_numeric_constant(Object::I128(lit.value), span),
-            Expression::Isize(lit) => self.compile_numeric_constant(Object::Isize(lit.value), span),
+            Expr::I8(lit) => self.compile_numeric_constant(Object::I8(lit.value), span),
+            Expr::I16(lit) => self.compile_numeric_constant(Object::I16(lit.value), span),
+            Expr::I32(lit) => self.compile_numeric_constant(Object::I32(lit.value), span),
+            Expr::I64(lit) => self.compile_numeric_constant(Object::I64(lit.value), span),
+            Expr::I128(lit) => self.compile_numeric_constant(Object::I128(lit.value), span),
+            Expr::Isize(lit) => self.compile_numeric_constant(Object::Isize(lit.value), span),
 
-            Expression::U8(lit) => self.compile_numeric_constant(Object::U8(lit.value), span),
-            Expression::U16(lit) => self.compile_numeric_constant(Object::U16(lit.value), span),
-            Expression::U32(lit) => self.compile_numeric_constant(Object::U32(lit.value), span),
-            Expression::U64(lit) => self.compile_numeric_constant(Object::U64(lit.value), span),
-            Expression::U128(lit) => self.compile_numeric_constant(Object::U128(lit.value), span),
-            Expression::Usize(lit) => self.compile_numeric_constant(Object::Usize(lit.value), span),
+            Expr::U8(lit) => self.compile_numeric_constant(Object::U8(lit.value), span),
+            Expr::U16(lit) => self.compile_numeric_constant(Object::U16(lit.value), span),
+            Expr::U32(lit) => self.compile_numeric_constant(Object::U32(lit.value), span),
+            Expr::U64(lit) => self.compile_numeric_constant(Object::U64(lit.value), span),
+            Expr::U128(lit) => self.compile_numeric_constant(Object::U128(lit.value), span),
+            Expr::Usize(lit) => self.compile_numeric_constant(Object::Usize(lit.value), span),
 
-            Expression::F32(lit) => {
-                self.compile_numeric_constant(Object::F32(f32::from(*lit)), span)
-            }
-            Expression::F64(lit) => {
-                self.compile_numeric_constant(Object::F64(f64::from(*lit)), span)
-            }
+            Expr::F32(lit) => self.compile_numeric_constant(Object::F32(f32::from(*lit)), span),
+            Expr::F64(lit) => self.compile_numeric_constant(Object::F64(f64::from(*lit)), span),
 
-            Expression::Boolean(b) => {
+            Expr::Bool(b) => {
                 let opcode = if b.value { Opcode::True } else { Opcode::False };
                 self.emit(opcode, &[], span);
                 Ok(())
             }
 
-            Expression::Prefix(prefix_expr) => {
+            Expr::Prefix(prefix_expr) => {
                 self.compile_expression(&prefix_expr.operand)?;
 
                 let opcode = match prefix_expr.operator.as_str() {
@@ -425,7 +421,7 @@ impl Compiler {
                 Ok(())
             }
 
-            Expression::Infix(infix_expr) => {
+            Expr::Infix(infix_expr) => {
                 self.compile_expression(&infix_expr.lhs)?;
                 self.compile_expression(&infix_expr.rhs)?;
 
@@ -452,7 +448,7 @@ impl Compiler {
                 Ok(())
             }
 
-            Expression::Conditional(cond) => {
+            Expr::Cond(cond) => {
                 self.compile_expression(&cond.condition)?;
 
                 let cond_jump_pos =
@@ -485,7 +481,7 @@ impl Compiler {
                 Ok(())
             }
 
-            Expression::Identifier(ident) => {
+            Expr::Ident(ident) => {
                 let symbol = self
                     .symbols_table
                     .resolve_symbol(&ident.value)
@@ -499,14 +495,14 @@ impl Compiler {
                 Ok(())
             }
 
-            Expression::String(s) => {
-                let constant = Object::String(s.value.clone());
+            Expr::Str(s) => {
+                let constant = Object::Str(s.value.clone());
                 let index = self.add_constant(constant)?;
                 self.emit(Opcode::Constant, &[index], span);
                 Ok(())
             }
 
-            Expression::Array(array) => {
+            Expr::Array(array) => {
                 for element in &array.elements {
                     self.compile_expression(element)?;
                 }
@@ -514,7 +510,7 @@ impl Compiler {
                 Ok(())
             }
 
-            Expression::Hash(hash) => {
+            Expr::Map(hash) => {
                 for (key, value) in &hash.pairs {
                     self.compile_expression(key)?;
                     self.compile_expression(value)?;
@@ -523,14 +519,14 @@ impl Compiler {
                 Ok(())
             }
 
-            Expression::Index(index_expr) => {
+            Expr::Index(index_expr) => {
                 self.compile_expression(&index_expr.expr)?;
                 self.compile_expression(&index_expr.index)?;
                 self.emit(Opcode::Index, &[], span);
                 Ok(())
             }
 
-            Expression::Function(func) => {
+            Expr::FnItem(func) => {
                 self.enter_scope();
 
                 if let Some(name) = &func.name {
@@ -572,7 +568,7 @@ impl Compiler {
                 Ok(())
             }
 
-            Expression::Call(call) => {
+            Expr::Call(call) => {
                 self.compile_expression(&call.function)?;
                 for arg in &call.arguments {
                     self.compile_expression(arg)?;
@@ -581,14 +577,14 @@ impl Compiler {
                 Ok(())
             }
 
-            Expression::Cast(cast) => {
+            Expr::Cast(cast) => {
                 self.compile_expression(&cast.expr)?;
                 let tag = Self::type_annotation_to_tag(cast.target);
                 self.emit(Opcode::Convert, &[tag.to_byte() as usize], span);
                 Ok(())
             }
 
-            Expression::Break(break_expr) => {
+            Expr::Break(break_expr) => {
                 if self.loop_contexts.is_empty() {
                     return Err(CompileErrorKind::BreakOutsideLoop
                         .at(break_expr.span)
@@ -612,7 +608,7 @@ impl Compiler {
                 Ok(())
             }
 
-            Expression::Continue(cont_expr) => {
+            Expr::Continue(cont_expr) => {
                 let ctx = self
                     .loop_contexts
                     .last()
@@ -636,7 +632,7 @@ impl Compiler {
                 Ok(())
             }
 
-            Expression::Macro(_) => Err(CompileErrorKind::UnsupportedExpression {
+            Expr::Macro(_) => Err(CompileErrorKind::UnsupportedExpr {
                 expr_type: "macro literal".to_string(),
             }
             .at(span)
@@ -898,11 +894,11 @@ mod tests {
 
     #[test]
     fn unsupported_prefix_operator() {
-        use maat_ast::{ExpressionStatement, I64, PrefixExpr, Radix};
+        use maat_ast::{ExprStmt, I64, PrefixExpr, Radix};
 
-        let expr = Expression::Prefix(PrefixExpr {
+        let expr = Expr::Prefix(PrefixExpr {
             operator: "~".to_string(),
-            operand: Box::new(Expression::I64(I64 {
+            operand: Box::new(Expr::I64(I64 {
                 value: 5,
                 radix: Radix::Dec,
                 span: Span::ZERO,
@@ -911,7 +907,7 @@ mod tests {
         });
 
         let program = Program {
-            statements: vec![Statement::Expression(ExpressionStatement {
+            statements: vec![Stmt::Expr(ExprStmt {
                 value: expr,
                 span: Span::ZERO,
             })],

@@ -8,65 +8,65 @@ use maat_span::Span;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Node {
     Program(Program),
-    Statement(Statement),
-    Expression(Expression),
+    Stmt(Stmt),
+    Expr(Expr),
 }
 
-/// A complete program in Maat.
+/// A complete compilation unit (crate).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Program {
-    pub statements: Vec<Statement>,
+    pub statements: Vec<Stmt>,
 }
 
 /// Statements: `let` bindings, `return` statements, expression
 /// statements, or nested blocks.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Statement {
-    Let(LetStatement),
-    Return(ReturnStatement),
-    Expression(ExpressionStatement),
-    Block(BlockStatement),
-    Loop(LoopStatement),
-    While(WhileStatement),
-    For(ForStatement),
+pub enum Stmt {
+    Let(LetStmt),
+    Return(ReturnStmt),
+    Expr(ExprStmt),
+    Block(BlockStmt),
+    Loop(LoopStmt),
+    While(WhileStmt),
+    For(ForStmt),
 }
 
-/// A `let` binding: `let <ident> = <value>;` or `let <ident>: <type> = <value>;`.
+/// A `let` binding: `let <ident> = <value>;` or
+/// `let <ident>: <type> = <value>;`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct LetStatement {
+pub struct LetStmt {
     pub ident: String,
     pub type_annotation: Option<TypeExpr>,
-    pub value: Expression,
+    pub value: Expr,
     pub span: Span,
 }
 
 /// A `return` statement: `return <value>;`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ReturnStatement {
-    pub value: Expression,
+pub struct ReturnStmt {
+    pub value: Expr,
     pub span: Span,
 }
 
 /// An expression used as a statement.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ExpressionStatement {
-    pub value: Expression,
+pub struct ExprStmt {
+    pub value: Expr,
     pub span: Span,
 }
 
 /// A block of statements: `{ ... }`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct BlockStatement {
-    pub statements: Vec<Statement>,
+pub struct BlockStmt {
+    pub statements: Vec<Stmt>,
     pub span: Span,
 }
 
 /// All possible expression types in Maat.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Expression {
-    Identifier(Ident),
+pub enum Expr {
+    Ident(Ident),
 
-    // Signed integer types
     I8(I8),
     I16(I16),
     I32(I32),
@@ -74,7 +74,6 @@ pub enum Expression {
     I128(I128),
     Isize(Isize),
 
-    // Unsigned integer types
     U8(U8),
     U16(U16),
     U32(U32),
@@ -82,31 +81,31 @@ pub enum Expression {
     U128(U128),
     Usize(Usize),
 
-    // Floating-point types
     F32(F32),
     F64(F64),
 
-    Boolean(BooleanLiteral),
-    String(StringLiteral),
-    Array(ArrayLiteral),
+    Bool(Bool),
+    Str(Str),
+    Array(Array),
     Index(IndexExpr),
-    Hash(HashLiteral),
+    Map(Map),
+
     Prefix(PrefixExpr),
     Infix(InfixExpr),
-    Conditional(ConditionalExpr),
-    Function(Function),
-    Macro(MacroLiteral),
+    Cond(CondExpr),
+    FnItem(FnItem),
+    Macro(Macro),
     Call(CallExpr),
     Cast(CastExpr),
     Break(BreakExpr),
     Continue(ContinueExpr),
 }
 
-impl Expression {
+impl Expr {
     /// Returns the source span covering this expression.
     pub fn span(&self) -> Span {
         match self {
-            Self::Identifier(v) => v.span,
+            Self::Ident(v) => v.span,
             Self::I8(v) => v.span,
             Self::I16(v) => v.span,
             Self::I32(v) => v.span,
@@ -121,15 +120,15 @@ impl Expression {
             Self::Usize(v) => v.span,
             Self::F32(v) => v.span,
             Self::F64(v) => v.span,
-            Self::Boolean(v) => v.span,
-            Self::String(v) => v.span,
+            Self::Bool(v) => v.span,
+            Self::Str(v) => v.span,
             Self::Array(v) => v.span,
             Self::Index(v) => v.span,
-            Self::Hash(v) => v.span,
+            Self::Map(v) => v.span,
             Self::Prefix(v) => v.span,
             Self::Infix(v) => v.span,
-            Self::Conditional(v) => v.span,
-            Self::Function(v) => v.span,
+            Self::Cond(v) => v.span,
+            Self::FnItem(v) => v.span,
             Self::Macro(v) => v.span,
             Self::Call(v) => v.span,
             Self::Cast(v) => v.span,
@@ -197,14 +196,14 @@ pub struct Ident {
 
 /// A boolean literal (`true` or `false`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct BooleanLiteral {
+pub struct Bool {
     pub value: bool,
     pub span: Span,
 }
 
 /// A string literal.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct StringLiteral {
+pub struct Str {
     pub value: String,
     pub span: Span,
 }
@@ -279,23 +278,23 @@ define_float_type!(F64, f64, u64, "64-bit floating-point literal.");
 
 /// Arrays: `[expr, expr, ...]`
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ArrayLiteral {
-    pub elements: Vec<Expression>,
+pub struct Array {
+    pub elements: Vec<Expr>,
     pub span: Span,
 }
 
 /// Indexing operation: `<lhs>[<index>]`
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct IndexExpr {
-    pub expr: Box<Expression>,
-    pub index: Box<Expression>,
+    pub expr: Box<Expr>,
+    pub index: Box<Expr>,
     pub span: Span,
 }
 
-/// Hash literal: `{ key: value, ... }`
+/// Key-value hash literal: `{ key: value, ... }`
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct HashLiteral {
-    pub pairs: Vec<(Expression, Expression)>,
+pub struct Map {
+    pub pairs: Vec<(Expr, Expr)>,
     pub span: Span,
 }
 
@@ -303,29 +302,29 @@ pub struct HashLiteral {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PrefixExpr {
     pub operator: String,
-    pub operand: Box<Expression>,
+    pub operand: Box<Expr>,
     pub span: Span,
 }
 
 /// Binary/infix expression: `<lhs> <operator> <rhs>`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct InfixExpr {
-    pub lhs: Box<Expression>,
+    pub lhs: Box<Expr>,
     pub operator: String,
-    pub rhs: Box<Expression>,
+    pub rhs: Box<Expr>,
     pub span: Span,
 }
 
-/// Conditional (if/else) expression.
+/// Cond (if/else) expression.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ConditionalExpr {
-    pub condition: Box<Expression>,
-    pub consequence: BlockStatement,
-    pub alternative: Option<BlockStatement>,
+pub struct CondExpr {
+    pub condition: Box<Expr>,
+    pub consequence: BlockStmt,
+    pub alternative: Option<BlockStmt>,
     pub span: Span,
 }
 
-/// Function literal with optional name for recursive self-reference.
+/// FnItem literal with optional name for recursive self-reference.
 ///
 /// Named functions are created when a function literal is assigned via a
 /// `let` binding (e.g., `let foo = fn(x) { ... }`). The name enables
@@ -339,16 +338,16 @@ pub struct ConditionalExpr {
 /// fn<T>(x: T, y: i64) -> T { x }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Function {
+pub struct FnItem {
     pub name: Option<String>,
     pub params: Vec<TypedParam>,
     pub generic_params: Vec<GenericParam>,
     pub return_type: Option<TypeExpr>,
-    pub body: BlockStatement,
+    pub body: BlockStmt,
     pub span: Span,
 }
 
-impl Function {
+impl FnItem {
     /// Returns an iterator over the parameter names.
     pub fn param_names(&self) -> impl Iterator<Item = &str> {
         self.params.iter().map(|p| p.name.as_str())
@@ -357,24 +356,24 @@ impl Function {
 
 /// Macro literal
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct MacroLiteral {
+pub struct Macro {
     pub params: Vec<String>,
-    pub body: BlockStatement,
+    pub body: BlockStmt,
     pub span: Span,
 }
 
-/// Function call
+/// FnItem call
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CallExpr {
-    pub function: Box<Expression>,
-    pub arguments: Vec<Expression>,
+    pub function: Box<Expr>,
+    pub arguments: Vec<Expr>,
     pub span: Span,
 }
 
 /// Explicit type cast: `expression as type`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CastExpr {
-    pub expr: Box<Expression>,
+    pub expr: Box<Expr>,
     pub target: TypeAnnotation,
     pub span: Span,
 }
@@ -384,25 +383,25 @@ pub struct CastExpr {
 /// Exits only via `break`. The optional break value becomes
 /// the loop expression's result.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct LoopStatement {
-    pub body: BlockStatement,
+pub struct LoopStmt {
+    pub body: BlockStmt,
     pub span: Span,
 }
 
 /// A conditional loop: `while <condition> { <body> }`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct WhileStatement {
-    pub condition: Box<Expression>,
-    pub body: BlockStatement,
+pub struct WhileStmt {
+    pub condition: Box<Expr>,
+    pub body: BlockStmt,
     pub span: Span,
 }
 
 /// An iterator loop: `for <ident> in <iterable> { <body> }`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ForStatement {
+pub struct ForStmt {
     pub ident: String,
-    pub iterable: Box<Expression>,
-    pub body: BlockStatement,
+    pub iterable: Box<Expr>,
+    pub body: BlockStmt,
     pub span: Span,
 }
 
@@ -412,7 +411,7 @@ pub struct ForStatement {
 /// loop's result. In `while` and `for` loops, break takes no value.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BreakExpr {
-    pub value: Option<Box<Expression>>,
+    pub value: Option<Box<Expr>>,
     pub span: Span,
 }
 
@@ -443,7 +442,7 @@ pub struct ContinueExpr {
 pub enum TypeExpr {
     Named(NamedType),
     Array(Box<TypeExpr>, Span),
-    Hash(Box<TypeExpr>, Box<TypeExpr>, Span),
+    Map(Box<TypeExpr>, Box<TypeExpr>, Span),
     Fn(Vec<TypeExpr>, Box<TypeExpr>, Span),
     Generic(String, Vec<TypeExpr>, Span),
 }
@@ -453,10 +452,9 @@ impl TypeExpr {
     pub fn span(&self) -> Span {
         match self {
             Self::Named(n) => n.span,
-            Self::Array(_, s)
-            | Self::Hash(_, _, s)
-            | Self::Fn(_, _, s)
-            | Self::Generic(_, _, s) => *s,
+            Self::Array(_, s) | Self::Map(_, _, s) | Self::Fn(_, _, s) | Self::Generic(_, _, s) => {
+                *s
+            }
         }
     }
 }
@@ -586,8 +584,8 @@ impl fmt::Display for Node {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Program(p) => p.fmt(f),
-            Self::Statement(s) => s.fmt(f),
-            Self::Expression(e) => e.fmt(f),
+            Self::Stmt(s) => s.fmt(f),
+            Self::Expr(e) => e.fmt(f),
         }
     }
 }
@@ -601,12 +599,12 @@ impl fmt::Display for Program {
     }
 }
 
-impl fmt::Display for Statement {
+impl fmt::Display for Stmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Let(let_stmt) => let_stmt.fmt(f)?,
             Self::Return(ret_stmt) => ret_stmt.fmt(f)?,
-            Self::Expression(expr_stmt) => expr_stmt.fmt(f)?,
+            Self::Expr(expr_stmt) => expr_stmt.fmt(f)?,
             Self::Block(block_stmt) => block_stmt.fmt(f)?,
             Self::Loop(loop_stmt) => loop_stmt.fmt(f)?,
             Self::While(while_stmt) => while_stmt.fmt(f)?,
@@ -616,7 +614,7 @@ impl fmt::Display for Statement {
     }
 }
 
-impl fmt::Display for LetStatement {
+impl fmt::Display for LetStmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.type_annotation {
             Some(ty) => write!(f, "let {}: {} = {};", self.ident, ty, self.value),
@@ -625,19 +623,19 @@ impl fmt::Display for LetStatement {
     }
 }
 
-impl fmt::Display for ReturnStatement {
+impl fmt::Display for ReturnStmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "return {};", self.value)
     }
 }
 
-impl fmt::Display for ExpressionStatement {
+impl fmt::Display for ExprStmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.value)
     }
 }
 
-impl fmt::Display for BlockStatement {
+impl fmt::Display for BlockStmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.statements.is_empty() {
             write!(f, "{{}}")
@@ -652,7 +650,7 @@ impl fmt::Display for BlockStatement {
     }
 }
 
-impl fmt::Display for Expression {
+impl fmt::Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         macro_rules! fmt_int {
             ($v:expr) => {
@@ -666,7 +664,7 @@ impl fmt::Display for Expression {
         }
 
         match self {
-            Self::Identifier(ident) => ident.value.fmt(f),
+            Self::Ident(ident) => ident.value.fmt(f),
 
             // Integer types
             Self::I8(v) => fmt_int!(v),
@@ -692,15 +690,15 @@ impl fmt::Display for Expression {
                 write!(f, "{val}")
             }
 
-            Self::Boolean(b) => b.value.fmt(f),
-            Self::String(s) => s.value.fmt(f),
+            Self::Bool(b) => b.value.fmt(f),
+            Self::Str(s) => s.value.fmt(f),
             Self::Array(array_lit) => array_lit.fmt(f),
             Self::Index(index_expr) => index_expr.fmt(f),
-            Self::Hash(hash_lit) => hash_lit.fmt(f),
+            Self::Map(map) => map.fmt(f),
             Self::Prefix(prefix_expr) => prefix_expr.fmt(f),
             Self::Infix(infix_expr) => infix_expr.fmt(f),
-            Self::Conditional(cond_expr) => cond_expr.fmt(f),
-            Self::Function(func_lit) => func_lit.fmt(f),
+            Self::Cond(cond_expr) => cond_expr.fmt(f),
+            Self::FnItem(func_lit) => func_lit.fmt(f),
             Self::Macro(macro_lit) => macro_lit.fmt(f),
             Self::Call(call_expr) => call_expr.fmt(f),
             Self::Cast(cast_expr) => cast_expr.fmt(f),
@@ -710,7 +708,7 @@ impl fmt::Display for Expression {
     }
 }
 
-impl fmt::Display for ArrayLiteral {
+impl fmt::Display for Array {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -730,7 +728,7 @@ impl fmt::Display for IndexExpr {
     }
 }
 
-impl fmt::Display for HashLiteral {
+impl fmt::Display for Map {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -756,7 +754,7 @@ impl fmt::Display for InfixExpr {
     }
 }
 
-impl fmt::Display for ConditionalExpr {
+impl fmt::Display for CondExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "if {} {}", self.condition, self.consequence)?;
         if let Some(alternative) = &self.alternative {
@@ -766,7 +764,7 @@ impl fmt::Display for ConditionalExpr {
     }
 }
 
-impl fmt::Display for Function {
+impl fmt::Display for FnItem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let params = self
             .params
@@ -800,7 +798,7 @@ impl fmt::Display for Function {
     }
 }
 
-impl fmt::Display for MacroLiteral {
+impl fmt::Display for Macro {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "macro({}) {}", self.params.join(", "), self.body)
     }
@@ -827,19 +825,19 @@ impl fmt::Display for CastExpr {
     }
 }
 
-impl fmt::Display for LoopStatement {
+impl fmt::Display for LoopStmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "loop {}", self.body)
     }
 }
 
-impl fmt::Display for WhileStatement {
+impl fmt::Display for WhileStmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "while {} {}", self.condition, self.body)
     }
 }
 
-impl fmt::Display for ForStatement {
+impl fmt::Display for ForStmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "for {} in {} {}", self.ident, self.iterable, self.body)
     }
@@ -865,7 +863,7 @@ impl fmt::Display for TypeExpr {
         match self {
             Self::Named(n) => f.write_str(&n.name),
             Self::Array(elem, _) => write!(f, "[{elem}]"),
-            Self::Hash(k, v, _) => write!(f, "{{{k}: {v}}}"),
+            Self::Map(k, v, _) => write!(f, "{{{k}: {v}}}"),
             Self::Fn(params, ret, _) => {
                 let params = params
                     .iter()

@@ -33,7 +33,7 @@ pub enum TokenKind {
     /// The `false` boolean literal.
     False,
     /// The `fn` keyword for function definitions.
-    Function,
+    Fn,
     /// The `return` keyword for early returns.
     Return,
     /// The `macro` keyword for macro definitions.
@@ -168,7 +168,7 @@ impl TokenKind {
     /// ```
     /// # use maat_lexer::TokenKind;
     /// assert_eq!(TokenKind::keyword_or_ident("let"), TokenKind::Let);
-    /// assert_eq!(TokenKind::keyword_or_ident("fn"), TokenKind::Function);
+    /// assert_eq!(TokenKind::keyword_or_ident("fn"), TokenKind::Fn);
     /// assert_eq!(TokenKind::keyword_or_ident("myvar"), TokenKind::Ident);
     /// ```
     #[inline]
@@ -179,7 +179,7 @@ impl TokenKind {
             "else" => Self::Else,
             "true" => Self::True,
             "false" => Self::False,
-            "fn" => Self::Function,
+            "fn" => Self::Fn,
             "return" => Self::Return,
             "macro" => Self::Macro,
             "as" => Self::As,

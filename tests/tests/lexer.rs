@@ -37,7 +37,7 @@ if (5 < 10) {
         (TokenKind::Let, "let"),
         (TokenKind::Ident, "add"),
         (TokenKind::Assign, "="),
-        (TokenKind::Function, "fn"),
+        (TokenKind::Fn, "fn"),
         (TokenKind::LParen, "("),
         (TokenKind::Ident, "x"),
         (TokenKind::Comma, ","),
@@ -167,7 +167,7 @@ fn keywords() {
     let source = "let fn if else return true false";
     let expected = [
         (TokenKind::Let, "let"),
-        (TokenKind::Function, "fn"),
+        (TokenKind::Fn, "fn"),
         (TokenKind::If, "if"),
         (TokenKind::Else, "else"),
         (TokenKind::Return, "return"),

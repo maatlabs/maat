@@ -42,7 +42,7 @@ fn run_vm_test(input: &str, expected: TestValue) {
             _ => panic!("expected U8, got: {stack_elem:?} for input: {input}"),
         },
         TestValue::Bool(expected_val) => match stack_elem {
-            Object::Boolean(val) => assert_eq!(
+            Object::Bool(val) => assert_eq!(
                 val, expected_val,
                 "wrong value for input: {input}\n  got: {val}\n  want: {expected_val}"
             ),
@@ -126,7 +126,7 @@ fn constant_folding_boolean() {
     let mut vm = VM::new(bytecode);
     vm.run().expect("vm error");
     let result = vm.last_popped_stack_elem().expect("no value").clone();
-    assert_eq!(result, Object::Boolean(true));
+    assert_eq!(result, Object::Bool(true));
 }
 
 #[test]

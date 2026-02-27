@@ -1,16 +1,16 @@
 use maat_ast::*;
 use maat_span::Span;
 
-fn one() -> Expression {
-    Expression::I64(I64 {
+fn one() -> Expr {
+    Expr::I64(I64 {
         radix: Radix::Dec,
         value: 1,
         span: Span::ZERO,
     })
 }
 
-fn two() -> Expression {
-    Expression::I64(I64 {
+fn two() -> Expr {
+    Expr::I64(I64 {
         radix: Radix::Dec,
         value: 2,
         span: Span::ZERO,
@@ -19,13 +19,11 @@ fn two() -> Expression {
 
 fn turn_one_into_two(node: Node) -> Node {
     match node {
-        Node::Expression(Expression::I64(i)) if i.value == 1 => {
-            Node::Expression(Expression::I64(I64 {
-                radix: i.radix,
-                value: 2,
-                span: i.span,
-            }))
-        }
+        Node::Expr(Expr::I64(i)) if i.value == 1 => Node::Expr(Expr::I64(I64 {
+            radix: i.radix,
+            value: 2,
+            span: i.span,
+        })),
         n => n,
     }
 }
@@ -33,10 +31,10 @@ fn turn_one_into_two(node: Node) -> Node {
 #[test]
 fn transform_integers() {
     let input = one();
-    let modified = transform(Node::Expression(input), &mut turn_one_into_two);
+    let modified = transform(Node::Expr(input), &mut turn_one_into_two);
 
     match modified {
-        Node::Expression(Expression::I64(i)) => assert_eq!(i.value, 2),
+        Node::Expr(Expr::I64(i)) => assert_eq!(i.value, 2),
         _ => panic!("Expected I64 expression"),
     }
 }
@@ -45,11 +43,11 @@ fn transform_integers() {
 fn transform_program() {
     let program = Program {
         statements: vec![
-            Statement::Expression(ExpressionStatement {
+            Stmt::Expr(ExprStmt {
                 value: one(),
                 span: Span::ZERO,
             }),
-            Statement::Expression(ExpressionStatement {
+            Stmt::Expr(ExprStmt {
                 value: two(),
                 span: Span::ZERO,
             }),
@@ -63,8 +61,8 @@ fn transform_program() {
             assert_eq!(prog.statements.len(), 2);
 
             match &prog.statements[0] {
-                Statement::Expression(ExpressionStatement {
-                    value: Expression::I64(i),
+                Stmt::Expr(ExprStmt {
+                    value: Expr::I64(i),
                     ..
                 }) => {
                     assert_eq!(i.value, 2);
@@ -73,8 +71,8 @@ fn transform_program() {
             }
 
             match &prog.statements[1] {
-                Statement::Expression(ExpressionStatement {
-                    value: Expression::I64(i),
+                Stmt::Expr(ExprStmt {
+                    value: Expr::I64(i),
                     ..
                 }) => {
                     assert_eq!(i.value, 2);
@@ -88,23 +86,23 @@ fn transform_program() {
 
 #[test]
 fn transform_infix_expression() {
-    let input = Expression::Infix(InfixExpr {
+    let input = Expr::Infix(InfixExpr {
         lhs: Box::new(one()),
         operator: "+".to_string(),
         rhs: Box::new(two()),
         span: Span::ZERO,
     });
 
-    let modified = transform(Node::Expression(input), &mut turn_one_into_two);
+    let modified = transform(Node::Expr(input), &mut turn_one_into_two);
 
     match modified {
-        Node::Expression(Expression::Infix(infix)) => {
+        Node::Expr(Expr::Infix(infix)) => {
             match *infix.lhs {
-                Expression::I64(i) => assert_eq!(i.value, 2),
+                Expr::I64(i) => assert_eq!(i.value, 2),
                 _ => panic!("Expected I64 for lhs"),
             }
             match *infix.rhs {
-                Expression::I64(i) => assert_eq!(i.value, 2),
+                Expr::I64(i) => assert_eq!(i.value, 2),
                 _ => panic!("Expected I64 for rhs"),
             }
         }
@@ -114,17 +112,17 @@ fn transform_infix_expression() {
 
 #[test]
 fn transform_prefix_expression() {
-    let input = Expression::Prefix(PrefixExpr {
+    let input = Expr::Prefix(PrefixExpr {
         operator: "-".to_string(),
         operand: Box::new(one()),
         span: Span::ZERO,
     });
 
-    let modified = transform(Node::Expression(input), &mut turn_one_into_two);
+    let modified = transform(Node::Expr(input), &mut turn_one_into_two);
 
     match modified {
-        Node::Expression(Expression::Prefix(prefix)) => match *prefix.operand {
-            Expression::I64(i) => assert_eq!(i.value, 2),
+        Node::Expr(Expr::Prefix(prefix)) => match *prefix.operand {
+            Expr::I64(i) => assert_eq!(i.value, 2),
             _ => panic!("Expected I64 for operand"),
         },
         _ => panic!("Expected Prefix expression"),
@@ -133,22 +131,22 @@ fn transform_prefix_expression() {
 
 #[test]
 fn transform_index_expression() {
-    let input = Expression::Index(IndexExpr {
+    let input = Expr::Index(IndexExpr {
         expr: Box::new(one()),
         index: Box::new(one()),
         span: Span::ZERO,
     });
 
-    let modified = transform(Node::Expression(input), &mut turn_one_into_two);
+    let modified = transform(Node::Expr(input), &mut turn_one_into_two);
 
     match modified {
-        Node::Expression(Expression::Index(index)) => {
+        Node::Expr(Expr::Index(index)) => {
             match *index.expr {
-                Expression::I64(i) => assert_eq!(i.value, 2),
+                Expr::I64(i) => assert_eq!(i.value, 2),
                 _ => panic!("Expected I64 for expr"),
             }
             match *index.index {
-                Expression::I64(i) => assert_eq!(i.value, 2),
+                Expr::I64(i) => assert_eq!(i.value, 2),
                 _ => panic!("Expected I64 for index"),
             }
         }
@@ -158,17 +156,17 @@ fn transform_index_expression() {
 
 #[test]
 fn transform_conditional_expression() {
-    let input = Expression::Conditional(ConditionalExpr {
+    let input = Expr::Cond(CondExpr {
         condition: Box::new(one()),
-        consequence: BlockStatement {
-            statements: vec![Statement::Expression(ExpressionStatement {
+        consequence: BlockStmt {
+            statements: vec![Stmt::Expr(ExprStmt {
                 value: one(),
                 span: Span::ZERO,
             })],
             span: Span::ZERO,
         },
-        alternative: Some(BlockStatement {
-            statements: vec![Statement::Expression(ExpressionStatement {
+        alternative: Some(BlockStmt {
+            statements: vec![Stmt::Expr(ExprStmt {
                 value: one(),
                 span: Span::ZERO,
             })],
@@ -177,18 +175,18 @@ fn transform_conditional_expression() {
         span: Span::ZERO,
     });
 
-    let modified = transform(Node::Expression(input), &mut turn_one_into_two);
+    let modified = transform(Node::Expr(input), &mut turn_one_into_two);
 
     match modified {
-        Node::Expression(Expression::Conditional(cond)) => {
+        Node::Expr(Expr::Cond(cond)) => {
             match *cond.condition {
-                Expression::I64(i) => assert_eq!(i.value, 2),
+                Expr::I64(i) => assert_eq!(i.value, 2),
                 _ => panic!("Expected I64 for condition"),
             }
 
             match &cond.consequence.statements[0] {
-                Statement::Expression(ExpressionStatement {
-                    value: Expression::I64(i),
+                Stmt::Expr(ExprStmt {
+                    value: Expr::I64(i),
                     ..
                 }) => {
                     assert_eq!(i.value, 2);
@@ -198,8 +196,8 @@ fn transform_conditional_expression() {
 
             if let Some(alt) = cond.alternative {
                 match &alt.statements[0] {
-                    Statement::Expression(ExpressionStatement {
-                        value: Expression::I64(i),
+                    Stmt::Expr(ExprStmt {
+                        value: Expr::I64(i),
                         ..
                     }) => {
                         assert_eq!(i.value, 2);
@@ -210,22 +208,22 @@ fn transform_conditional_expression() {
                 panic!("Expected alternative");
             }
         }
-        _ => panic!("Expected Conditional expression"),
+        _ => panic!("Expected Cond expression"),
     }
 }
 
 #[test]
 fn transform_return_statement() {
-    let stmt = Statement::Return(ReturnStatement {
+    let stmt = Stmt::Return(ReturnStmt {
         value: one(),
         span: Span::ZERO,
     });
 
-    let modified = transform(Node::Statement(stmt), &mut turn_one_into_two);
+    let modified = transform(Node::Stmt(stmt), &mut turn_one_into_two);
 
     match modified {
-        Node::Statement(Statement::Return(ret)) => match ret.value {
-            Expression::I64(i) => assert_eq!(i.value, 2),
+        Node::Stmt(Stmt::Return(ret)) => match ret.value {
+            Expr::I64(i) => assert_eq!(i.value, 2),
             _ => panic!("Expected I64"),
         },
         _ => panic!("Expected Return statement"),
@@ -234,18 +232,18 @@ fn transform_return_statement() {
 
 #[test]
 fn transform_let_statement() {
-    let stmt = Statement::Let(LetStatement {
+    let stmt = Stmt::Let(LetStmt {
         ident: "x".to_string(),
         type_annotation: None,
         value: one(),
         span: Span::ZERO,
     });
 
-    let modified = transform(Node::Statement(stmt), &mut turn_one_into_two);
+    let modified = transform(Node::Stmt(stmt), &mut turn_one_into_two);
 
     match modified {
-        Node::Statement(Statement::Let(let_stmt)) => match let_stmt.value {
-            Expression::I64(i) => assert_eq!(i.value, 2),
+        Node::Stmt(Stmt::Let(let_stmt)) => match let_stmt.value {
+            Expr::I64(i) => assert_eq!(i.value, 2),
             _ => panic!("Expected I64"),
         },
         _ => panic!("Expected Let statement"),
@@ -254,7 +252,7 @@ fn transform_let_statement() {
 
 #[test]
 fn transform_function_literal() {
-    let func = Expression::Function(Function {
+    let func = Expr::FnItem(FnItem {
         name: None,
         params: vec![TypedParam {
             name: "x".to_string(),
@@ -263,8 +261,8 @@ fn transform_function_literal() {
         }],
         generic_params: vec![],
         return_type: None,
-        body: BlockStatement {
-            statements: vec![Statement::Expression(ExpressionStatement {
+        body: BlockStmt {
+            statements: vec![Stmt::Expr(ExprStmt {
                 value: one(),
                 span: Span::ZERO,
             })],
@@ -273,26 +271,26 @@ fn transform_function_literal() {
         span: Span::ZERO,
     });
 
-    let modified = transform(Node::Expression(func), &mut turn_one_into_two);
+    let modified = transform(Node::Expr(func), &mut turn_one_into_two);
 
     match modified {
-        Node::Expression(Expression::Function(f)) => match &f.body.statements[0] {
-            Statement::Expression(ExpressionStatement {
-                value: Expression::I64(i),
+        Node::Expr(Expr::FnItem(f)) => match &f.body.statements[0] {
+            Stmt::Expr(ExprStmt {
+                value: Expr::I64(i),
                 ..
             }) => {
                 assert_eq!(i.value, 2);
             }
             _ => panic!("Expected I64 in function body"),
         },
-        _ => panic!("Expected Function expression"),
+        _ => panic!("Expected FnItem expression"),
     }
 }
 
 #[test]
 fn transform_function_call() {
-    let call = Expression::Call(CallExpr {
-        function: Box::new(Expression::Identifier(Ident {
+    let call = Expr::Call(CallExpr {
+        function: Box::new(Expr::Ident(Ident {
             value: "myFunc".to_string(),
             span: Span::ZERO,
         })),
@@ -300,19 +298,19 @@ fn transform_function_call() {
         span: Span::ZERO,
     });
 
-    let modified = transform(Node::Expression(call), &mut turn_one_into_two);
+    let modified = transform(Node::Expr(call), &mut turn_one_into_two);
 
     match modified {
-        Node::Expression(Expression::Call(c)) => {
+        Node::Expr(Expr::Call(c)) => {
             assert_eq!(c.arguments.len(), 2);
 
             match &c.arguments[0] {
-                Expression::I64(i) => assert_eq!(i.value, 2),
+                Expr::I64(i) => assert_eq!(i.value, 2),
                 _ => panic!("Expected I64 for first argument"),
             }
 
             match &c.arguments[1] {
-                Expression::I64(i) => assert_eq!(i.value, 2),
+                Expr::I64(i) => assert_eq!(i.value, 2),
                 _ => panic!("Expected I64 for second argument"),
             }
         }
@@ -322,24 +320,24 @@ fn transform_function_call() {
 
 #[test]
 fn transform_array_literal() {
-    let array = Expression::Array(ArrayLiteral {
+    let array = Expr::Array(Array {
         elements: vec![one(), one()],
         span: Span::ZERO,
     });
 
-    let modified = transform(Node::Expression(array), &mut turn_one_into_two);
+    let modified = transform(Node::Expr(array), &mut turn_one_into_two);
 
     match modified {
-        Node::Expression(Expression::Array(arr)) => {
+        Node::Expr(Expr::Array(arr)) => {
             assert_eq!(arr.elements.len(), 2);
 
             match &arr.elements[0] {
-                Expression::I64(i) => assert_eq!(i.value, 2),
+                Expr::I64(i) => assert_eq!(i.value, 2),
                 _ => panic!("Expected I64 for first element"),
             }
 
             match &arr.elements[1] {
-                Expression::I64(i) => assert_eq!(i.value, 2),
+                Expr::I64(i) => assert_eq!(i.value, 2),
                 _ => panic!("Expected I64 for second element"),
             }
         }
@@ -349,24 +347,24 @@ fn transform_array_literal() {
 
 #[test]
 fn transform_hash_literal() {
-    let hash = Expression::Hash(HashLiteral {
+    let hash = Expr::Map(Map {
         pairs: vec![(one(), one()), (one(), one())],
         span: Span::ZERO,
     });
 
-    let modified = transform(Node::Expression(hash), &mut turn_one_into_two);
+    let modified = transform(Node::Expr(hash), &mut turn_one_into_two);
 
     match modified {
-        Node::Expression(Expression::Hash(h)) => {
+        Node::Expr(Expr::Map(h)) => {
             assert_eq!(h.pairs.len(), 2);
 
             for (key, value) in &h.pairs {
                 match key {
-                    Expression::I64(i) => assert_eq!(i.value, 2),
+                    Expr::I64(i) => assert_eq!(i.value, 2),
                     _ => panic!("Expected I64 for key"),
                 }
                 match value {
-                    Expression::I64(i) => assert_eq!(i.value, 2),
+                    Expr::I64(i) => assert_eq!(i.value, 2),
                     _ => panic!("Expected I64 for value"),
                 }
             }
@@ -378,16 +376,16 @@ fn transform_hash_literal() {
 #[test]
 fn transform_nested_structures() {
     let program = Program {
-        statements: vec![Statement::Let(LetStatement {
+        statements: vec![Stmt::Let(LetStmt {
             ident: "x".to_string(),
             type_annotation: None,
-            value: Expression::Infix(InfixExpr {
-                lhs: Box::new(Expression::Array(ArrayLiteral {
+            value: Expr::Infix(InfixExpr {
+                lhs: Box::new(Expr::Array(Array {
                     elements: vec![one(), two()],
                     span: Span::ZERO,
                 })),
                 operator: "+".to_string(),
-                rhs: Box::new(Expression::Hash(HashLiteral {
+                rhs: Box::new(Expr::Map(Map {
                     pairs: vec![(one(), two())],
                     span: Span::ZERO,
                 })),
@@ -401,21 +399,21 @@ fn transform_nested_structures() {
 
     match modified {
         Node::Program(prog) => match &prog.statements[0] {
-            Statement::Let(let_stmt) => match &let_stmt.value {
-                Expression::Infix(infix) => {
+            Stmt::Let(let_stmt) => match &let_stmt.value {
+                Expr::Infix(infix) => {
                     match &*infix.lhs {
-                        Expression::Array(arr) => match &arr.elements[0] {
-                            Expression::I64(i) => assert_eq!(i.value, 2),
+                        Expr::Array(arr) => match &arr.elements[0] {
+                            Expr::I64(i) => assert_eq!(i.value, 2),
                             _ => panic!("Expected modified value in array"),
                         },
                         _ => panic!("Expected Array"),
                     }
 
                     match &*infix.rhs {
-                        Expression::Hash(h) => {
+                        Expr::Map(h) => {
                             let (key, _) = &h.pairs[0];
                             match key {
-                                Expression::I64(i) => assert_eq!(i.value, 2),
+                                Expr::I64(i) => assert_eq!(i.value, 2),
                                 _ => panic!("Expected modified key in hash"),
                             }
                         }

@@ -1,4 +1,4 @@
-use maat_ast::{Expression, Node};
+use maat_ast::{Expr, Node};
 use maat_eval::{define_macros, eval, expand_macros};
 use maat_runtime::{Env, Object};
 
@@ -62,8 +62,8 @@ fn test_define_macros() {
 #[test]
 fn test_expand_macros() {
     let input = r#"
-        let infixExpression = macro() { quote(1 + 2); };
-        infixExpression();
+        let infixExpr = macro() { quote(1 + 2); };
+        infixExpr();
     "#;
     test_macros(input, "(1 + 2)");
 }
@@ -86,7 +86,7 @@ fn test_quote_builtin() {
     let result = eval(Node::Program(program), &env).unwrap();
 
     if let Object::Quote(quote_obj) = result {
-        if let Node::Expression(Expression::Infix(infix)) = &quote_obj.node {
+        if let Node::Expr(Expr::Infix(infix)) = &quote_obj.node {
             assert_eq!(infix.operator, "+");
             assert_eq!(format!("{infix}"), "(5 + 5)");
         } else {

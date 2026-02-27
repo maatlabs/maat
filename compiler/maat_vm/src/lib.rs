@@ -658,7 +658,7 @@ impl VM {
         let right = self.pop_stack()?;
         let left = self.pop_stack()?;
 
-        if let (Object::String(l), Object::String(r)) = (&left, &right) {
+        if let (Object::Str(l), Object::Str(r)) = (&left, &right) {
             return self.execute_binary_string_operation(op, l, r);
         }
 
@@ -699,7 +699,7 @@ impl VM {
 
         // Same-type numeric comparison
         if let Some(result) = self.compare_numeric(op, &left, &right) {
-            return self.push_stack(Object::Boolean(result));
+            return self.push_stack(Object::Bool(result));
         }
 
         // Cross-type integer comparison via i128 widening
@@ -711,13 +711,13 @@ impl VM {
                 Opcode::LessThan => l < r,
                 _ => unreachable!(),
             };
-            return self.push_stack(Object::Boolean(result));
+            return self.push_stack(Object::Bool(result));
         }
 
         // Non-numeric equality (booleans, strings, arrays, etc.)
         match op {
-            Opcode::Equal => self.push_stack(Object::Boolean(left == right)),
-            Opcode::NotEqual => self.push_stack(Object::Boolean(left != right)),
+            Opcode::Equal => self.push_stack(Object::Bool(left == right)),
+            Opcode::NotEqual => self.push_stack(Object::Bool(left != right)),
             _ => Err(self.vm_error(format!(
                 "unsupported comparison: {:?} ({} {})",
                 op,
@@ -749,7 +749,7 @@ impl VM {
     /// Executes the logical NOT (bang) operator.
     fn execute_bang_operator(&mut self) -> Result<()> {
         let result = match self.pop_stack()? {
-            Object::Boolean(false) | Object::Null => TRUE,
+            Object::Bool(false) | Object::Null => TRUE,
             _ => FALSE,
         };
         self.push_stack(result)
@@ -902,7 +902,7 @@ impl VM {
         let mut result = String::with_capacity(left.len() + right.len());
         result.push_str(left);
         result.push_str(right);
-        self.push_stack(Object::String(result))
+        self.push_stack(Object::Str(result))
     }
 
     /// Builds an array object from the top `num_elements` stack values.

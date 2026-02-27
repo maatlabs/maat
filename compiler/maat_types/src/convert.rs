@@ -13,13 +13,13 @@ use crate::ty::{FnType, Type};
 /// - `null` -> [`Type::Null`]
 /// - Unknown names are treated as generic type references.
 ///
-/// Compound types ([`TypeExpr::Array`], [`TypeExpr::Hash`], [`TypeExpr::Fn`],
+/// Compound types ([`TypeExpr::Array`], [`TypeExpr::Map`], [`TypeExpr::Fn`],
 /// [`TypeExpr::Generic`]) are resolved recursively.
 pub fn resolve_type_expr(expr: &TypeExpr) -> Type {
     match expr {
         TypeExpr::Named(named) => resolve_named(&named.name),
         TypeExpr::Array(elem, _) => Type::Array(Box::new(resolve_type_expr(elem))),
-        TypeExpr::Hash(k, v, _) => Type::Hash(
+        TypeExpr::Map(k, v, _) => Type::Hash(
             Box::new(resolve_type_expr(k)),
             Box::new(resolve_type_expr(v)),
         ),

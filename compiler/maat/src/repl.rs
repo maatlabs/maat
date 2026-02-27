@@ -6,7 +6,7 @@
 
 use std::io::{self, BufRead, Write};
 
-use maat_ast::{Node, Statement};
+use maat_ast::{Node, Stmt};
 use maat_codegen::{Compiler, SymbolsTable};
 use maat_errors::Error;
 use maat_eval::{define_macros, expand_macros};
@@ -88,10 +88,7 @@ pub fn start<R: BufRead, W: Write>(mut reader: R, writer: &mut W) -> io::Result<
         }
 
         let only_let_stmts = !program.statements.is_empty()
-            && program
-                .statements
-                .iter()
-                .all(|s| matches!(s, Statement::Let(_)));
+            && program.statements.iter().all(|s| matches!(s, Stmt::Let(_)));
 
         let prev_symbols = symbols_table.clone();
         let prev_constants = constants.clone();

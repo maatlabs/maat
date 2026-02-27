@@ -122,18 +122,18 @@ impl<'a> Parser<'a> {
         program
     }
 
-    fn parse_statement(&mut self) -> Option<Statement> {
+    fn parse_statement(&mut self) -> Option<Stmt> {
         match self.current.kind {
-            TokenKind::Let => self.parse_let_statement().map(Statement::Let),
-            TokenKind::Return => self.parse_return_statement().map(Statement::Return),
-            TokenKind::Loop => self.parse_loop_statement().map(Statement::Loop),
-            TokenKind::While => self.parse_while_statement().map(Statement::While),
-            TokenKind::For => self.parse_for_statement().map(Statement::For),
-            _ => self.parse_expression_statement().map(Statement::Expression),
+            TokenKind::Let => self.parse_let_statement().map(Stmt::Let),
+            TokenKind::Return => self.parse_return_statement().map(Stmt::Return),
+            TokenKind::Loop => self.parse_loop_statement().map(Stmt::Loop),
+            TokenKind::While => self.parse_while_statement().map(Stmt::While),
+            TokenKind::For => self.parse_for_statement().map(Stmt::For),
+            _ => self.parse_expression_statement().map(Stmt::Expr),
         }
     }
 
-    fn parse_let_statement(&mut self) -> Option<LetStatement> {
+    fn parse_let_statement(&mut self) -> Option<LetStmt> {
         let start = self.current.span;
         if !self.expect_peek(TokenKind::Ident) {
             return None;
@@ -153,7 +153,7 @@ impl<'a> Parser<'a> {
         }
         self.next_token();
         let mut value = self.parse_expression(LOWEST)?;
-        if let Expression::Function(ref mut func) = value {
+        if let Expr::FnItem(ref mut func) = value {
             func.name = Some(ident.clone());
         }
         let end = if self.peek_token_is(TokenKind::Semicolon) {
@@ -162,7 +162,7 @@ impl<'a> Parser<'a> {
         } else {
             value.span()
         };
-        Some(LetStatement {
+        Some(LetStmt {
             ident,
             type_annotation,
             value,
@@ -170,7 +170,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_return_statement(&mut self) -> Option<ReturnStatement> {
+    fn parse_return_statement(&mut self) -> Option<ReturnStmt> {
         let start = self.current.span;
         self.next_token();
         let value = self.parse_expression(LOWEST)?;
@@ -180,13 +180,13 @@ impl<'a> Parser<'a> {
         } else {
             value.span()
         };
-        Some(ReturnStatement {
+        Some(ReturnStmt {
             value,
             span: start.merge(end),
         })
     }
 
-    fn parse_expression_statement(&mut self) -> Option<ExpressionStatement> {
+    fn parse_expression_statement(&mut self) -> Option<ExprStmt> {
         let value = self.parse_expression(LOWEST)?;
         let span = if self.peek_token_is(TokenKind::Semicolon) {
             let s = value.span().merge(self.peek.span);
@@ -195,18 +195,17 @@ impl<'a> Parser<'a> {
         } else {
             value.span()
         };
-        Some(ExpressionStatement { value, span })
+        Some(ExprStmt { value, span })
     }
 
     /// Parse an expression using Pratt-parsing:
     /// 1. Parse a prefix subexpression.
     /// 2. While the next token's precedence is higher than `prec`,
     ///    consume it and parse an infix operation.
-    fn parse_expression(&mut self, prec: u8) -> Option<Expression> {
+    fn parse_expression(&mut self, prec: u8) -> Option<Expr> {
         let mut lhs = match self.current.kind {
             TokenKind::Ident => self.parse_identifier()?,
 
-            // All numeric types
             TokenKind::I8
             | TokenKind::I16
             | TokenKind::I32
@@ -226,7 +225,7 @@ impl<'a> Parser<'a> {
             TokenKind::True | TokenKind::False => self.parse_boolean()?,
             TokenKind::LParen => self.parse_grouped_expression()?,
             TokenKind::If => self.parse_conditional_expression()?,
-            TokenKind::Function => self.parse_function()?,
+            TokenKind::Fn => self.parse_function()?,
             TokenKind::Macro => self.parse_macro()?,
             TokenKind::LBracket => self.parse_array_literal()?,
             TokenKind::LBrace => self.parse_hash_literal()?,
@@ -269,20 +268,20 @@ impl<'a> Parser<'a> {
         Some(lhs)
     }
 
-    fn parse_prefix_expression(&mut self) -> Option<Expression> {
+    fn parse_prefix_expression(&mut self) -> Option<Expr> {
         let start = self.current.span;
         let operator = self.current.literal.to_string();
         self.next_token();
         let operand = Box::new(self.parse_expression(PREFIX)?);
         let span = start.merge(operand.span());
-        Some(Expression::Prefix(PrefixExpr {
+        Some(Expr::Prefix(PrefixExpr {
             operator,
             operand,
             span,
         }))
     }
 
-    fn parse_infix_expression(&mut self, lhs: Expression) -> Option<Expression> {
+    fn parse_infix_expression(&mut self, lhs: Expr) -> Option<Expr> {
         let start = lhs.span();
         let lhs = Box::new(lhs);
         let operator = self.current.literal.to_string();
@@ -290,7 +289,7 @@ impl<'a> Parser<'a> {
         self.next_token();
         let rhs = Box::new(self.parse_expression(prec)?);
         let span = start.merge(rhs.span());
-        Some(Expression::Infix(InfixExpr {
+        Some(Expr::Infix(InfixExpr {
             lhs,
             operator,
             rhs,
@@ -298,7 +297,7 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    fn parse_cast_expression(&mut self, lhs: Expression) -> Option<Expression> {
+    fn parse_cast_expression(&mut self, lhs: Expr) -> Option<Expr> {
         let start = lhs.span();
         if !self.expect_peek(TokenKind::Ident) {
             return None;
@@ -313,28 +312,28 @@ impl<'a> Parser<'a> {
             None
         })?;
 
-        Some(Expression::Cast(CastExpr {
+        Some(Expr::Cast(CastExpr {
             expr: Box::new(lhs),
             target,
             span: start.merge(end),
         }))
     }
 
-    fn parse_identifier(&mut self) -> Option<Expression> {
-        Some(Expression::Identifier(Ident {
+    fn parse_identifier(&mut self) -> Option<Expr> {
+        Some(Expr::Ident(Ident {
             value: self.current.literal.to_string(),
             span: self.current.span,
         }))
     }
 
-    fn parse_boolean(&mut self) -> Option<Expression> {
-        Some(Expression::Boolean(BooleanLiteral {
+    fn parse_boolean(&mut self) -> Option<Expr> {
+        Some(Expr::Bool(Bool {
             value: self.cur_token_is(TokenKind::True),
             span: self.current.span,
         }))
     }
 
-    fn parse_int(&mut self) -> Option<Expression> {
+    fn parse_int(&mut self) -> Option<Expr> {
         let literal = self.current.literal;
         let token_kind = self.current.kind;
         let span = self.current.span;
@@ -374,7 +373,7 @@ impl<'a> Parser<'a> {
                     None
                 })?;
 
-                Expression::$variant($variant { radix, value, span })
+                Expr::$variant($variant { radix, value, span })
             }};
         }
 
@@ -397,7 +396,7 @@ impl<'a> Parser<'a> {
         Some(expr)
     }
 
-    fn parse_float(&mut self) -> Option<Expression> {
+    fn parse_float(&mut self) -> Option<Expr> {
         let literal = self.current.literal;
         let span = self.current.span;
 
@@ -416,7 +415,7 @@ impl<'a> Parser<'a> {
                     return None;
                 }
 
-                Expression::F32(F32 {
+                Expr::F32(F32 {
                     bits: f32::to_bits(value),
                     span,
                 })
@@ -427,7 +426,7 @@ impl<'a> Parser<'a> {
                     None
                 })?;
 
-                Expression::F64(F64 {
+                Expr::F64(F64 {
                     bits: f64::to_bits(value),
                     span,
                 })
@@ -438,24 +437,24 @@ impl<'a> Parser<'a> {
         Some(expr)
     }
 
-    fn parse_string_literal(&mut self) -> Option<Expression> {
-        Some(Expression::String(StringLiteral {
+    fn parse_string_literal(&mut self) -> Option<Expr> {
+        Some(Expr::Str(Str {
             value: self.current.literal.to_owned(),
             span: self.current.span,
         }))
     }
 
-    fn parse_array_literal(&mut self) -> Option<Expression> {
+    fn parse_array_literal(&mut self) -> Option<Expr> {
         let start = self.current.span;
         let elements = self.parse_expression_list(TokenKind::RBracket)?;
         let end = self.current.span;
-        Some(Expression::Array(ArrayLiteral {
+        Some(Expr::Array(Array {
             elements,
             span: start.merge(end),
         }))
     }
 
-    fn parse_index_expression(&mut self, expr: Expression) -> Option<Expression> {
+    fn parse_index_expression(&mut self, expr: Expr) -> Option<Expr> {
         let start = expr.span();
         let expr = Box::new(expr);
         self.next_token();
@@ -465,14 +464,14 @@ impl<'a> Parser<'a> {
             return None;
         }
         let end = self.current.span;
-        Some(Expression::Index(IndexExpr {
+        Some(Expr::Index(IndexExpr {
             expr,
             index,
             span: start.merge(end),
         }))
     }
 
-    fn parse_hash_literal(&mut self) -> Option<Expression> {
+    fn parse_hash_literal(&mut self) -> Option<Expr> {
         let start = self.current.span;
         let mut pairs = Vec::new();
 
@@ -498,13 +497,13 @@ impl<'a> Parser<'a> {
         }
 
         let end = self.current.span;
-        Some(Expression::Hash(HashLiteral {
+        Some(Expr::Map(Map {
             pairs,
             span: start.merge(end),
         }))
     }
 
-    fn parse_grouped_expression(&mut self) -> Option<Expression> {
+    fn parse_grouped_expression(&mut self) -> Option<Expr> {
         self.next_token();
         let expr = self.parse_expression(LOWEST)?;
         if !self.expect_peek(TokenKind::RParen) {
@@ -513,7 +512,7 @@ impl<'a> Parser<'a> {
         Some(expr)
     }
 
-    fn parse_conditional_expression(&mut self) -> Option<Expression> {
+    fn parse_conditional_expression(&mut self) -> Option<Expr> {
         let start = self.current.span;
         if !self.expect_peek(TokenKind::LParen) {
             return None;
@@ -540,7 +539,7 @@ impl<'a> Parser<'a> {
         let end = alternative
             .as_ref()
             .map_or(consequence.span, |alt| alt.span);
-        Some(Expression::Conditional(ConditionalExpr {
+        Some(Expr::Cond(CondExpr {
             condition,
             consequence,
             alternative,
@@ -548,20 +547,20 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    fn parse_loop_statement(&mut self) -> Option<LoopStatement> {
+    fn parse_loop_statement(&mut self) -> Option<LoopStmt> {
         let start = self.current.span;
         if !self.expect_peek(TokenKind::LBrace) {
             return None;
         }
         let body = self.parse_block_statement()?;
         let end = self.current.span;
-        Some(LoopStatement {
+        Some(LoopStmt {
             body,
             span: start.merge(end),
         })
     }
 
-    fn parse_while_statement(&mut self) -> Option<WhileStatement> {
+    fn parse_while_statement(&mut self) -> Option<WhileStmt> {
         let start = self.current.span;
         if !self.expect_peek(TokenKind::LParen) {
             return None;
@@ -576,14 +575,14 @@ impl<'a> Parser<'a> {
         }
         let body = self.parse_block_statement()?;
         let end = self.current.span;
-        Some(WhileStatement {
+        Some(WhileStmt {
             condition,
             body,
             span: start.merge(end),
         })
     }
 
-    fn parse_for_statement(&mut self) -> Option<ForStatement> {
+    fn parse_for_statement(&mut self) -> Option<ForStmt> {
         let start = self.current.span;
         if !self.expect_peek(TokenKind::Ident) {
             return None;
@@ -599,7 +598,7 @@ impl<'a> Parser<'a> {
         }
         let body = self.parse_block_statement()?;
         let end = self.current.span;
-        Some(ForStatement {
+        Some(ForStmt {
             ident,
             iterable,
             body,
@@ -607,7 +606,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_break_expression(&mut self) -> Option<Expression> {
+    fn parse_break_expression(&mut self) -> Option<Expr> {
         let start = self.current.span;
         let value = if !self.peek_token_is(TokenKind::Semicolon)
             && !self.peek_token_is(TokenKind::RBrace)
@@ -619,19 +618,19 @@ impl<'a> Parser<'a> {
             None
         };
         let end = value.as_ref().map_or(start, |v| v.span());
-        Some(Expression::Break(BreakExpr {
+        Some(Expr::Break(BreakExpr {
             value,
             span: start.merge(end),
         }))
     }
 
-    fn parse_continue_expression(&mut self) -> Option<Expression> {
-        Some(Expression::Continue(ContinueExpr {
+    fn parse_continue_expression(&mut self) -> Option<Expr> {
+        Some(Expr::Continue(ContinueExpr {
             span: self.current.span,
         }))
     }
 
-    fn parse_block_statement(&mut self) -> Option<BlockStatement> {
+    fn parse_block_statement(&mut self) -> Option<BlockStmt> {
         let start = self.current.span;
         let mut statements = Vec::new();
         self.next_token();
@@ -646,13 +645,13 @@ impl<'a> Parser<'a> {
         }
 
         let end = self.current.span;
-        Some(BlockStatement {
+        Some(BlockStmt {
             statements,
             span: start.merge(end),
         })
     }
 
-    fn parse_function(&mut self) -> Option<Expression> {
+    fn parse_function(&mut self) -> Option<Expr> {
         let start = self.current.span;
 
         let generic_params = if self.peek_token_is(TokenKind::Less) {
@@ -681,7 +680,7 @@ impl<'a> Parser<'a> {
         let body = self.parse_block_statement()?;
         let end = self.current.span;
 
-        Some(Expression::Function(Function {
+        Some(Expr::FnItem(FnItem {
             name: None,
             params,
             generic_params,
@@ -691,7 +690,7 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    fn parse_macro(&mut self) -> Option<Expression> {
+    fn parse_macro(&mut self) -> Option<Expr> {
         let start = self.current.span;
         if !self.expect_peek(TokenKind::LParen) {
             return None;
@@ -703,7 +702,7 @@ impl<'a> Parser<'a> {
         let body = self.parse_block_statement()?;
         let end = self.current.span;
 
-        Some(Expression::Macro(MacroLiteral {
+        Some(Expr::Macro(Macro {
             params,
             body,
             span: start.merge(end),
@@ -809,13 +808,13 @@ impl<'a> Parser<'a> {
                     return None;
                 }
                 let end = self.current.span;
-                Some(TypeExpr::Hash(
+                Some(TypeExpr::Map(
                     Box::new(key),
                     Box::new(value),
                     start.merge(end),
                 ))
             }
-            TokenKind::Function => {
+            TokenKind::Fn => {
                 let start = self.current.span;
                 if !self.expect_peek(TokenKind::LParen) {
                     return None;
@@ -933,18 +932,18 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_call_expression(&mut self, func: Expression) -> Option<Expression> {
+    fn parse_call_expression(&mut self, func: Expr) -> Option<Expr> {
         let start = func.span();
         let arguments = self.parse_expression_list(TokenKind::RParen)?;
         let end = self.current.span;
-        Some(Expression::Call(CallExpr {
+        Some(Expr::Call(CallExpr {
             function: Box::new(func),
             arguments,
             span: start.merge(end),
         }))
     }
 
-    fn parse_expression_list(&mut self, end: TokenKind) -> Option<Vec<Expression>> {
+    fn parse_expression_list(&mut self, end: TokenKind) -> Option<Vec<Expr>> {
         let mut list = Vec::new();
 
         if self.peek_token_is(end) {

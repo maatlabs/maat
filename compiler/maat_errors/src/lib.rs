@@ -45,16 +45,16 @@ impl ParseError {
 #[derive(Debug, thiserror::Error)]
 pub enum EvalError {
     #[error("{0}")]
-    Identifier(String),
+    Ident(String),
 
     #[error("{0}")]
-    IndexExpression(String),
+    IndexExpr(String),
 
     #[error("{0}")]
-    PrefixExpression(String),
+    PrefixExpr(String),
 
     #[error("{0}")]
-    InfixExpression(String),
+    InfixExpr(String),
 
     #[error("{0}")]
     Boolean(String),
@@ -141,7 +141,7 @@ pub enum CompileErrorKind {
     #[error(
         "unsupported expression type '{expr_type}' (not yet implemented in this compiler phase)"
     )]
-    UnsupportedExpression { expr_type: String },
+    UnsupportedExpr { expr_type: String },
 
     #[error("invalid opcode 0x{opcode:02x} at instruction position {position}")]
     InvalidOpcode { opcode: u8, position: usize },

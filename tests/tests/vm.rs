@@ -60,13 +60,13 @@ fn run_vm_test(input: &str, expected: TestValue) {
             _ => panic!("expected F64 object, got: {:?}", stack_elem),
         },
         TestValue::Bool(expected_val) => match stack_elem {
-            Object::Boolean(val) => {
+            Object::Bool(val) => {
                 assert_eq!(val, expected_val, "wrong boolean value for input: {input}")
             }
             _ => panic!("expected boolean object, got: {:?}", stack_elem),
         },
         TestValue::Str(expected_val) => match stack_elem {
-            Object::String(val) => {
+            Object::Str(val) => {
                 assert_eq!(val, expected_val, "wrong string value for input: {input}")
             }
             _ => panic!("expected string object, got: {:?}", stack_elem),

@@ -105,22 +105,22 @@ impl TypeChecker {
         self.errors
     }
 
-    fn check_statement(&mut self, stmt: &mut Statement) {
+    fn check_statement(&mut self, stmt: &mut Stmt) {
         match stmt {
-            Statement::Let(let_stmt) => self.check_let(let_stmt),
-            Statement::Return(ret_stmt) => {
+            Stmt::Let(let_stmt) => self.check_let(let_stmt),
+            Stmt::Return(ret_stmt) => {
                 self.infer_expression(&mut ret_stmt.value);
             }
-            Statement::Expression(expr_stmt) => {
+            Stmt::Expr(expr_stmt) => {
                 self.infer_expression(&mut expr_stmt.value);
             }
-            Statement::Block(block) => self.check_block(block),
-            Statement::Loop(loop_stmt) => self.check_block(&mut loop_stmt.body),
-            Statement::While(while_stmt) => {
+            Stmt::Block(block) => self.check_block(block),
+            Stmt::Loop(loop_stmt) => self.check_block(&mut loop_stmt.body),
+            Stmt::While(while_stmt) => {
                 self.infer_expression(&mut while_stmt.condition);
                 self.check_block(&mut while_stmt.body);
             }
-            Statement::For(for_stmt) => {
+            Stmt::For(for_stmt) => {
                 let iter_ty = self.infer_expression(&mut for_stmt.iterable);
                 let resolved = self.subst.apply(&iter_ty);
                 let elem_ty = match resolved {
@@ -145,7 +145,7 @@ impl TypeChecker {
         }
     }
 
-    fn check_let(&mut self, let_stmt: &mut LetStatement) {
+    fn check_let(&mut self, let_stmt: &mut LetStmt) {
         let inferred = self.infer_expression(&mut let_stmt.value);
 
         let ty = if let Some(ann) = &let_stmt.type_annotation {
@@ -178,7 +178,7 @@ impl TypeChecker {
         self.env.define_var(&let_stmt.ident, resolved);
     }
 
-    fn check_block(&mut self, block: &mut BlockStatement) {
+    fn check_block(&mut self, block: &mut BlockStmt) {
         self.env.push_scope();
         for stmt in &mut block.statements {
             self.check_statement(stmt);
@@ -188,26 +188,26 @@ impl TypeChecker {
 
     /// Infers the type of an expression, potentially mutating it
     /// (e.g., inserting promotion casts on infix operands).
-    fn infer_expression(&mut self, expr: &mut Expression) -> Type {
+    fn infer_expression(&mut self, expr: &mut Expr) -> Type {
         match expr {
-            Expression::I8(_) => Type::I8,
-            Expression::I16(_) => Type::I16,
-            Expression::I32(_) => Type::I32,
-            Expression::I64(_) => Type::I64,
-            Expression::I128(_) => Type::I128,
-            Expression::Isize(_) => Type::Isize,
-            Expression::U8(_) => Type::U8,
-            Expression::U16(_) => Type::U16,
-            Expression::U32(_) => Type::U32,
-            Expression::U64(_) => Type::U64,
-            Expression::U128(_) => Type::U128,
-            Expression::Usize(_) => Type::Usize,
-            Expression::F32(_) => Type::F32,
-            Expression::F64(_) => Type::F64,
-            Expression::Boolean(_) => Type::Bool,
-            Expression::String(_) => Type::String,
+            Expr::I8(_) => Type::I8,
+            Expr::I16(_) => Type::I16,
+            Expr::I32(_) => Type::I32,
+            Expr::I64(_) => Type::I64,
+            Expr::I128(_) => Type::I128,
+            Expr::Isize(_) => Type::Isize,
+            Expr::U8(_) => Type::U8,
+            Expr::U16(_) => Type::U16,
+            Expr::U32(_) => Type::U32,
+            Expr::U64(_) => Type::U64,
+            Expr::U128(_) => Type::U128,
+            Expr::Usize(_) => Type::Usize,
+            Expr::F32(_) => Type::F32,
+            Expr::F64(_) => Type::F64,
+            Expr::Bool(_) => Type::Bool,
+            Expr::Str(_) => Type::String,
 
-            Expression::Identifier(ident) => {
+            Expr::Ident(ident) => {
                 self.env
                     .lookup_var(&ident.value)
                     .cloned()
@@ -218,7 +218,7 @@ impl TypeChecker {
                     })
             }
 
-            Expression::Array(array) => {
+            Expr::Array(array) => {
                 if array.elements.is_empty() {
                     let elem = self.env.fresh_var();
                     Type::Array(Box::new(elem))
@@ -234,7 +234,7 @@ impl TypeChecker {
                 }
             }
 
-            Expression::Hash(hash) => {
+            Expr::Map(hash) => {
                 if hash.pairs.is_empty() {
                     let k = self.env.fresh_var();
                     let v = self.env.fresh_var();
@@ -262,7 +262,7 @@ impl TypeChecker {
                 }
             }
 
-            Expression::Index(idx) => {
+            Expr::Index(idx) => {
                 let collection = self.infer_expression(&mut idx.expr);
                 let _index_ty = self.infer_expression(&mut idx.index);
                 let resolved = self.subst.apply(&collection);
@@ -273,7 +273,7 @@ impl TypeChecker {
                 }
             }
 
-            Expression::Prefix(prefix) => {
+            Expr::Prefix(prefix) => {
                 let operand_ty = self.infer_expression(&mut prefix.operand);
                 match prefix.operator.as_str() {
                     "!" => Type::Bool,
@@ -282,9 +282,9 @@ impl TypeChecker {
                 }
             }
 
-            Expression::Infix(infix) => self.check_infix(infix),
+            Expr::Infix(infix) => self.check_infix(infix),
 
-            Expression::Conditional(cond) => {
+            Expr::Cond(cond) => {
                 // Maat uses truthy semantics: any non-null, non-false value
                 // is considered true. We infer the condition type but do not
                 // require it to be bool.
@@ -307,7 +307,7 @@ impl TypeChecker {
                 }
             }
 
-            Expression::Function(func) => {
+            Expr::FnItem(func) => {
                 self.env.push_scope();
 
                 // Register generic params as type variables
@@ -352,7 +352,7 @@ impl TypeChecker {
                 })
             }
 
-            Expression::Call(call) => {
+            Expr::Call(call) => {
                 let func_ty = self.infer_expression(&mut call.function);
                 let resolved = self.subst.apply(&func_ty);
 
@@ -412,22 +412,22 @@ impl TypeChecker {
                 }
             }
 
-            Expression::Cast(cast) => {
+            Expr::Cast(cast) => {
                 self.infer_expression(&mut cast.expr);
                 let ann = &cast.target;
                 type_annotation_to_type(ann)
             }
 
-            Expression::Break(break_expr) => {
+            Expr::Break(break_expr) => {
                 if let Some(val) = &mut break_expr.value {
                     self.infer_expression(val);
                 }
                 Type::Never
             }
 
-            Expression::Continue(_) => Type::Never,
+            Expr::Continue(_) => Type::Never,
 
-            Expression::Macro(_) => self.env.fresh_var(),
+            Expr::Macro(_) => self.env.fresh_var(),
         }
     }
 
@@ -512,7 +512,7 @@ impl TypeChecker {
     }
 
     /// Wraps an expression in a `Cast` node if it needs promotion.
-    fn maybe_insert_cast(&self, expr: &mut Box<Expression>, current: &Type, target: &Type) {
+    fn maybe_insert_cast(&self, expr: &mut Box<Expr>, current: &Type, target: &Type) {
         if current == target {
             return;
         }
@@ -520,12 +520,12 @@ impl TypeChecker {
             let span = expr.span();
             let inner = std::mem::replace(
                 expr.as_mut(),
-                Expression::Boolean(BooleanLiteral {
+                Expr::Bool(Bool {
                     value: false,
                     span: Span::ZERO,
                 }),
             );
-            *expr.as_mut() = Expression::Cast(CastExpr {
+            *expr.as_mut() = Expr::Cast(CastExpr {
                 expr: Box::new(inner),
                 target: ann,
                 span,
@@ -534,11 +534,11 @@ impl TypeChecker {
     }
 
     /// Infers the type of a block (the type of its last expression statement).
-    fn infer_block(&mut self, block: &mut BlockStatement) -> Type {
+    fn infer_block(&mut self, block: &mut BlockStmt) -> Type {
         let mut last = Type::Null;
         for stmt in &mut block.statements {
             match stmt {
-                Statement::Expression(es) => {
+                Stmt::Expr(es) => {
                     last = self.infer_expression(&mut es.value);
                 }
                 _ => {
@@ -551,7 +551,7 @@ impl TypeChecker {
     }
 
     /// Checks that a literal value fits within the declared type's range.
-    fn check_literal_range(&mut self, expr: &Expression, expected: &Type, span: Span) {
+    fn check_literal_range(&mut self, expr: &Expr, expected: &Type, span: Span) {
         let Some(val) = expr.extract_integer_value() else {
             return;
         };
@@ -625,7 +625,7 @@ fn type_annotation_to_type(ann: &TypeAnnotation) -> Type {
 ///
 /// Called after range checking has confirmed the value fits. For negated
 /// literals, the prefix is collapsed into a single signed literal node.
-fn coerce_literal(expr: &mut Expression, target: &Type) {
+fn coerce_literal(expr: &mut Expr, target: &Type) {
     let Some(val) = expr.extract_integer_value() else {
         return;
     };
@@ -633,7 +633,7 @@ fn coerce_literal(expr: &mut Expression, target: &Type) {
 
     macro_rules! rewrite {
         ($variant:ident, $ty:ty) => {
-            *expr = Expression::$variant($variant {
+            *expr = Expr::$variant($variant {
                 radix: Radix::Dec,
                 value: val as $ty,
                 span,
