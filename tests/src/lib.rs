@@ -15,7 +15,7 @@ use maat_types::{TypeChecker, fold_constants};
 pub fn parse(input: &str) -> Program {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
-    let program = parser.parse_program();
+    let program = parser.parse();
     assert!(
         parser.errors().is_empty(),
         "parser errors: {:?}",

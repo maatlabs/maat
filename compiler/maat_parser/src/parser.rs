@@ -9,7 +9,7 @@
 //! let input = "let x = 5 + 10;";
 //! let lexer = Lexer::new(input);
 //! let mut parser = Parser::new(lexer);
-//! let program = parser.parse_program();
+//! let program = parser.parse();
 //!
 //! assert_eq!(parser.errors().len(), 0);
 //! assert_eq!(program.statements.len(), 1);
@@ -71,7 +71,7 @@ impl<'a> Parser<'a> {
     ///
     /// let lexer = Lexer::new("let = 5;");
     /// let mut parser = Parser::new(lexer);
-    /// let _program = parser.parse_program();
+    /// let _program = parser.parse();
     ///
     /// assert!(!parser.errors().is_empty());
     /// ```
@@ -104,12 +104,12 @@ impl<'a> Parser<'a> {
     /// "#;
     /// let lexer = Lexer::new(input);
     /// let mut parser = Parser::new(lexer);
-    /// let program = parser.parse_program();
+    /// let program = parser.parse();
     ///
     /// assert_eq!(parser.errors().len(), 0);
     /// assert_eq!(program.statements.len(), 3);
     /// ```
-    pub fn parse_program(&mut self) -> Program {
+    pub fn parse(&mut self) -> Program {
         let mut program = Program {
             statements: Vec::new(),
         };
@@ -203,7 +203,7 @@ impl<'a> Parser<'a> {
     /// 2. While the next token's precedence is higher than `prec`,
     ///    consume it and parse an infix operation.
     fn parse_expression(&mut self, prec: u8) -> Option<Expr> {
-        let mut lhs = match self.current.kind {
+        let mut expr = match self.current.kind {
             TokenKind::Ident => self.parse_identifier()?,
 
             TokenKind::I8
@@ -254,18 +254,18 @@ impl<'a> Parser<'a> {
                 | TokenKind::LParen
                 | TokenKind::LBracket => {
                     self.next_token();
-                    lhs = match kind {
-                        TokenKind::LParen => self.parse_call_expression(lhs)?,
-                        TokenKind::LBracket => self.parse_index_expression(lhs)?,
-                        TokenKind::As => self.parse_cast_expression(lhs)?,
-                        _ => self.parse_infix_expression(lhs)?,
+                    expr = match kind {
+                        TokenKind::LParen => self.parse_call_expression(expr)?,
+                        TokenKind::LBracket => self.parse_index_expression(expr)?,
+                        TokenKind::As => self.parse_cast_expression(expr)?,
+                        _ => self.parse_infix_expression(expr)?,
                     };
                 }
                 _ => break,
             }
         }
 
-        Some(lhs)
+        Some(expr)
     }
 
     fn parse_prefix_expression(&mut self) -> Option<Expr> {

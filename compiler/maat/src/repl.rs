@@ -52,7 +52,7 @@ pub fn start<R: BufRead, W: Write>(mut reader: R, writer: &mut W) -> io::Result<
         }
 
         let mut parser = Parser::new(Lexer::new(line));
-        let program = parser.parse_program();
+        let program = parser.parse();
 
         if !parser.errors().is_empty() {
             for err in parser.errors() {

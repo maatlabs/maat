@@ -28,7 +28,7 @@ pub fn compile_source(path: &Path) -> Bytecode {
     let filename = path.display().to_string();
 
     let mut parser = Parser::new(Lexer::new(&source));
-    let program = parser.parse_program();
+    let program = parser.parse();
 
     if !parser.errors().is_empty() {
         for err in parser.errors() {
