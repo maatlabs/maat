@@ -51,6 +51,30 @@ pub struct FnType {
     pub ret: Box<Type>,
 }
 
+/// A polymorphic type scheme.
+///
+/// Generalizes a type over a set of type variables that are not free in
+/// the surrounding environment. At each use site, `instantiate` replaces
+/// the quantified variables with fresh inference variables, enabling
+/// let-polymorphism (e.g., `let id = fn(x) { x }; id(5); id(true);`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeScheme {
+    /// Type variables universally quantified by this scheme.
+    pub forall: Vec<TypeVarId>,
+    /// The underlying type (may contain variables listed in `forall`).
+    pub ty: Type,
+}
+
+impl TypeScheme {
+    /// Creates a monomorphic scheme (no quantified variables).
+    pub fn monomorphic(ty: Type) -> Self {
+        Self {
+            forall: Vec::new(),
+            ty,
+        }
+    }
+}
+
 impl Type {
     /// Returns `true` if this is any integer type (signed or unsigned).
     pub fn is_integer(&self) -> bool {
@@ -71,11 +95,6 @@ impl Type {
             self,
             Self::U8 | Self::U16 | Self::U32 | Self::U64 | Self::U128 | Self::Usize
         )
-    }
-
-    /// Returns `true` if this is any numeric type (integer only in a ZK language).
-    pub fn is_numeric(&self) -> bool {
-        self.is_integer()
     }
 
     /// Returns the bit width for integer types, treating `isize`/`usize` as 64-bit.

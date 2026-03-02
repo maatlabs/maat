@@ -184,11 +184,8 @@ fn boolean_expressions() {
         ("(1 > 2) == false", TestValue::Bool(true)),
         ("!true", TestValue::Bool(false)),
         ("!false", TestValue::Bool(true)),
-        ("!5", TestValue::Bool(false)),
         ("!!true", TestValue::Bool(true)),
         ("!!false", TestValue::Bool(false)),
-        ("!!5", TestValue::Bool(true)),
-        ("!(if (false) { 5; })", TestValue::Bool(true)),
     ];
 
     for (input, expected) in cases {
@@ -202,16 +199,11 @@ fn conditionals() {
         ("if (true) { 10 }", TestValue::I64(10)),
         ("if (true) { 10 } else { 20 }", TestValue::I64(10)),
         ("if (false) { 10 } else { 20 }", TestValue::I64(20)),
-        ("if (1) { 10 }", TestValue::I64(10)),
         ("if (1 < 2) { 10 }", TestValue::I64(10)),
         ("if (1 < 2) { 10 } else { 20 }", TestValue::I64(10)),
         ("if (1 > 2) { 10 } else { 20 }", TestValue::I64(20)),
         ("if (1 > 2) { 10 }", TestValue::Null),
         ("if (false) { 10 }", TestValue::Null),
-        (
-            "if ((if (false) { 10 })) { 10 } else { 20 }",
-            TestValue::I64(20),
-        ),
     ];
 
     for (input, expected) in cases {

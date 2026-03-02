@@ -114,6 +114,10 @@ pub enum TokenKind {
     Equal,
     /// The inequality comparison operator `!=`.
     NotEqual,
+    /// The logical AND operator `&&`.
+    And,
+    /// The logical OR operator `||`.
+    Or,
 
     /// The comma delimiter `,`.
     Comma,

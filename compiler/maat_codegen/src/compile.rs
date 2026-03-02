@@ -452,6 +452,36 @@ impl Compiler {
                 Ok(())
             }
 
+            Expr::Infix(infix_expr) if infix_expr.operator == "&&" => {
+                self.compile_expression(&infix_expr.lhs)?;
+                let cond_jump = self.emit(Opcode::CondJump, &[Self::JUMP_DUMMY_TARGET], span);
+                self.compile_expression(&infix_expr.rhs)?;
+                let end_jump = self.emit(Opcode::Jump, &[Self::JUMP_DUMMY_TARGET], span);
+
+                let false_pos = self.current_instructions().len();
+                self.replace_operand(cond_jump, false_pos)?;
+                self.emit(Opcode::False, &[], span);
+                let end_pos = self.current_instructions().len();
+
+                self.replace_operand(end_jump, end_pos)?;
+                Ok(())
+            }
+
+            Expr::Infix(infix_expr) if infix_expr.operator == "||" => {
+                self.compile_expression(&infix_expr.lhs)?;
+                let cond_jump = self.emit(Opcode::CondJump, &[Self::JUMP_DUMMY_TARGET], span);
+                self.emit(Opcode::True, &[], span);
+                let end_jump = self.emit(Opcode::Jump, &[Self::JUMP_DUMMY_TARGET], span);
+
+                let rhs_pos = self.current_instructions().len();
+                self.replace_operand(cond_jump, rhs_pos)?;
+                self.compile_expression(&infix_expr.rhs)?;
+                let end_pos = self.current_instructions().len();
+
+                self.replace_operand(end_jump, end_pos)?;
+                Ok(())
+            }
+
             Expr::Infix(infix_expr) => {
                 self.compile_expression(&infix_expr.lhs)?;
                 self.compile_expression(&infix_expr.rhs)?;

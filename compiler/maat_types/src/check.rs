@@ -10,61 +10,75 @@ use maat_span::Span;
 use crate::convert::resolve_type_expr;
 use crate::env::TypeEnv;
 use crate::promote::{self, PromotionError};
-use crate::ty::{FnType, Type};
+use crate::ty::{FnType, Type, TypeScheme};
 use crate::unify::{Substitution, UnifyError};
 
 /// Registers builtin function signatures in the type environment.
+///
+/// Each builtin with type variables is stored as a generalized `TypeScheme`
+/// so that each call site receives fresh inference variables.
 ///
 /// `print` is variadic at runtime and is not registered
 /// here. Unknown identifiers fall back to fresh type variables, which
 /// allows any number of arguments without arity errors.
 fn register_builtins(env: &mut TypeEnv) {
-    let len_arg = env.fresh_var();
-    env.define_var(
-        "len",
+    /// Helper: creates a fresh type variable, builds the function type via
+    /// the provided closure, then generalizes over the variable.
+    fn register_generic_1(env: &mut TypeEnv, name: &str, build: impl FnOnce(Type) -> Type) {
+        let var = env.fresh_var();
+        let var_id = match var {
+            Type::Var(id) => id,
+            _ => unreachable!(),
+        };
+        let ty = build(var);
+        env.define_scheme(
+            name,
+            TypeScheme {
+                forall: vec![var_id],
+                ty,
+            },
+        );
+    }
+
+    // len(collection) -> usize
+    register_generic_1(env, "len", |t| {
         Type::Function(FnType {
-            params: vec![len_arg],
+            params: vec![t],
             ret: Box::new(Type::Usize),
-        }),
-    );
+        })
+    });
 
-    let first_t = env.fresh_var();
-    let first_ret = first_t.clone();
-    env.define_var(
-        "first",
+    // first([T]) -> T
+    register_generic_1(env, "first", |t| {
         Type::Function(FnType {
-            params: vec![Type::Array(Box::new(first_t))],
-            ret: Box::new(first_ret),
-        }),
-    );
+            params: vec![Type::Array(Box::new(t.clone()))],
+            ret: Box::new(t),
+        })
+    });
 
-    let last_t = env.fresh_var();
-    let last_ret = last_t.clone();
-    env.define_var(
-        "last",
+    // last([T]) -> T
+    register_generic_1(env, "last", |t| {
         Type::Function(FnType {
-            params: vec![Type::Array(Box::new(last_t))],
-            ret: Box::new(last_ret),
-        }),
-    );
+            params: vec![Type::Array(Box::new(t.clone()))],
+            ret: Box::new(t),
+        })
+    });
 
-    let rest_t = env.fresh_var();
-    env.define_var(
-        "rest",
+    // rest([T]) -> [T]
+    register_generic_1(env, "rest", |t| {
         Type::Function(FnType {
-            params: vec![Type::Array(Box::new(rest_t.clone()))],
-            ret: Box::new(Type::Array(Box::new(rest_t))),
-        }),
-    );
+            params: vec![Type::Array(Box::new(t.clone()))],
+            ret: Box::new(Type::Array(Box::new(t))),
+        })
+    });
 
-    let push_t = env.fresh_var();
-    env.define_var(
-        "push",
+    // push([T], T) -> [T]
+    register_generic_1(env, "push", |t| {
         Type::Function(FnType {
-            params: vec![Type::Array(Box::new(push_t.clone())), push_t.clone()],
-            ret: Box::new(Type::Array(Box::new(push_t))),
-        }),
-    );
+            params: vec![Type::Array(Box::new(t.clone())), t.clone()],
+            ret: Box::new(Type::Array(Box::new(t))),
+        })
+    });
 }
 
 /// The type checker.
@@ -118,7 +132,9 @@ impl TypeChecker {
             Stmt::FnItem(fn_item) => self.check_fn_item(fn_item),
             Stmt::Loop(loop_stmt) => self.check_block(&mut loop_stmt.body),
             Stmt::While(while_stmt) => {
-                self.infer_expression(&mut while_stmt.condition);
+                let cond_ty = self.infer_expression(&mut while_stmt.condition);
+                let cond_resolved = self.subst.apply(&cond_ty);
+                self.require_bool(&cond_resolved, while_stmt.condition.span());
                 self.check_block(&mut while_stmt.body);
             }
             Stmt::For(for_stmt) => {
@@ -159,8 +175,8 @@ impl TypeChecker {
             // we skip unification entirely. When it overflows, the range check has
             // already reported a precise error, so we also skip the redundant
             // type mismatch from unification.
-            let is_coercible_literal = expected.is_numeric()
-                && inferred.is_numeric()
+            let is_coercible_literal = expected.is_integer()
+                && inferred.is_integer()
                 && let_stmt.value.is_integer_literal();
 
             if is_coercible_literal {
@@ -175,8 +191,8 @@ impl TypeChecker {
             inferred
         };
 
-        let resolved = self.subst.apply(&ty);
-        self.env.define_var(&let_stmt.ident, resolved);
+        let scheme = self.env.generalize(&ty, &self.subst);
+        self.env.define_scheme(&let_stmt.ident, scheme);
     }
 
     fn check_block(&mut self, block: &mut BlockStmt) {
@@ -188,6 +204,9 @@ impl TypeChecker {
     }
 
     /// Type-checks a named function declaration and binds it in the environment.
+    ///
+    /// The function type is generalized into a `TypeScheme` so that each
+    /// call site receives a fresh instantiation (let-polymorphism).
     fn check_fn_item(&mut self, fn_item: &mut FnItem) {
         let fn_ty = self.infer_fn_body(
             &fn_item.generic_params,
@@ -196,8 +215,8 @@ impl TypeChecker {
             &mut fn_item.body,
             fn_item.span,
         );
-        let resolved = self.subst.apply(&fn_ty);
-        self.env.define_var(&fn_item.name, resolved);
+        let scheme = self.env.generalize(&fn_ty, &self.subst);
+        self.env.define_scheme(&fn_item.name, scheme);
     }
 
     /// Shared inference logic for function bodies (used by both `FnItem` and `Lambda`).
@@ -269,16 +288,14 @@ impl TypeChecker {
             Expr::Bool(_) => Type::Bool,
             Expr::Str(_) => Type::String,
 
-            Expr::Ident(ident) => {
-                self.env
-                    .lookup_var(&ident.value)
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        // Don't error on unknown idents; the compiler will catch them.
-                        // Return a fresh type variable to keep inference going.
-                        self.env.fresh_var()
-                    })
-            }
+            Expr::Ident(ident) => self
+                .env
+                .instantiate(&ident.value, &self.subst)
+                .unwrap_or_else(|| {
+                    // Don't error on unknown idents; the compiler will catch them.
+                    // Return a fresh type variable to keep inference going.
+                    self.env.fresh_var()
+                }),
 
             Expr::Array(array) => {
                 if array.elements.is_empty() {
@@ -337,9 +354,24 @@ impl TypeChecker {
 
             Expr::Prefix(prefix) => {
                 let operand_ty = self.infer_expression(&mut prefix.operand);
+                let resolved = self.subst.apply(&operand_ty);
                 match prefix.operator.as_str() {
-                    "!" => Type::Bool,
-                    "-" => operand_ty,
+                    "!" => {
+                        self.require_bool(&resolved, prefix.span);
+                        Type::Bool
+                    }
+                    "-" => {
+                        if !resolved.is_integer() && !matches!(resolved, Type::Var(_)) {
+                            self.errors.push(
+                                TypeErrorKind::Mismatch {
+                                    expected: "numeric".to_string(),
+                                    found: resolved.to_string(),
+                                }
+                                .at(prefix.span),
+                            );
+                        }
+                        resolved
+                    }
                     _ => self.env.fresh_var(),
                 }
             }
@@ -347,10 +379,9 @@ impl TypeChecker {
             Expr::Infix(infix) => self.check_infix(infix),
 
             Expr::Cond(cond) => {
-                // Maat uses truthy semantics: any non-null, non-false value
-                // is considered true. We infer the condition type but do not
-                // require it to be bool.
-                self.infer_expression(&mut cond.condition);
+                let cond_ty = self.infer_expression(&mut cond.condition);
+                let cond_resolved = self.subst.apply(&cond_ty);
+                self.require_bool(&cond_resolved, cond.condition.span());
 
                 self.env.push_scope();
                 let cons_ty = self.infer_block(&mut cond.consequence);
@@ -404,8 +435,8 @@ impl TypeChecker {
                                 // Allow numeric promotion at call sites (e.g., passing
                                 // i64 where usize is expected). The VM handles the
                                 // conversion at runtime via OpConvert.
-                                if p.is_numeric()
-                                    && a.is_numeric()
+                                if p.is_integer()
+                                    && a.is_integer()
                                     && p != a
                                     && promote::common_numeric_type(&p, &a).is_ok()
                                 {
@@ -458,6 +489,18 @@ impl TypeChecker {
 
     /// Checks an infix expression, inserting promotion casts if needed.
     fn check_infix(&mut self, infix: &mut InfixExpr) -> Type {
+        if infix.operator == "&&" || infix.operator == "||" {
+            let lhs_ty = self.infer_expression(&mut infix.lhs);
+            let lhs_resolved = self.subst.apply(&lhs_ty);
+            self.require_bool(&lhs_resolved, infix.lhs.span());
+
+            let rhs_ty = self.infer_expression(&mut infix.rhs);
+            let rhs_resolved = self.subst.apply(&rhs_ty);
+            self.require_bool(&rhs_resolved, infix.rhs.span());
+
+            return Type::Bool;
+        }
+
         let lhs_ty = self.infer_expression(&mut infix.lhs);
         let rhs_ty = self.infer_expression(&mut infix.rhs);
 
@@ -483,7 +526,7 @@ impl TypeChecker {
         }
 
         // Numeric operations
-        if lhs_resolved.is_numeric() && rhs_resolved.is_numeric() {
+        if lhs_resolved.is_integer() && rhs_resolved.is_integer() {
             if lhs_resolved == rhs_resolved {
                 return if is_comparison {
                     Type::Bool
@@ -561,6 +604,10 @@ impl TypeChecker {
                 Stmt::Expr(es) => {
                     last = self.infer_expression(&mut es.value);
                 }
+                Stmt::Return(ret) => {
+                    self.infer_expression(&mut ret.value);
+                    last = Type::Never;
+                }
                 _ => {
                     self.check_statement(stmt);
                     last = Type::Null;
@@ -604,6 +651,26 @@ impl TypeChecker {
             Type::U128 => check_int_range!(u128, "u128"),
             Type::Usize => check_int_range!(u64, "usize"),
             _ => {}
+        }
+    }
+
+    /// Ensures a resolved type is `Bool`, reporting a mismatch if not.
+    ///
+    /// For type variables, unifies with `Bool` to propagate the constraint.
+    fn require_bool(&mut self, resolved: &Type, span: Span) {
+        if !matches!(resolved, Type::Bool | Type::Var(_)) {
+            self.errors.push(
+                TypeErrorKind::Mismatch {
+                    expected: "bool".to_string(),
+                    found: resolved.to_string(),
+                }
+                .at(span),
+            );
+        }
+        if let Type::Var(_) = resolved
+            && let Err(e) = self.subst.unify(resolved, &Type::Bool)
+        {
+            self.report_unify_error(e, span);
         }
     }
 

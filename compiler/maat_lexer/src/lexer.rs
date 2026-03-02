@@ -162,6 +162,33 @@ impl<'a> Lexer<'a> {
             b'}' => self.yield_token(start, TokenKind::RBrace),
             b'[' => self.yield_token(start, TokenKind::LBracket),
             b']' => self.yield_token(start, TokenKind::RBracket),
+            b'&' => {
+                self.advance_pos();
+                if self.peek_pos() == Some(b'&') {
+                    self.yield_token(start, TokenKind::And)
+                } else {
+                    let end = self.pos;
+                    Token::new(
+                        TokenKind::Invalid,
+                        &self.source[start..end],
+                        Span::new(start, end),
+                    )
+                }
+            }
+            b'|' => {
+                self.advance_pos();
+                if self.peek_pos() == Some(b'|') {
+                    self.yield_token(start, TokenKind::Or)
+                } else {
+                    let end = self.pos;
+                    Token::new(
+                        TokenKind::Invalid,
+                        &self.source[start..end],
+                        Span::new(start, end),
+                    )
+                }
+            }
+
             b'"' => self.yield_string(),
 
             b if b.is_ascii_alphabetic() || b == b'_' => self.yield_ident(start),

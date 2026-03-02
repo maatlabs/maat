@@ -248,6 +248,8 @@ impl<'a> Parser<'a> {
                 | TokenKind::Greater
                 | TokenKind::LessEqual
                 | TokenKind::GreaterEqual
+                | TokenKind::And
+                | TokenKind::Or
                 | TokenKind::As
                 | TokenKind::LParen
                 | TokenKind::LBracket => {

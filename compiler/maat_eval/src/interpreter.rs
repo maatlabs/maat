@@ -78,6 +78,11 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
             Expr::Index(index_expr) => eval_index_expression(index_expr, env),
             Expr::Map(map) => eval_hash_map(map, env),
             Expr::Prefix(prefix_expr) => eval_prefix_expression(prefix_expr, env),
+            Expr::Infix(infix_expr)
+                if infix_expr.operator == "&&" || infix_expr.operator == "||" =>
+            {
+                eval_logical_expression(infix_expr, env)
+            }
             Expr::Infix(infix_expr) => eval_infix_expression(infix_expr, env),
             Expr::Cond(cond_expr) => eval_conditional_expression(cond_expr, env),
             Expr::Ident(ident) => eval_identifier(ident.value, env),
@@ -327,6 +332,37 @@ fn eval_prefix_expression(expr: PrefixExpr, env: &Env) -> Result<Object> {
     }
 }
 
+/// Evaluates short-circuit logical operators `&&` and `||`.
+///
+/// `&&` returns the left operand if falsy, otherwise the right operand.
+/// `||` returns the left operand if truthy, otherwise the right operand.
+fn eval_logical_expression(expr: InfixExpr, env: &Env) -> Result<Object> {
+    let lhs = eval(Node::Expr(*expr.lhs), env)?;
+    let Object::Bool(left_val) = &lhs else {
+        return Err(EvalError::InfixExpr(format!(
+            "expected bool in `{}` expression, got `{lhs}`",
+            expr.operator
+        ))
+        .into());
+    };
+
+    match expr.operator.as_str() {
+        "&&" => {
+            if !left_val {
+                return Ok(Object::Bool(false));
+            }
+            eval(Node::Expr(*expr.rhs), env)
+        }
+        "||" => {
+            if *left_val {
+                return Ok(Object::Bool(true));
+            }
+            eval(Node::Expr(*expr.rhs), env)
+        }
+        _ => unreachable!(),
+    }
+}
+
 fn eval_infix_expression(expr: InfixExpr, env: &Env) -> Result<Object> {
     let lhs = eval(Node::Expr(*expr.lhs), env)?;
     let rhs = eval(Node::Expr(*expr.rhs), env)?;
@@ -423,6 +459,8 @@ fn eval_infix_bool(operator: &str, lhs: bool, rhs: bool) -> Result<Object> {
     match operator {
         "==" => Ok(Object::Bool(lhs == rhs)),
         "!=" => Ok(Object::Bool(lhs != rhs)),
+        "&&" => Ok(Object::Bool(lhs && rhs)),
+        "||" => Ok(Object::Bool(lhs || rhs)),
         _ => Err(EvalError::Boolean(format!(
             "invalid boolean operation: `{lhs} {operator} {rhs}`"
         ))
