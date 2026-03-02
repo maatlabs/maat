@@ -99,8 +99,6 @@ pub enum TypeErrorKind {
 
     #[error("numeric overflow: `{value}` out of range for `{target}`")]
     NumericOverflow { value: String, target: String },
-    #[error("implicit float promotion is not allowed; use an explicit `as` cast")]
-    ImplicitFloatPromotion,
 }
 
 impl TypeErrorKind {

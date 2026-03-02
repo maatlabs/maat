@@ -86,11 +86,6 @@ pub enum TokenKind {
     /// A pointer-sized unsigned integer literal.
     Usize,
 
-    /// A 32-bit floating-point number.
-    F32,
-    /// A 64-bit floating-point number.
-    F64,
-
     /// The assignment operator `=`.
     Assign,
     /// The addition operator `+`.

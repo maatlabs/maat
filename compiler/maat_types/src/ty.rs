@@ -28,9 +28,6 @@ pub enum Type {
     U128,
     Usize,
 
-    F32,
-    F64,
-
     Bool,
     String,
     Null,
@@ -76,14 +73,9 @@ impl Type {
         )
     }
 
-    /// Returns `true` if this is a floating-point type.
-    pub fn is_float(&self) -> bool {
-        matches!(self, Self::F32 | Self::F64)
-    }
-
-    /// Returns `true` if this is any numeric type.
+    /// Returns `true` if this is any numeric type (integer only in a ZK language).
     pub fn is_numeric(&self) -> bool {
-        self.is_integer() || self.is_float()
+        self.is_integer()
     }
 
     /// Returns the bit width for integer types, treating `isize`/`usize` as 64-bit.
@@ -123,8 +115,6 @@ impl Type {
             Self::U64 => Some(TypeAnnotation::U64),
             Self::U128 => Some(TypeAnnotation::U128),
             Self::Usize => Some(TypeAnnotation::Usize),
-            Self::F32 => Some(TypeAnnotation::F32),
-            Self::F64 => Some(TypeAnnotation::F64),
             _ => None,
         }
     }
@@ -145,8 +135,6 @@ impl fmt::Display for Type {
             Self::U64 => f.write_str("u64"),
             Self::U128 => f.write_str("u128"),
             Self::Usize => f.write_str("usize"),
-            Self::F32 => f.write_str("f32"),
-            Self::F64 => f.write_str("f64"),
             Self::Bool => f.write_str("bool"),
             Self::String => f.write_str("String"),
             Self::Null => f.write_str("null"),

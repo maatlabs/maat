@@ -40,6 +40,15 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
             }
             Stmt::Expr(es) => eval(Node::Expr(es.value), env),
             Stmt::Block(bs) => eval_block_statement(&bs, env),
+            Stmt::FnItem(fn_item) => {
+                let obj = Object::Function(Function {
+                    params: fn_item.param_names().map(String::from).collect(),
+                    body: fn_item.body,
+                    env: env.clone(),
+                });
+                env.set(fn_item.name, &obj);
+                Ok(obj)
+            }
             Stmt::Loop(loop_stmt) => eval_loop_statement(loop_stmt, env),
             Stmt::While(while_stmt) => eval_while_statement(while_stmt, env),
             Stmt::For(for_stmt) => eval_for_statement(for_stmt, env),
@@ -60,9 +69,6 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
             Expr::U128(v) => Ok(Object::U128(v.value)),
             Expr::Usize(v) => Ok(Object::Usize(v.value)),
 
-            Expr::F32(v) => Ok(Object::F32(v.into())),
-            Expr::F64(v) => Ok(Object::F64(v.into())),
-
             Expr::Bool(b) => Ok(Object::Bool(b.value)),
             Expr::Str(s) => Ok(Object::Str(unescape_string(&s.value))),
             Expr::Array(array_lit) => {
@@ -75,9 +81,9 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
             Expr::Infix(infix_expr) => eval_infix_expression(infix_expr, env),
             Expr::Cond(cond_expr) => eval_conditional_expression(cond_expr, env),
             Expr::Ident(ident) => eval_identifier(ident.value, env),
-            Expr::FnItem(func_lit) => Ok(Object::Function(Function {
-                params: func_lit.param_names().map(String::from).collect(),
-                body: func_lit.body,
+            Expr::Lambda(lambda) => Ok(Object::Function(Function {
+                params: lambda.param_names().map(String::from).collect(),
+                body: lambda.body,
                 env: env.clone(),
             })),
             Expr::Macro(macro_lit) => Ok(Object::Macro(Macro {
@@ -296,9 +302,6 @@ fn eval_prefix_expression(expr: PrefixExpr, env: &Env) -> Result<Object> {
                 Object::Isize(v) => v.checked_neg().map(Object::Isize).ok_or_else(|| {
                     EvalError::PrefixExpr(format!("negation overflow: -{v}")).into()
                 }),
-                Object::F32(v) => Ok(Object::F32(-v)),
-                Object::F64(v) => Ok(Object::F64(-v)),
-
                 Object::U8(_)
                 | Object::U16(_)
                 | Object::U32(_)
@@ -342,9 +345,6 @@ fn eval_infix_expression(expr: InfixExpr, env: &Env) -> Result<Object> {
         (Object::U64(left), Object::U64(right)) => eval_infix_op(operator, *left, *right),
         (Object::U128(left), Object::U128(right)) => eval_infix_op(operator, *left, *right),
         (Object::Usize(left), Object::Usize(right)) => eval_infix_op(operator, *left, *right),
-        (Object::F32(left), Object::F32(right)) => eval_infix_op(operator, *left, *right),
-        (Object::F64(left), Object::F64(right)) => eval_infix_op(operator, *left, *right),
-
         (Object::Bool(left), Object::Bool(right)) => eval_infix_bool(operator, *left, *right),
         (Object::Str(left), Object::Str(right)) => eval_infix_string(operator, left, right),
 
@@ -542,8 +542,6 @@ fn eval_cast_expression(expr: CastExpr, env: &Env) -> Result<Object> {
         Object::U128(v) => WideInt::Unsigned(*v),
         Object::Usize(v) => WideInt::Unsigned(*v as u128),
 
-        Object::F32(v) => return eval_cast_from_float(*v as f64, target),
-        Object::F64(v) => return eval_cast_from_float(*v, target),
         _ => {
             return Err(EvalError::Number(format!(
                 "cannot cast {} to {}",
@@ -591,60 +589,6 @@ fn eval_cast_expression(expr: CastExpr, env: &Env) -> Result<Object> {
         TypeAnnotation::U64 => narrow!(u64, U64, "u64"),
         TypeAnnotation::U128 => narrow!(u128, U128, "u128"),
         TypeAnnotation::Usize => narrow!(usize, Usize, "usize"),
-
-        TypeAnnotation::F32 => Ok(Object::F32(match wide {
-            WideInt::Signed(v) => v as f32,
-            WideInt::Unsigned(v) => v as f32,
-        })),
-        TypeAnnotation::F64 => Ok(Object::F64(match wide {
-            WideInt::Signed(v) => v as f64,
-            WideInt::Unsigned(v) => v as f64,
-        })),
-    }
-}
-
-fn eval_cast_from_float(v: f64, target: TypeAnnotation) -> Result<Object> {
-    if !v.is_finite() {
-        return Err(EvalError::Number(format!(
-            "cannot cast non-finite float to {}",
-            target.as_str()
-        ))
-        .into());
-    }
-
-    macro_rules! float_to_int {
-        ($target_ty:ty, $variant:ident, $name:expr) => {{
-            let i = v as i128;
-            <$target_ty>::try_from(i)
-                .map(Object::$variant)
-                .map_err(|_| {
-                    EvalError::Number(format!("value {} out of range for {}", v, $name)).into()
-                })
-        }};
-    }
-
-    match target {
-        TypeAnnotation::I8 => float_to_int!(i8, I8, "i8"),
-        TypeAnnotation::I16 => float_to_int!(i16, I16, "i16"),
-        TypeAnnotation::I32 => float_to_int!(i32, I32, "i32"),
-        TypeAnnotation::I64 => float_to_int!(i64, I64, "i64"),
-        TypeAnnotation::I128 => Ok(Object::I128(v as i128)),
-        TypeAnnotation::Isize => float_to_int!(isize, Isize, "isize"),
-
-        TypeAnnotation::U8 => float_to_int!(u8, U8, "u8"),
-        TypeAnnotation::U16 => float_to_int!(u16, U16, "u16"),
-        TypeAnnotation::U32 => float_to_int!(u32, U32, "u32"),
-        TypeAnnotation::U64 => float_to_int!(u64, U64, "u64"),
-        TypeAnnotation::U128 => {
-            if v < 0.0 {
-                return Err(EvalError::Number(format!("value {v} out of range for u128")).into());
-            }
-            Ok(Object::U128(v as u128))
-        }
-        TypeAnnotation::Usize => float_to_int!(usize, Usize, "usize"),
-
-        TypeAnnotation::F32 => Ok(Object::F32(v as f32)),
-        TypeAnnotation::F64 => Ok(Object::F64(v)),
     }
 }
 
@@ -700,44 +644,6 @@ macro_rules! impl_infix_op_int {
     };
 }
 
-macro_rules! impl_infix_op_float {
-    ($($t:ty => $variant:ident, $name:literal),* $(,)?) => {
-        $(
-            impl InfixOp for $t {
-                #[inline]
-                fn into_object(self) -> Object {
-                    Object::$variant(self)
-                }
-
-                #[inline]
-                fn type_name() -> &'static str {
-                    $name
-                }
-
-                #[inline]
-                fn checked_add(self, rhs: Self) -> Option<Self> {
-                    Some(self + rhs)
-                }
-
-                #[inline]
-                fn checked_sub(self, rhs: Self) -> Option<Self> {
-                    Some(self - rhs)
-                }
-
-                #[inline]
-                fn checked_mul(self, rhs: Self) -> Option<Self> {
-                    Some(self * rhs)
-                }
-
-                #[inline]
-                fn checked_div(self, rhs: Self) -> Option<Self> {
-                    Some(self / rhs)
-                }
-            }
-        )*
-    };
-}
-
 impl_infix_op_int! {
     i8 => I8, "i8",
     i16 => I16, "i16",
@@ -751,11 +657,6 @@ impl_infix_op_int! {
     u64 => U64, "u64",
     u128 => U128, "u128",
     usize => Usize, "usize",
-}
-
-impl_infix_op_float! {
-    f32 => F32, "f32",
-    f64 => F64, "f64",
 }
 
 /// Unescapes a string literal by processing escape sequences.

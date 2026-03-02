@@ -343,14 +343,14 @@ fn string_escape_sequences() {
 }
 
 #[test]
-fn float64_literals() {
-    let source = "3.15 0.5 123.456 0.0 999.999";
+fn float_literals_are_invalid() {
+    let source = "3.15 0.5 123.456 1e10 1.5e10";
     let expected = [
-        (TokenKind::F64, "3.15"),
-        (TokenKind::F64, "0.5"),
-        (TokenKind::F64, "123.456"),
-        (TokenKind::F64, "0.0"),
-        (TokenKind::F64, "999.999"),
+        (TokenKind::Invalid, "3.15"),
+        (TokenKind::Invalid, "0.5"),
+        (TokenKind::Invalid, "123.456"),
+        (TokenKind::Invalid, "1e10"),
+        (TokenKind::Invalid, "1.5e10"),
         (TokenKind::Eof, ""),
     ];
 
@@ -365,54 +365,10 @@ fn float64_literals() {
 
 #[test]
 fn number_suffixes() {
-    let source = "123_i64 456_f64 0_i64 999_f64";
+    let source = "123_i64 0_i64";
     let expected = [
         (TokenKind::I64, "123"),
-        (TokenKind::F64, "456"),
         (TokenKind::I64, "0"),
-        (TokenKind::F64, "999"),
-        (TokenKind::Eof, ""),
-    ];
-
-    let mut lexer = Lexer::new(source);
-
-    for (kind, literal) in expected {
-        let token = lexer.next_token();
-        assert_eq!(token.kind, kind);
-        assert_eq!(token.literal, literal);
-    }
-}
-
-#[test]
-fn scientific_notation() {
-    let source = "1e10 1.5e10 2E5 3.15E-2 1e+5 6.022e23 0e0";
-    let expected = [
-        (TokenKind::F64, "1e10"),
-        (TokenKind::F64, "1.5e10"),
-        (TokenKind::F64, "2E5"),
-        (TokenKind::F64, "3.15E-2"),
-        (TokenKind::F64, "1e+5"),
-        (TokenKind::F64, "6.022e23"),
-        (TokenKind::F64, "0e0"),
-        (TokenKind::Eof, ""),
-    ];
-
-    let mut lexer = Lexer::new(source);
-
-    for (kind, literal) in expected {
-        let token = lexer.next_token();
-        assert_eq!(token.kind, kind);
-        assert_eq!(token.literal, literal);
-    }
-}
-
-#[test]
-fn mixed_numbers() {
-    let source = "3.15_f64 1.5e10_f64 100_i64";
-    let expected = [
-        (TokenKind::F64, "3.15"),
-        (TokenKind::F64, "1.5e10"),
-        (TokenKind::I64, "100"),
         (TokenKind::Eof, ""),
     ];
 
@@ -507,12 +463,10 @@ fn hex_literals() {
 
 #[test]
 fn rust_style_suffixes() {
-    let source = "123i64 456f64 0i64 999f64";
+    let source = "123i64 0i64";
     let expected = [
         (TokenKind::I64, "123"),
-        (TokenKind::F64, "456"),
         (TokenKind::I64, "0"),
-        (TokenKind::F64, "999"),
         (TokenKind::Eof, ""),
     ];
 
@@ -527,11 +481,10 @@ fn rust_style_suffixes() {
 
 #[test]
 fn mixed_radix_and_suffixes() {
-    let source = "0b1010i64 0xFFi64 3.15f64";
+    let source = "0b1010i64 0xFFi64";
     let expected = [
         (TokenKind::I64, "0b1010"),
         (TokenKind::I64, "0xFF"),
-        (TokenKind::F64, "3.15"),
         (TokenKind::Eof, ""),
     ];
 
@@ -633,37 +586,13 @@ fn unsigned_integer_suffixes() {
 }
 
 #[test]
-fn float_suffixes() {
-    let source = "3.15f32 3.15_f32 2.718f64 2.718_f64 1e10f32 1.5e-5f64";
-    let expected = [
-        (TokenKind::F32, "3.15"),
-        (TokenKind::F32, "3.15"),
-        (TokenKind::F64, "2.718"),
-        (TokenKind::F64, "2.718"),
-        (TokenKind::F32, "1e10"),
-        (TokenKind::F64, "1.5e-5"),
-        (TokenKind::Eof, ""),
-    ];
-
-    let mut lexer = Lexer::new(source);
-
-    for (kind, literal) in expected {
-        let token = lexer.next_token();
-        assert_eq!(token.kind, kind);
-        assert_eq!(token.literal, literal);
-    }
-}
-
-#[test]
 fn suffix_boundary_checking() {
-    let source = "42i641 42u641 42f641 42i12 42u12 42isizes";
+    let source = "42i641 42u641 42i12 42u12 42isizes";
     let expected = [
         (TokenKind::I64, "42"),
         (TokenKind::Ident, "i641"),
         (TokenKind::I64, "42"),
         (TokenKind::Ident, "u641"),
-        (TokenKind::I64, "42"),
-        (TokenKind::Ident, "f641"),
         (TokenKind::I64, "42"),
         (TokenKind::Ident, "i12"),
         (TokenKind::I64, "42"),

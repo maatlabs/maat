@@ -174,7 +174,17 @@ impl Compiler {
             Stmt::Block(block) => self.compile_block_statement(block),
             Stmt::Let(let_stmt) => {
                 let span = let_stmt.span;
-                self.compile_expression(&let_stmt.value)?;
+                if let Expr::Lambda(lambda) = &let_stmt.value {
+                    self.compile_fn_body(
+                        Some(&let_stmt.ident),
+                        lambda.param_names(),
+                        lambda.params.len(),
+                        &lambda.body,
+                        lambda.span,
+                    )?;
+                } else {
+                    self.compile_expression(&let_stmt.value)?;
+                }
                 let symbol = match self.symbols_table.define_symbol(&let_stmt.ident) {
                     Ok(s) => s,
                     Err(e) => return Err(self.attach_span(e, span)),
@@ -192,6 +202,30 @@ impl Compiler {
             Stmt::Return(ret_stmt) => {
                 self.compile_expression(&ret_stmt.value)?;
                 self.emit(Opcode::ReturnValue, &[], ret_stmt.span);
+                Ok(())
+            }
+
+            Stmt::FnItem(fn_item) => {
+                let span = fn_item.span;
+                self.compile_fn_body(
+                    Some(&fn_item.name),
+                    fn_item.param_names(),
+                    fn_item.params.len(),
+                    &fn_item.body,
+                    span,
+                )?;
+                let symbol = match self.symbols_table.define_symbol(&fn_item.name) {
+                    Ok(s) => s,
+                    Err(e) => return Err(self.attach_span(e, span)),
+                };
+                let (scope, index) = (symbol.scope, symbol.index);
+                match scope {
+                    SymbolScope::Global => self.emit(Opcode::SetGlobal, &[index], span),
+                    SymbolScope::Local => self.emit(Opcode::SetLocal, &[index], span),
+                    SymbolScope::Builtin | SymbolScope::Free | SymbolScope::Function => {
+                        unreachable!("define_symbol never produces this scope")
+                    }
+                };
                 Ok(())
             }
 
@@ -392,9 +426,6 @@ impl Compiler {
             Expr::U128(lit) => self.compile_numeric_constant(Object::U128(lit.value), span),
             Expr::Usize(lit) => self.compile_numeric_constant(Object::Usize(lit.value), span),
 
-            Expr::F32(lit) => self.compile_numeric_constant(Object::F32(f32::from(*lit)), span),
-            Expr::F64(lit) => self.compile_numeric_constant(Object::F64(f64::from(*lit)), span),
-
             Expr::Bool(b) => {
                 let opcode = if b.value { Opcode::True } else { Opcode::False };
                 self.emit(opcode, &[], span);
@@ -526,45 +557,14 @@ impl Compiler {
                 Ok(())
             }
 
-            Expr::FnItem(func) => {
-                self.enter_scope();
-
-                if let Some(name) = &func.name {
-                    self.symbols_table.define_function_name(name);
-                }
-
-                for param in func.param_names() {
-                    if let Err(e) = self.symbols_table.define_symbol(param) {
-                        return Err(self.attach_span(e, func.span));
-                    }
-                }
-
-                self.compile_block_statement(&func.body)?;
-
-                if self.last_instruction_is(Opcode::Pop) {
-                    self.replace_last_pop_with_return_value();
-                }
-                if !self.last_instruction_is(Opcode::ReturnValue) {
-                    self.emit(Opcode::Return, &[], func.span);
-                }
-
-                let free_vars = self.symbols_table.free_vars().to_vec();
-                let num_free = free_vars.len();
-                let num_locals = self.symbols_table.num_definitions();
-                let (instructions, inner_source_map) = self.leave_scope()?;
-
-                for sym in &free_vars {
-                    self.load_symbol(sym, func.span);
-                }
-
-                let compiled_fn = Object::CompiledFunction(CompiledFunction {
-                    instructions: Rc::from(instructions.as_bytes()),
-                    num_locals,
-                    num_parameters: func.params.len(),
-                    source_map: inner_source_map,
-                });
-                let index = self.add_constant(compiled_fn)?;
-                self.emit(Opcode::Closure, &[index, num_free], span);
+            Expr::Lambda(lambda) => {
+                self.compile_fn_body(
+                    None,
+                    lambda.param_names(),
+                    lambda.params.len(),
+                    &lambda.body,
+                    lambda.span,
+                )?;
                 Ok(())
             }
 
@@ -655,8 +655,6 @@ impl Compiler {
             TypeAnnotation::U64 => TypeTag::U64,
             TypeAnnotation::U128 => TypeTag::U128,
             TypeAnnotation::Usize => TypeTag::Usize,
-            TypeAnnotation::F32 => TypeTag::F32,
-            TypeAnnotation::F64 => TypeTag::F64,
         }
     }
 
@@ -702,6 +700,60 @@ impl Compiler {
     ///
     /// Creates a fresh instruction stream and an enclosed symbol table
     /// that chains to the current one.
+    /// Compiles a function body (shared by `Stmt::FnItem` and `Expr::Lambda`).
+    ///
+    /// Enters a new scope, optionally defines a function name for recursive
+    /// self-reference, compiles parameters and body, and emits the closure
+    /// instruction.
+    fn compile_fn_body<'a>(
+        &mut self,
+        name: Option<&str>,
+        param_names: impl Iterator<Item = &'a str>,
+        num_params: usize,
+        body: &BlockStmt,
+        span: Span,
+    ) -> Result<()> {
+        self.enter_scope();
+
+        if let Some(name) = name {
+            self.symbols_table.define_function_name(name);
+        }
+
+        for param in param_names {
+            if let Err(e) = self.symbols_table.define_symbol(param) {
+                return Err(self.attach_span(e, span));
+            }
+        }
+
+        self.compile_block_statement(body)?;
+
+        if self.last_instruction_is(Opcode::Pop) {
+            self.replace_last_pop_with_return_value();
+        }
+        if !self.last_instruction_is(Opcode::ReturnValue) {
+            self.emit(Opcode::Return, &[], span);
+        }
+
+        let free_vars = self.symbols_table.free_vars().to_vec();
+        let num_free = free_vars.len();
+        let num_locals = self.symbols_table.num_definitions();
+        let (instructions, inner_source_map) = self.leave_scope()?;
+
+        for sym in &free_vars {
+            self.load_symbol(sym, span);
+        }
+
+        let compiled_fn = Object::CompiledFunction(CompiledFunction {
+            instructions: Rc::from(instructions.as_bytes()),
+            num_locals,
+            num_parameters: num_params,
+            source_map: inner_source_map,
+        });
+        let index = self.add_constant(compiled_fn)?;
+        self.emit(Opcode::Closure, &[index, num_free], span);
+        Ok(())
+    }
+
     fn enter_scope(&mut self) {
         self.scopes.push(CompilationScope::new());
         self.scope_index += 1;

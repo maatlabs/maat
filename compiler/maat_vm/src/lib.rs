@@ -39,24 +39,9 @@ macro_rules! int_binop {
     };
 }
 
-/// Dispatches floating-point arithmetic across F32 and F64 variants.
-///
-/// Returns `None` if the operands are not the same float type.
-macro_rules! float_binop {
-    ($left:expr, $right:expr, $op:tt) => {
-        match ($left, $right) {
-            (Object::F32(l), Object::F32(r)) => Some(Object::F32(*l $op *r)),
-            (Object::F64(l), Object::F64(r)) => Some(Object::F64(*l $op *r)),
-            _ => None,
-        }
-    };
-}
-
 /// Dispatches ordered comparison across all 12 integer variants.
 ///
 /// Returns `None` if the operands are not the same integer type.
-/// Float comparisons are handled separately via `total_cmp` for
-/// deterministic ordering of NaN, negative zero, and infinity.
 macro_rules! int_cmp {
     ($left:expr, $right:expr, $op:tt) => {
         match ($left, $right) {
@@ -72,35 +57,6 @@ macro_rules! int_cmp {
             (Object::U64(l), Object::U64(r)) => Some(*l $op *r),
             (Object::U128(l), Object::U128(r)) => Some(*l $op *r),
             (Object::Usize(l), Object::Usize(r)) => Some(*l $op *r),
-            _ => None,
-        }
-    };
-}
-
-/// Dispatches float comparison using `total_cmp` for deterministic ordering.
-///
-/// Unlike IEEE 754 partial ordering, `total_cmp` provides a total order where:
-/// - NaN values are ordered (negative NaN < -Inf < ... < Inf < positive NaN)
-/// - Negative zero is less than positive zero (-0.0 < 0.0)
-///
-/// This guarantees deterministic comparison results regardless of NaN payload
-/// or zero sign bit.
-macro_rules! float_cmp {
-    ($left:expr, $right:expr, $op:tt) => {
-        match ($left, $right) {
-            (Object::F32(l), Object::F32(r)) => Some(l.total_cmp(r) $op std::cmp::Ordering::Equal),
-            (Object::F64(l), Object::F64(r)) => Some(l.total_cmp(r) $op std::cmp::Ordering::Equal),
-            _ => None,
-        }
-    };
-}
-
-/// Dispatches ordered float comparison using `total_cmp`.
-macro_rules! float_ord {
-    ($left:expr, $right:expr, $ord:pat) => {
-        match ($left, $right) {
-            (Object::F32(l), Object::F32(r)) => Some(matches!(l.total_cmp(r), $ord)),
-            (Object::F64(l), Object::F64(r)) => Some(matches!(l.total_cmp(r), $ord)),
             _ => None,
         }
     };
@@ -132,8 +88,6 @@ macro_rules! checked_neg {
 enum WideValue {
     Int(i128),
     Uint(u128),
-    F32(f32),
-    F64(f64),
 }
 
 /// A single call frame on the VM's frame stack.
@@ -674,17 +628,6 @@ impl VM {
             return self.push_stack(val);
         }
 
-        let float_result = match op {
-            Opcode::Add => float_binop!(&left, &right, +),
-            Opcode::Sub => float_binop!(&left, &right, -),
-            Opcode::Mul => float_binop!(&left, &right, *),
-            Opcode::Div => float_binop!(&left, &right, /),
-            _ => None,
-        };
-        if let Some(val) = float_result {
-            return self.push_stack(val);
-        }
-
         Err(self.vm_error(format!(
             "unsupported types for binary operation: {} {}",
             left.type_name(),
@@ -727,21 +670,15 @@ impl VM {
         }
     }
 
-    /// Attempts same-type numeric comparison across all numeric variants.
+    /// Attempts same-type numeric comparison across all integer variants.
     ///
-    /// Integer comparisons use standard operators. Float comparisons use
-    /// `total_cmp` for deterministic ordering of NaN, negative zero, and
-    /// infinity values.
-    ///
-    /// Returns `None` if the operands are not the same numeric type.
+    /// Returns `None` if the operands are not the same integer type.
     fn compare_numeric(&self, op: Opcode, left: &Object, right: &Object) -> Option<bool> {
         match op {
-            Opcode::Equal => int_cmp!(left, right, ==).or_else(|| float_cmp!(left, right, ==)),
-            Opcode::NotEqual => int_cmp!(left, right, !=).or_else(|| float_cmp!(left, right, !=)),
-            Opcode::GreaterThan => int_cmp!(left, right, >)
-                .or_else(|| float_ord!(left, right, std::cmp::Ordering::Greater)),
-            Opcode::LessThan => int_cmp!(left, right, <)
-                .or_else(|| float_ord!(left, right, std::cmp::Ordering::Less)),
+            Opcode::Equal => int_cmp!(left, right, ==),
+            Opcode::NotEqual => int_cmp!(left, right, !=),
+            Opcode::GreaterThan => int_cmp!(left, right, >),
+            Opcode::LessThan => int_cmp!(left, right, <),
             _ => None,
         }
     }
@@ -755,7 +692,7 @@ impl VM {
         self.push_stack(result)
     }
 
-    /// Executes the unary minus operator for all signed integer and float types.
+    /// Executes the unary minus operator for all signed integer types.
     fn execute_minus_operator(&mut self) -> Result<()> {
         let operand = self.pop_stack()?;
 
@@ -764,14 +701,10 @@ impl VM {
             return self.push_stack(val);
         }
 
-        match operand {
-            Object::F32(v) => self.push_stack(Object::F32(-v)),
-            Object::F64(v) => self.push_stack(Object::F64(-v)),
-            _ => Err(self.vm_error(format!(
-                "unsupported type for negation: {}",
-                operand.type_name()
-            ))),
-        }
+        Err(self.vm_error(format!(
+            "unsupported type for negation: {}",
+            operand.type_name()
+        )))
     }
 
     /// Executes an explicit type conversion (`as` operator).
@@ -808,8 +741,6 @@ impl VM {
             TypeTag::U64 => self.narrow_int::<u64>(wide, "u64").map(Object::U64),
             TypeTag::U128 => self.narrow_int::<u128>(wide, "u128").map(Object::U128),
             TypeTag::Usize => self.narrow_int::<usize>(wide, "usize").map(Object::Usize),
-            TypeTag::F32 => Self::to_f32(wide),
-            TypeTag::F64 => Self::to_f64(wide),
         }
     }
 
@@ -831,8 +762,6 @@ impl VM {
             Object::U64(v) => Ok(WideValue::Uint(*v as u128)),
             Object::U128(v) => Ok(WideValue::Uint(*v)),
             Object::Usize(v) => Ok(WideValue::Uint(*v as u128)),
-            Object::F32(v) => Ok(WideValue::F32(*v)),
-            Object::F64(v) => Ok(WideValue::F64(*v)),
             _ => Err(self.vm_error(format!(
                 "cannot cast {} to a numeric type",
                 value.type_name()
@@ -850,42 +779,6 @@ impl VM {
                 .map_err(|_| self.vm_error(format!("value {v} out of range for {type_name}"))),
             WideValue::Uint(v) => T::try_from(v)
                 .map_err(|_| self.vm_error(format!("value {v} out of range for {type_name}"))),
-            WideValue::F32(v) => {
-                if !v.is_finite() {
-                    return Err(self.vm_error(format!("cannot cast non-finite f32 to {type_name}")));
-                }
-                let i = v as i128;
-                T::try_from(i)
-                    .map_err(|_| self.vm_error(format!("value {v} out of range for {type_name}")))
-            }
-            WideValue::F64(v) => {
-                if !v.is_finite() {
-                    return Err(self.vm_error(format!("cannot cast non-finite f64 to {type_name}")));
-                }
-                let i = v as i128;
-                T::try_from(i)
-                    .map_err(|_| self.vm_error(format!("value {v} out of range for {type_name}")))
-            }
-        }
-    }
-
-    /// Converts a wide value to f32.
-    fn to_f32(wide: WideValue) -> Result<Object> {
-        match wide {
-            WideValue::Int(v) => Ok(Object::F32(v as f32)),
-            WideValue::Uint(v) => Ok(Object::F32(v as f32)),
-            WideValue::F32(v) => Ok(Object::F32(v)),
-            WideValue::F64(v) => Ok(Object::F32(v as f32)),
-        }
-    }
-
-    /// Converts a wide value to f64.
-    fn to_f64(wide: WideValue) -> Result<Object> {
-        match wide {
-            WideValue::Int(v) => Ok(Object::F64(v as f64)),
-            WideValue::Uint(v) => Ok(Object::F64(v as f64)),
-            WideValue::F32(v) => Ok(Object::F64(v as f64)),
-            WideValue::F64(v) => Ok(Object::F64(v)),
         }
     }
 

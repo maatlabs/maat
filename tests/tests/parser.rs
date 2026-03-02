@@ -167,30 +167,6 @@ fn parse_string_literal() {
 }
 
 #[test]
-fn parse_float_literal() {
-    [
-        ("3.15;", 3.15),
-        ("0.5;", 0.5),
-        ("123.456;", 123.456),
-        ("1e10;", 1e10),
-        ("1.5E-3;", 1.5E-3),
-    ]
-    .iter()
-    .for_each(|(input, expected)| {
-        let program = parse(input);
-        let Stmt::Expr(ExprStmt {
-            value: Expr::F64(float),
-            ..
-        }) = expect_single_stmt(&program)
-        else {
-            panic!("expected float literal");
-        };
-        let value: f64 = (*float).into();
-        assert!((value - expected).abs() < 1e-10, "input: {}", input);
-    });
-}
-
-#[test]
 fn parse_array_literal() {
     let program = parse("[1, 2 * 2, 3 + 3]");
     let Stmt::Expr(ExprStmt {
@@ -346,17 +322,6 @@ fn parse_rust_style_suffixes() {
         panic!("expected I64 expression");
     };
     assert_eq!(i64_lit.value, 123);
-
-    let program = parse("3.15f64;");
-    let Stmt::Expr(ExprStmt {
-        value: Expr::F64(f64_lit),
-        ..
-    }) = expect_single_stmt(&program)
-    else {
-        panic!("expected F64 expression");
-    };
-    let value: f64 = (*f64_lit).into();
-    assert!((value - 3.15).abs() < 1e-10);
 }
 
 #[test]
@@ -446,11 +411,11 @@ fn parse_if_else_expression() {
 fn parse_function_literal() {
     let program = parse("fn(x, y) { x + y; }");
     let Stmt::Expr(ExprStmt {
-        value: Expr::FnItem(func),
+        value: Expr::Lambda(func),
         ..
     }) = expect_single_stmt(&program)
     else {
-        panic!("expected FnItem expression");
+        panic!("expected Lambda expression");
     };
 
     assert_eq!(func.param_names().collect::<Vec<_>>(), vec!["x", "y"]);
@@ -469,11 +434,11 @@ fn parse_function_parameters() {
     .for_each(|(input, expected_params)| {
         let program = parse(input);
         let Stmt::Expr(ExprStmt {
-            value: Expr::FnItem(func),
+            value: Expr::Lambda(func),
             ..
         }) = expect_single_stmt(&program)
         else {
-            panic!("expected FnItem expression");
+            panic!("expected Lambda expression");
         };
         let names: Vec<&str> = func.param_names().collect();
         assert_eq!(names, *expected_params);

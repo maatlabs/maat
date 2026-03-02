@@ -18,14 +18,15 @@ pub struct Program {
     pub statements: Vec<Stmt>,
 }
 
-/// Statements: `let` bindings, `return` statements, expression
-/// statements, or nested blocks.
+/// Statements: `let` bindings, `return` statements, function declarations,
+/// expression statements, or nested blocks.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Stmt {
     Let(LetStmt),
     Return(ReturnStmt),
     Expr(ExprStmt),
     Block(BlockStmt),
+    FnItem(FnItem),
     Loop(LoopStmt),
     While(WhileStmt),
     For(ForStmt),
@@ -81,9 +82,6 @@ pub enum Expr {
     U128(U128),
     Usize(Usize),
 
-    F32(F32),
-    F64(F64),
-
     Bool(Bool),
     Str(Str),
     Array(Array),
@@ -93,7 +91,7 @@ pub enum Expr {
     Prefix(PrefixExpr),
     Infix(InfixExpr),
     Cond(CondExpr),
-    FnItem(FnItem),
+    Lambda(Lambda),
     Macro(Macro),
     Call(CallExpr),
     Cast(CastExpr),
@@ -118,8 +116,6 @@ impl Expr {
             Self::U64(v) => v.span,
             Self::U128(v) => v.span,
             Self::Usize(v) => v.span,
-            Self::F32(v) => v.span,
-            Self::F64(v) => v.span,
             Self::Bool(v) => v.span,
             Self::Str(v) => v.span,
             Self::Array(v) => v.span,
@@ -128,7 +124,7 @@ impl Expr {
             Self::Prefix(v) => v.span,
             Self::Infix(v) => v.span,
             Self::Cond(v) => v.span,
-            Self::FnItem(v) => v.span,
+            Self::Lambda(v) => v.span,
             Self::Macro(v) => v.span,
             Self::Call(v) => v.span,
             Self::Cast(v) => v.span,
@@ -229,33 +225,6 @@ macro_rules! define_int_type {
     };
 }
 
-/// Macro to generate floating-point type structs with native storage (as raw bits).
-macro_rules! define_float_type {
-    ($name:ident, $native:ty, $bits:ty, $doc:expr) => {
-        #[doc = $doc]
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-        pub struct $name {
-            pub bits: $bits,
-            pub span: Span,
-        }
-
-        impl From<$native> for $name {
-            fn from(value: $native) -> Self {
-                Self {
-                    bits: <$native>::to_bits(value),
-                    span: Span::ZERO,
-                }
-            }
-        }
-
-        impl From<$name> for $native {
-            fn from(value: $name) -> Self {
-                <$native>::from_bits(value.bits)
-            }
-        }
-    };
-}
-
 // Signed integer types
 define_int_type!(I8, i8, "8-bit signed integer literal.");
 define_int_type!(I16, i16, "16-bit signed integer literal.");
@@ -271,10 +240,6 @@ define_int_type!(U32, u32, "32-bit unsigned integer literal.");
 define_int_type!(U64, u64, "64-bit unsigned integer literal.");
 define_int_type!(U128, u128, "128-bit unsigned integer literal.");
 define_int_type!(Usize, usize, "Pointer-sized unsigned integer literal.");
-
-// Floating-point types
-define_float_type!(F32, f32, u32, "32-bit floating-point literal.");
-define_float_type!(F64, f64, u64, "64-bit floating-point literal.");
 
 /// Arrays: `[expr, expr, ...]`
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -324,22 +289,10 @@ pub struct CondExpr {
     pub span: Span,
 }
 
-/// FnItem literal with optional name for recursive self-reference.
-///
-/// Named functions are created when a function literal is assigned via a
-/// `let` binding (e.g., `let foo = fn(x) { ... }`). The name enables
-/// recursive closures to reference themselves without capturing an
-/// outer binding.
-///
-/// Supports optional type annotations on parameters, an optional return
-/// type, and generic type parameters:
-///
-/// ```text
-/// fn<T>(x: T, y: i64) -> T { x }
-/// ```
+/// A named function declaration: `fn foo<T>(x: T, y: i64) -> T { x }`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FnItem {
-    pub name: Option<String>,
+    pub name: String,
     pub params: Vec<TypedParam>,
     pub generic_params: Vec<GenericParam>,
     pub return_type: Option<TypeExpr>,
@@ -354,6 +307,23 @@ impl FnItem {
     }
 }
 
+/// An anonymous function/closure expression: `fn(x, y) { x + y }`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Lambda {
+    pub params: Vec<TypedParam>,
+    pub generic_params: Vec<GenericParam>,
+    pub return_type: Option<TypeExpr>,
+    pub body: BlockStmt,
+    pub span: Span,
+}
+
+impl Lambda {
+    /// Returns an iterator over the parameter names.
+    pub fn param_names(&self) -> impl Iterator<Item = &str> {
+        self.params.iter().map(|p| p.name.as_str())
+    }
+}
+
 /// Macro literal
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Macro {
@@ -362,7 +332,7 @@ pub struct Macro {
     pub span: Span,
 }
 
-/// FnItem call
+/// Function call expression: `<callee>(<args>)`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CallExpr {
     pub function: Box<Expr>,
@@ -520,8 +490,6 @@ pub enum TypeAnnotation {
     U64,
     U128,
     Usize,
-    F32,
-    F64,
 }
 
 impl TypeAnnotation {
@@ -540,8 +508,6 @@ impl TypeAnnotation {
             Self::U64 => "u64",
             Self::U128 => "u128",
             Self::Usize => "usize",
-            Self::F32 => "f32",
-            Self::F64 => "f64",
         }
     }
 }
@@ -573,8 +539,6 @@ impl std::str::FromStr for TypeAnnotation {
             "u64" => Ok(Self::U64),
             "u128" => Ok(Self::U128),
             "usize" => Ok(Self::Usize),
-            "f32" => Ok(Self::F32),
-            "f64" => Ok(Self::F64),
             _ => Err(UnknownTypeAnnotation),
         }
     }
@@ -606,6 +570,7 @@ impl fmt::Display for Stmt {
             Self::Return(ret_stmt) => ret_stmt.fmt(f)?,
             Self::Expr(expr_stmt) => expr_stmt.fmt(f)?,
             Self::Block(block_stmt) => block_stmt.fmt(f)?,
+            Self::FnItem(fn_item) => fn_item.fmt(f)?,
             Self::Loop(loop_stmt) => loop_stmt.fmt(f)?,
             Self::While(while_stmt) => while_stmt.fmt(f)?,
             Self::For(for_stmt) => for_stmt.fmt(f)?,
@@ -680,16 +645,6 @@ impl fmt::Display for Expr {
             Self::U128(v) => fmt_int!(v),
             Self::Usize(v) => fmt_int!(v),
 
-            // Float types
-            Self::F32(v) => {
-                let val: f32 = (*v).into();
-                write!(f, "{val}")
-            }
-            Self::F64(v) => {
-                let val: f64 = (*v).into();
-                write!(f, "{val}")
-            }
-
             Self::Bool(b) => b.value.fmt(f),
             Self::Str(s) => s.value.fmt(f),
             Self::Array(array_lit) => array_lit.fmt(f),
@@ -698,7 +653,7 @@ impl fmt::Display for Expr {
             Self::Prefix(prefix_expr) => prefix_expr.fmt(f),
             Self::Infix(infix_expr) => infix_expr.fmt(f),
             Self::Cond(cond_expr) => cond_expr.fmt(f),
-            Self::FnItem(func_lit) => func_lit.fmt(f),
+            Self::Lambda(lambda) => lambda.fmt(f),
             Self::Macro(macro_lit) => macro_lit.fmt(f),
             Self::Call(call_expr) => call_expr.fmt(f),
             Self::Cast(cast_expr) => cast_expr.fmt(f),
@@ -791,10 +746,38 @@ impl fmt::Display for FnItem {
             .as_ref()
             .map_or(String::new(), |t| format!(" -> {t}"));
 
-        match &self.name {
-            Some(name) => write!(f, "fn {name}{generics}({params}){ret} {}", self.body),
-            None => write!(f, "fn{generics}({params}){ret} {}", self.body),
-        }
+        write!(f, "fn {}{generics}({params}){ret} {}", self.name, self.body)
+    }
+}
+
+impl fmt::Display for Lambda {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let params = self
+            .params
+            .iter()
+            .map(|p| p.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        let generics = if self.generic_params.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "<{}>",
+                self.generic_params
+                    .iter()
+                    .map(|g| g.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
+
+        let ret = self
+            .return_type
+            .as_ref()
+            .map_or(String::new(), |t| format!(" -> {t}"));
+
+        write!(f, "fn{generics}({params}){ret} {}", self.body)
     }
 }
 

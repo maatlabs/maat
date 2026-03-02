@@ -393,10 +393,9 @@ fn conditional_expression() {
 }
 
 #[test]
-fn function() {
+fn lambda() {
     // Anonymous function with no generics, no return type, empty body
-    let func_anon = FnItem {
-        name: None,
+    let func = Lambda {
         params: vec![],
         generic_params: vec![],
         return_type: None,
@@ -406,8 +405,11 @@ fn function() {
         },
         span: span(),
     };
-    assert_eq!(func_anon.to_string(), "fn() {}");
+    assert_eq!(func.to_string(), "fn() {}");
+}
 
+#[test]
+fn function() {
     // Named function with parameters, generics, return type, non-empty body
     let param1 = TypedParam {
         name: "a".to_string(),
@@ -448,8 +450,8 @@ fn function() {
         span: span(),
     };
 
-    let func_named = FnItem {
-        name: Some("identity".to_string()),
+    let func = FnItem {
+        name: "identity".to_string(),
         params: vec![param1, param2],
         generic_params: vec![generic],
         return_type: Some(return_ty),
@@ -457,7 +459,7 @@ fn function() {
         span: span(),
     };
     assert_eq!(
-        func_named.to_string(),
+        func.to_string(),
         "fn identity<T: Copy>(a: T, b: i64) -> T {\nreturn a;\n}"
     );
 
@@ -466,15 +468,15 @@ fn function() {
         bounds: vec![],
         span: span(),
     };
-    let func_simple = FnItem {
-        name: Some("identity".to_string()),
+    let func = FnItem {
+        name: "identity".to_string(),
         params: vec![],
         generic_params: vec![generic_no_bounds],
         return_type: None,
         body,
         span: span(),
     };
-    assert_eq!(func_simple.to_string(), "fn identity<U>() {\nreturn a;\n}");
+    assert_eq!(func.to_string(), "fn identity<U>() {\nreturn a;\n}");
 }
 
 #[test]
@@ -569,13 +571,6 @@ fn type_cast() {
         span: span(),
     };
     assert_eq!(i32_to_i64.to_string(), "(42 as i64)");
-
-    let f64_to_u32 = CastExpr {
-        expr: Box::new(Expr::F64(F64::from(2.56f64))),
-        target: TypeAnnotation::U32,
-        span: span(),
-    };
-    assert_eq!(f64_to_u32.to_string(), "(2.56 as u32)");
 }
 
 #[test]

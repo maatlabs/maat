@@ -275,8 +275,6 @@ impl<'a> Lexer<'a> {
     }
 
     fn yield_number(&mut self, start: usize) -> Token<'a> {
-        let mut is_float = false;
-
         // Check for radix prefix (0b, 0o, 0x)
         if self.peek_pos() == Some(b'0')
             && let Some(radix) = self.source.as_bytes().get(self.pos + 1)
@@ -323,21 +321,27 @@ impl<'a> Lexer<'a> {
         }
 
         self.read_decimal_digits();
-        if self.has_fractional_part() {
-            is_float = true;
-        }
-        if self.has_exponent() {
-            is_float = true;
+
+        // Floating-point literals are not supported in Maat.
+        // A dot followed by a digit or an exponent marker signals a float.
+        let has_frac = self.has_fractional_part();
+        let has_exp = self.has_exponent();
+        if has_frac || has_exp {
+            // Consume the rest of the invalid float literal so the lexer
+            // can recover, then emit an Invalid token.
+            let end = self.pos;
+            return Token::new(
+                TokenKind::Invalid,
+                &self.source[start..end],
+                Span::new(start, end),
+            );
         }
 
         let value_end = self.pos;
-        let kind = if let Some(suf) = self.try_read_suffix() {
-            suf.to_token_kind()
-        } else if is_float {
-            TokenKind::F64
-        } else {
-            TokenKind::I64
-        };
+        let kind = self
+            .try_read_suffix()
+            .map(|s| s.to_token_kind())
+            .unwrap_or(TokenKind::I64);
 
         let end = self.pos;
         Token::new(kind, &self.source[start..value_end], Span::new(start, end))
@@ -390,9 +394,8 @@ impl<'a> Lexer<'a> {
 
     /// Tries to read a type suffix from the current position.
     ///
-    /// Recognizes integer suffixes (i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize)
-    /// and float suffixes (f32, f64). Supports both `123i64` and `123_i64` styles (with or without
-    /// underscore prefix).
+    /// Recognizes integer suffixes (i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize).
+    /// Supports both `123i64` and `123_i64` styles (with or without underscore prefix).
     fn try_read_suffix(&mut self) -> Option<Suffix> {
         let start = self.pos;
 
@@ -404,10 +407,6 @@ impl<'a> Lexer<'a> {
         let remaining = &bytes[self.pos..];
 
         if let Some((suffix, len)) = num::match_int_suffix(remaining) {
-            self.pos += len;
-            return Some(suffix);
-        }
-        if let Some((suffix, len)) = num::match_float_suffix(remaining) {
             self.pos += len;
             return Some(suffix);
         }

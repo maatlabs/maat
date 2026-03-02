@@ -115,6 +115,7 @@ impl TypeChecker {
                 self.infer_expression(&mut expr_stmt.value);
             }
             Stmt::Block(block) => self.check_block(block),
+            Stmt::FnItem(fn_item) => self.check_fn_item(fn_item),
             Stmt::Loop(loop_stmt) => self.check_block(&mut loop_stmt.body),
             Stmt::While(while_stmt) => {
                 self.infer_expression(&mut while_stmt.condition);
@@ -186,6 +187,69 @@ impl TypeChecker {
         self.env.pop_scope();
     }
 
+    /// Type-checks a named function declaration and binds it in the environment.
+    fn check_fn_item(&mut self, fn_item: &mut FnItem) {
+        let fn_ty = self.infer_fn_body(
+            &fn_item.generic_params,
+            &fn_item.params,
+            &fn_item.return_type,
+            &mut fn_item.body,
+            fn_item.span,
+        );
+        let resolved = self.subst.apply(&fn_ty);
+        self.env.define_var(&fn_item.name, resolved);
+    }
+
+    /// Shared inference logic for function bodies (used by both `FnItem` and `Lambda`).
+    fn infer_fn_body(
+        &mut self,
+        generic_params: &[GenericParam],
+        params: &[TypedParam],
+        return_type: &Option<TypeExpr>,
+        body: &mut BlockStmt,
+        span: Span,
+    ) -> Type {
+        self.env.push_scope();
+
+        for gp in generic_params {
+            let var = self.env.fresh_var();
+            self.env.define_var(&gp.name, var);
+        }
+
+        let param_types: Vec<Type> = params
+            .iter()
+            .map(|p| {
+                let ty = p
+                    .type_expr
+                    .as_ref()
+                    .map(resolve_type_expr)
+                    .unwrap_or_else(|| self.env.fresh_var());
+                self.env.define_var(&p.name, ty.clone());
+                ty
+            })
+            .collect();
+
+        let body_ty = self.infer_block(body);
+
+        let ret_ty = return_type
+            .as_ref()
+            .map(resolve_type_expr)
+            .unwrap_or_else(|| body_ty.clone());
+
+        if return_type.is_some()
+            && let Err(e) = self.subst.unify(&ret_ty, &body_ty)
+        {
+            self.report_unify_error(e, span);
+        }
+
+        self.env.pop_scope();
+
+        Type::Function(FnType {
+            params: param_types,
+            ret: Box::new(self.subst.apply(&ret_ty)),
+        })
+    }
+
     /// Infers the type of an expression, potentially mutating it
     /// (e.g., inserting promotion casts on infix operands).
     fn infer_expression(&mut self, expr: &mut Expr) -> Type {
@@ -202,8 +266,6 @@ impl TypeChecker {
             Expr::U64(_) => Type::U64,
             Expr::U128(_) => Type::U128,
             Expr::Usize(_) => Type::Usize,
-            Expr::F32(_) => Type::F32,
-            Expr::F64(_) => Type::F64,
             Expr::Bool(_) => Type::Bool,
             Expr::Str(_) => Type::String,
 
@@ -307,50 +369,13 @@ impl TypeChecker {
                 }
             }
 
-            Expr::FnItem(func) => {
-                self.env.push_scope();
-
-                // Register generic params as type variables
-                for gp in &func.generic_params {
-                    let var = self.env.fresh_var();
-                    self.env.define_var(&gp.name, var);
-                }
-
-                let param_types: Vec<Type> = func
-                    .params
-                    .iter()
-                    .map(|p| {
-                        let ty = p
-                            .type_expr
-                            .as_ref()
-                            .map(resolve_type_expr)
-                            .unwrap_or_else(|| self.env.fresh_var());
-                        self.env.define_var(&p.name, ty.clone());
-                        ty
-                    })
-                    .collect();
-
-                let body_ty = self.infer_block(&mut func.body);
-
-                let ret_ty = func
-                    .return_type
-                    .as_ref()
-                    .map(resolve_type_expr)
-                    .unwrap_or_else(|| body_ty.clone());
-
-                if func.return_type.is_some()
-                    && let Err(e) = self.subst.unify(&ret_ty, &body_ty)
-                {
-                    self.report_unify_error(e, func.span);
-                }
-
-                self.env.pop_scope();
-
-                Type::Function(FnType {
-                    params: param_types,
-                    ret: Box::new(self.subst.apply(&ret_ty)),
-                })
-            }
+            Expr::Lambda(lambda) => self.infer_fn_body(
+                &lambda.generic_params,
+                &lambda.params,
+                &lambda.return_type,
+                &mut lambda.body,
+                lambda.span,
+            ),
 
             Expr::Call(call) => {
                 let func_ty = self.infer_expression(&mut call.function);
@@ -472,11 +497,6 @@ impl TypeChecker {
                     self.maybe_insert_cast(&mut infix.lhs, &lhs_resolved, &promoted);
                     self.maybe_insert_cast(&mut infix.rhs, &rhs_resolved, &promoted);
                     if is_comparison { Type::Bool } else { promoted }
-                }
-                Err(PromotionError::ImplicitFloat) => {
-                    self.errors
-                        .push(TypeErrorKind::ImplicitFloatPromotion.at(infix.span));
-                    self.env.fresh_var()
                 }
                 Err(PromotionError::NonNumeric(ty)) => {
                     self.errors.push(
@@ -616,8 +636,6 @@ fn type_annotation_to_type(ann: &TypeAnnotation) -> Type {
         TypeAnnotation::U64 => Type::U64,
         TypeAnnotation::U128 => Type::U128,
         TypeAnnotation::Usize => Type::Usize,
-        TypeAnnotation::F32 => Type::F32,
-        TypeAnnotation::F64 => Type::F64,
     }
 }
 

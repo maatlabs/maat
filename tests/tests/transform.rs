@@ -252,8 +252,7 @@ fn transform_let_statement() {
 
 #[test]
 fn transform_function_literal() {
-    let func = Expr::FnItem(FnItem {
-        name: None,
+    let func = Expr::Lambda(Lambda {
         params: vec![TypedParam {
             name: "x".to_string(),
             type_expr: None,
@@ -274,7 +273,7 @@ fn transform_function_literal() {
     let modified = transform(Node::Expr(func), &mut turn_one_into_two);
 
     match modified {
-        Node::Expr(Expr::FnItem(f)) => match &f.body.statements[0] {
+        Node::Expr(Expr::Lambda(f)) => match &f.body.statements[0] {
             Stmt::Expr(ExprStmt {
                 value: Expr::I64(i),
                 ..
@@ -283,7 +282,7 @@ fn transform_function_literal() {
             }
             _ => panic!("Expected I64 in function body"),
         },
-        _ => panic!("Expected FnItem expression"),
+        _ => panic!("Expected Lambda expression"),
     }
 }
 

@@ -126,6 +126,9 @@ impl<'a> Parser<'a> {
         match self.current.kind {
             TokenKind::Let => self.parse_let_statement().map(Stmt::Let),
             TokenKind::Return => self.parse_return_statement().map(Stmt::Return),
+            TokenKind::Fn if self.peek_token_is(TokenKind::Ident) => {
+                self.parse_fn_declaration().map(Stmt::FnItem)
+            }
             TokenKind::Loop => self.parse_loop_statement().map(Stmt::Loop),
             TokenKind::While => self.parse_while_statement().map(Stmt::While),
             TokenKind::For => self.parse_for_statement().map(Stmt::For),
@@ -152,10 +155,7 @@ impl<'a> Parser<'a> {
             return None;
         }
         self.next_token();
-        let mut value = self.parse_expression(LOWEST)?;
-        if let Expr::FnItem(ref mut func) = value {
-            func.name = Some(ident.clone());
-        }
+        let value = self.parse_expression(LOWEST)?;
         let end = if self.peek_token_is(TokenKind::Semicolon) {
             self.next_token();
             self.current.span
@@ -218,14 +218,12 @@ impl<'a> Parser<'a> {
             | TokenKind::U64
             | TokenKind::U128
             | TokenKind::Usize => self.parse_int()?,
-            TokenKind::F32 | TokenKind::F64 => self.parse_float()?,
-
             TokenKind::String => self.parse_string_literal()?,
             TokenKind::Bang | TokenKind::Minus => self.parse_prefix_expression()?,
             TokenKind::True | TokenKind::False => self.parse_boolean()?,
             TokenKind::LParen => self.parse_grouped_expression()?,
             TokenKind::If => self.parse_conditional_expression()?,
-            TokenKind::Fn => self.parse_function()?,
+            TokenKind::Fn => self.parse_lambda()?,
             TokenKind::Macro => self.parse_macro()?,
             TokenKind::LBracket => self.parse_array_literal()?,
             TokenKind::LBrace => self.parse_hash_literal()?,
@@ -390,47 +388,6 @@ impl<'a> Parser<'a> {
             TokenKind::U64 => parse_int_type!(u64, U64),
             TokenKind::U128 => parse_int_type!(u128, U128),
             TokenKind::Usize => parse_int_type!(usize, Usize),
-            _ => unreachable!(),
-        };
-
-        Some(expr)
-    }
-
-    fn parse_float(&mut self) -> Option<Expr> {
-        let literal = self.current.literal;
-        let span = self.current.span;
-
-        let expr = match self.current.kind {
-            TokenKind::F32 => {
-                let value = literal.parse::<f32>().ok().or_else(|| {
-                    self.push_error(format!("could not parse {:?} as f32", self.current.literal));
-                    None
-                })?;
-
-                if !value.is_finite() && !literal.contains("inf") && !literal.contains("nan") {
-                    self.push_error(format!(
-                        "literal out of range for f32: {}",
-                        self.current.literal
-                    ));
-                    return None;
-                }
-
-                Expr::F32(F32 {
-                    bits: f32::to_bits(value),
-                    span,
-                })
-            }
-            TokenKind::F64 => {
-                let value = literal.parse::<f64>().ok().or_else(|| {
-                    self.push_error(format!("could not parse {:?} as f64", self.current.literal));
-                    None
-                })?;
-
-                Expr::F64(F64 {
-                    bits: f64::to_bits(value),
-                    span,
-                })
-            }
             _ => unreachable!(),
         };
 
@@ -651,7 +608,55 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_function(&mut self) -> Option<Expr> {
+    /// Parses a named function declaration: `fn name<T>(params) -> ret { body }`.
+    ///
+    /// Called when the current token is `fn` and the peek token is an identifier.
+    fn parse_fn_declaration(&mut self) -> Option<FnItem> {
+        let start = self.current.span;
+
+        if !self.expect_peek(TokenKind::Ident) {
+            return None;
+        }
+        let name = self.current.literal.to_string();
+
+        let generic_params = if self.peek_token_is(TokenKind::Less) {
+            self.next_token();
+            self.parse_generic_params()?
+        } else {
+            vec![]
+        };
+
+        if !self.expect_peek(TokenKind::LParen) {
+            return None;
+        }
+        let params = self.parse_typed_parameters()?;
+
+        let return_type = if self.peek_token_is(TokenKind::Arrow) {
+            self.next_token();
+            self.next_token();
+            Some(self.parse_type_expr()?)
+        } else {
+            None
+        };
+
+        if !self.expect_peek(TokenKind::LBrace) {
+            return None;
+        }
+        let body = self.parse_block_statement()?;
+        let end = self.current.span;
+
+        Some(FnItem {
+            name,
+            params,
+            generic_params,
+            return_type,
+            body,
+            span: start.merge(end),
+        })
+    }
+
+    /// Parses an anonymous function expression: `fn<T>(params) -> ret { body }`.
+    fn parse_lambda(&mut self) -> Option<Expr> {
         let start = self.current.span;
 
         let generic_params = if self.peek_token_is(TokenKind::Less) {
@@ -680,8 +685,7 @@ impl<'a> Parser<'a> {
         let body = self.parse_block_statement()?;
         let end = self.current.span;
 
-        Some(Expr::FnItem(FnItem {
-            name: None,
+        Some(Expr::Lambda(Lambda {
             params,
             generic_params,
             return_type,

@@ -6,7 +6,6 @@ use maat_vm::VM;
 enum TestValue {
     I64(i64),
     I32(i32),
-    F64(f64),
     Usize(usize),
     Bool(bool),
     Str(String),
@@ -49,15 +48,6 @@ fn run_vm_test(input: &str, expected: TestValue) {
                 assert_eq!(val, expected_val, "wrong Usize value for input: {input}")
             }
             _ => panic!("expected Usize object, got: {:?}", stack_elem),
-        },
-        TestValue::F64(expected_val) => match stack_elem {
-            Object::F64(val) => {
-                assert!(
-                    (val - expected_val).abs() < f64::EPSILON,
-                    "wrong F64 value for input: {input}"
-                )
-            }
-            _ => panic!("expected F64 object, got: {:?}", stack_elem),
         },
         TestValue::Bool(expected_val) => match stack_elem {
             Object::Bool(val) => {
@@ -661,25 +651,8 @@ fn typed_integer_arithmetic() {
 }
 
 #[test]
-fn float_arithmetic() {
-    let cases = vec![
-        ("1.5f64 + 2.5f64", TestValue::F64(4.0)),
-        ("10.0f64 - 3.5f64", TestValue::F64(6.5)),
-        ("2.0f64 * 3.0f64", TestValue::F64(6.0)),
-        ("10.0f64 / 4.0f64", TestValue::F64(2.5)),
-    ];
-
-    for (input, expected) in cases {
-        run_vm_test(input, expected);
-    }
-}
-
-#[test]
 fn signed_negation() {
-    let cases = vec![
-        ("-5i32", TestValue::I32(-5)),
-        ("-1.5f64", TestValue::F64(-1.5)),
-    ];
+    let cases = vec![("-5i32", TestValue::I32(-5))];
 
     for (input, expected) in cases {
         run_vm_test(input, expected);
@@ -698,8 +671,6 @@ fn cast_expressions() {
         ("255u8 as i32", TestValue::I32(255)),
         ("1000i32 as i64", TestValue::I64(1000)),
         ("10 as usize", TestValue::Usize(10)),
-        ("42 as f64", TestValue::F64(42.0)),
-        ("3.14f64 as i64", TestValue::I64(3)),
         ("5usize as i64", TestValue::I64(5)),
     ];
 
@@ -739,22 +710,6 @@ fn cross_type_integer_comparison() {
         ("5 != len([1, 2, 3, 4, 5])", TestValue::Bool(false)),
         ("10 > len([1, 2, 3])", TestValue::Bool(true)),
         ("1 < len([1, 2, 3])", TestValue::Bool(true)),
-    ];
-
-    for (input, expected) in cases {
-        run_vm_test(input, expected);
-    }
-}
-
-#[test]
-fn float_comparison_total_ordering() {
-    let cases = vec![
-        ("1.0f64 < 2.0f64", TestValue::Bool(true)),
-        ("2.0f64 > 1.0f64", TestValue::Bool(true)),
-        ("1.0f64 == 1.0f64", TestValue::Bool(true)),
-        ("1.0f64 != 2.0f64", TestValue::Bool(true)),
-        ("1.5f64 < 1.5f64", TestValue::Bool(false)),
-        ("1.5f64 > 1.5f64", TestValue::Bool(false)),
     ];
 
     for (input, expected) in cases {

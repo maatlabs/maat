@@ -50,11 +50,6 @@ pub enum Object {
     /// Pointer-sized unsigned integer.
     Usize(usize),
 
-    /// 32-bit floating-point number.
-    F32(f32),
-    /// 64-bit floating-point number.
-    F64(f64),
-
     /// A boolean value (true or false).
     Bool(bool),
     /// A string literal.
@@ -218,8 +213,6 @@ impl Object {
             Self::U64(_) => "U64",
             Self::U128(_) => "U128",
             Self::Usize(_) => "Usize",
-            Self::F32(_) => "F32",
-            Self::F64(_) => "F64",
             Self::Bool(_) => "Bool",
             Self::Str(_) => "Str",
             Self::Array(_) => "Array",
@@ -258,8 +251,6 @@ enum SerializableObject {
     U64(u64),
     U128(u128),
     Usize(usize),
-    F32(f32),
-    F64(f64),
     Bool(bool),
     Str(String),
     Array(Vec<Object>),
@@ -287,8 +278,6 @@ impl Serialize for Object {
             Self::U64(v) => SerializableObject::U64(*v),
             Self::U128(v) => SerializableObject::U128(*v),
             Self::Usize(v) => SerializableObject::Usize(*v),
-            Self::F32(v) => SerializableObject::F32(*v),
-            Self::F64(v) => SerializableObject::F64(*v),
             Self::Bool(v) => SerializableObject::Bool(*v),
             Self::Str(v) => SerializableObject::Str(v.clone()),
             Self::Array(v) => SerializableObject::Array(v.clone()),
@@ -324,8 +313,6 @@ impl<'de> Deserialize<'de> for Object {
             SerializableObject::U64(v) => Self::U64(v),
             SerializableObject::U128(v) => Self::U128(v),
             SerializableObject::Usize(v) => Self::Usize(v),
-            SerializableObject::F32(v) => Self::F32(v),
-            SerializableObject::F64(v) => Self::F64(v),
             SerializableObject::Bool(v) => Self::Bool(v),
             SerializableObject::Str(v) => Self::Str(v),
             SerializableObject::Array(v) => Self::Array(v),
@@ -353,8 +340,6 @@ impl PartialEq for Object {
             (U64(a), U64(b)) => a == b,
             (U128(a), U128(b)) => a == b,
             (Usize(a), Usize(b)) => a == b,
-            (F32(a), F32(b)) => a.total_cmp(b).is_eq(),
-            (F64(a), F64(b)) => a.total_cmp(b).is_eq(),
             (Bool(a), Bool(b)) => a == b,
             (Str(a), Str(b)) => a == b,
             (Array(a1), Array(a2)) => a1 == a2,
@@ -500,8 +485,6 @@ impl fmt::Display for Object {
             Self::U64(v) => v.fmt(f),
             Self::U128(v) => v.fmt(f),
             Self::Usize(v) => v.fmt(f),
-            Self::F32(v) => v.fmt(f),
-            Self::F64(v) => v.fmt(f),
             Self::Bool(boolean) => boolean.fmt(f),
             Self::Str(string) => string.fmt(f),
             Self::Array(array) => {

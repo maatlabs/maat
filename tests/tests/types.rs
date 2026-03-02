@@ -150,15 +150,6 @@ fn type_mismatch_error() {
 }
 
 #[test]
-fn type_error_implicit_float_promotion() {
-    let errors = maat_tests::compile_type_errors("let x: i8 = 5i8; let y: f64 = 1.0f64; x + y;");
-    assert!(
-        errors.iter().any(|e| e.contains("float")),
-        "expected implicit float promotion error, got: {errors:?}"
-    );
-}
-
-#[test]
 fn numeric_promotion_i8_to_i16() {
     run_vm_test(
         "let x: i8 = 5i8; let y: i16 = 10i16; x + y",

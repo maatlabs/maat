@@ -128,8 +128,6 @@ mod tests {
                 Object::U64(u64::MAX),
                 Object::U128(u128::MAX),
                 Object::Usize(42),
-                Object::F32(std::f32::consts::PI),
-                Object::F64(std::f64::consts::E),
                 Object::Bool(true),
                 Object::Bool(false),
             ],

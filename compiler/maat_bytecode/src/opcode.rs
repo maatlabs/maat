@@ -282,8 +282,6 @@ pub enum TypeTag {
     U64 = 9,
     U128 = 10,
     Usize = 11,
-    F32 = 12,
-    F64 = 13,
 }
 
 impl TypeTag {
@@ -303,8 +301,6 @@ impl TypeTag {
             9 => Some(Self::U64),
             10 => Some(Self::U128),
             11 => Some(Self::Usize),
-            12 => Some(Self::F32),
-            13 => Some(Self::F64),
             _ => None,
         }
     }
@@ -331,8 +327,6 @@ impl TypeTag {
             Self::U64 => "u64",
             Self::U128 => "u128",
             Self::Usize => "usize",
-            Self::F32 => "f32",
-            Self::F64 => "f64",
         }
     }
 }

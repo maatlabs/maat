@@ -109,6 +109,15 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                     Stmt::Block(block)
                 }
 
+                Stmt::FnItem(mut fn_item) => {
+                    fn_item.body =
+                        match transform(Node::Stmt(Stmt::Block(fn_item.body)), transformer) {
+                            Node::Stmt(Stmt::Block(b)) => b,
+                            _ => unreachable!("Block transformation returned non-block"),
+                        };
+                    Stmt::FnItem(fn_item)
+                }
+
                 Stmt::Loop(mut loop_stmt) => {
                     loop_stmt.body =
                         match transform(Node::Stmt(Stmt::Block(loop_stmt.body)), transformer) {
@@ -243,12 +252,13 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                     Expr::Cond(cond)
                 }
 
-                Expr::FnItem(mut func) => {
-                    func.body = match transform(Node::Stmt(Stmt::Block(func.body)), transformer) {
+                Expr::Lambda(mut lambda) => {
+                    lambda.body = match transform(Node::Stmt(Stmt::Block(lambda.body)), transformer)
+                    {
                         Node::Stmt(Stmt::Block(b)) => b,
                         _ => unreachable!("Block transformation returned non-block"),
                     };
-                    Expr::FnItem(func)
+                    Expr::Lambda(lambda)
                 }
 
                 Expr::Macro(mut macro_lit) => {
