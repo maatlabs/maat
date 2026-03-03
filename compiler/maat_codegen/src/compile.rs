@@ -288,6 +288,11 @@ impl Compiler {
                 Ok(())
             }
 
+            // TODO: compile custom type declarations
+            Stmt::StructDecl(_) | Stmt::EnumDecl(_) | Stmt::TraitDecl(_) | Stmt::ImplBlock(_) => {
+                Ok(())
+            }
+
             Stmt::For(for_stmt) => {
                 // Desugar: evaluate iterable, bind a hidden counter, iterate via index.
                 //
@@ -664,6 +669,25 @@ impl Compiler {
 
             Expr::Macro(_) => Err(CompileErrorKind::UnsupportedExpr {
                 expr_type: "macro literal".to_string(),
+            }
+            .at(span)
+            .into()),
+
+            // TODO: Compile these `Expr` variants
+            Expr::Match(_) => Err(CompileErrorKind::UnsupportedExpr {
+                expr_type: "match expression".to_string(),
+            }
+            .at(span)
+            .into()),
+
+            Expr::FieldAccess(_) => Err(CompileErrorKind::UnsupportedExpr {
+                expr_type: "field access".to_string(),
+            }
+            .at(span)
+            .into()),
+
+            Expr::MethodCall(_) => Err(CompileErrorKind::UnsupportedExpr {
+                expr_type: "method call".to_string(),
             }
             .at(span)
             .into()),

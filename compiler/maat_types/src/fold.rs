@@ -35,6 +35,8 @@ fn fold_statement(stmt: &mut Stmt, errors: &mut Vec<TypeError>) {
             fold_expression(&mut for_stmt.iterable, errors);
             fold_block(&mut for_stmt.body, errors);
         }
+        // TODO: fold the following `Stmt` variants
+        Stmt::StructDecl(_) | Stmt::EnumDecl(_) | Stmt::TraitDecl(_) | Stmt::ImplBlock(_) => {}
     }
 }
 

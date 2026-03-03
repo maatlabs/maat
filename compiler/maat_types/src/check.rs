@@ -159,6 +159,9 @@ impl TypeChecker {
                 self.check_block(&mut for_stmt.body);
                 self.env.pop_scope();
             }
+
+            // Custom type declarations are registered and type-checked in Phase 3.
+            Stmt::StructDecl(_) | Stmt::EnumDecl(_) | Stmt::TraitDecl(_) | Stmt::ImplBlock(_) => {}
         }
     }
 
@@ -484,6 +487,32 @@ impl TypeChecker {
             Expr::Continue(_) => Type::Never,
 
             Expr::Macro(_) => self.env.fresh_var(),
+
+            // TODO: Fully type-check custom type expressions.
+            // Return fresh type variables to keep inference flowing past them.
+            Expr::Match(match_expr) => {
+                self.infer_expression(&mut match_expr.scrutinee);
+                for arm in &mut match_expr.arms {
+                    if let Some(guard) = &mut arm.guard {
+                        self.infer_expression(guard);
+                    }
+                    self.infer_expression(&mut arm.body);
+                }
+                self.env.fresh_var()
+            }
+
+            Expr::FieldAccess(field_access) => {
+                self.infer_expression(&mut field_access.object);
+                self.env.fresh_var()
+            }
+
+            Expr::MethodCall(method_call) => {
+                self.infer_expression(&mut method_call.object);
+                for arg in &mut method_call.arguments {
+                    self.infer_expression(arg);
+                }
+                self.env.fresh_var()
+            }
         }
     }
 
