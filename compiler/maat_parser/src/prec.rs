@@ -25,6 +25,8 @@ pub const PREFIX: u8 = 9;
 pub const CALL: u8 = 10;
 /// Array indexing and index expressions: `expr[i]`
 pub const INDEX: u8 = 11;
+/// Field access and method calls: `expr.field`, `expr.method(args)`
+pub const FIELD: u8 = 12;
 
 pub struct Precedence;
 
@@ -46,6 +48,7 @@ impl Precedence {
             TokenKind::As => Some(CAST),
             TokenKind::LParen => Some(CALL),
             TokenKind::LBracket => Some(INDEX),
+            TokenKind::Dot => Some(FIELD),
             _ => None,
         }
     }
