@@ -30,6 +30,10 @@ pub enum Stmt {
     Loop(LoopStmt),
     While(WhileStmt),
     For(ForStmt),
+    StructDecl(StructDecl),
+    EnumDecl(EnumDecl),
+    TraitDecl(TraitDecl),
+    ImplBlock(ImplBlock),
 }
 
 /// A `let` binding: `let <ident> = <value>;` or
@@ -97,6 +101,9 @@ pub enum Expr {
     Cast(CastExpr),
     Break(BreakExpr),
     Continue(ContinueExpr),
+    Match(MatchExpr),
+    FieldAccess(FieldAccessExpr),
+    MethodCall(MethodCallExpr),
 }
 
 impl Expr {
@@ -130,6 +137,9 @@ impl Expr {
             Self::Cast(v) => v.span,
             Self::Break(v) => v.span,
             Self::Continue(v) => v.span,
+            Self::Match(v) => v.span,
+            Self::FieldAccess(v) => v.span,
+            Self::MethodCall(v) => v.span,
         }
     }
 
@@ -395,6 +405,168 @@ pub struct ContinueExpr {
     pub span: Span,
 }
 
+/// A `struct` declaration: `struct Name<T> { field: Type, ... }`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StructDecl {
+    pub name: String,
+    pub generic_params: Vec<GenericParam>,
+    pub fields: Vec<StructField>,
+    pub span: Span,
+}
+
+/// A named field in a struct declaration: `field_name: FieldType`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StructField {
+    pub name: String,
+    pub ty: TypeExpr,
+    pub span: Span,
+}
+
+/// An `enum` declaration: `enum Name<T> { Variant, ... }`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct EnumDecl {
+    pub name: String,
+    pub generic_params: Vec<GenericParam>,
+    pub variants: Vec<EnumVariant>,
+    pub span: Span,
+}
+
+/// A single variant in an enum declaration.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct EnumVariant {
+    pub name: String,
+    pub kind: EnumVariantKind,
+    pub span: Span,
+}
+
+/// The payload of a single enum variant.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum EnumVariantKind {
+    /// A unit variant: `None`.
+    Unit,
+    /// A tuple variant: `Some(T)`.
+    Tuple(Vec<TypeExpr>),
+    /// A struct variant: `Point { x: i64, y: i64 }`.
+    Struct(Vec<StructField>),
+}
+
+/// A `trait` declaration: `trait Name<T> { fn method(...); }`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TraitDecl {
+    pub name: String,
+    pub generic_params: Vec<GenericParam>,
+    pub methods: Vec<TraitMethod>,
+    pub span: Span,
+}
+
+/// A single method signature (with optional default body) in a trait declaration.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TraitMethod {
+    pub name: String,
+    pub generic_params: Vec<GenericParam>,
+    pub params: Vec<TypedParam>,
+    pub return_type: Option<TypeExpr>,
+    pub default_body: Option<BlockStmt>,
+    pub span: Span,
+}
+
+/// An `impl` block: either inherent (`impl Type { ... }`) or
+/// trait (`impl Trait for Type { ... }`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ImplBlock {
+    pub trait_name: Option<TypeExpr>,
+    pub self_type: TypeExpr,
+    pub generic_params: Vec<GenericParam>,
+    pub methods: Vec<FnItem>,
+    pub span: Span,
+}
+
+/// A `match` expression: `match scrutinee { arms }`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct MatchExpr {
+    pub scrutinee: Box<Expr>,
+    pub arms: Vec<MatchArm>,
+    pub span: Span,
+}
+
+/// A single arm in a `match` expression.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct MatchArm {
+    pub pattern: Pattern,
+    pub guard: Option<Box<Expr>>,
+    pub body: Expr,
+    pub span: Span,
+}
+
+/// A pattern used in `match` arms.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Pattern {
+    /// `_` — matches any value without binding.
+    Wildcard(Span),
+    /// `x` — binds the matched value to a new variable.
+    Ident(String, Span),
+    /// `42`, `true`, `"hello"` — matches a specific literal value.
+    Literal(Box<Expr>),
+    /// `Some(x)`, `Err(e)`, `Point(a, b)` — matches a tuple-struct or tuple-variant.
+    TupleStruct {
+        path: String,
+        fields: Vec<Pattern>,
+        span: Span,
+    },
+    /// `Point { x, y }`, `Point { x: px }` — matches a struct or struct-variant.
+    Struct {
+        path: String,
+        fields: Vec<PatternField>,
+        span: Span,
+    },
+    /// `PatA | PatB` — matches if either alternative matches.
+    Or(Vec<Pattern>, Span),
+}
+
+/// A named field binding inside a struct pattern.
+///
+/// Represents a single `field: pattern` binding (or shorthand `field`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PatternField {
+    pub name: String,
+    /// The sub-pattern to bind the field value to.
+    /// When `None`, the field name itself is used as the binding (`field` shorthand).
+    pub pattern: Option<Box<Pattern>>,
+    pub span: Span,
+}
+
+impl Pattern {
+    /// Returns the source span of this pattern.
+    pub fn span(&self) -> Span {
+        match self {
+            Self::Wildcard(s) => *s,
+            Self::Ident(_, s) => *s,
+            Self::Literal(expr) => expr.span(),
+            Self::TupleStruct { span, .. } => *span,
+            Self::Struct { span, .. } => *span,
+            Self::Or(_, s) => *s,
+        }
+    }
+}
+
+/// Field access: `expr.field`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FieldAccessExpr {
+    pub object: Box<Expr>,
+    pub field: String,
+    pub span: Span,
+}
+
+/// Method call: `expr.method(args)`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct MethodCallExpr {
+    pub object: Box<Expr>,
+    pub method: String,
+    /// Arguments passed to the method (excluding the receiver).
+    pub arguments: Vec<Expr>,
+    pub span: Span,
+}
+
 /// A parsed type expression used in type annotations.
 ///
 /// Appears in `let` bindings (`let x: TypeExpr = ...`), function
@@ -574,6 +746,10 @@ impl fmt::Display for Stmt {
             Self::Loop(loop_stmt) => loop_stmt.fmt(f)?,
             Self::While(while_stmt) => while_stmt.fmt(f)?,
             Self::For(for_stmt) => for_stmt.fmt(f)?,
+            Self::StructDecl(s) => s.fmt(f)?,
+            Self::EnumDecl(e) => e.fmt(f)?,
+            Self::TraitDecl(t) => t.fmt(f)?,
+            Self::ImplBlock(i) => i.fmt(f)?,
         }
         Ok(())
     }
@@ -659,6 +835,9 @@ impl fmt::Display for Expr {
             Self::Cast(cast_expr) => cast_expr.fmt(f),
             Self::Break(break_expr) => break_expr.fmt(f),
             Self::Continue(cont_expr) => cont_expr.fmt(f),
+            Self::Match(match_expr) => match_expr.fmt(f),
+            Self::FieldAccess(field_access) => field_access.fmt(f),
+            Self::MethodCall(method_call) => method_call.fmt(f),
         }
     }
 }
@@ -838,6 +1017,228 @@ impl fmt::Display for BreakExpr {
 impl fmt::Display for ContinueExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "continue")
+    }
+}
+
+impl fmt::Display for StructDecl {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let generics = fmt_generic_params(&self.generic_params);
+        write!(f, "struct {}{generics}", self.name)?;
+        if self.fields.is_empty() {
+            write!(f, " {{}}")
+        } else {
+            writeln!(f, " {{")?;
+            for field in &self.fields {
+                writeln!(f, "    {field},")?;
+            }
+            write!(f, "}}")
+        }
+    }
+}
+
+impl fmt::Display for StructField {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {}", self.name, self.ty)
+    }
+}
+
+impl fmt::Display for EnumDecl {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let generics = fmt_generic_params(&self.generic_params);
+        write!(f, "enum {}{generics}", self.name)?;
+        if self.variants.is_empty() {
+            write!(f, " {{}}")
+        } else {
+            writeln!(f, " {{")?;
+            for variant in &self.variants {
+                writeln!(f, "    {variant},")?;
+            }
+            write!(f, "}}")
+        }
+    }
+}
+
+impl fmt::Display for EnumVariant {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}{}", self.name, self.kind)
+    }
+}
+
+impl fmt::Display for EnumVariantKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unit => Ok(()),
+            Self::Tuple(types) => {
+                let inner = types
+                    .iter()
+                    .map(|t| t.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "({inner})")
+            }
+            Self::Struct(fields) => {
+                write!(f, " {{ ")?;
+                let inner = fields
+                    .iter()
+                    .map(|field| field.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "{inner} }}")
+            }
+        }
+    }
+}
+
+impl fmt::Display for TraitDecl {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let generics = fmt_generic_params(&self.generic_params);
+        write!(f, "trait {}{generics}", self.name)?;
+        if self.methods.is_empty() {
+            write!(f, " {{}}")
+        } else {
+            writeln!(f, " {{")?;
+            for method in &self.methods {
+                writeln!(f, "    {method}")?;
+            }
+            write!(f, "}}")
+        }
+    }
+}
+
+impl fmt::Display for TraitMethod {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let generics = fmt_generic_params(&self.generic_params);
+        let params = self
+            .params
+            .iter()
+            .map(|p| p.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let ret = self
+            .return_type
+            .as_ref()
+            .map_or(String::new(), |t| format!(" -> {t}"));
+        write!(f, "fn {}{generics}({params}){ret}", self.name)?;
+        match &self.default_body {
+            Some(body) => write!(f, " {body}"),
+            None => write!(f, ";"),
+        }
+    }
+}
+
+impl fmt::Display for ImplBlock {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let generics = fmt_generic_params(&self.generic_params);
+        match &self.trait_name {
+            Some(t) => write!(f, "impl{generics} {t} for {}", self.self_type)?,
+            None => write!(f, "impl{generics} {}", self.self_type)?,
+        }
+        if self.methods.is_empty() {
+            write!(f, " {{}}")
+        } else {
+            writeln!(f, " {{")?;
+            for method in &self.methods {
+                writeln!(f, "    {method}")?;
+            }
+            write!(f, "}}")
+        }
+    }
+}
+
+impl fmt::Display for MatchExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "match {} {{", self.scrutinee)?;
+        for arm in &self.arms {
+            writeln!(f, "    {arm},")?;
+        }
+        write!(f, "}}")
+    }
+}
+
+impl fmt::Display for MatchArm {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} => {}", self.pattern, self.body)?;
+        if let Some(guard) = &self.guard {
+            write!(f, " if {guard}")?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Display for Pattern {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Wildcard(_) => write!(f, "_"),
+            Self::Ident(name, _) => write!(f, "{name}"),
+            Self::Literal(expr) => write!(f, "{expr}"),
+            Self::TupleStruct { path, fields, .. } => {
+                let inner = fields
+                    .iter()
+                    .map(|p| p.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "{path}({inner})")
+            }
+            Self::Struct { path, fields, .. } => {
+                let inner = fields
+                    .iter()
+                    .map(|p| p.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "{path} {{ {inner} }}")
+            }
+            Self::Or(patterns, _) => {
+                let inner = patterns
+                    .iter()
+                    .map(|p| p.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" | ");
+                write!(f, "{inner}")
+            }
+        }
+    }
+}
+
+impl fmt::Display for PatternField {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.pattern {
+            Some(pat) => write!(f, "{}: {pat}", self.name),
+            None => write!(f, "{}", self.name),
+        }
+    }
+}
+
+impl fmt::Display for FieldAccessExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}.{}", self.object, self.field)
+    }
+}
+
+impl fmt::Display for MethodCallExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let args = self
+            .arguments
+            .iter()
+            .map(|a| a.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        write!(f, "{}.{}({args})", self.object, self.method)
+    }
+}
+
+/// Formats a generic parameter list as `<T, U: Bound>`, or an empty string if empty.
+fn fmt_generic_params(params: &[GenericParam]) -> String {
+    if params.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "<{}>",
+            params
+                .iter()
+                .map(|g| g.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
     }
 }
 

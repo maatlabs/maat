@@ -156,6 +156,15 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                         };
                     Stmt::For(for_stmt)
                 }
+
+                // Type declaration statements are treated as leaves. Their internal
+                // structure (fields, variants, methods) is not traversed by the
+                // general AST transformer. Macro expansion targets expressions and
+                // bindings, not type definitions.
+                stmt @ (Stmt::StructDecl(_)
+                | Stmt::EnumDecl(_)
+                | Stmt::TraitDecl(_)
+                | Stmt::ImplBlock(_)) => stmt,
             };
             Node::Stmt(new_stmt)
         }
@@ -303,6 +312,65 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                         })
                     });
                     Expr::Break(break_expr)
+                }
+
+                Expr::Match(mut match_expr) => {
+                    match_expr.scrutinee = Box::new(
+                        match transform(Node::Expr(*match_expr.scrutinee), transformer) {
+                            Node::Expr(e) => e,
+                            _ => unreachable!("Expr transformation returned non-expression"),
+                        },
+                    );
+                    match_expr.arms = match_expr
+                        .arms
+                        .into_iter()
+                        .map(|mut arm| {
+                            arm.body = match transform(Node::Expr(arm.body), transformer) {
+                                Node::Expr(e) => e,
+                                _ => unreachable!("Expr transformation returned non-expression"),
+                            };
+                            if let Some(guard) = arm.guard {
+                                arm.guard = Some(Box::new(
+                                    match transform(Node::Expr(*guard), transformer) {
+                                        Node::Expr(e) => e,
+                                        _ => unreachable!(
+                                            "Expr transformation returned non-expression"
+                                        ),
+                                    },
+                                ));
+                            }
+                            arm
+                        })
+                        .collect();
+                    Expr::Match(match_expr)
+                }
+
+                Expr::FieldAccess(mut field_access) => {
+                    field_access.object = Box::new(
+                        match transform(Node::Expr(*field_access.object), transformer) {
+                            Node::Expr(e) => e,
+                            _ => unreachable!("Expr transformation returned non-expression"),
+                        },
+                    );
+                    Expr::FieldAccess(field_access)
+                }
+
+                Expr::MethodCall(mut method_call) => {
+                    method_call.object = Box::new(
+                        match transform(Node::Expr(*method_call.object), transformer) {
+                            Node::Expr(e) => e,
+                            _ => unreachable!("Expr transformation returned non-expression"),
+                        },
+                    );
+                    method_call.arguments = method_call
+                        .arguments
+                        .into_iter()
+                        .map(|arg| match transform(Node::Expr(arg), transformer) {
+                            Node::Expr(e) => e,
+                            _ => unreachable!("Expr transformation returned non-expression"),
+                        })
+                        .collect();
+                    Expr::MethodCall(method_call)
                 }
 
                 // Leaf nodes (literals, identifiers, continue) don't need transformation
