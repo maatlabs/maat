@@ -55,6 +55,21 @@ pub enum TokenKind {
     /// The `where` keyword for trait bound clauses.
     Where,
 
+    /// The `struct` keyword for structure type declarations.
+    Struct,
+    /// The `enum` keyword for enumeration type declarations.
+    Enum,
+    /// The `match` keyword for pattern-matching expressions.
+    Match,
+    /// The `impl` keyword for inherent and trait implementation blocks.
+    Impl,
+    /// The `trait` keyword for trait declarations.
+    Trait,
+    /// The `self` value keyword for method receivers.
+    SelfValue,
+    /// The `Self` type keyword for the implementing type in `impl` and `trait` blocks.
+    SelfType,
+
     /// A user-defined identifier (variable, function name, etc.).
     Ident,
     /// A string literal.
@@ -139,6 +154,12 @@ pub enum TokenKind {
     RBracket,
     /// The return type arrow `->`.
     Arrow,
+    /// The fat arrow `=>` used in match arms.
+    FatArrow,
+    /// The path separator `::` for qualified paths.
+    PathSep,
+    /// The dot `.` for field access and method calls.
+    Dot,
 
     /// An invalid or unrecognized token.
     Invalid,
@@ -189,6 +210,13 @@ impl TokenKind {
             "break" => Self::Break,
             "continue" => Self::Continue,
             "where" => Self::Where,
+            "struct" => Self::Struct,
+            "enum" => Self::Enum,
+            "match" => Self::Match,
+            "impl" => Self::Impl,
+            "trait" => Self::Trait,
+            "self" => Self::SelfValue,
+            "Self" => Self::SelfType,
             _ => Self::Ident,
         }
     }

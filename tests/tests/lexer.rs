@@ -386,7 +386,7 @@ fn integer_followed_by_dot_method() {
     let source = "5.abs()";
     let expected = [
         (TokenKind::I64, "5"),
-        (TokenKind::Invalid, "."),
+        (TokenKind::Dot, "."),
         (TokenKind::Ident, "abs"),
         (TokenKind::LParen, "("),
         (TokenKind::RParen, ")"),
@@ -621,6 +621,49 @@ fn radix_with_suffix() {
         (TokenKind::U8, "0b11111111"),
         (TokenKind::U64, "0xDEADBEEF"),
         (TokenKind::Isize, "0o777"),
+        (TokenKind::Eof, ""),
+    ];
+
+    let mut lexer = Lexer::new(source);
+
+    for (kind, literal) in expected {
+        let token = lexer.next_token();
+        assert_eq!(token.kind, kind);
+        assert_eq!(token.literal, literal);
+    }
+}
+
+#[test]
+fn custom_type_keywords_and_tokens() {
+    let source = "struct enum match impl trait self Self";
+    let expected = [
+        (TokenKind::Struct, "struct"),
+        (TokenKind::Enum, "enum"),
+        (TokenKind::Match, "match"),
+        (TokenKind::Impl, "impl"),
+        (TokenKind::Trait, "trait"),
+        (TokenKind::SelfValue, "self"),
+        (TokenKind::SelfType, "Self"),
+        (TokenKind::Eof, ""),
+    ];
+
+    let mut lexer = Lexer::new(source);
+
+    for (kind, literal) in expected {
+        let token = lexer.next_token();
+        assert_eq!(token.kind, kind);
+        assert_eq!(token.literal, literal);
+    }
+
+    let source = "=> :: . : :: = =>";
+    let expected = [
+        (TokenKind::FatArrow, "=>"),
+        (TokenKind::PathSep, "::"),
+        (TokenKind::Dot, "."),
+        (TokenKind::Colon, ":"),
+        (TokenKind::PathSep, "::"),
+        (TokenKind::Assign, "="),
+        (TokenKind::FatArrow, "=>"),
         (TokenKind::Eof, ""),
     ];
 
