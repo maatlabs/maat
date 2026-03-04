@@ -10,76 +10,8 @@ use maat_span::Span;
 use crate::convert::resolve_type_expr;
 use crate::env::TypeEnv;
 use crate::promote::{self, PromotionError};
-use crate::ty::{FnType, Type, TypeScheme};
+use crate::ty::{FnType, Type};
 use crate::unify::{Substitution, UnifyError};
-
-/// Registers builtin function signatures in the type environment.
-///
-/// Each builtin with type variables is stored as a generalized `TypeScheme`
-/// so that each call site receives fresh inference variables.
-///
-/// `print` is variadic at runtime and is not registered
-/// here. Unknown identifiers fall back to fresh type variables, which
-/// allows any number of arguments without arity errors.
-fn register_builtins(env: &mut TypeEnv) {
-    /// Helper: creates a fresh type variable, builds the function type via
-    /// the provided closure, then generalizes over the variable.
-    fn register_generic_1(env: &mut TypeEnv, name: &str, build: impl FnOnce(Type) -> Type) {
-        let var = env.fresh_var();
-        let var_id = match var {
-            Type::Var(id) => id,
-            _ => unreachable!(),
-        };
-        let ty = build(var);
-        env.define_scheme(
-            name,
-            TypeScheme {
-                forall: vec![var_id],
-                ty,
-            },
-        );
-    }
-
-    // len(collection) -> usize
-    register_generic_1(env, "len", |t| {
-        Type::Function(FnType {
-            params: vec![t],
-            ret: Box::new(Type::Usize),
-        })
-    });
-
-    // first([T]) -> T
-    register_generic_1(env, "first", |t| {
-        Type::Function(FnType {
-            params: vec![Type::Array(Box::new(t.clone()))],
-            ret: Box::new(t),
-        })
-    });
-
-    // last([T]) -> T
-    register_generic_1(env, "last", |t| {
-        Type::Function(FnType {
-            params: vec![Type::Array(Box::new(t.clone()))],
-            ret: Box::new(t),
-        })
-    });
-
-    // rest([T]) -> [T]
-    register_generic_1(env, "rest", |t| {
-        Type::Function(FnType {
-            params: vec![Type::Array(Box::new(t.clone()))],
-            ret: Box::new(Type::Array(Box::new(t))),
-        })
-    });
-
-    // push([T], T) -> [T]
-    register_generic_1(env, "push", |t| {
-        Type::Function(FnType {
-            params: vec![Type::Array(Box::new(t.clone())), t.clone()],
-            ret: Box::new(Type::Array(Box::new(t))),
-        })
-    });
-}
 
 /// The type checker.
 ///
@@ -101,7 +33,7 @@ impl TypeChecker {
     /// Creates a new type checker with builtins pre-registered.
     pub fn new() -> Self {
         let mut env = TypeEnv::new();
-        register_builtins(&mut env);
+        env.register_builtins();
         Self {
             env,
             subst: Substitution::new(),
@@ -185,7 +117,7 @@ impl TypeChecker {
             if is_coercible_literal {
                 // Rewrite the literal AST node to match the declared type so the
                 // compiler emits the correctly-typed constant.
-                coerce_literal(&mut let_stmt.value, &expected);
+                expected.coerce_literal(&mut let_stmt.value);
             } else if let Err(e) = self.subst.unify(&expected, &inferred) {
                 self.report_unify_error(e, let_stmt.span);
             }
@@ -473,8 +405,7 @@ impl TypeChecker {
 
             Expr::Cast(cast) => {
                 self.infer_expression(&mut cast.expr);
-                let ann = &cast.target;
-                type_annotation_to_type(ann)
+                Type::from_type_annotation(&cast.target)
             }
 
             Expr::Break(break_expr) => {
@@ -608,7 +539,7 @@ impl TypeChecker {
         if current == target {
             return;
         }
-        if let Some(ann) = target.to_annotation() {
+        if let Some(ann) = target.to_type_annotation() {
             let span = expr.span();
             let inner = std::mem::replace(
                 expr.as_mut(),
@@ -714,60 +645,5 @@ impl TypeChecker {
             }
         };
         self.errors.push(kind.at(span));
-    }
-}
-
-/// Converts a `TypeAnnotation` (for `as` casts) to an internal `Type`.
-fn type_annotation_to_type(ann: &TypeAnnotation) -> Type {
-    match ann {
-        TypeAnnotation::I8 => Type::I8,
-        TypeAnnotation::I16 => Type::I16,
-        TypeAnnotation::I32 => Type::I32,
-        TypeAnnotation::I64 => Type::I64,
-        TypeAnnotation::I128 => Type::I128,
-        TypeAnnotation::Isize => Type::Isize,
-        TypeAnnotation::U8 => Type::U8,
-        TypeAnnotation::U16 => Type::U16,
-        TypeAnnotation::U32 => Type::U32,
-        TypeAnnotation::U64 => Type::U64,
-        TypeAnnotation::U128 => Type::U128,
-        TypeAnnotation::Usize => Type::Usize,
-    }
-}
-
-/// Rewrites a literal expression to match the target numeric type.
-///
-/// Called after range checking has confirmed the value fits. For negated
-/// literals, the prefix is collapsed into a single signed literal node.
-fn coerce_literal(expr: &mut Expr, target: &Type) {
-    let Some(val) = expr.extract_integer_value() else {
-        return;
-    };
-    let span = expr.span();
-
-    macro_rules! rewrite {
-        ($variant:ident, $ty:ty) => {
-            *expr = Expr::$variant($variant {
-                radix: Radix::Dec,
-                value: val as $ty,
-                span,
-            })
-        };
-    }
-
-    match target {
-        Type::I8 => rewrite!(I8, i8),
-        Type::I16 => rewrite!(I16, i16),
-        Type::I32 => rewrite!(I32, i32),
-        Type::I64 => rewrite!(I64, i64),
-        Type::I128 => rewrite!(I128, i128),
-        Type::Isize => rewrite!(Isize, isize),
-        Type::U8 => rewrite!(U8, u8),
-        Type::U16 => rewrite!(U16, u16),
-        Type::U32 => rewrite!(U32, u32),
-        Type::U64 => rewrite!(U64, u64),
-        Type::U128 => rewrite!(U128, u128),
-        Type::Usize => rewrite!(Usize, usize),
-        _ => {}
     }
 }

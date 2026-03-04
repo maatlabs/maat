@@ -112,19 +112,6 @@ impl Substitution {
     pub fn get(&self, var: &TypeVarId) -> Option<&Type> {
         self.map.get(var)
     }
-
-    /// Composes another substitution into this one.
-    ///
-    /// Applies `other` to all existing bindings, then merges `other`'s
-    /// bindings (without overwriting existing ones).
-    pub fn compose(&mut self, other: &Substitution) {
-        for (_, ty) in self.map.iter_mut() {
-            *ty = other.apply(ty);
-        }
-        for (&var, ty) in &other.map {
-            self.map.entry(var).or_insert_with(|| ty.clone());
-        }
-    }
 }
 
 #[cfg(test)]

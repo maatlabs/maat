@@ -34,6 +34,72 @@ impl TypeEnv {
         }
     }
 
+    /// Registers builtin function signatures in the type environment.
+    ///
+    /// Each builtin with type variables is stored as a generalized `TypeScheme`
+    /// so that each call site receives fresh inference variables.
+    ///
+    /// `print` is variadic at runtime and is not registered
+    /// here. Unknown identifiers fall back to fresh type variables, which
+    /// allows any number of arguments without arity errors.
+    pub fn register_builtins(&mut self) {
+        // len(collection) -> usize
+        self.register_builtin("len", |t| {
+            Type::Function(FnType {
+                params: vec![t],
+                ret: Box::new(Type::Usize),
+            })
+        });
+
+        // first([T]) -> T
+        self.register_builtin("first", |t| {
+            Type::Function(FnType {
+                params: vec![Type::Array(Box::new(t.clone()))],
+                ret: Box::new(t),
+            })
+        });
+
+        // last([T]) -> T
+        self.register_builtin("last", |t| {
+            Type::Function(FnType {
+                params: vec![Type::Array(Box::new(t.clone()))],
+                ret: Box::new(t),
+            })
+        });
+
+        // rest([T]) -> [T]
+        self.register_builtin("rest", |t| {
+            Type::Function(FnType {
+                params: vec![Type::Array(Box::new(t.clone()))],
+                ret: Box::new(Type::Array(Box::new(t))),
+            })
+        });
+
+        // push([T], T) -> [T]
+        self.register_builtin("push", |t| {
+            Type::Function(FnType {
+                params: vec![Type::Array(Box::new(t.clone())), t.clone()],
+                ret: Box::new(Type::Array(Box::new(t))),
+            })
+        });
+    }
+
+    fn register_builtin(&mut self, name: &str, build: impl FnOnce(Type) -> Type) {
+        let var = self.fresh_var();
+        let var_id = match var {
+            Type::Var(id) => id,
+            _ => unreachable!(),
+        };
+        let ty = build(var);
+        self.define_scheme(
+            name,
+            TypeScheme {
+                forall: vec![var_id],
+                ty,
+            },
+        );
+    }
+
     /// Generates a fresh type variable.
     pub fn fresh_var(&mut self) -> Type {
         let id = self.next_var;

@@ -76,6 +76,43 @@ impl TypeScheme {
 }
 
 impl Type {
+    /// Rewrites a literal `expr`ession to match `self`'s numeric type.
+    ///
+    /// Called after the `TypeChecker`'s range checking has confirmed the value fits. For negated
+    /// literals, the prefix is collapsed into a single signed literal node.
+    pub fn coerce_literal(&self, expr: &mut Expr) {
+        let Some(val) = expr.extract_integer_value() else {
+            return;
+        };
+        let span = expr.span();
+
+        macro_rules! rewrite {
+            ($variant:ident, $ty:ty) => {
+                *expr = Expr::$variant($variant {
+                    radix: Radix::Dec,
+                    value: val as $ty,
+                    span,
+                })
+            };
+        }
+
+        match *self {
+            Self::I8 => rewrite!(I8, i8),
+            Self::I16 => rewrite!(I16, i16),
+            Self::I32 => rewrite!(I32, i32),
+            Self::I64 => rewrite!(I64, i64),
+            Self::I128 => rewrite!(I128, i128),
+            Self::Isize => rewrite!(Isize, isize),
+            Self::U8 => rewrite!(U8, u8),
+            Self::U16 => rewrite!(U16, u16),
+            Self::U32 => rewrite!(U32, u32),
+            Self::U64 => rewrite!(U64, u64),
+            Self::U128 => rewrite!(U128, u128),
+            Self::Usize => rewrite!(Usize, usize),
+            _ => {}
+        }
+    }
+
     /// Returns `true` if this is any integer type (signed or unsigned).
     pub fn is_integer(&self) -> bool {
         self.is_signed() || self.is_unsigned()
@@ -117,10 +154,10 @@ impl Type {
         Some((self.is_signed(), width))
     }
 
-    /// Converts an internal `self` to a `TypeAnnotation` (for generating cast nodes).
+    /// Converts an internal `Type` to a `TypeAnnotation` for generating cast nodes.
     ///
     /// Returns `None` for non-numeric types since cast nodes only support numeric targets.
-    pub fn to_annotation(&self) -> Option<TypeAnnotation> {
+    pub fn to_type_annotation(&self) -> Option<TypeAnnotation> {
         match self {
             Self::I8 => Some(TypeAnnotation::I8),
             Self::I16 => Some(TypeAnnotation::I16),
@@ -135,6 +172,24 @@ impl Type {
             Self::U128 => Some(TypeAnnotation::U128),
             Self::Usize => Some(TypeAnnotation::Usize),
             _ => None,
+        }
+    }
+
+    /// Converts a `TypeAnnotation` (for `as` casts) to an internal `Type`.
+    pub fn from_type_annotation(ann: &TypeAnnotation) -> Self {
+        match ann {
+            TypeAnnotation::I8 => Self::I8,
+            TypeAnnotation::I16 => Self::I16,
+            TypeAnnotation::I32 => Self::I32,
+            TypeAnnotation::I64 => Self::I64,
+            TypeAnnotation::I128 => Self::I128,
+            TypeAnnotation::Isize => Self::Isize,
+            TypeAnnotation::U8 => Self::U8,
+            TypeAnnotation::U16 => Self::U16,
+            TypeAnnotation::U32 => Self::U32,
+            TypeAnnotation::U64 => Self::U64,
+            TypeAnnotation::U128 => Self::U128,
+            TypeAnnotation::Usize => Self::Usize,
         }
     }
 }
