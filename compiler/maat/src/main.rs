@@ -4,12 +4,10 @@
 //! starting the interactive REPL, compiling to bytecode, and executing
 //! pre-compiled bytecode.
 
-mod build;
+mod cmd;
 mod diagnostic;
-mod exec;
 mod pipeline;
 mod repl;
-mod run;
 
 use std::io;
 use std::path::PathBuf;
@@ -52,26 +50,12 @@ enum Command {
     },
 }
 
-/// Validates that a file path has the expected extension, exiting with a
-/// diagnostic message if it does not.
-fn require_extension(path: &std::path::Path, expected: &str, command: &str) {
-    let actual = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    if actual != expected {
-        eprintln!(
-            "error: `maat {command}` expects a `.{expected}` file, got '{}'",
-            path.display(),
-        );
-        std::process::exit(1);
-    }
-}
-
 fn main() {
     let cli = Cli::parse();
 
     match cli.command {
         Some(Command::Run { file }) => {
-            require_extension(&file, "mt", "run");
-            run::compile_and_run(&file);
+            cmd::run(&file);
         }
 
         Some(Command::Repl) | None => {
@@ -93,13 +77,11 @@ fn main() {
         }
 
         Some(Command::Build { file, output }) => {
-            require_extension(&file, "mt", "build");
-            build::compile_to_file(&file, output.as_deref());
+            cmd::build(&file, output.as_deref());
         }
 
         Some(Command::Exec { file }) => {
-            require_extension(&file, "mtc", "exec");
-            exec::execute_bytecode(&file);
+            cmd::execute(&file);
         }
     }
 }
