@@ -8,6 +8,7 @@ use std::path::Path;
 use std::process;
 
 use maat_ast::Node;
+use maat_ast::fold::fold_constants;
 use maat_bytecode::Bytecode;
 use maat_codegen::Compiler;
 use maat_errors::Error;
@@ -15,7 +16,7 @@ use maat_eval::{define_macros, expand_macros};
 use maat_lexer::Lexer;
 use maat_parser::Parser;
 use maat_runtime::Env;
-use maat_types::{TypeChecker, fold_constants};
+use maat_types::TypeChecker;
 
 use crate::diagnostic;
 

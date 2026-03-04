@@ -446,6 +446,7 @@ dependencies = [
 name = "maat_ast"
 version = "0.6.0"
 dependencies = [
+ "maat_errors",
  "maat_span",
 ]
 

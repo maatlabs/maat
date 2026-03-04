@@ -1,11 +1,12 @@
 //! Shared utilities for integration tests.
 
+use maat_ast::fold::fold_constants;
 use maat_ast::{Node, Program};
 use maat_bytecode::Bytecode;
 use maat_codegen::Compiler;
 use maat_lexer::Lexer;
 use maat_parser::Parser;
-use maat_types::{TypeChecker, fold_constants};
+use maat_types::TypeChecker;
 
 /// Parses the given source string into an AST [`Program`].
 ///

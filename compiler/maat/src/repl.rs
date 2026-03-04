@@ -6,6 +6,7 @@
 
 use std::io::{self, BufRead, Write};
 
+use maat_ast::fold::fold_constants;
 use maat_ast::{Node, Stmt};
 use maat_codegen::{Compiler, SymbolsTable};
 use maat_errors::Error;
@@ -13,7 +14,7 @@ use maat_eval::{define_macros, expand_macros};
 use maat_lexer::Lexer;
 use maat_parser::Parser;
 use maat_runtime::{Env, Object};
-use maat_types::{TypeChecker, fold_constants};
+use maat_types::TypeChecker;
 use maat_vm::VM;
 
 use crate::diagnostic;

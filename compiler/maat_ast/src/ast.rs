@@ -5,6 +5,7 @@ use std::fmt;
 use maat_span::Span;
 
 pub mod display;
+pub mod fold;
 
 /// Top-level AST node wrapper for all language items.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
