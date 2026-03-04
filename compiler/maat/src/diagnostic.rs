@@ -5,8 +5,19 @@
 //! source span is available.
 
 use ariadne::{Color, Label, Report, ReportKind, Source};
-use maat_errors::{CompileError, ParseError, TypeError, VmError};
+use maat_errors::{CompileError, Error, ParseError, TypeError, VmError};
 use maat_span::Span;
+
+/// Routes an [`Error`] to the appropriate diagnostic reporter.
+pub fn report_error(path: &str, source: &str, error: &Error) {
+    match error {
+        Error::Parse(e) => report_parse_error(path, source, e),
+        Error::Compile(e) => report_compile_error(path, source, e),
+        Error::Type(e) => report_type_error(path, source, e),
+        Error::Vm(e) => report_vm_error(path, source, e),
+        _ => eprintln!("{path}: {error}"),
+    }
+}
 
 /// Renders a parse error with a source snippet to stderr.
 pub fn report_parse_error(path: &str, source: &str, error: &ParseError) {

@@ -6,7 +6,6 @@
 
 mod cmd;
 mod diagnostic;
-mod pipeline;
 mod repl;
 
 use std::io;
