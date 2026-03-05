@@ -3,8 +3,12 @@
 use std::collections::HashSet;
 
 use indexmap::IndexMap;
+use maat_ast::{NamedType, TypeExpr};
 
-use crate::ty::{FnType, Type, TypeScheme, TypeVarId};
+use crate::convert::resolve_type_expr;
+use crate::ty::{
+    EnumDef, FnType, ImplDef, MethodSig, StructDef, TraitDef, Type, TypeScheme, TypeVarId,
+};
 use crate::unify::Substitution;
 
 /// Lexically scoped type environment.
@@ -17,6 +21,10 @@ use crate::unify::Substitution;
 pub struct TypeEnv {
     scopes: Vec<IndexMap<String, TypeScheme>>,
     next_var: TypeVarId,
+    structs: IndexMap<String, StructDef>,
+    enums: IndexMap<String, EnumDef>,
+    traits: IndexMap<String, TraitDef>,
+    impls: Vec<ImplDef>,
 }
 
 impl Default for TypeEnv {
@@ -31,6 +39,10 @@ impl TypeEnv {
         Self {
             scopes: vec![IndexMap::new()],
             next_var: 0,
+            structs: IndexMap::new(),
+            enums: IndexMap::new(),
+            traits: IndexMap::new(),
+            impls: Vec::new(),
         }
     }
 
@@ -98,6 +110,142 @@ impl TypeEnv {
                 ty,
             },
         );
+    }
+
+    /// Registers a struct definition.
+    pub fn register_struct(&mut self, def: StructDef) {
+        self.structs.insert(def.name.clone(), def);
+    }
+
+    /// Registers an enum definition.
+    pub fn register_enum(&mut self, def: EnumDef) {
+        self.enums.insert(def.name.clone(), def);
+    }
+
+    /// Registers a trait definition.
+    pub fn register_trait(&mut self, def: TraitDef) {
+        self.traits.insert(def.name.clone(), def);
+    }
+
+    /// Registers an impl block.
+    pub fn register_impl(&mut self, def: ImplDef) {
+        self.impls.push(def);
+    }
+
+    /// Looks up a registered struct definition by name.
+    pub fn lookup_struct(&self, name: &str) -> Option<&StructDef> {
+        self.structs.get(name)
+    }
+
+    /// Looks up a registered enum definition by name.
+    pub fn lookup_enum(&self, name: &str) -> Option<&EnumDef> {
+        self.enums.get(name)
+    }
+
+    /// Looks up a registered trait definition by name.
+    pub fn lookup_trait(&self, name: &str) -> Option<&TraitDef> {
+        self.traits.get(name)
+    }
+
+    /// Looks up a method on a concrete type by searching inherent impl blocks first,
+    /// then trait impl blocks.
+    ///
+    /// Returns the function type of the method if found.
+    pub fn lookup_method(&self, self_type: &Type, method_name: &str) -> Option<&Type> {
+        // Inherent impls first
+        self.impls
+            .iter()
+            .filter(|imp| imp.trait_name.is_none() && imp.self_type == *self_type)
+            .find_map(|imp| {
+                imp.methods
+                    .iter()
+                    .find(|(name, _)| name == method_name)
+                    .map(|(_, ty)| ty)
+            })
+            .or_else(|| {
+                // Trait impls
+                self.impls
+                    .iter()
+                    .filter(|imp| imp.trait_name.is_some() && imp.self_type == *self_type)
+                    .find_map(|imp| {
+                        imp.methods
+                            .iter()
+                            .find(|(name, _)| name == method_name)
+                            .map(|(_, ty)| ty)
+                    })
+            })
+    }
+
+    /// Looks up a method on a type by name only (ignoring type arguments).
+    ///
+    /// Used for generic struct/enum types where the type arguments may not
+    /// exactly match the registered impl (e.g., `Point<i64>` vs `Point`).
+    pub fn lookup_method_by_name(&self, type_name: &str, method_name: &str) -> Option<&Type> {
+        self.impls
+            .iter()
+            .filter(|imp| match &imp.self_type {
+                Type::Struct(n, _) | Type::Enum(n, _) => n == type_name,
+                _ => false,
+            })
+            .find_map(|imp| {
+                imp.methods
+                    .iter()
+                    .find(|(name, _)| name == method_name)
+                    .map(|(_, ty)| ty)
+            })
+    }
+
+    /// Returns an iterator over all registered enum definitions.
+    pub fn all_enums(&self) -> impl Iterator<Item = &EnumDef> {
+        self.enums.values()
+    }
+
+    /// Returns all required method signatures for a trait.
+    pub fn required_trait_methods(&self, trait_name: &str) -> Vec<&MethodSig> {
+        self.traits
+            .get(trait_name)
+            .map(|t| t.methods.iter().filter(|m| !m.has_default).collect())
+            .unwrap_or_default()
+    }
+
+    /// Resolves a parsed type expression into an internal type, using the
+    /// type registry to recognize user-defined struct and enum names.
+    ///
+    /// Falls back to [`resolve_type_expr`] for primitive and compound types.
+    pub fn resolve_type(&self, expr: &TypeExpr) -> Type {
+        match expr {
+            TypeExpr::Named(named) => self.resolve_named_type(&named.name),
+            TypeExpr::Generic(name, args, _) => {
+                let resolved_args = args
+                    .iter()
+                    .map(|a| self.resolve_type(a))
+                    .collect::<Vec<Type>>();
+                if self.structs.contains_key(name) {
+                    Type::Struct(name.clone(), resolved_args)
+                } else if self.enums.contains_key(name) {
+                    Type::Enum(name.clone(), resolved_args)
+                } else {
+                    Type::Generic(name.clone(), vec![])
+                }
+            }
+            _ => resolve_type_expr(expr),
+        }
+    }
+
+    /// Resolves a named type string, checking the registry before falling
+    /// back to primitives.
+    fn resolve_named_type(&self, name: &str) -> Type {
+        if self.structs.contains_key(name) {
+            Type::Struct(name.to_string(), vec![])
+        } else if self.enums.contains_key(name) {
+            Type::Enum(name.to_string(), vec![])
+        } else {
+            // Delegate to the standalone resolver for primitives and generics.
+            resolve_type_expr(&TypeExpr::Named(NamedType {
+                name: name.to_string(),
+                span: maat_span::Span::ZERO,
+            }))
+        }
     }
 
     /// Generates a fresh type variable.
@@ -218,6 +366,11 @@ fn collect_free_vars(ty: &Type, vars: &mut HashSet<TypeVarId>) {
                 collect_free_vars(p, vars);
             }
             collect_free_vars(ret, vars);
+        }
+        Type::Struct(_, args) | Type::Enum(_, args) => {
+            for a in args {
+                collect_free_vars(a, vars);
+            }
         }
         _ => {}
     }

@@ -234,6 +234,13 @@ impl<'a> Parser<'a> {
             TokenKind::Break => self.parse_break_expression()?,
             TokenKind::Continue => self.parse_continue_expression()?,
             TokenKind::Match => self.parse_match_expression()?,
+            TokenKind::SelfValue => {
+                let span = self.current.span;
+                Expr::Ident(Ident {
+                    value: "self".to_string(),
+                    span,
+                })
+            }
             kind => {
                 self.prefix_parse_error(kind);
                 return None;

@@ -10,8 +10,8 @@ pub type TypeVarId = u32;
 /// A concrete or polymorphic type in the type system.
 ///
 /// Mirrors the runtime value categories: numeric primitives, booleans, strings,
-/// compound types (arrays, hashes, functions), and inference-time placeholders
-/// (type variables and generics).
+/// compound types (arrays, hashes, functions), user-defined types (structs,
+/// enums), and inference-time placeholders (type variables and generics).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     I8,
@@ -35,6 +35,11 @@ pub enum Type {
     Array(Box<Type>),
     Hash(Box<Type>, Box<Type>),
     Function(FnType),
+
+    /// A user-defined struct type, identified by name with instantiated type arguments.
+    Struct(String, Vec<Type>),
+    /// A user-defined enum type, identified by name with instantiated type arguments.
+    Enum(String, Vec<Type>),
 
     /// A type variable introduced during inference (Algorithm W).
     Var(TypeVarId),
@@ -194,6 +199,87 @@ impl Type {
     }
 }
 
+/// A registered struct definition in the type registry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StructDef {
+    /// The struct's name (e.g., `Point`).
+    pub name: String,
+    /// Generic type parameter names declared on this struct.
+    pub generic_params: Vec<String>,
+    /// Ordered fields: `(field_name, field_type)`.
+    ///
+    /// Field types may reference generic parameters by name via `Type::Generic`.
+    pub fields: Vec<(String, Type)>,
+}
+
+/// A registered enum definition in the type registry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnumDef {
+    /// The enum's name (e.g., `Option`).
+    pub name: String,
+    /// Generic type parameter names declared on this enum.
+    pub generic_params: Vec<String>,
+    /// Ordered variants.
+    pub variants: Vec<VariantDef>,
+}
+
+/// A single enum variant definition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VariantDef {
+    /// Variant name (e.g., `Some`, `None`).
+    pub name: String,
+    /// The payload shape.
+    pub kind: VariantKind,
+}
+
+/// The payload of an enum variant.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VariantKind {
+    /// A unit variant carrying no data (e.g., `None`).
+    Unit,
+    /// A tuple variant carrying positional fields (e.g., `Some(T)`).
+    Tuple(Vec<Type>),
+    /// A struct variant carrying named fields (e.g., `Point { x: i64, y: i64 }`).
+    Struct(Vec<(String, Type)>),
+}
+
+/// A registered trait definition in the type registry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TraitDef {
+    /// The trait's name (e.g., `Display`).
+    pub name: String,
+    /// Generic type parameter names declared on this trait.
+    pub generic_params: Vec<String>,
+    /// Required method signatures.
+    pub methods: Vec<MethodSig>,
+}
+
+/// A method signature in a trait definition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MethodSig {
+    /// Method name.
+    pub name: String,
+    /// Parameter types (excluding `self`).
+    pub params: Vec<Type>,
+    /// Return type.
+    pub ret: Type,
+    /// Whether the method has a default implementation.
+    pub has_default: bool,
+    /// Whether the method takes `self` as its first parameter.
+    pub takes_self: bool,
+}
+
+/// A registered `impl` block (inherent or trait) in the type registry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImplDef {
+    /// The concrete type this impl applies to (e.g., `Point`).
+    pub self_type: Type,
+    /// If this is a trait impl, the trait name; `None` for inherent impls.
+    pub trait_name: Option<String>,
+    /// Methods defined in this impl block: `(method_name, function_type)`.
+    pub methods: Vec<(String, Type)>,
+}
+
 impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -222,6 +308,20 @@ impl fmt::Display for Type {
                     .collect::<Vec<_>>()
                     .join(", ");
                 write!(f, "fn({params}) -> {}", fn_ty.ret)
+            }
+            Self::Struct(name, args) | Self::Enum(name, args) => {
+                f.write_str(name)?;
+                if !args.is_empty() {
+                    f.write_str("<")?;
+                    for (i, arg) in args.iter().enumerate() {
+                        if i > 0 {
+                            f.write_str(", ")?;
+                        }
+                        write!(f, "{arg}")?;
+                    }
+                    f.write_str(">")?;
+                }
+                Ok(())
             }
             Self::Var(id) => write!(f, "?T{id}"),
             Self::Generic(name, bounds) => {
