@@ -60,24 +60,6 @@ fn test_define_macros() {
 }
 
 #[test]
-fn test_expand_macros() {
-    let input = r#"
-        let infixExpr = macro() { quote(1 + 2); };
-        infixExpr();
-    "#;
-    test_macros(input, "(1 + 2)");
-}
-
-#[test]
-fn test_expand_macros_with_unquote() {
-    let input = r#"
-        let reverse = macro(a, b) { quote(unquote(b) - unquote(a)); };
-        reverse(2 + 2, 10 - 5);
-    "#;
-    test_macros(input, "(10 - 5) - (2 + 2)");
-}
-
-#[test]
 fn test_quote_builtin() {
     let input = "quote(5 + 5)";
     let program = maat_tests::parse(input);
@@ -98,8 +80,28 @@ fn test_quote_builtin() {
 }
 
 #[test]
-fn test_macro_expansion_unless() {
-    let input = r#"
+fn test_macro_expansion() {
+    // Simple expansion
+    test_macros(
+        r#"
+        let infixExpr = macro() { quote(1 + 2); };
+        infixExpr();
+        "#,
+        "(1 + 2)",
+    );
+
+    // Expansion with unquote
+    test_macros(
+        r#"
+        let reverse = macro(a, b) { quote(unquote(b) - unquote(a)); };
+        reverse(2 + 2, 10 - 5);
+        "#,
+        "(10 - 5) - (2 + 2)",
+    );
+
+    // Unless macro (conditional rewriting)
+    test_macros(
+        r#"
         let unless = macro(cond, cons, alt) {
             quote(if (!(unquote(cond))) {
                 unquote(cons);
@@ -109,31 +111,31 @@ fn test_macro_expansion_unless() {
         };
 
         unless(10 > 5, print("not greater"), print("greater"));
-    "#;
-    let expected = r#"
+        "#,
+        r#"
         if (!(10 > 5)) {
             print("not greater");
         } else {
             print("greater");
         }
-    "#;
-    test_macros(input, expected);
-}
+        "#,
+    );
 
-#[test]
-fn test_macro_double() {
-    let input = r#"
+    // Double macro
+    test_macros(
+        r#"
         let double = macro(x) { quote(unquote(x) * 2); };
         double(5);
-    "#;
-    test_macros(input, "(5 * 2)");
-}
+        "#,
+        "(5 * 2)",
+    );
 
-#[test]
-fn test_macro_with_multiple_args() {
-    let input = r#"
+    // Multiple arguments
+    test_macros(
+        r#"
         let add = macro(a, b) { quote(unquote(a) + unquote(b)); };
         add(3, 7);
-    "#;
-    test_macros(input, "(3 + 7)");
+        "#,
+        "(3 + 7)",
+    );
 }

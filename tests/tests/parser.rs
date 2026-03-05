@@ -167,7 +167,8 @@ fn parse_string_literal() {
 }
 
 #[test]
-fn parse_array_literal() {
+fn parse_arrays() {
+    // Non-empty array
     let program = parse("[1, 2 * 2, 3 + 3]");
     let Stmt::Expr(ExprStmt {
         value: Expr::Array(array),
@@ -180,10 +181,8 @@ fn parse_array_literal() {
     assert_eq!(array.elements[0].to_string(), "1");
     assert_eq!(array.elements[1].to_string(), "(2 * 2)");
     assert_eq!(array.elements[2].to_string(), "(3 + 3)");
-}
 
-#[test]
-fn parse_empty_array() {
+    // Empty array
     let program = parse("[]");
     let Stmt::Expr(ExprStmt {
         value: Expr::Array(array),
@@ -210,7 +209,8 @@ fn parse_index_expression() {
 }
 
 #[test]
-fn parse_hash_map() {
+fn parse_hashes() {
+    // Non-empty hash
     let program = parse(r#"{"one": 1, "two": 2, "three": 3}"#);
     let Stmt::Expr(ExprStmt {
         value: Expr::Map(map),
@@ -220,7 +220,6 @@ fn parse_hash_map() {
         panic!("expected hash literal");
     };
     assert_eq!(map.pairs.len(), 3);
-
     let expected = [("one", "1"), ("two", "2"), ("three", "3")];
     for (key, value) in expected {
         let found = map
@@ -229,10 +228,8 @@ fn parse_hash_map() {
             .any(|(k, v)| k.to_string() == key && v.to_string() == value);
         assert!(found, "expected key-value pair: {} => {}", key, value);
     }
-}
 
-#[test]
-fn parse_empty_hash() {
+    // Empty hash
     let program = parse("{}");
     let Stmt::Expr(ExprStmt {
         value: Expr::Map(hash),
@@ -242,10 +239,8 @@ fn parse_empty_hash() {
         panic!("expected hash literal");
     };
     assert_eq!(hash.pairs.len(), 0);
-}
 
-#[test]
-fn parse_hash_with_expressions() {
+    // Hash with expressions
     let program = parse(r#"{"one": 0 + 1, "two": 10 - 8}"#);
     let Stmt::Expr(ExprStmt {
         value: Expr::Map(hash),
@@ -258,7 +253,8 @@ fn parse_hash_with_expressions() {
 }
 
 #[test]
-fn parse_binary_literals() {
+fn parse_non_decimal_literals() {
+    // Binary
     [("0b1010;", 10), ("0B1111;", 15), ("0b0;", 0)]
         .iter()
         .for_each(|(input, expected)| {
@@ -273,10 +269,8 @@ fn parse_binary_literals() {
             assert_eq!(int64.radix, Radix::Bin);
             assert_eq!(int64.value, *expected, "input: {}", input);
         });
-}
 
-#[test]
-fn parse_octal_literals() {
+    // Octal
     [("0o755;", 493), ("0O644;", 420), ("0o0;", 0)]
         .iter()
         .for_each(|(input, expected)| {
@@ -291,10 +285,8 @@ fn parse_octal_literals() {
             assert_eq!(int64.radix, Radix::Oct);
             assert_eq!(int64.value, *expected, "input: {}", input);
         });
-}
 
-#[test]
-fn parse_hex_literals() {
+    // Hex
     [("0xff;", 255), ("0xFF;", 255), ("0xDEAD;", 57005)]
         .iter()
         .for_each(|(input, expected)| {
@@ -369,7 +361,8 @@ fn parse_operator_precedence() {
 }
 
 #[test]
-fn parse_if_expression() {
+fn parse_conditionals() {
+    // If without else
     let program = parse("if (x < y) { x }");
     let Stmt::Expr(ExprStmt {
         value: Expr::Cond(cond),
@@ -378,7 +371,6 @@ fn parse_if_expression() {
     else {
         panic!("expected Cond expression");
     };
-
     let Expr::Infix(infix) = cond.condition.as_ref() else {
         panic!("expected Infix condition");
     };
@@ -386,10 +378,8 @@ fn parse_if_expression() {
     assert_eq!(cond.consequence.statements.len(), 1);
     assert_eq!(cond.consequence.statements[0].to_string(), "x");
     assert!(cond.alternative.is_none());
-}
 
-#[test]
-fn parse_if_else_expression() {
+    // If with else
     let program = parse("if (x < y) { x } else { y }");
     let Stmt::Expr(ExprStmt {
         value: Expr::Cond(cond),
@@ -398,7 +388,6 @@ fn parse_if_else_expression() {
     else {
         panic!("expected Cond expression");
     };
-
     assert_eq!(cond.condition.to_string(), "(x < y)");
     assert_eq!(cond.consequence.statements[0].to_string(), "x");
     assert_eq!(
@@ -408,7 +397,8 @@ fn parse_if_else_expression() {
 }
 
 #[test]
-fn parse_function_literal() {
+fn parse_functions() {
+    // Function literal
     let program = parse("fn(x, y) { x + y; }");
     let Stmt::Expr(ExprStmt {
         value: Expr::Lambda(func),
@@ -417,14 +407,11 @@ fn parse_function_literal() {
     else {
         panic!("expected Lambda expression");
     };
-
     assert_eq!(func.param_names().collect::<Vec<_>>(), vec!["x", "y"]);
     assert_eq!(func.body.statements.len(), 1);
     assert_eq!(func.body.statements[0].to_string(), "(x + y)");
-}
 
-#[test]
-fn parse_function_parameters() {
+    // Function parameter variations
     [
         ("fn() {};", vec![]),
         ("fn(x) {};", vec!["x"]),
@@ -446,7 +433,8 @@ fn parse_function_parameters() {
 }
 
 #[test]
-fn parse_call_expression() {
+fn parse_call_expressions() {
+    // Single call with expressions
     let program = parse("add(1, 2 * 3, 4 + 5);");
     let Stmt::Expr(ExprStmt {
         value: Expr::Call(call),
@@ -455,16 +443,13 @@ fn parse_call_expression() {
     else {
         panic!("expected Call expression");
     };
-
     assert_eq!(call.function.to_string(), "add");
     assert_eq!(call.arguments.len(), 3);
     assert_eq!(call.arguments[0].to_string(), "1");
     assert_eq!(call.arguments[1].to_string(), "(2 * 3)");
     assert_eq!(call.arguments[2].to_string(), "(4 + 5)");
-}
 
-#[test]
-fn parse_call_arguments() {
+    // Argument count variations
     [
         ("add();", "add", vec![]),
         ("add(1);", "add", vec!["1"]),
@@ -496,17 +481,16 @@ fn parse_call_arguments() {
 }
 
 #[test]
-fn parse_loop_statement() {
+fn parse_loops() {
+    // Loop
     let program = parse("loop { 1; }");
     let Stmt::Loop(loop_stmt) = expect_single_stmt(&program) else {
         panic!("expected Loop statement");
     };
     assert_eq!(loop_stmt.body.statements.len(), 1);
     assert_eq!(loop_stmt.body.statements[0].to_string(), "1");
-}
 
-#[test]
-fn parse_while_statement() {
+    // While
     let program = parse("while (x < 10) { x; }");
     let Stmt::While(while_stmt) = expect_single_stmt(&program) else {
         panic!("expected While statement");
@@ -514,10 +498,8 @@ fn parse_while_statement() {
     assert_eq!(while_stmt.condition.to_string(), "(x < 10)");
     assert_eq!(while_stmt.body.statements.len(), 1);
     assert_eq!(while_stmt.body.statements[0].to_string(), "x");
-}
 
-#[test]
-fn parse_for_statement() {
+    // For
     let program = parse("for x in [1, 2, 3] { x; }");
     let Stmt::For(for_stmt) = expect_single_stmt(&program) else {
         panic!("expected For statement");
@@ -529,7 +511,8 @@ fn parse_for_statement() {
 }
 
 #[test]
-fn parse_break_expression() {
+fn parse_loop_control() {
+    // Break without value
     let program = parse("loop { break; }");
     let Stmt::Loop(loop_stmt) = expect_single_stmt(&program) else {
         panic!("expected Loop statement");
@@ -542,10 +525,8 @@ fn parse_break_expression() {
         panic!("expected Break expression");
     };
     assert!(break_expr.value.is_none());
-}
 
-#[test]
-fn parse_break_with_value() {
+    // Break with value
     let program = parse("loop { break 42; }");
     let Stmt::Loop(loop_stmt) = expect_single_stmt(&program) else {
         panic!("expected Loop statement");
@@ -558,10 +539,8 @@ fn parse_break_with_value() {
         panic!("expected Break expression");
     };
     assert_eq!(break_expr.value.as_ref().unwrap().to_string(), "42");
-}
 
-#[test]
-fn parse_continue_expression() {
+    // Continue
     let program = parse("loop { continue; }");
     let Stmt::Loop(loop_stmt) = expect_single_stmt(&program) else {
         panic!("expected Loop statement");
@@ -576,7 +555,8 @@ fn parse_continue_expression() {
 }
 
 #[test]
-fn parse_struct_decl() {
+fn parse_struct_declarations() {
+    // Basic struct
     let program = parse("struct Point { x: i64, y: i64 }");
     let Stmt::StructDecl(decl) = expect_single_stmt(&program) else {
         panic!("expected StructDecl");
@@ -588,10 +568,8 @@ fn parse_struct_decl() {
     assert_eq!(decl.fields[0].ty.to_string(), "i64");
     assert_eq!(decl.fields[1].name, "y");
     assert_eq!(decl.fields[1].ty.to_string(), "i64");
-}
 
-#[test]
-fn parse_struct_decl_generic() {
+    // Generic struct
     let program = parse("struct Pair<T, U> { first: T, second: U }");
     let Stmt::StructDecl(decl) = expect_single_stmt(&program) else {
         panic!("expected StructDecl");
@@ -604,7 +582,8 @@ fn parse_struct_decl_generic() {
 }
 
 #[test]
-fn parse_enum_unit_variants() {
+fn parse_enum_declarations() {
+    // Unit variants
     let program = parse("enum Direction { North, South, East, West }");
     let Stmt::EnumDecl(decl) = expect_single_stmt(&program) else {
         panic!("expected EnumDecl");
@@ -614,10 +593,8 @@ fn parse_enum_unit_variants() {
     assert!(matches!(decl.variants[0].kind, EnumVariantKind::Unit));
     assert_eq!(decl.variants[0].name, "North");
     assert_eq!(decl.variants[3].name, "West");
-}
 
-#[test]
-fn parse_enum_tuple_variant() {
+    // Tuple variants
     let program = parse("enum Shape { Circle(i64), Rectangle(i64, i64) }");
     let Stmt::EnumDecl(decl) = expect_single_stmt(&program) else {
         panic!("expected EnumDecl");
@@ -648,7 +625,8 @@ fn parse_trait_decl() {
 }
 
 #[test]
-fn parse_impl_block_inherent() {
+fn parse_impl_blocks() {
+    // Inherent impl
     let program = parse("impl Point { fn new(x: i64, y: i64) -> Point { x } }");
     let Stmt::ImplBlock(block) = expect_single_stmt(&program) else {
         panic!("expected ImplBlock");
@@ -657,10 +635,8 @@ fn parse_impl_block_inherent() {
     assert_eq!(block.self_type.to_string(), "Point");
     assert_eq!(block.methods.len(), 1);
     assert_eq!(block.methods[0].name, "new");
-}
 
-#[test]
-fn parse_impl_block_trait() {
+    // Trait impl
     let program = parse("impl Greet for Point { fn hello(self) -> bool { true } }");
     let Stmt::ImplBlock(block) = expect_single_stmt(&program) else {
         panic!("expected ImplBlock");
@@ -673,6 +649,7 @@ fn parse_impl_block_trait() {
 
 #[test]
 fn parse_field_access() {
+    // Simple field access
     let program = parse("point.x;");
     let Stmt::Expr(ExprStmt {
         value: Expr::FieldAccess(access),
@@ -683,10 +660,8 @@ fn parse_field_access() {
     };
     assert_eq!(access.object.to_string(), "point");
     assert_eq!(access.field, "x");
-}
 
-#[test]
-fn parse_chained_field_access() {
+    // Chained field access
     let program = parse("a.b.c;");
     let Stmt::Expr(ExprStmt {
         value: Expr::FieldAccess(outer),
@@ -719,7 +694,8 @@ fn parse_method_call() {
 }
 
 #[test]
-fn parse_match_expression() {
+fn parse_match_expressions() {
+    // Basic match with literal and wildcard
     let program = parse("match x { 1 => true, _ => false }");
     let Stmt::Expr(ExprStmt {
         value: Expr::Match(m),
@@ -732,10 +708,8 @@ fn parse_match_expression() {
     assert_eq!(m.arms.len(), 2);
     assert!(matches!(m.arms[0].pattern, Pattern::Literal(_)));
     assert!(matches!(m.arms[1].pattern, Pattern::Wildcard(_)));
-}
 
-#[test]
-fn parse_match_ident_pattern() {
+    // Match with ident pattern
     let program = parse("match x { y => y }");
     let Stmt::Expr(ExprStmt {
         value: Expr::Match(m),
@@ -749,10 +723,8 @@ fn parse_match_ident_pattern() {
         panic!("expected Ident pattern");
     };
     assert_eq!(name, "y");
-}
 
-#[test]
-fn parse_match_tuple_struct_pattern() {
+    // Match with tuple struct pattern
     let program = parse("match v { Some(x) => x, None => 0 }");
     let Stmt::Expr(ExprStmt {
         value: Expr::Match(m),
