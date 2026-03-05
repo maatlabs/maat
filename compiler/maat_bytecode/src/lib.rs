@@ -21,7 +21,7 @@
 //! println!("{}", bytecode);
 //! ```
 
-use maat_runtime::Object;
+use maat_runtime::{Object, TypeDef};
 use maat_span::SourceMap;
 
 mod instruction;
@@ -114,7 +114,7 @@ pub const MAX_FRAMES: usize = 1024;
 /// instructions.extend(&Instructions::from(encode(Opcode::Add, &[])));        // Add them
 /// instructions.extend(&Instructions::from(encode(Opcode::Pop, &[])));        // Pop result
 ///
-/// let bytecode = Bytecode { instructions, constants, source_map: Default::default() };
+/// let bytecode = Bytecode { instructions, constants, source_map: Default::default(), type_registry: vec![] };
 /// ```
 ///
 /// When executed by the VM:
@@ -139,4 +139,10 @@ pub struct Bytecode {
 
     /// Maps instruction byte offsets to source spans for error reporting.
     pub source_map: SourceMap,
+
+    /// Type definitions for user-defined structs and enums.
+    ///
+    /// Registered at compile time and read by the VM for field access,
+    /// struct construction, and pattern matching operations.
+    pub type_registry: Vec<TypeDef>,
 }

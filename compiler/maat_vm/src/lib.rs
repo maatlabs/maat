@@ -10,7 +10,8 @@ use indexmap::IndexMap;
 use maat_bytecode::{Bytecode, MAX_FRAMES, MAX_GLOBALS, MAX_STACK_SIZE, Opcode, TypeTag};
 use maat_errors::{Result, VmError};
 use maat_runtime::{
-    BUILTINS, Closure, CompiledFunction, FALSE, HashObject, Hashable, NULL, Object, TRUE,
+    BUILTINS, Closure, CompiledFunction, EnumVariantObject, FALSE, HashObject, Hashable, NULL,
+    Object, StructObject, TRUE, TypeDef,
 };
 use maat_span::{SourceMap, Span};
 
@@ -132,6 +133,7 @@ pub struct VM {
     globals: Vec<Object>,
     frames: Vec<Frame>,
     source_map: SourceMap,
+    type_registry: Vec<TypeDef>,
 }
 
 impl VM {
@@ -141,6 +143,7 @@ impl VM {
     /// closure and placed as the initial frame.
     pub fn new(bytecode: Bytecode) -> Self {
         let source_map = bytecode.source_map;
+        let type_registry = bytecode.type_registry;
         let main_closure = Closure {
             func: CompiledFunction {
                 instructions: Rc::from(bytecode.instructions.as_bytes()),
@@ -159,6 +162,7 @@ impl VM {
             globals: Vec::with_capacity(MAX_GLOBALS),
             frames: vec![main_frame],
             source_map,
+            type_registry,
         }
     }
 
@@ -168,6 +172,7 @@ impl VM {
     /// across multiple bytecode executions.
     pub fn with_globals(bytecode: Bytecode, globals: Vec<Object>) -> Self {
         let source_map = bytecode.source_map;
+        let type_registry = bytecode.type_registry;
         let main_closure = Closure {
             func: CompiledFunction {
                 instructions: Rc::from(bytecode.instructions.as_bytes()),
@@ -186,6 +191,7 @@ impl VM {
             globals,
             frames: vec![main_frame],
             source_map,
+            type_registry,
         }
     }
 
@@ -444,6 +450,23 @@ impl VM {
                     let tag_byte = self.read_u8_operand(ip + 1)?;
                     self.current_frame_mut()?.ip += 1;
                     self.execute_convert(tag_byte)?;
+                }
+                Opcode::Construct => {
+                    let type_index = self.read_u16_operand(ip + 1)?;
+                    let num_fields = self.read_u8_operand(ip + 3)?;
+                    self.current_frame_mut()?.ip += 3;
+                    self.execute_construct(type_index, num_fields)?;
+                }
+                Opcode::GetField => {
+                    let field_index = self.read_u16_operand(ip + 1)?;
+                    self.current_frame_mut()?.ip += 2;
+                    self.execute_get_field(field_index)?;
+                }
+                Opcode::MatchTag => {
+                    let expected_tag = self.read_u16_operand(ip + 1)?;
+                    let jump_target = self.read_u16_operand(ip + 3)?;
+                    self.current_frame_mut()?.ip += 4;
+                    self.execute_match_tag(expected_tag, jump_target)?;
                 }
                 Opcode::ReturnValue => {
                     let return_value = self.pop_stack()?;
@@ -871,5 +894,93 @@ impl VM {
             Some(value) => self.push_stack(value.clone()),
             None => self.push_stack(NULL),
         }
+    }
+
+    /// Constructs a struct or enum variant from stack values.
+    ///
+    /// The type registry index encodes whether this is a struct or an enum
+    /// variant. For enums, the variant tag is packed into the high bits of
+    /// the type index: `type_index = (registry_index << 8) | variant_tag`.
+    fn execute_construct(&mut self, type_index: usize, num_fields: usize) -> Result<()> {
+        let registry_index = type_index >> 8;
+        let variant_tag = (type_index & 0xFF) as u16;
+
+        if num_fields > self.sp {
+            return Err(self.vm_error(format!(
+                "stack underflow in construct: need {num_fields} fields, stack has {}",
+                self.sp
+            )));
+        }
+        let start = self.sp - num_fields;
+        let fields = self.stack[start..self.sp].to_vec();
+        self.sp = start;
+
+        let type_def = self.type_registry.get(registry_index).ok_or_else(|| {
+            self.vm_error(format!(
+                "type registry index out of bounds: {registry_index}"
+            ))
+        })?;
+
+        let obj = match type_def {
+            TypeDef::Struct { .. } => Object::Struct(StructObject {
+                type_index: registry_index as u16,
+                fields,
+            }),
+            TypeDef::Enum { .. } => Object::EnumVariant(EnumVariantObject {
+                type_index: registry_index as u16,
+                tag: variant_tag,
+                fields,
+            }),
+        };
+
+        self.push_stack(obj)
+    }
+
+    /// Reads a field from a struct or enum variant on top of the stack.
+    fn execute_get_field(&mut self, field_index: usize) -> Result<()> {
+        let obj = self.pop_stack()?;
+        let fields = match &obj {
+            Object::Struct(s) => &s.fields,
+            Object::EnumVariant(v) => &v.fields,
+            _ => {
+                return Err(self.vm_error(format!("cannot access field on {}", obj.type_name())));
+            }
+        };
+
+        let value = fields.get(field_index).cloned().ok_or_else(|| {
+            self.vm_error(format!(
+                "field index {field_index} out of bounds (object has {} fields)",
+                fields.len()
+            ))
+        })?;
+
+        self.push_stack(value)
+    }
+
+    /// Tests an enum variant's tag and conditionally jumps.
+    ///
+    /// Peeks at the top of the stack (does not pop). If the variant's tag
+    /// matches `expected_tag`, execution continues to the next instruction.
+    /// Otherwise, the instruction pointer jumps to `jump_target`.
+    fn execute_match_tag(&mut self, expected_tag: usize, jump_target: usize) -> Result<()> {
+        let obj = self
+            .stack
+            .get(self.sp - 1)
+            .ok_or_else(|| self.vm_error("stack underflow in match_tag"))?;
+
+        let actual_tag = match obj {
+            Object::EnumVariant(v) => v.tag as usize,
+            _ => {
+                return Err(self.vm_error(format!(
+                    "match_tag requires an enum variant, got {}",
+                    obj.type_name()
+                )));
+            }
+        };
+
+        if actual_tag != expected_tag {
+            self.current_frame_mut()?.ip = jump_target as isize - 1;
+        }
+        Ok(())
     }
 }

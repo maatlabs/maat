@@ -70,6 +70,51 @@ pub struct BlockStmt {
     pub span: Span,
 }
 
+/// A named function declaration: `fn foo<T>(x: T, y: i64) -> T { x }`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FnItem {
+    pub name: String,
+    pub params: Vec<TypedParam>,
+    pub generic_params: Vec<GenericParam>,
+    pub return_type: Option<TypeExpr>,
+    pub body: BlockStmt,
+    pub span: Span,
+}
+
+impl FnItem {
+    /// Returns an iterator over the parameter names.
+    pub fn param_names(&self) -> impl Iterator<Item = &str> {
+        self.params.iter().map(|p| p.name.as_str())
+    }
+}
+
+/// An infinite loop: `loop { <body> }`.
+///
+/// Exits only via `break`. The optional break value becomes
+/// the loop expression's result.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct LoopStmt {
+    pub body: BlockStmt,
+    pub span: Span,
+}
+
+/// A conditional loop: `while <condition> { <body> }`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct WhileStmt {
+    pub condition: Box<Expr>,
+    pub body: BlockStmt,
+    pub span: Span,
+}
+
+/// An iterator loop: `for <ident> in <iterable> { <body> }`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ForStmt {
+    pub ident: String,
+    pub iterable: Box<Expr>,
+    pub body: BlockStmt,
+    pub span: Span,
+}
+
 /// All possible expression types in Maat.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Expr {
@@ -107,6 +152,8 @@ pub enum Expr {
     Match(MatchExpr),
     FieldAccess(FieldAccessExpr),
     MethodCall(MethodCallExpr),
+    StructLit(StructLitExpr),
+    PathExpr(PathExpr),
 }
 
 impl Expr {
@@ -143,6 +190,8 @@ impl Expr {
             Self::Match(v) => v.span,
             Self::FieldAccess(v) => v.span,
             Self::MethodCall(v) => v.span,
+            Self::StructLit(v) => v.span,
+            Self::PathExpr(v) => v.span,
         }
     }
 
@@ -238,7 +287,6 @@ macro_rules! define_int_type {
     };
 }
 
-// Signed integer types
 define_int_type!(I8, i8, "8-bit signed integer literal.");
 define_int_type!(I16, i16, "16-bit signed integer literal.");
 define_int_type!(I32, i32, "32-bit signed integer literal.");
@@ -246,7 +294,6 @@ define_int_type!(I64, i64, "64-bit signed integer literal.");
 define_int_type!(I128, i128, "128-bit signed integer literal.");
 define_int_type!(Isize, isize, "Pointer-sized signed integer literal.");
 
-// Unsigned integer types
 define_int_type!(U8, u8, "8-bit unsigned integer literal.");
 define_int_type!(U16, u16, "16-bit unsigned integer literal.");
 define_int_type!(U32, u32, "32-bit unsigned integer literal.");
@@ -302,24 +349,6 @@ pub struct CondExpr {
     pub span: Span,
 }
 
-/// A named function declaration: `fn foo<T>(x: T, y: i64) -> T { x }`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FnItem {
-    pub name: String,
-    pub params: Vec<TypedParam>,
-    pub generic_params: Vec<GenericParam>,
-    pub return_type: Option<TypeExpr>,
-    pub body: BlockStmt,
-    pub span: Span,
-}
-
-impl FnItem {
-    /// Returns an iterator over the parameter names.
-    pub fn param_names(&self) -> impl Iterator<Item = &str> {
-        self.params.iter().map(|p| p.name.as_str())
-    }
-}
-
 /// An anonymous function/closure expression: `fn(x, y) { x + y }`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Lambda {
@@ -358,33 +387,6 @@ pub struct CallExpr {
 pub struct CastExpr {
     pub expr: Box<Expr>,
     pub target: TypeAnnotation,
-    pub span: Span,
-}
-
-/// An infinite loop: `loop { <body> }`.
-///
-/// Exits only via `break`. The optional break value becomes
-/// the loop expression's result.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct LoopStmt {
-    pub body: BlockStmt,
-    pub span: Span,
-}
-
-/// A conditional loop: `while <condition> { <body> }`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct WhileStmt {
-    pub condition: Box<Expr>,
-    pub body: BlockStmt,
-    pub span: Span,
-}
-
-/// An iterator loop: `for <ident> in <iterable> { <body> }`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ForStmt {
-    pub ident: String,
-    pub iterable: Box<Expr>,
-    pub body: BlockStmt,
     pub span: Span,
 }
 
@@ -570,6 +572,28 @@ pub struct MethodCallExpr {
     pub span: Span,
 }
 
+/// Struct literal construction: `Point { x: 1, y: 2 }`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StructLitExpr {
+    /// The struct type name.
+    pub name: String,
+    /// Field initializers: `(field_name, value_expr)`.
+    pub fields: Vec<(String, Expr)>,
+    pub span: Span,
+}
+
+/// A qualified path expression: `Enum::Variant`.
+///
+/// Used for enum variant construction (e.g., `Option::Some`, `Color::Red`).
+/// When followed by `(args)`, the parser produces a `Call` with a `PathExpr`
+/// as the function.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PathExpr {
+    /// Path segments (e.g., `["Option", "Some"]`).
+    pub segments: Vec<String>,
+    pub span: Span,
+}
+
 /// A parsed type expression used in type annotations.
 ///
 /// Appears in `let` bindings (`let x: TypeExpr = ...`), function
@@ -690,12 +714,6 @@ impl TypeAnnotation {
 /// Parsing error for [`TypeAnnotation`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnknownTypeAnnotation;
-
-impl fmt::Display for UnknownTypeAnnotation {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("unknown type annotation")
-    }
-}
 
 impl std::str::FromStr for TypeAnnotation {
     type Err = UnknownTypeAnnotation;

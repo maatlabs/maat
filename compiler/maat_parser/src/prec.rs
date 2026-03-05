@@ -34,7 +34,7 @@ impl Precedence {
     /// Returns the precedence for a token kind, or None if
     /// it has no special binding power (caller typically falls back to `LOWEST`).
     #[inline]
-    pub fn get(&self, kind: &TokenKind) -> Option<u8> {
+    pub fn get(kind: &TokenKind) -> Option<u8> {
         match *kind {
             TokenKind::Or => Some(LOGICAL_OR),
             TokenKind::And => Some(LOGICAL_AND),

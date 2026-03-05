@@ -659,7 +659,134 @@ impl TypeChecker {
             Expr::FieldAccess(field_access) => self.check_field_access(field_access),
 
             Expr::MethodCall(method_call) => self.check_method_call(method_call),
+
+            Expr::StructLit(struct_lit) => self.check_struct_literal(struct_lit),
+
+            Expr::PathExpr(path_expr) => self.check_path_expr(path_expr),
         }
+    }
+
+    /// Type-checks a struct literal expression (e.g., `Point { x: 1, y: 2 }`).
+    fn check_struct_literal(&mut self, lit: &mut StructLitExpr) -> Type {
+        let struct_def = self.env.lookup_struct(&lit.name).cloned();
+        let Some(def) = struct_def else {
+            self.errors
+                .push(TypeErrorKind::UnknownType(lit.name.clone()).at(lit.span));
+            return self.env.fresh_var();
+        };
+
+        let type_args = def
+            .generic_params
+            .iter()
+            .map(|_| self.env.fresh_var())
+            .collect::<Vec<Type>>();
+
+        for (field_name, field_expr) in &mut lit.fields {
+            let field_ty = self.infer_expression(field_expr);
+            if let Some((_, expected_ty)) = def.fields.iter().find(|(n, _)| n == field_name) {
+                let resolved =
+                    self.instantiate_generic_type(expected_ty, &def.generic_params, &type_args);
+                if let Err(e) = self.subst.unify(&resolved, &field_ty) {
+                    self.report_unify_error(e, field_expr.span());
+                }
+            } else {
+                self.errors.push(
+                    TypeErrorKind::UnknownField {
+                        ty: lit.name.clone(),
+                        field: field_name.clone(),
+                    }
+                    .at(lit.span),
+                );
+            }
+        }
+
+        for (def_field_name, _) in &def.fields {
+            if !lit.fields.iter().any(|(n, _)| n == def_field_name) {
+                self.errors.push(
+                    TypeErrorKind::UnknownField {
+                        ty: format!("missing field `{}` in `{}`", def_field_name, lit.name),
+                        field: def_field_name.clone(),
+                    }
+                    .at(lit.span),
+                );
+            }
+        }
+
+        Type::Struct(
+            lit.name.clone(),
+            type_args.iter().map(|t| self.subst.apply(t)).collect(),
+        )
+    }
+
+    /// Type-checks a path expression (e.g., `Option::Some`, `Color::Red`).
+    fn check_path_expr(&mut self, path: &PathExpr) -> Type {
+        if path.segments.len() == 2 {
+            let type_name = &path.segments[0];
+            let variant_name = &path.segments[1];
+
+            if let Some(enum_def) = self.env.lookup_enum(type_name).cloned() {
+                let type_args = enum_def
+                    .generic_params
+                    .iter()
+                    .map(|_| self.env.fresh_var())
+                    .collect::<Vec<Type>>();
+
+                if let Some(variant) = enum_def.variants.iter().find(|v| v.name == *variant_name) {
+                    match &variant.kind {
+                        VariantKind::Unit => {
+                            return Type::Enum(
+                                type_name.clone(),
+                                type_args.iter().map(|t| self.subst.apply(t)).collect(),
+                            );
+                        }
+                        VariantKind::Tuple(field_types) => {
+                            let params = field_types
+                                .iter()
+                                .map(|t| {
+                                    self.instantiate_generic_type(
+                                        t,
+                                        &enum_def.generic_params,
+                                        &type_args,
+                                    )
+                                })
+                                .collect();
+                            let ret = Type::Enum(
+                                type_name.clone(),
+                                type_args.iter().map(|t| self.subst.apply(t)).collect(),
+                            );
+                            return Type::Function(FnType {
+                                params,
+                                ret: Box::new(ret),
+                            });
+                        }
+                        VariantKind::Struct(_) => {
+                            return Type::Enum(
+                                type_name.clone(),
+                                type_args.iter().map(|t| self.subst.apply(t)).collect(),
+                            );
+                        }
+                    }
+                } else {
+                    self.errors.push(
+                        TypeErrorKind::UnknownField {
+                            ty: type_name.clone(),
+                            field: variant_name.clone(),
+                        }
+                        .at(path.span),
+                    );
+                }
+            }
+        }
+
+        // Fallback: try as a variable lookup.
+        let full_name = path.segments.join("::");
+        self.env
+            .instantiate(&full_name, &self.subst)
+            .unwrap_or_else(|| {
+                self.errors
+                    .push(TypeErrorKind::UnknownType(full_name).at(path.span));
+                self.env.fresh_var()
+            })
     }
 
     fn check_field_access(&mut self, fa: &mut FieldAccessExpr) -> Type {

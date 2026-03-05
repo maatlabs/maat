@@ -36,8 +36,19 @@ fn fold_statement(stmt: &mut Stmt, errors: &mut Vec<TypeError>) {
             fold_expression(&mut for_stmt.iterable, errors);
             fold_block(&mut for_stmt.body, errors);
         }
-        // TODO: fold the following `Stmt` variants
-        Stmt::StructDecl(_) | Stmt::EnumDecl(_) | Stmt::TraitDecl(_) | Stmt::ImplBlock(_) => {}
+        Stmt::StructDecl(_) | Stmt::EnumDecl(_) => {}
+        Stmt::TraitDecl(decl) => {
+            for method in &mut decl.methods {
+                if let Some(body) = &mut method.default_body {
+                    fold_block(body, errors);
+                }
+            }
+        }
+        Stmt::ImplBlock(impl_block) => {
+            for method in &mut impl_block.methods {
+                fold_block(&mut method.body, errors);
+            }
+        }
     }
 }
 
@@ -96,6 +107,24 @@ fn fold_expression(expr: &mut Expr, errors: &mut Vec<TypeError>) {
         Expr::Cast(cast) => fold_expression(&mut cast.expr, errors),
         Expr::Break(break_expr) => {
             if let Some(val) = &mut break_expr.value {
+                fold_expression(val, errors);
+            }
+        }
+        Expr::Match(match_expr) => {
+            fold_expression(&mut match_expr.scrutinee, errors);
+            for arm in &mut match_expr.arms {
+                fold_expression(&mut arm.body, errors);
+            }
+        }
+        Expr::FieldAccess(fa) => fold_expression(&mut fa.object, errors),
+        Expr::MethodCall(mc) => {
+            fold_expression(&mut mc.object, errors);
+            for arg in &mut mc.arguments {
+                fold_expression(arg, errors);
+            }
+        }
+        Expr::StructLit(sl) => {
+            for (_, val) in &mut sl.fields {
                 fold_expression(val, errors);
             }
         }

@@ -17,7 +17,7 @@
 
 use maat_ast::*;
 use maat_errors::ParseError;
-use maat_lexer::{Lexer, Token, TokenKind};
+use maat_lexer::{Lexer, Span, Token, TokenKind};
 
 use crate::prec::{LOWEST, PREFIX, Precedence};
 
@@ -58,6 +58,54 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Returns the precedence of the `current` token or
+    /// a default [`LOWEST`] if none is registered.
+    fn current_prec(&self) -> u8 {
+        Precedence::get(&self.current.kind).unwrap_or(LOWEST)
+    }
+
+    /// Returns the precedence of the `peek` token or
+    /// a default [`LOWEST`] if none is registered.
+    fn peek_prec(&self) -> u8 {
+        Precedence::get(&self.peek.kind).unwrap_or(LOWEST)
+    }
+
+    fn cur_token_is(&self, kind: TokenKind) -> bool {
+        self.current.kind == kind
+    }
+
+    fn peek_token_is(&self, kind: TokenKind) -> bool {
+        self.peek.kind == kind
+    }
+
+    /// If the next token is `expected`, consume it and return true.
+    /// Otherwise, register the error message and return false.
+    fn expect_peek(&mut self, expected: TokenKind) -> bool {
+        if self.peek_token_is(expected) {
+            self.next_token();
+            return true;
+        }
+
+        let err = format!(
+            "expected next token to be `{:?}`, got `{:?}` instead",
+            expected, self.peek.kind
+        );
+        self.push_error(err);
+        false
+    }
+
+    /// Advance the parser: shift `peek` into `current` token,
+    /// and read a fresh `peek` token from the lexer.
+    fn next_token(&mut self) {
+        self.current = std::mem::replace(&mut self.peek, self.lexer.next_token());
+    }
+
+    /// Pushes an error with the current token's span.
+    fn push_error(&mut self, message: impl Into<String>) {
+        self.errors
+            .push(ParseError::new(message, self.current.span));
+    }
+
     /// Returns a reference to the errors encountered during parsing.
     ///
     /// Each error includes the error message and the source position where
@@ -77,12 +125,6 @@ impl<'a> Parser<'a> {
     /// ```
     pub fn errors(&self) -> &Vec<ParseError> {
         &self.errors
-    }
-
-    /// Pushes an error with the current token's span.
-    fn push_error(&mut self, message: impl Into<String>) {
-        self.errors
-            .push(ParseError::new(message, self.current.span));
     }
 
     /// Parses the input source code into a complete program AST.
@@ -242,7 +284,8 @@ impl<'a> Parser<'a> {
                 })
             }
             kind => {
-                self.prefix_parse_error(kind);
+                let msg = format!("no prefix parse function for `{:?}` found", kind);
+                self.push_error(msg);
                 return None;
             }
         };
@@ -334,9 +377,76 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_identifier(&mut self) -> Option<Expr> {
+        let name = self.current.literal.to_string();
+        let start = self.current.span;
+
+        // Path expression: `Enum::Variant`
+        if self.peek_token_is(TokenKind::PathSep) {
+            return self.parse_path_expression(name, start);
+        }
+
+        // Struct literal: `Name { field: value, ... }`
+        // Disambiguate from hash literal by requiring an uppercase first character.
+        if self.peek_token_is(TokenKind::LBrace) && name.starts_with(char::is_uppercase) {
+            return self.parse_struct_literal(name, start);
+        }
+
         Some(Expr::Ident(Ident {
-            value: self.current.literal.to_string(),
-            span: self.current.span,
+            value: name,
+            span: start,
+        }))
+    }
+
+    fn parse_path_expression(&mut self, first: String, start: Span) -> Option<Expr> {
+        let mut segments = vec![first];
+
+        while self.peek_token_is(TokenKind::PathSep) {
+            self.next_token();
+            if !self.expect_peek(TokenKind::Ident) {
+                return None;
+            }
+            segments.push(self.current.literal.to_string());
+        }
+
+        let end = self.current.span;
+        Some(Expr::PathExpr(PathExpr {
+            segments,
+            span: start.merge(end),
+        }))
+    }
+
+    fn parse_struct_literal(&mut self, name: String, start: Span) -> Option<Expr> {
+        self.next_token();
+        let mut fields = Vec::new();
+
+        while !self.peek_token_is(TokenKind::RBrace) {
+            if !self.expect_peek(TokenKind::Ident) {
+                return None;
+            }
+            let field_name = self.current.literal.to_string();
+
+            if !self.expect_peek(TokenKind::Colon) {
+                return None;
+            }
+
+            self.next_token();
+            let value = self.parse_expression(LOWEST)?;
+            fields.push((field_name, value));
+
+            if !self.peek_token_is(TokenKind::RBrace) && !self.expect_peek(TokenKind::Comma) {
+                return None;
+            }
+        }
+
+        if !self.expect_peek(TokenKind::RBrace) {
+            return None;
+        }
+
+        let end = self.current.span;
+        Some(Expr::StructLit(StructLitExpr {
+            name,
+            fields,
+            span: start.merge(end),
         }))
     }
 
@@ -1729,55 +1839,5 @@ impl<'a> Parser<'a> {
         }
 
         Some(list)
-    }
-
-    /// Advance the parser: shift `peek` into `current` token,
-    /// and read a fresh `peek` token from the lexer.
-    fn next_token(&mut self) {
-        self.current = std::mem::replace(&mut self.peek, self.lexer.next_token());
-    }
-
-    fn cur_token_is(&self, kind: TokenKind) -> bool {
-        self.current.kind == kind
-    }
-
-    fn peek_token_is(&self, kind: TokenKind) -> bool {
-        self.peek.kind == kind
-    }
-
-    /// If the next token is `expected`, consume it and return true.
-    /// Otherwise, register the error message and return false.
-    fn expect_peek(&mut self, expected: TokenKind) -> bool {
-        if self.peek.kind == expected {
-            self.next_token();
-            return true;
-        }
-        self.peek_error(expected);
-        false
-    }
-
-    /// Returns the precedence of the `current` token or
-    /// a default [`LOWEST`] if none is registered.
-    fn current_prec(&self) -> u8 {
-        Precedence.get(&self.current.kind).unwrap_or(LOWEST)
-    }
-
-    /// Returns the precedence of the `peek` token or
-    /// a default [`LOWEST`] if none is registered.
-    fn peek_prec(&self) -> u8 {
-        Precedence.get(&self.peek.kind).unwrap_or(LOWEST)
-    }
-
-    fn peek_error(&mut self, kind: TokenKind) {
-        let msg = format!(
-            "expected next token to be `{:?}`, got `{:?}` instead",
-            kind, self.peek.kind
-        );
-        self.push_error(msg);
-    }
-
-    fn prefix_parse_error(&mut self, kind: TokenKind) {
-        let msg = format!("no prefix parse function for `{:?}` found", kind);
-        self.push_error(msg);
     }
 }

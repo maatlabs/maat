@@ -106,6 +106,7 @@ mod tests {
             instructions: Instructions::new(),
             constants: vec![],
             source_map: SourceMap::new(),
+            type_registry: vec![],
         };
         assert_eq!(roundtrip(&bc), bc);
     }
@@ -132,6 +133,7 @@ mod tests {
                 Object::Bool(false),
             ],
             source_map: SourceMap::new(),
+            type_registry: vec![],
         };
         assert_eq!(roundtrip(&bc), bc);
     }
@@ -146,6 +148,7 @@ mod tests {
                 Object::Str("\u{1F600}".to_owned()),
             ],
             source_map: SourceMap::new(),
+            type_registry: vec![],
         };
         assert_eq!(roundtrip(&bc), bc);
     }
@@ -161,6 +164,7 @@ mod tests {
                 Object::Array(vec![Object::I64(3), Object::I64(4)]),
             ])],
             source_map: SourceMap::new(),
+            type_registry: vec![],
         };
         assert_eq!(roundtrip(&bc), bc);
     }
@@ -175,6 +179,7 @@ mod tests {
             instructions: Instructions::new(),
             constants: vec![Object::Hash(HashObject { pairs })],
             source_map: SourceMap::new(),
+            type_registry: vec![],
         };
         assert_eq!(roundtrip(&bc), bc);
     }
@@ -191,6 +196,7 @@ mod tests {
             instructions: Instructions::new(),
             constants: vec![Object::CompiledFunction(cf)],
             source_map: SourceMap::new(),
+            type_registry: vec![],
         };
         assert_eq!(roundtrip(&bc), bc);
     }
@@ -211,6 +217,7 @@ mod tests {
             instructions: Instructions::new(),
             constants: vec![Object::Closure(closure)],
             source_map: SourceMap::new(),
+            type_registry: vec![],
         };
         assert_eq!(roundtrip(&bc), bc);
     }
@@ -227,6 +234,7 @@ mod tests {
             instructions: Instructions::from(vec![0, 0, 1, 2]),
             constants: vec![Object::I64(99), Object::CompiledFunction(inner_cf)],
             source_map: SourceMap::new(),
+            type_registry: vec![],
         };
         assert_eq!(roundtrip(&bc), bc);
     }
@@ -242,6 +250,7 @@ mod tests {
             instructions: Instructions::from(vec![1, 2, 3]),
             constants: vec![],
             source_map: sm,
+            type_registry: vec![],
         };
         assert_eq!(roundtrip(&bc), bc);
     }
@@ -289,6 +298,7 @@ mod tests {
             instructions: Instructions::new(),
             constants: vec![Object::Builtin(|_| Ok(Object::Null))],
             source_map: SourceMap::new(),
+            type_registry: vec![],
         };
         let result = bc.serialize();
         assert!(result.is_err());
@@ -300,6 +310,7 @@ mod tests {
             instructions: Instructions::from(vec![0, 0, 1, 1, 2]),
             constants: vec![Object::I64(42), Object::Str("test".to_owned())],
             source_map: SourceMap::new(),
+            type_registry: vec![],
         };
         let bytes = bc.serialize().expect("serialize failed");
         let restored = Bytecode::deserialize(&bytes).expect("deserialize failed");

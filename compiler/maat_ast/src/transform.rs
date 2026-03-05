@@ -373,7 +373,22 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                     Expr::MethodCall(method_call)
                 }
 
-                // Leaf nodes (literals, identifiers, continue) don't need transformation
+                Expr::StructLit(mut struct_lit) => {
+                    struct_lit.fields = struct_lit
+                        .fields
+                        .into_iter()
+                        .map(|(name, val)| {
+                            let new_val = match transform(Node::Expr(val), transformer) {
+                                Node::Expr(e) => e,
+                                _ => unreachable!("Expr transformation returned non-expression"),
+                            };
+                            (name, new_val)
+                        })
+                        .collect();
+                    Expr::StructLit(struct_lit)
+                }
+
+                // Leaf nodes (literals, identifiers, continue, paths) don't need transformation
                 expr => expr,
             };
             Node::Expr(new_expr)

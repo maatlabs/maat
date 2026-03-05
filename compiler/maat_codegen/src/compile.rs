@@ -1,11 +1,14 @@
 use std::rc::Rc;
 
-use maat_ast::{BlockStmt, Expr, Node, Program, Stmt, TypeAnnotation};
+use maat_ast::{
+    BlockStmt, EnumVariantKind, Expr, FieldAccessExpr, ImplBlock, MatchExpr, MethodCallExpr, Node,
+    PathExpr, Pattern, Program, Stmt, StructLitExpr, TypeAnnotation, TypeExpr,
+};
 use maat_bytecode::{
     Bytecode, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, Opcode, TypeTag, encode,
 };
-use maat_errors::{CompileError, CompileErrorKind, Result};
-use maat_runtime::{BUILTINS, CompiledFunction, Object};
+use maat_errors::{CompileError, CompileErrorKind, Error, Result};
+use maat_runtime::{BUILTINS, CompiledFunction, Object, TypeDef, VariantInfo};
 use maat_span::{SourceMap, Span};
 
 use crate::{Symbol, SymbolScope, SymbolsTable};
@@ -65,6 +68,7 @@ pub struct Compiler {
     scope_index: usize,
     loop_contexts: Vec<LoopContext>,
     for_loop_counter: usize,
+    type_registry: Vec<TypeDef>,
 }
 
 impl Default for Compiler {
@@ -74,7 +78,9 @@ impl Default for Compiler {
 }
 
 impl Compiler {
-    const JUMP_DUMMY_TARGET: usize = 9999;
+    /// A deterministic dummy target to jump to.
+    /// Ultimately replaced by the actual index downstream.
+    const JUMP: usize = 9999;
 
     /// Creates a new compiler with empty instruction stream and constant pool.
     pub fn new() -> Self {
@@ -88,6 +94,7 @@ impl Compiler {
             scope_index: 0,
             loop_contexts: Vec::new(),
             for_loop_counter: 0,
+            type_registry: Vec::new(),
         }
     }
 
@@ -105,6 +112,7 @@ impl Compiler {
             scope_index: 0,
             loop_contexts: Vec::new(),
             for_loop_counter: 0,
+            type_registry: Vec::new(),
         }
     }
 
@@ -132,6 +140,7 @@ impl Compiler {
             instructions: scope.instructions,
             constants: self.constants,
             source_map: scope.source_map,
+            type_registry: self.type_registry,
         })
     }
 
@@ -264,11 +273,7 @@ impl Compiler {
                 });
 
                 self.compile_expression(&while_stmt.condition)?;
-                let exit_jump = self.emit(
-                    Opcode::CondJump,
-                    &[Self::JUMP_DUMMY_TARGET],
-                    while_stmt.span,
-                );
+                let exit_jump = self.emit(Opcode::CondJump, &[Self::JUMP], while_stmt.span);
 
                 self.compile_block_statement(&while_stmt.body)?;
 
@@ -288,10 +293,33 @@ impl Compiler {
                 Ok(())
             }
 
-            // TODO: compile custom type declarations
-            Stmt::StructDecl(_) | Stmt::EnumDecl(_) | Stmt::TraitDecl(_) | Stmt::ImplBlock(_) => {
+            Stmt::StructDecl(decl) => {
+                self.type_registry.push(TypeDef::Struct {
+                    name: decl.name.clone(),
+                    field_names: decl.fields.iter().map(|f| f.name.clone()).collect(),
+                });
                 Ok(())
             }
+            Stmt::EnumDecl(decl) => {
+                self.type_registry.push(TypeDef::Enum {
+                    name: decl.name.clone(),
+                    variants: decl
+                        .variants
+                        .iter()
+                        .map(|v| VariantInfo {
+                            name: v.name.clone(),
+                            field_count: match &v.kind {
+                                EnumVariantKind::Unit => 0,
+                                EnumVariantKind::Tuple(fields) => fields.len() as u8,
+                                EnumVariantKind::Struct(fields) => fields.len() as u8,
+                            },
+                        })
+                        .collect(),
+                });
+                Ok(())
+            }
+            Stmt::TraitDecl(_) => Ok(()),
+            Stmt::ImplBlock(impl_block) => self.compile_impl_block(impl_block),
 
             Stmt::For(for_stmt) => {
                 // Desugar: evaluate iterable, bind a hidden counter, iterate via index.
@@ -357,7 +385,7 @@ impl Compiler {
                 self.load_symbol(&len_sym, span);
                 self.emit(Opcode::LessThan, &[], span);
 
-                let exit_jump = self.emit(Opcode::CondJump, &[Self::JUMP_DUMMY_TARGET], span);
+                let exit_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
 
                 // let <ident> = __iter[__i]
                 self.load_symbol(&iter_sym, span);
@@ -459,9 +487,9 @@ impl Compiler {
 
             Expr::Infix(infix_expr) if infix_expr.operator == "&&" => {
                 self.compile_expression(&infix_expr.lhs)?;
-                let cond_jump = self.emit(Opcode::CondJump, &[Self::JUMP_DUMMY_TARGET], span);
+                let cond_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
                 self.compile_expression(&infix_expr.rhs)?;
-                let end_jump = self.emit(Opcode::Jump, &[Self::JUMP_DUMMY_TARGET], span);
+                let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
 
                 let false_pos = self.current_instructions().len();
                 self.replace_operand(cond_jump, false_pos)?;
@@ -474,9 +502,9 @@ impl Compiler {
 
             Expr::Infix(infix_expr) if infix_expr.operator == "||" => {
                 self.compile_expression(&infix_expr.lhs)?;
-                let cond_jump = self.emit(Opcode::CondJump, &[Self::JUMP_DUMMY_TARGET], span);
+                let cond_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
                 self.emit(Opcode::True, &[], span);
-                let end_jump = self.emit(Opcode::Jump, &[Self::JUMP_DUMMY_TARGET], span);
+                let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
 
                 let rhs_pos = self.current_instructions().len();
                 self.replace_operand(cond_jump, rhs_pos)?;
@@ -517,15 +545,14 @@ impl Compiler {
             Expr::Cond(cond) => {
                 self.compile_expression(&cond.condition)?;
 
-                let cond_jump_pos =
-                    self.emit(Opcode::CondJump, &[Self::JUMP_DUMMY_TARGET], cond.span);
+                let cond_jump_pos = self.emit(Opcode::CondJump, &[Self::JUMP], cond.span);
 
                 self.compile_block_statement(&cond.consequence)?;
                 if self.last_instruction_is(Opcode::Pop) {
                     self.remove_last_pop();
                 }
 
-                let jump_pos = self.emit(Opcode::Jump, &[Self::JUMP_DUMMY_TARGET], cond.span);
+                let jump_pos = self.emit(Opcode::Jump, &[Self::JUMP], cond.span);
 
                 let cons_pos = self.current_instructions().len();
                 self.replace_operand(cond_jump_pos, cons_pos)?;
@@ -633,7 +660,7 @@ impl Compiler {
                     }
                 }
 
-                let jump_pos = self.emit(Opcode::Jump, &[Self::JUMP_DUMMY_TARGET], break_expr.span);
+                let jump_pos = self.emit(Opcode::Jump, &[Self::JUMP], break_expr.span);
                 self.loop_contexts
                     .last_mut()
                     .expect("loop context was just verified")
@@ -654,8 +681,7 @@ impl Compiler {
                         self.emit(Opcode::Jump, &[target], cont_expr.span);
                     }
                     None => {
-                        let jump_pos =
-                            self.emit(Opcode::Jump, &[Self::JUMP_DUMMY_TARGET], cont_expr.span);
+                        let jump_pos = self.emit(Opcode::Jump, &[Self::JUMP], cont_expr.span);
                         self.loop_contexts
                             .last_mut()
                             .expect("loop context was just verified")
@@ -673,25 +699,365 @@ impl Compiler {
             .at(span)
             .into()),
 
-            // TODO: Compile these `Expr` variants
-            Expr::Match(_) => Err(CompileErrorKind::UnsupportedExpr {
-                expr_type: "match expression".to_string(),
-            }
-            .at(span)
-            .into()),
+            Expr::StructLit(struct_lit) => self.compile_struct_literal(struct_lit),
 
-            Expr::FieldAccess(_) => Err(CompileErrorKind::UnsupportedExpr {
-                expr_type: "field access".to_string(),
-            }
-            .at(span)
-            .into()),
+            Expr::PathExpr(path_expr) => self.compile_path_expression(path_expr),
 
-            Expr::MethodCall(_) => Err(CompileErrorKind::UnsupportedExpr {
-                expr_type: "method call".to_string(),
-            }
-            .at(span)
-            .into()),
+            Expr::Match(match_expr) => self.compile_match(match_expr),
+
+            Expr::FieldAccess(field_access) => self.compile_field_access(field_access),
+
+            Expr::MethodCall(method_call) => self.compile_method_call(method_call),
         }
+    }
+
+    /// Compiles a struct literal expression (e.g., `Point { x: 1, y: 2 }`).
+    ///
+    /// Looks up the struct in the type registry to determine field ordering,
+    /// compiles each field value in declaration order, and emits a `Construct`
+    /// instruction.
+    fn compile_struct_literal(&mut self, lit: &StructLitExpr) -> Result<()> {
+        let span = lit.span;
+        let (registry_index, field_names) = self
+            .type_registry
+            .iter()
+            .enumerate()
+            .find_map(|(i, td)| match td {
+                TypeDef::Struct { name, field_names } if name == &lit.name => {
+                    Some((i, field_names.clone()))
+                }
+                _ => None,
+            })
+            .ok_or_else(|| {
+                CompileErrorKind::UndefinedVariable {
+                    name: lit.name.clone(),
+                }
+                .at(span)
+            })?;
+
+        for field_name in &field_names {
+            let value_expr = lit
+                .fields
+                .iter()
+                .find(|(name, _)| name == field_name)
+                .map(|(_, expr)| expr)
+                .ok_or_else(|| {
+                    CompileErrorKind::UndefinedVariable {
+                        name: format!("missing field `{}` in struct `{}`", field_name, lit.name),
+                    }
+                    .at(span)
+                })?;
+            self.compile_expression(value_expr)?;
+        }
+
+        let type_index = registry_index << 8;
+        self.emit(Opcode::Construct, &[type_index, field_names.len()], span);
+        Ok(())
+    }
+
+    /// Compiles a path expression (e.g., `Option::None`, `Color::Red`).
+    ///
+    /// For a two-segment path `Enum::Variant`, resolves the enum and variant
+    /// in the type registry. Unit variants emit a `Construct` with zero fields.
+    /// For non-unit variants used as constructors (followed by call), this
+    /// pushes a closure that wraps the `Construct` instruction.
+    fn compile_path_expression(&mut self, path: &PathExpr) -> Result<()> {
+        let span = path.span;
+
+        if path.segments.len() == 2 {
+            let type_name = &path.segments[0];
+            let variant_name = &path.segments[1];
+
+            // Check if it refers to an enum variant.
+            if let Some((registry_index, variant_tag, field_count)) =
+                self.resolve_enum_variant(type_name, variant_name)
+            {
+                if field_count == 0 {
+                    // Unit variant: construct immediately.
+                    let type_index = (registry_index << 8) | (variant_tag & 0xFF);
+                    self.emit(Opcode::Construct, &[type_index, 0], span);
+                } else {
+                    // Tuple/struct variant: emit a closure that takes `field_count` params
+                    // and constructs the variant.
+                    self.enter_scope();
+                    let mut param_names = Vec::with_capacity(field_count);
+                    for i in 0..field_count {
+                        let name = format!("__field_{i}");
+                        if let Err(e) = self.symbols_table.define_symbol(&name) {
+                            return Err(self.attach_span(e, span));
+                        }
+                        param_names.push(name);
+                    }
+
+                    // Load each parameter onto the stack.
+                    for name in &param_names {
+                        let sym = self.symbols_table.resolve_symbol(name).unwrap();
+                        self.load_symbol(&sym, span);
+                    }
+
+                    let type_index = (registry_index << 8) | (variant_tag & 0xFF);
+                    self.emit(Opcode::Construct, &[type_index, field_count], span);
+                    self.emit(Opcode::ReturnValue, &[], span);
+
+                    let num_locals = self.symbols_table.num_definitions();
+                    let (instructions, inner_source_map) = self.leave_scope()?;
+                    let compiled_fn = Object::CompiledFunction(CompiledFunction {
+                        instructions: Rc::from(instructions.as_bytes()),
+                        num_locals,
+                        num_parameters: field_count,
+                        source_map: inner_source_map,
+                    });
+                    let index = self.add_constant(compiled_fn)?;
+                    self.emit(Opcode::Closure, &[index, 0], span);
+                }
+                return Ok(());
+            }
+
+            let qualified_name = format!("{type_name}::{variant_name}");
+            if let Some(symbol) = self.symbols_table.resolve_symbol(&qualified_name) {
+                self.load_symbol(&symbol, span);
+                return Ok(());
+            }
+        }
+
+        let full_name = path.segments.join("::");
+        let symbol = self
+            .symbols_table
+            .resolve_symbol(&full_name)
+            .ok_or_else(|| CompileErrorKind::UndefinedVariable { name: full_name }.at(span))?;
+        self.load_symbol(&symbol, span);
+        Ok(())
+    }
+
+    /// Resolves an enum variant by type name and variant name.
+    ///
+    /// Returns `(registry_index, variant_tag, field_count)` if found.
+    fn resolve_enum_variant(
+        &self,
+        type_name: &str,
+        variant_name: &str,
+    ) -> Option<(usize, usize, usize)> {
+        self.type_registry
+            .iter()
+            .enumerate()
+            .find_map(|(i, td)| match td {
+                TypeDef::Enum { name, variants } if name == type_name => variants
+                    .iter()
+                    .enumerate()
+                    .find(|(_, v)| v.name == variant_name)
+                    .map(|(tag, v)| (i, tag, v.field_count as usize)),
+                _ => None,
+            })
+    }
+
+    /// Compiles a `match` expression as a chain of `MatchTag` / conditional
+    /// jump instructions.
+    ///
+    /// The scrutinee is compiled once and left on the stack. Each arm tests
+    /// the variant tag (for enums) or pattern, emitting the arm body on match.
+    /// At the end all forward jumps are patched to the exit point.
+    fn compile_match(&mut self, match_expr: &MatchExpr) -> Result<()> {
+        let span = match_expr.span;
+
+        self.compile_expression(&match_expr.scrutinee)?;
+
+        let mut end_jumps = Vec::new();
+
+        for arm in &match_expr.arms {
+            match &arm.pattern {
+                Pattern::TupleStruct { path, fields, .. } => {
+                    if let Some((_, variant_tag, _)) = self.find_variant_in_registry(path) {
+                        let match_tag_pos =
+                            self.emit(Opcode::MatchTag, &[variant_tag, Self::JUMP], span);
+
+                        self.bind_variant_fields(fields, span)?;
+
+                        self.compile_expression(&arm.body)?;
+                        if self.last_instruction_is(Opcode::Pop) {
+                            self.remove_last_pop();
+                        }
+
+                        let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
+                        end_jumps.push(end_jump);
+
+                        let next_arm = self.current_instructions().len();
+                        self.replace_match_tag_target(match_tag_pos, next_arm)?;
+                    }
+                }
+                Pattern::Ident(name, _) if name != "_" => {
+                    self.define_and_set(name, span)?;
+                    self.compile_expression(&arm.body)?;
+                    if self.last_instruction_is(Opcode::Pop) {
+                        self.remove_last_pop();
+                    }
+                    let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
+                    end_jumps.push(end_jump);
+                }
+                Pattern::Wildcard(_) | Pattern::Ident(_, _) => {
+                    self.emit(Opcode::Pop, &[], span);
+                    self.compile_expression(&arm.body)?;
+                    if self.last_instruction_is(Opcode::Pop) {
+                        self.remove_last_pop();
+                    }
+                    let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
+                    end_jumps.push(end_jump);
+                }
+                Pattern::Literal(lit_expr) => {
+                    self.compile_expression(lit_expr)?;
+                    self.emit(Opcode::Equal, &[], span);
+                    let cond_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+
+                    self.compile_expression(&arm.body)?;
+                    if self.last_instruction_is(Opcode::Pop) {
+                        self.remove_last_pop();
+                    }
+                    let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
+                    end_jumps.push(end_jump);
+
+                    let next_arm = self.current_instructions().len();
+                    self.replace_operand(cond_jump, next_arm)?;
+                }
+                _ => {
+                    self.emit(Opcode::Pop, &[], span);
+                    self.emit(Opcode::Null, &[], span);
+                    let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
+                    end_jumps.push(end_jump);
+                }
+            }
+        }
+
+        self.emit(Opcode::Null, &[], span);
+
+        let exit = self.current_instructions().len();
+        for jump_pos in end_jumps {
+            self.replace_operand(jump_pos, exit)?;
+        }
+
+        Ok(())
+    }
+
+    /// Finds an enum variant across the entire type registry by variant name.
+    fn find_variant_in_registry(&self, variant_name: &str) -> Option<(usize, usize, usize)> {
+        self.type_registry
+            .iter()
+            .enumerate()
+            .find_map(|(i, td)| match td {
+                TypeDef::Enum { variants, .. } => variants
+                    .iter()
+                    .enumerate()
+                    .find(|(_, v)| v.name == variant_name)
+                    .map(|(tag, v)| (i, tag, v.field_count as usize)),
+                _ => None,
+            })
+    }
+
+    /// Binds variant payload fields to local variables via `GetField`.
+    fn bind_variant_fields(&mut self, fields: &[Pattern], span: Span) -> Result<()> {
+        for (i, field) in fields.iter().enumerate() {
+            if let Pattern::Ident(name, _) = field {
+                // For enum variants with payloads, the scrutinee is on top of stack.
+                if i == 0 {
+                    let hidden = format!("__match_scrutinee_{}", self.for_loop_counter);
+                    self.for_loop_counter += 1;
+                    let hidden_sym = self.define_and_set(&hidden, span)?;
+                    self.load_symbol(&hidden_sym, span);
+                    self.emit(Opcode::GetField, &[i], span);
+                    self.define_and_set(name, span)?;
+                    continue;
+                }
+
+                let hidden = format!("__match_scrutinee_{}", self.for_loop_counter - 1);
+                let hidden_sym = self.symbols_table.resolve_symbol(&hidden).ok_or_else(|| {
+                    CompileErrorKind::UndefinedVariable {
+                        name: hidden.clone(),
+                    }
+                    .at(span)
+                })?;
+                self.load_symbol(&hidden_sym, span);
+                self.emit(Opcode::GetField, &[i], span);
+                self.define_and_set(name, span)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Replaces the jump-on-mismatch target of a `MatchTag` instruction.
+    ///
+    /// `MatchTag` has operands `[u16 variant_tag, u16 jump_target]`. The jump
+    /// target is at offset `op_pos + 3` (1 opcode + 2 tag bytes).
+    fn replace_match_tag_target(&mut self, op_pos: usize, target: usize) -> Result<()> {
+        let scope = &mut self.scopes[self.scope_index];
+        let target_bytes = (target as u16).to_be_bytes();
+        scope.instructions.replace_bytes(op_pos + 3, &target_bytes);
+        Ok(())
+    }
+
+    /// Compiles a field access expression (e.g., `point.x`).
+    ///
+    /// Resolves the field index from the type registry and emits a `GetField`
+    /// instruction.
+    fn compile_field_access(&mut self, fa: &FieldAccessExpr) -> Result<()> {
+        let span = fa.span;
+        self.compile_expression(&fa.object)?;
+
+        let field_index = self
+            .type_registry
+            .iter()
+            .find_map(|td| match td {
+                TypeDef::Struct { field_names, .. } => {
+                    field_names.iter().position(|f| f == &fa.field)
+                }
+                _ => None,
+            })
+            .ok_or_else(|| {
+                CompileErrorKind::UndefinedVariable {
+                    name: format!("unknown field `{}`", fa.field),
+                }
+                .at(span)
+            })?;
+
+        self.emit(Opcode::GetField, &[field_index], span);
+        Ok(())
+    }
+
+    /// Compiles a method call expression (e.g., `point.distance(other)`).
+    ///
+    /// Resolves the method as a qualified function name (`Type::method`),
+    /// pushes the receiver as the first argument, and emits a regular `Call`.
+    fn compile_method_call(&mut self, mc: &MethodCallExpr) -> Result<()> {
+        let span = mc.span;
+
+        let qualified_name = self
+            .type_registry
+            .iter()
+            .find_map(|td| {
+                let type_name = match td {
+                    TypeDef::Struct { name, .. } | TypeDef::Enum { name, .. } => name,
+                };
+                let candidate = format!("{type_name}::{}", mc.method);
+                self.symbols_table
+                    .resolve_symbol(&candidate)
+                    .map(|_| candidate)
+            })
+            .ok_or_else(|| {
+                CompileErrorKind::UndefinedVariable {
+                    name: format!("unknown method `{}`", mc.method),
+                }
+                .at(span)
+            })?;
+
+        let symbol = self.symbols_table.resolve_symbol(&qualified_name).unwrap();
+        self.load_symbol(&symbol, span);
+
+        self.compile_expression(&mc.object)?;
+
+        for arg in &mc.arguments {
+            self.compile_expression(arg)?;
+        }
+
+        let total_args = 1 + mc.arguments.len();
+        self.emit(Opcode::Call, &[total_args], span);
+        Ok(())
     }
 
     /// Maps a source-level type annotation to a bytecode type tag.
@@ -713,9 +1079,9 @@ impl Compiler {
     }
 
     /// Attaches a span to a compile error that lacks one.
-    fn attach_span(&self, err: maat_errors::Error, span: Span) -> maat_errors::Error {
+    fn attach_span(&self, err: Error, span: Span) -> Error {
         match err {
-            maat_errors::Error::Compile(ce) if ce.span.is_none() => CompileError {
+            Error::Compile(ce) if ce.span.is_none() => CompileError {
                 kind: ce.kind,
                 span: Some(span),
             }
@@ -805,6 +1171,44 @@ impl Compiler {
         });
         let index = self.add_constant(compiled_fn)?;
         self.emit(Opcode::Closure, &[index, num_free], span);
+        Ok(())
+    }
+
+    /// Compiles an `impl` block by emitting each method as a named function
+    /// binding. Methods with a `self` parameter have it compiled as the first
+    /// regular parameter.
+    fn compile_impl_block(&mut self, impl_block: &ImplBlock) -> Result<()> {
+        let type_name = match &impl_block.self_type {
+            TypeExpr::Named(n) => &n.name,
+            TypeExpr::Generic(name, _, _) => name,
+            _ => return Ok(()),
+        };
+
+        for method in &impl_block.methods {
+            let span = method.span;
+            let qualified_name = format!("{}::{}", type_name, method.name);
+
+            self.compile_fn_body(
+                Some(&qualified_name),
+                method.param_names(),
+                method.params.len(),
+                &method.body,
+                span,
+            )?;
+
+            let symbol = match self.symbols_table.define_symbol(&qualified_name) {
+                Ok(s) => s,
+                Err(e) => return Err(self.attach_span(e, span)),
+            };
+            let (scope, index) = (symbol.scope, symbol.index);
+            match scope {
+                SymbolScope::Global => self.emit(Opcode::SetGlobal, &[index], span),
+                SymbolScope::Local => self.emit(Opcode::SetLocal, &[index], span),
+                SymbolScope::Builtin | SymbolScope::Free | SymbolScope::Function => {
+                    unreachable!("define_symbol never produces this scope")
+                }
+            };
+        }
         Ok(())
     }
 
@@ -967,8 +1371,6 @@ impl Compiler {
 
 #[cfg(test)]
 mod tests {
-    use maat_errors::Error;
-
     use super::*;
 
     #[test]

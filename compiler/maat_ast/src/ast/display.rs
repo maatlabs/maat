@@ -124,6 +124,8 @@ impl fmt::Display for Expr {
             Self::Match(match_expr) => match_expr.fmt(f),
             Self::FieldAccess(field_access) => field_access.fmt(f),
             Self::MethodCall(method_call) => method_call.fmt(f),
+            Self::StructLit(struct_lit) => struct_lit.fmt(f),
+            Self::PathExpr(path_expr) => path_expr.fmt(f),
         }
     }
 }
@@ -512,6 +514,25 @@ impl fmt::Display for MethodCallExpr {
     }
 }
 
+impl fmt::Display for StructLitExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {{ ", self.name)?;
+        let fields = self
+            .fields
+            .iter()
+            .map(|(name, val)| format!("{name}: {val}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        write!(f, "{fields} }}")
+    }
+}
+
+impl fmt::Display for PathExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.segments.join("::"))
+    }
+}
+
 /// Formats a generic parameter list as `<T, U: Bound>`, or an empty string if empty.
 fn fmt_generic_params(params: &[GenericParam]) -> String {
     if params.is_empty() {
@@ -588,5 +609,11 @@ impl fmt::Display for TraitBound {
 impl fmt::Display for TypeAnnotation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
+    }
+}
+
+impl fmt::Display for UnknownTypeAnnotation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("unknown type annotation")
     }
 }

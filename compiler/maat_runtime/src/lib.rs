@@ -10,6 +10,6 @@ mod object;
 pub use builtins::{BUILTIN_COUNT, BUILTINS, QUOTE, UNQUOTE, get_builtin};
 pub use env::Env;
 pub use object::{
-    BuiltinFn, Closure, CompiledFunction, FALSE, Function, HashObject, Hashable, Macro, NULL,
-    Object, Quote, TRUE,
+    BuiltinFn, Closure, CompiledFunction, EnumVariantObject, FALSE, Function, HashObject, Hashable,
+    Macro, NULL, Object, Quote, StructObject, TRUE, TypeDef, VariantInfo,
 };

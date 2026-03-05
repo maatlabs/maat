@@ -76,6 +76,10 @@ pub enum Object {
     CompiledFunction(CompiledFunction),
     /// A closure wrapping a compiled function with captured free variables.
     Closure(Closure),
+    /// A user-defined struct instance.
+    Struct(StructObject),
+    /// A user-defined enum variant instance.
+    EnumVariant(EnumVariantObject),
 }
 
 impl Object {
@@ -226,6 +230,8 @@ impl Object {
             Self::Builtin(_) => "BuiltinFn",
             Self::CompiledFunction(_) => "CompiledFunction",
             Self::Closure(_) => "Closure",
+            Self::Struct(_) => "Struct",
+            Self::EnumVariant(_) => "EnumVariant",
         }
     }
 }
@@ -257,6 +263,8 @@ enum SerializableObject {
     Hash(HashObject),
     CompiledFunction(CompiledFunction),
     Closure(Closure),
+    Struct(StructObject),
+    EnumVariant(EnumVariantObject),
 }
 
 impl Serialize for Object {
@@ -284,6 +292,8 @@ impl Serialize for Object {
             Self::Hash(v) => SerializableObject::Hash(v.clone()),
             Self::CompiledFunction(v) => SerializableObject::CompiledFunction(v.clone()),
             Self::Closure(v) => SerializableObject::Closure(v.clone()),
+            Self::Struct(v) => SerializableObject::Struct(v.clone()),
+            Self::EnumVariant(v) => SerializableObject::EnumVariant(v.clone()),
             other => {
                 return Err(serde::ser::Error::custom(format!(
                     "non-serializable object type: {}",
@@ -319,6 +329,8 @@ impl<'de> Deserialize<'de> for Object {
             SerializableObject::Hash(v) => Self::Hash(v),
             SerializableObject::CompiledFunction(v) => Self::CompiledFunction(v),
             SerializableObject::Closure(v) => Self::Closure(v),
+            SerializableObject::Struct(v) => Self::Struct(v),
+            SerializableObject::EnumVariant(v) => Self::EnumVariant(v),
         })
     }
 }
@@ -353,6 +365,8 @@ impl PartialEq for Object {
             (Builtin(f1), Builtin(f2)) => std::ptr::fn_addr_eq(*f1, *f2),
             (CompiledFunction(c1), CompiledFunction(c2)) => c1 == c2,
             (Closure(c1), Closure(c2)) => c1 == c2,
+            (Struct(s1), Struct(s2)) => s1 == s2,
+            (EnumVariant(e1), EnumVariant(e2)) => e1 == e2,
             _ => false,
         }
     }
@@ -420,6 +434,59 @@ pub struct Closure {
     pub func: CompiledFunction,
     /// Captured free variables from enclosing scopes.
     pub free_vars: Vec<Object>,
+}
+
+/// A user-defined struct instance at runtime.
+///
+/// Stores the type registry index and field values in declaration order.
+/// Field names are resolved at compile time; the VM accesses fields by index.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StructObject {
+    /// Index into the shared type registry.
+    pub type_index: u16,
+    /// Field values in declaration order.
+    pub fields: Vec<Object>,
+}
+
+/// A user-defined enum variant instance at runtime.
+///
+/// Stores the type registry index, variant tag (discriminant), and
+/// any associated data fields.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EnumVariantObject {
+    /// Index into the shared type registry.
+    pub type_index: u16,
+    /// Variant discriminant (positional index within the enum definition).
+    pub tag: u16,
+    /// Associated data fields (empty for unit variants).
+    pub fields: Vec<Object>,
+}
+
+/// A type definition in the shared type registry.
+///
+/// Shared between the compiler (which registers types during compilation)
+/// and the VM (which reads type metadata for field access and pattern matching).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum TypeDef {
+    /// A struct type with ordered named fields.
+    Struct {
+        name: String,
+        field_names: Vec<String>,
+    },
+    /// An enum type with ordered variants.
+    Enum {
+        name: String,
+        variants: Vec<VariantInfo>,
+    },
+}
+
+/// Metadata for a single enum variant.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VariantInfo {
+    /// Variant name (e.g., `Some`, `None`).
+    pub name: String,
+    /// Number of data fields this variant carries.
+    pub field_count: u8,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -508,6 +575,36 @@ impl fmt::Display for Object {
             Self::Builtin(_) => write!(f, "builtin function"),
             Self::CompiledFunction(cf) => write!(f, "CompiledFunction[{:p}]", cf),
             Self::Closure(cl) => write!(f, "Closure[{:p}]", &cl.func),
+            Self::Struct(s) => {
+                write!(f, "Struct({}", s.type_index)?;
+                if !s.fields.is_empty() {
+                    write!(
+                        f,
+                        " {{ {} }}",
+                        s.fields
+                            .iter()
+                            .map(|v| format!("{v}"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )?;
+                }
+                write!(f, ")")
+            }
+            Self::EnumVariant(ev) => {
+                write!(f, "EnumVariant({}::{})", ev.type_index, ev.tag)?;
+                if !ev.fields.is_empty() {
+                    write!(
+                        f,
+                        "({})",
+                        ev.fields
+                            .iter()
+                            .map(|v| format!("{v}"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )?;
+                }
+                Ok(())
+            }
         }
     }
 }

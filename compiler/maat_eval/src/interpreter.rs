@@ -52,8 +52,6 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
             Stmt::Loop(loop_stmt) => eval_loop_statement(loop_stmt, env),
             Stmt::While(while_stmt) => eval_while_statement(while_stmt, env),
             Stmt::For(for_stmt) => eval_for_statement(for_stmt, env),
-            // Custom type declarations are currently not evaluated.
-            // TODO: Add support for evaluation
             Stmt::StructDecl(_) | Stmt::EnumDecl(_) | Stmt::TraitDecl(_) | Stmt::ImplBlock(_) => {
                 Ok(NULL)
             }
@@ -111,8 +109,11 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
             }
             Expr::Continue(_) => Ok(Object::Continue),
             Expr::Cast(cast_expr) => eval_cast_expression(cast_expr, env),
-            // TODO: eval these expr variants.
-            Expr::Match(_) | Expr::FieldAccess(_) | Expr::MethodCall(_) => Err(EvalError::Builtin(
+            Expr::Match(_)
+            | Expr::FieldAccess(_)
+            | Expr::MethodCall(_)
+            | Expr::StructLit(_)
+            | Expr::PathExpr(_) => Err(EvalError::Builtin(
                 "custom type expressions are not yet supported in the tree-walking interpreter"
                     .to_string(),
             )

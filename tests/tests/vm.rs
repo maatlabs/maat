@@ -513,6 +513,7 @@ fn stack_underflow() {
         instructions,
         constants: vec![],
         source_map: Default::default(),
+        type_registry: vec![],
     };
 
     let mut vm = VM::new(bytecode);
