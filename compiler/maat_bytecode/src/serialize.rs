@@ -106,6 +106,7 @@ mod tests {
             instructions: Instructions::new(),
             constants: vec![],
             source_map: SourceMap::new(),
+            type_registry: vec![],
         };
         assert_eq!(roundtrip(&bc), bc);
     }
@@ -128,12 +129,11 @@ mod tests {
                 Object::U64(u64::MAX),
                 Object::U128(u128::MAX),
                 Object::Usize(42),
-                Object::F32(std::f32::consts::PI),
-                Object::F64(std::f64::consts::E),
-                Object::Boolean(true),
-                Object::Boolean(false),
+                Object::Bool(true),
+                Object::Bool(false),
             ],
             source_map: SourceMap::new(),
+            type_registry: vec![],
         };
         assert_eq!(roundtrip(&bc), bc);
     }
@@ -143,11 +143,12 @@ mod tests {
         let bc = Bytecode {
             instructions: Instructions::new(),
             constants: vec![
-                Object::String(String::new()),
-                Object::String("hello, world!".to_owned()),
-                Object::String("\u{1F600}".to_owned()),
+                Object::Str(String::new()),
+                Object::Str("hello, world!".to_owned()),
+                Object::Str("\u{1F600}".to_owned()),
             ],
             source_map: SourceMap::new(),
+            type_registry: vec![],
         };
         assert_eq!(roundtrip(&bc), bc);
     }
@@ -158,11 +159,12 @@ mod tests {
             instructions: Instructions::new(),
             constants: vec![Object::Array(vec![
                 Object::I64(1),
-                Object::String("two".to_owned()),
-                Object::Boolean(true),
+                Object::Str("two".to_owned()),
+                Object::Bool(true),
                 Object::Array(vec![Object::I64(3), Object::I64(4)]),
             ])],
             source_map: SourceMap::new(),
+            type_registry: vec![],
         };
         assert_eq!(roundtrip(&bc), bc);
     }
@@ -170,13 +172,14 @@ mod tests {
     #[test]
     fn hash_constant() {
         let mut pairs = indexmap::IndexMap::new();
-        pairs.insert(Hashable::I64(1), Object::String("one".to_owned()));
-        pairs.insert(Hashable::String("key".to_owned()), Object::Boolean(true));
+        pairs.insert(Hashable::I64(1), Object::Str("one".to_owned()));
+        pairs.insert(Hashable::Str("key".to_owned()), Object::Bool(true));
 
         let bc = Bytecode {
             instructions: Instructions::new(),
             constants: vec![Object::Hash(HashObject { pairs })],
             source_map: SourceMap::new(),
+            type_registry: vec![],
         };
         assert_eq!(roundtrip(&bc), bc);
     }
@@ -193,6 +196,7 @@ mod tests {
             instructions: Instructions::new(),
             constants: vec![Object::CompiledFunction(cf)],
             source_map: SourceMap::new(),
+            type_registry: vec![],
         };
         assert_eq!(roundtrip(&bc), bc);
     }
@@ -207,12 +211,13 @@ mod tests {
         };
         let closure = Closure {
             func: cf,
-            free_vars: vec![Object::I64(42), Object::String("captured".to_owned())],
+            free_vars: vec![Object::I64(42), Object::Str("captured".to_owned())],
         };
         let bc = Bytecode {
             instructions: Instructions::new(),
             constants: vec![Object::Closure(closure)],
             source_map: SourceMap::new(),
+            type_registry: vec![],
         };
         assert_eq!(roundtrip(&bc), bc);
     }
@@ -229,6 +234,7 @@ mod tests {
             instructions: Instructions::from(vec![0, 0, 1, 2]),
             constants: vec![Object::I64(99), Object::CompiledFunction(inner_cf)],
             source_map: SourceMap::new(),
+            type_registry: vec![],
         };
         assert_eq!(roundtrip(&bc), bc);
     }
@@ -244,6 +250,7 @@ mod tests {
             instructions: Instructions::from(vec![1, 2, 3]),
             constants: vec![],
             source_map: sm,
+            type_registry: vec![],
         };
         assert_eq!(roundtrip(&bc), bc);
     }
@@ -291,6 +298,7 @@ mod tests {
             instructions: Instructions::new(),
             constants: vec![Object::Builtin(|_| Ok(Object::Null))],
             source_map: SourceMap::new(),
+            type_registry: vec![],
         };
         let result = bc.serialize();
         assert!(result.is_err());
@@ -300,8 +308,9 @@ mod tests {
     fn roundtrip_identity() {
         let bc = Bytecode {
             instructions: Instructions::from(vec![0, 0, 1, 1, 2]),
-            constants: vec![Object::I64(42), Object::String("test".to_owned())],
+            constants: vec![Object::I64(42), Object::Str("test".to_owned())],
             source_map: SourceMap::new(),
+            type_registry: vec![],
         };
         let bytes = bc.serialize().expect("serialize failed");
         let restored = Bytecode::deserialize(&bytes).expect("deserialize failed");

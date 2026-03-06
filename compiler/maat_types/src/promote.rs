@@ -26,10 +26,6 @@ pub fn common_numeric_type(a: &Type, b: &Type) -> Result<Type, PromotionError> {
         return Ok(a.clone());
     }
 
-    if a.is_float() || b.is_float() {
-        return Err(PromotionError::ImplicitFloat);
-    }
-
     let (a_signed, a_width) = a
         .int_sign_bit_width()
         .ok_or(PromotionError::NonNumeric(a.clone()))?;
@@ -48,8 +44,6 @@ pub fn common_numeric_type(a: &Type, b: &Type) -> Result<Type, PromotionError> {
 /// Errors from numeric promotion.
 #[derive(Debug, Clone)]
 pub enum PromotionError {
-    /// Implicit float promotion is forbidden.
-    ImplicitFloat,
     /// A non-numeric type appeared in an arithmetic context.
     NonNumeric(Type),
 }
@@ -159,13 +153,5 @@ mod tests {
             common_numeric_type(&Type::U64, &Type::I128).unwrap(),
             Type::I128
         );
-    }
-
-    #[test]
-    fn reject_floats() {
-        assert!(matches!(
-            common_numeric_type(&Type::I8, &Type::F64),
-            Err(PromotionError::ImplicitFloat)
-        ));
     }
 }

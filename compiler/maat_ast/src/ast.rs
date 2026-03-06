@@ -4,69 +4,122 @@ use std::fmt;
 
 use maat_span::Span;
 
+pub mod display;
+pub mod fold;
+
 /// Top-level AST node wrapper for all language items.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Node {
     Program(Program),
-    Statement(Statement),
-    Expression(Expression),
+    Stmt(Stmt),
+    Expr(Expr),
 }
 
-/// A complete program in Maat.
+/// A complete compilation unit (crate).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Program {
-    pub statements: Vec<Statement>,
+    pub statements: Vec<Stmt>,
 }
 
-/// Statements: `let` bindings, `return` statements, expression
-/// statements, or nested blocks.
+/// Statements: `let` bindings, `return` statements, function declarations,
+/// expression statements, or nested blocks.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Statement {
-    Let(LetStatement),
-    Return(ReturnStatement),
-    Expression(ExpressionStatement),
-    Block(BlockStatement),
-    Loop(LoopStatement),
-    While(WhileStatement),
-    For(ForStatement),
+pub enum Stmt {
+    Let(LetStmt),
+    Return(ReturnStmt),
+    Expr(ExprStmt),
+    Block(BlockStmt),
+    FnItem(FnItem),
+    Loop(LoopStmt),
+    While(WhileStmt),
+    For(ForStmt),
+    StructDecl(StructDecl),
+    EnumDecl(EnumDecl),
+    TraitDecl(TraitDecl),
+    ImplBlock(ImplBlock),
 }
 
-/// A `let` binding: `let <ident> = <value>;` or `let <ident>: <type> = <value>;`.
+/// A `let` binding: `let <ident> = <value>;` or
+/// `let <ident>: <type> = <value>;`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct LetStatement {
+pub struct LetStmt {
     pub ident: String,
     pub type_annotation: Option<TypeExpr>,
-    pub value: Expression,
+    pub value: Expr,
     pub span: Span,
 }
 
 /// A `return` statement: `return <value>;`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ReturnStatement {
-    pub value: Expression,
+pub struct ReturnStmt {
+    pub value: Expr,
     pub span: Span,
 }
 
 /// An expression used as a statement.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ExpressionStatement {
-    pub value: Expression,
+pub struct ExprStmt {
+    pub value: Expr,
     pub span: Span,
 }
 
 /// A block of statements: `{ ... }`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct BlockStatement {
-    pub statements: Vec<Statement>,
+pub struct BlockStmt {
+    pub statements: Vec<Stmt>,
+    pub span: Span,
+}
+
+/// A named function declaration: `fn foo<T>(x: T, y: i64) -> T { x }`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FnItem {
+    pub name: String,
+    pub params: Vec<TypedParam>,
+    pub generic_params: Vec<GenericParam>,
+    pub return_type: Option<TypeExpr>,
+    pub body: BlockStmt,
+    pub span: Span,
+}
+
+impl FnItem {
+    /// Returns an iterator over the parameter names.
+    pub fn param_names(&self) -> impl Iterator<Item = &str> {
+        self.params.iter().map(|p| p.name.as_str())
+    }
+}
+
+/// An infinite loop: `loop { <body> }`.
+///
+/// Exits only via `break`. The optional break value becomes
+/// the loop expression's result.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct LoopStmt {
+    pub body: BlockStmt,
+    pub span: Span,
+}
+
+/// A conditional loop: `while <condition> { <body> }`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct WhileStmt {
+    pub condition: Box<Expr>,
+    pub body: BlockStmt,
+    pub span: Span,
+}
+
+/// An iterator loop: `for <ident> in <iterable> { <body> }`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ForStmt {
+    pub ident: String,
+    pub iterable: Box<Expr>,
+    pub body: BlockStmt,
     pub span: Span,
 }
 
 /// All possible expression types in Maat.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Expression {
-    Identifier(Ident),
+pub enum Expr {
+    Ident(Ident),
 
-    // Signed integer types
     I8(I8),
     I16(I16),
     I32(I32),
@@ -74,7 +127,6 @@ pub enum Expression {
     I128(I128),
     Isize(Isize),
 
-    // Unsigned integer types
     U8(U8),
     U16(U16),
     U32(U32),
@@ -82,31 +134,33 @@ pub enum Expression {
     U128(U128),
     Usize(Usize),
 
-    // Floating-point types
-    F32(F32),
-    F64(F64),
-
-    Boolean(BooleanLiteral),
-    String(StringLiteral),
-    Array(ArrayLiteral),
+    Bool(Bool),
+    Str(Str),
+    Array(Array),
     Index(IndexExpr),
-    Hash(HashLiteral),
+    Map(Map),
+
     Prefix(PrefixExpr),
     Infix(InfixExpr),
-    Conditional(ConditionalExpr),
-    Function(Function),
-    Macro(MacroLiteral),
+    Cond(CondExpr),
+    Lambda(Lambda),
+    Macro(Macro),
     Call(CallExpr),
     Cast(CastExpr),
     Break(BreakExpr),
     Continue(ContinueExpr),
+    Match(MatchExpr),
+    FieldAccess(FieldAccessExpr),
+    MethodCall(MethodCallExpr),
+    StructLit(StructLitExpr),
+    PathExpr(PathExpr),
 }
 
-impl Expression {
+impl Expr {
     /// Returns the source span covering this expression.
     pub fn span(&self) -> Span {
         match self {
-            Self::Identifier(v) => v.span,
+            Self::Ident(v) => v.span,
             Self::I8(v) => v.span,
             Self::I16(v) => v.span,
             Self::I32(v) => v.span,
@@ -119,22 +173,25 @@ impl Expression {
             Self::U64(v) => v.span,
             Self::U128(v) => v.span,
             Self::Usize(v) => v.span,
-            Self::F32(v) => v.span,
-            Self::F64(v) => v.span,
-            Self::Boolean(v) => v.span,
-            Self::String(v) => v.span,
+            Self::Bool(v) => v.span,
+            Self::Str(v) => v.span,
             Self::Array(v) => v.span,
             Self::Index(v) => v.span,
-            Self::Hash(v) => v.span,
+            Self::Map(v) => v.span,
             Self::Prefix(v) => v.span,
             Self::Infix(v) => v.span,
-            Self::Conditional(v) => v.span,
-            Self::Function(v) => v.span,
+            Self::Cond(v) => v.span,
+            Self::Lambda(v) => v.span,
             Self::Macro(v) => v.span,
             Self::Call(v) => v.span,
             Self::Cast(v) => v.span,
             Self::Break(v) => v.span,
             Self::Continue(v) => v.span,
+            Self::Match(v) => v.span,
+            Self::FieldAccess(v) => v.span,
+            Self::MethodCall(v) => v.span,
+            Self::StructLit(v) => v.span,
+            Self::PathExpr(v) => v.span,
         }
     }
 
@@ -197,14 +254,14 @@ pub struct Ident {
 
 /// A boolean literal (`true` or `false`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct BooleanLiteral {
+pub struct Bool {
     pub value: bool,
     pub span: Span,
 }
 
 /// A string literal.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct StringLiteral {
+pub struct Str {
     pub value: String,
     pub span: Span,
 }
@@ -230,34 +287,6 @@ macro_rules! define_int_type {
     };
 }
 
-/// Macro to generate floating-point type structs with native storage (as raw bits).
-macro_rules! define_float_type {
-    ($name:ident, $native:ty, $bits:ty, $doc:expr) => {
-        #[doc = $doc]
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-        pub struct $name {
-            pub bits: $bits,
-            pub span: Span,
-        }
-
-        impl From<$native> for $name {
-            fn from(value: $native) -> Self {
-                Self {
-                    bits: <$native>::to_bits(value),
-                    span: Span::ZERO,
-                }
-            }
-        }
-
-        impl From<$name> for $native {
-            fn from(value: $name) -> Self {
-                <$native>::from_bits(value.bits)
-            }
-        }
-    };
-}
-
-// Signed integer types
 define_int_type!(I8, i8, "8-bit signed integer literal.");
 define_int_type!(I16, i16, "16-bit signed integer literal.");
 define_int_type!(I32, i32, "32-bit signed integer literal.");
@@ -265,7 +294,6 @@ define_int_type!(I64, i64, "64-bit signed integer literal.");
 define_int_type!(I128, i128, "128-bit signed integer literal.");
 define_int_type!(Isize, isize, "Pointer-sized signed integer literal.");
 
-// Unsigned integer types
 define_int_type!(U8, u8, "8-bit unsigned integer literal.");
 define_int_type!(U16, u16, "16-bit unsigned integer literal.");
 define_int_type!(U32, u32, "32-bit unsigned integer literal.");
@@ -273,29 +301,25 @@ define_int_type!(U64, u64, "64-bit unsigned integer literal.");
 define_int_type!(U128, u128, "128-bit unsigned integer literal.");
 define_int_type!(Usize, usize, "Pointer-sized unsigned integer literal.");
 
-// Floating-point types
-define_float_type!(F32, f32, u32, "32-bit floating-point literal.");
-define_float_type!(F64, f64, u64, "64-bit floating-point literal.");
-
 /// Arrays: `[expr, expr, ...]`
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ArrayLiteral {
-    pub elements: Vec<Expression>,
+pub struct Array {
+    pub elements: Vec<Expr>,
     pub span: Span,
 }
 
 /// Indexing operation: `<lhs>[<index>]`
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct IndexExpr {
-    pub expr: Box<Expression>,
-    pub index: Box<Expression>,
+    pub expr: Box<Expr>,
+    pub index: Box<Expr>,
     pub span: Span,
 }
 
-/// Hash literal: `{ key: value, ... }`
+/// Key-value hash literal: `{ key: value, ... }`
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct HashLiteral {
-    pub pairs: Vec<(Expression, Expression)>,
+pub struct Map {
+    pub pairs: Vec<(Expr, Expr)>,
     pub span: Span,
 }
 
@@ -303,52 +327,39 @@ pub struct HashLiteral {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PrefixExpr {
     pub operator: String,
-    pub operand: Box<Expression>,
+    pub operand: Box<Expr>,
     pub span: Span,
 }
 
 /// Binary/infix expression: `<lhs> <operator> <rhs>`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct InfixExpr {
-    pub lhs: Box<Expression>,
+    pub lhs: Box<Expr>,
     pub operator: String,
-    pub rhs: Box<Expression>,
+    pub rhs: Box<Expr>,
     pub span: Span,
 }
 
-/// Conditional (if/else) expression.
+/// Cond (if/else) expression.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ConditionalExpr {
-    pub condition: Box<Expression>,
-    pub consequence: BlockStatement,
-    pub alternative: Option<BlockStatement>,
+pub struct CondExpr {
+    pub condition: Box<Expr>,
+    pub consequence: BlockStmt,
+    pub alternative: Option<BlockStmt>,
     pub span: Span,
 }
 
-/// Function literal with optional name for recursive self-reference.
-///
-/// Named functions are created when a function literal is assigned via a
-/// `let` binding (e.g., `let foo = fn(x) { ... }`). The name enables
-/// recursive closures to reference themselves without capturing an
-/// outer binding.
-///
-/// Supports optional type annotations on parameters, an optional return
-/// type, and generic type parameters:
-///
-/// ```text
-/// fn<T>(x: T, y: i64) -> T { x }
-/// ```
+/// An anonymous function/closure expression: `fn(x, y) { x + y }`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Function {
-    pub name: Option<String>,
+pub struct Lambda {
     pub params: Vec<TypedParam>,
     pub generic_params: Vec<GenericParam>,
     pub return_type: Option<TypeExpr>,
-    pub body: BlockStatement,
+    pub body: BlockStmt,
     pub span: Span,
 }
 
-impl Function {
+impl Lambda {
     /// Returns an iterator over the parameter names.
     pub fn param_names(&self) -> impl Iterator<Item = &str> {
         self.params.iter().map(|p| p.name.as_str())
@@ -357,52 +368,25 @@ impl Function {
 
 /// Macro literal
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct MacroLiteral {
+pub struct Macro {
     pub params: Vec<String>,
-    pub body: BlockStatement,
+    pub body: BlockStmt,
     pub span: Span,
 }
 
-/// Function call
+/// Function call expression: `<callee>(<args>)`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CallExpr {
-    pub function: Box<Expression>,
-    pub arguments: Vec<Expression>,
+    pub function: Box<Expr>,
+    pub arguments: Vec<Expr>,
     pub span: Span,
 }
 
 /// Explicit type cast: `expression as type`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CastExpr {
-    pub expr: Box<Expression>,
+    pub expr: Box<Expr>,
     pub target: TypeAnnotation,
-    pub span: Span,
-}
-
-/// An infinite loop: `loop { <body> }`.
-///
-/// Exits only via `break`. The optional break value becomes
-/// the loop expression's result.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct LoopStatement {
-    pub body: BlockStatement,
-    pub span: Span,
-}
-
-/// A conditional loop: `while <condition> { <body> }`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct WhileStatement {
-    pub condition: Box<Expression>,
-    pub body: BlockStatement,
-    pub span: Span,
-}
-
-/// An iterator loop: `for <ident> in <iterable> { <body> }`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ForStatement {
-    pub ident: String,
-    pub iterable: Box<Expression>,
-    pub body: BlockStatement,
     pub span: Span,
 }
 
@@ -412,7 +396,7 @@ pub struct ForStatement {
 /// loop's result. In `while` and `for` loops, break takes no value.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BreakExpr {
-    pub value: Option<Box<Expression>>,
+    pub value: Option<Box<Expr>>,
     pub span: Span,
 }
 
@@ -423,6 +407,190 @@ pub struct BreakExpr {
 /// (for `loop` and `for`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ContinueExpr {
+    pub span: Span,
+}
+
+/// A `struct` declaration: `struct Name<T> { field: Type, ... }`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StructDecl {
+    pub name: String,
+    pub generic_params: Vec<GenericParam>,
+    pub fields: Vec<StructField>,
+    pub span: Span,
+}
+
+/// A named field in a struct declaration: `field_name: FieldType`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StructField {
+    pub name: String,
+    pub ty: TypeExpr,
+    pub span: Span,
+}
+
+/// An `enum` declaration: `enum Name<T> { Variant, ... }`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct EnumDecl {
+    pub name: String,
+    pub generic_params: Vec<GenericParam>,
+    pub variants: Vec<EnumVariant>,
+    pub span: Span,
+}
+
+/// A single variant in an enum declaration.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct EnumVariant {
+    pub name: String,
+    pub kind: EnumVariantKind,
+    pub span: Span,
+}
+
+/// The payload of a single enum variant.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum EnumVariantKind {
+    /// A unit variant: `None`.
+    Unit,
+    /// A tuple variant: `Some(T)`.
+    Tuple(Vec<TypeExpr>),
+    /// A struct variant: `Point { x: i64, y: i64 }`.
+    Struct(Vec<StructField>),
+}
+
+/// A `trait` declaration: `trait Name<T> { fn method(...); }`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TraitDecl {
+    pub name: String,
+    pub generic_params: Vec<GenericParam>,
+    pub methods: Vec<TraitMethod>,
+    pub span: Span,
+}
+
+/// A single method signature (with optional default body) in a trait declaration.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TraitMethod {
+    pub name: String,
+    pub generic_params: Vec<GenericParam>,
+    pub params: Vec<TypedParam>,
+    pub return_type: Option<TypeExpr>,
+    pub default_body: Option<BlockStmt>,
+    pub span: Span,
+}
+
+/// An `impl` block: either inherent (`impl Type { ... }`) or
+/// trait (`impl Trait for Type { ... }`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ImplBlock {
+    pub trait_name: Option<TypeExpr>,
+    pub self_type: TypeExpr,
+    pub generic_params: Vec<GenericParam>,
+    pub methods: Vec<FnItem>,
+    pub span: Span,
+}
+
+/// A `match` expression: `match scrutinee { arms }`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct MatchExpr {
+    pub scrutinee: Box<Expr>,
+    pub arms: Vec<MatchArm>,
+    pub span: Span,
+}
+
+/// A single arm in a `match` expression.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct MatchArm {
+    pub pattern: Pattern,
+    pub guard: Option<Box<Expr>>,
+    pub body: Expr,
+    pub span: Span,
+}
+
+/// A pattern used in `match` arms.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Pattern {
+    /// `_` — matches any value without binding.
+    Wildcard(Span),
+    /// `x` — binds the matched value to a new variable.
+    Ident(String, Span),
+    /// `42`, `true`, `"hello"` — matches a specific literal value.
+    Literal(Box<Expr>),
+    /// `Some(x)`, `Err(e)`, `Point(a, b)` — matches a tuple-struct or tuple-variant.
+    TupleStruct {
+        path: String,
+        fields: Vec<Pattern>,
+        span: Span,
+    },
+    /// `Point { x, y }`, `Point { x: px }` — matches a struct or struct-variant.
+    Struct {
+        path: String,
+        fields: Vec<PatternField>,
+        span: Span,
+    },
+    /// `PatA | PatB` — matches if either alternative matches.
+    Or(Vec<Pattern>, Span),
+}
+
+/// A named field binding inside a struct pattern.
+///
+/// Represents a single `field: pattern` binding (or shorthand `field`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PatternField {
+    pub name: String,
+    /// The sub-pattern to bind the field value to.
+    /// When `None`, the field name itself is used as the binding (`field` shorthand).
+    pub pattern: Option<Box<Pattern>>,
+    pub span: Span,
+}
+
+impl Pattern {
+    /// Returns the source span of this pattern.
+    pub fn span(&self) -> Span {
+        match self {
+            Self::Wildcard(s) => *s,
+            Self::Ident(_, s) => *s,
+            Self::Literal(expr) => expr.span(),
+            Self::TupleStruct { span, .. } => *span,
+            Self::Struct { span, .. } => *span,
+            Self::Or(_, s) => *s,
+        }
+    }
+}
+
+/// Field access: `expr.field`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FieldAccessExpr {
+    pub object: Box<Expr>,
+    pub field: String,
+    pub span: Span,
+}
+
+/// Method call: `expr.method(args)`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct MethodCallExpr {
+    pub object: Box<Expr>,
+    pub method: String,
+    /// Arguments passed to the method (excluding the receiver).
+    pub arguments: Vec<Expr>,
+    pub span: Span,
+}
+
+/// Struct literal construction: `Point { x: 1, y: 2 }`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StructLitExpr {
+    /// The struct type name.
+    pub name: String,
+    /// Field initializers: `(field_name, value_expr)`.
+    pub fields: Vec<(String, Expr)>,
+    pub span: Span,
+}
+
+/// A qualified path expression: `Enum::Variant`.
+///
+/// Used for enum variant construction (e.g., `Option::Some`, `Color::Red`).
+/// When followed by `(args)`, the parser produces a `Call` with a `PathExpr`
+/// as the function.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PathExpr {
+    /// Path segments (e.g., `["Option", "Some"]`).
+    pub segments: Vec<String>,
     pub span: Span,
 }
 
@@ -443,7 +611,7 @@ pub struct ContinueExpr {
 pub enum TypeExpr {
     Named(NamedType),
     Array(Box<TypeExpr>, Span),
-    Hash(Box<TypeExpr>, Box<TypeExpr>, Span),
+    Map(Box<TypeExpr>, Box<TypeExpr>, Span),
     Fn(Vec<TypeExpr>, Box<TypeExpr>, Span),
     Generic(String, Vec<TypeExpr>, Span),
 }
@@ -453,10 +621,9 @@ impl TypeExpr {
     pub fn span(&self) -> Span {
         match self {
             Self::Named(n) => n.span,
-            Self::Array(_, s)
-            | Self::Hash(_, _, s)
-            | Self::Fn(_, _, s)
-            | Self::Generic(_, _, s) => *s,
+            Self::Array(_, s) | Self::Map(_, _, s) | Self::Fn(_, _, s) | Self::Generic(_, _, s) => {
+                *s
+            }
         }
     }
 }
@@ -522,8 +689,6 @@ pub enum TypeAnnotation {
     U64,
     U128,
     Usize,
-    F32,
-    F64,
 }
 
 impl TypeAnnotation {
@@ -542,8 +707,6 @@ impl TypeAnnotation {
             Self::U64 => "u64",
             Self::U128 => "u128",
             Self::Usize => "usize",
-            Self::F32 => "f32",
-            Self::F64 => "f64",
         }
     }
 }
@@ -551,12 +714,6 @@ impl TypeAnnotation {
 /// Parsing error for [`TypeAnnotation`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnknownTypeAnnotation;
-
-impl fmt::Display for UnknownTypeAnnotation {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("unknown type annotation")
-    }
-}
 
 impl std::str::FromStr for TypeAnnotation {
     type Err = UnknownTypeAnnotation;
@@ -575,350 +732,7 @@ impl std::str::FromStr for TypeAnnotation {
             "u64" => Ok(Self::U64),
             "u128" => Ok(Self::U128),
             "usize" => Ok(Self::Usize),
-            "f32" => Ok(Self::F32),
-            "f64" => Ok(Self::F64),
             _ => Err(UnknownTypeAnnotation),
         }
-    }
-}
-
-impl fmt::Display for Node {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Program(p) => p.fmt(f),
-            Self::Statement(s) => s.fmt(f),
-            Self::Expression(e) => e.fmt(f),
-        }
-    }
-}
-
-impl fmt::Display for Program {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for stmt in &self.statements {
-            stmt.fmt(f)?;
-        }
-        Ok(())
-    }
-}
-
-impl fmt::Display for Statement {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Let(let_stmt) => let_stmt.fmt(f)?,
-            Self::Return(ret_stmt) => ret_stmt.fmt(f)?,
-            Self::Expression(expr_stmt) => expr_stmt.fmt(f)?,
-            Self::Block(block_stmt) => block_stmt.fmt(f)?,
-            Self::Loop(loop_stmt) => loop_stmt.fmt(f)?,
-            Self::While(while_stmt) => while_stmt.fmt(f)?,
-            Self::For(for_stmt) => for_stmt.fmt(f)?,
-        }
-        Ok(())
-    }
-}
-
-impl fmt::Display for LetStatement {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.type_annotation {
-            Some(ty) => write!(f, "let {}: {} = {};", self.ident, ty, self.value),
-            None => write!(f, "let {} = {};", self.ident, self.value),
-        }
-    }
-}
-
-impl fmt::Display for ReturnStatement {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "return {};", self.value)
-    }
-}
-
-impl fmt::Display for ExpressionStatement {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.value)
-    }
-}
-
-impl fmt::Display for BlockStatement {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.statements.is_empty() {
-            write!(f, "{{}}")
-        } else {
-            writeln!(f, "{{")?;
-            for stmt in &self.statements {
-                stmt.fmt(f)?;
-                writeln!(f)?;
-            }
-            write!(f, "}}")
-        }
-    }
-}
-
-impl fmt::Display for Expression {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        macro_rules! fmt_int {
-            ($v:expr) => {
-                match $v.radix {
-                    Radix::Bin => write!(f, "0b{:b}", $v.value),
-                    Radix::Oct => write!(f, "0o{:o}", $v.value),
-                    Radix::Dec => write!(f, "{}", $v.value),
-                    Radix::Hex => write!(f, "0x{:x}", $v.value),
-                }
-            };
-        }
-
-        match self {
-            Self::Identifier(ident) => ident.value.fmt(f),
-
-            // Integer types
-            Self::I8(v) => fmt_int!(v),
-            Self::I16(v) => fmt_int!(v),
-            Self::I32(v) => fmt_int!(v),
-            Self::I64(v) => fmt_int!(v),
-            Self::I128(v) => fmt_int!(v),
-            Self::Isize(v) => fmt_int!(v),
-            Self::U8(v) => fmt_int!(v),
-            Self::U16(v) => fmt_int!(v),
-            Self::U32(v) => fmt_int!(v),
-            Self::U64(v) => fmt_int!(v),
-            Self::U128(v) => fmt_int!(v),
-            Self::Usize(v) => fmt_int!(v),
-
-            // Float types
-            Self::F32(v) => {
-                let val: f32 = (*v).into();
-                write!(f, "{val}")
-            }
-            Self::F64(v) => {
-                let val: f64 = (*v).into();
-                write!(f, "{val}")
-            }
-
-            Self::Boolean(b) => b.value.fmt(f),
-            Self::String(s) => s.value.fmt(f),
-            Self::Array(array_lit) => array_lit.fmt(f),
-            Self::Index(index_expr) => index_expr.fmt(f),
-            Self::Hash(hash_lit) => hash_lit.fmt(f),
-            Self::Prefix(prefix_expr) => prefix_expr.fmt(f),
-            Self::Infix(infix_expr) => infix_expr.fmt(f),
-            Self::Conditional(cond_expr) => cond_expr.fmt(f),
-            Self::Function(func_lit) => func_lit.fmt(f),
-            Self::Macro(macro_lit) => macro_lit.fmt(f),
-            Self::Call(call_expr) => call_expr.fmt(f),
-            Self::Cast(cast_expr) => cast_expr.fmt(f),
-            Self::Break(break_expr) => break_expr.fmt(f),
-            Self::Continue(cont_expr) => cont_expr.fmt(f),
-        }
-    }
-}
-
-impl fmt::Display for ArrayLiteral {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "[{}]",
-            self.elements
-                .iter()
-                .map(|expr| format!("{expr}"))
-                .collect::<Vec<String>>()
-                .join(", ")
-        )
-    }
-}
-
-impl fmt::Display for IndexExpr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "({}[{}])", self.expr, self.index)
-    }
-}
-
-impl fmt::Display for HashLiteral {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{{{}}}",
-            self.pairs
-                .iter()
-                .map(|(key, value)| format!("{key}: {value}"))
-                .collect::<Vec<String>>()
-                .join(", ")
-        )
-    }
-}
-
-impl fmt::Display for PrefixExpr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "({}{})", self.operator, self.operand)
-    }
-}
-
-impl fmt::Display for InfixExpr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "({} {} {})", self.lhs, self.operator, self.rhs)
-    }
-}
-
-impl fmt::Display for ConditionalExpr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "if {} {}", self.condition, self.consequence)?;
-        if let Some(alternative) = &self.alternative {
-            write!(f, " else {}", alternative)?;
-        }
-        Ok(())
-    }
-}
-
-impl fmt::Display for Function {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let params = self
-            .params
-            .iter()
-            .map(|p| p.to_string())
-            .collect::<Vec<_>>()
-            .join(", ");
-
-        let generics = if self.generic_params.is_empty() {
-            String::new()
-        } else {
-            format!(
-                "<{}>",
-                self.generic_params
-                    .iter()
-                    .map(|g| g.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-        };
-
-        let ret = self
-            .return_type
-            .as_ref()
-            .map_or(String::new(), |t| format!(" -> {t}"));
-
-        match &self.name {
-            Some(name) => write!(f, "fn {name}{generics}({params}){ret} {}", self.body),
-            None => write!(f, "fn{generics}({params}){ret} {}", self.body),
-        }
-    }
-}
-
-impl fmt::Display for MacroLiteral {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "macro({}) {}", self.params.join(", "), self.body)
-    }
-}
-
-impl fmt::Display for CallExpr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}({})",
-            self.function,
-            self.arguments
-                .iter()
-                .map(|expr| format!("{expr}"))
-                .collect::<Vec<String>>()
-                .join(", ")
-        )
-    }
-}
-
-impl fmt::Display for CastExpr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "({} as {})", self.expr, self.target.as_str())
-    }
-}
-
-impl fmt::Display for LoopStatement {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "loop {}", self.body)
-    }
-}
-
-impl fmt::Display for WhileStatement {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "while {} {}", self.condition, self.body)
-    }
-}
-
-impl fmt::Display for ForStatement {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "for {} in {} {}", self.ident, self.iterable, self.body)
-    }
-}
-
-impl fmt::Display for BreakExpr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.value {
-            Some(val) => write!(f, "break {val}"),
-            None => write!(f, "break"),
-        }
-    }
-}
-
-impl fmt::Display for ContinueExpr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "continue")
-    }
-}
-
-impl fmt::Display for TypeExpr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Named(n) => f.write_str(&n.name),
-            Self::Array(elem, _) => write!(f, "[{elem}]"),
-            Self::Hash(k, v, _) => write!(f, "{{{k}: {v}}}"),
-            Self::Fn(params, ret, _) => {
-                let params = params
-                    .iter()
-                    .map(|p| p.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "fn({params}) -> {ret}")
-            }
-            Self::Generic(name, args, _) => {
-                let args = args
-                    .iter()
-                    .map(|a| a.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "{name}<{args}>")
-            }
-        }
-    }
-}
-
-impl fmt::Display for TypedParam {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.type_expr {
-            Some(ty) => write!(f, "{}: {ty}", self.name),
-            None => f.write_str(&self.name),
-        }
-    }
-}
-
-impl fmt::Display for GenericParam {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.bounds.is_empty() {
-            f.write_str(&self.name)
-        } else {
-            let bounds = self
-                .bounds
-                .iter()
-                .map(|b| b.name.as_str())
-                .collect::<Vec<_>>()
-                .join(" + ");
-            write!(f, "{}: {bounds}", self.name)
-        }
-    }
-}
-
-impl fmt::Display for TraitBound {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.name)
-    }
-}
-
-impl fmt::Display for TypeAnnotation {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
     }
 }

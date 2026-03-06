@@ -4,7 +4,7 @@
 //! - Macro definition extraction from programs
 //! - Macro expansion using AST transformation
 
-use maat_ast::{Expression, Node, Program, Statement, transform};
+use maat_ast::{Expr, Node, Program, Stmt, transform};
 use maat_runtime::{Env, Macro, Object, Quote};
 
 use crate::interpreter::eval_block_statement;
@@ -27,8 +27,8 @@ pub fn define_macros(mut program: Program, env: &Env) -> Program {
     let mut defs = Vec::new();
 
     for (i, stmt) in program.statements.iter().enumerate() {
-        if let Statement::Let(let_stmt) = stmt
-            && let Expression::Macro(macro_lit) = &let_stmt.value
+        if let Stmt::Let(let_stmt) = stmt
+            && let Expr::Macro(macro_lit) = &let_stmt.value
         {
             let macro_obj = Object::Macro(Macro {
                 params: macro_lit.params.clone(),
@@ -63,8 +63,8 @@ pub fn define_macros(mut program: Program, env: &Env) -> Program {
 /// A new AST node with all macro calls expanded
 pub fn expand_macros(program: Node, env: &Env) -> Node {
     transform(program, &mut |node| {
-        if let Node::Expression(Expression::Call(call_expr)) = &node
-            && let Expression::Identifier(ident) = &*call_expr.function
+        if let Node::Expr(Expr::Call(call_expr)) = &node
+            && let Expr::Ident(ident) = &*call_expr.function
             && let Some(Object::Macro(obj)) = env.get(&ident.value)
         {
             let args = call_expr
@@ -72,7 +72,7 @@ pub fn expand_macros(program: Node, env: &Env) -> Node {
                 .iter()
                 .map(|arg| {
                     Object::Quote(Box::new(Quote {
-                        node: Node::Expression(arg.clone()),
+                        node: Node::Expr(arg.clone()),
                     }))
                 })
                 .collect::<Vec<_>>();

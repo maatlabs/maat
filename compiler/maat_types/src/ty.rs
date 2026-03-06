@@ -10,8 +10,8 @@ pub type TypeVarId = u32;
 /// A concrete or polymorphic type in the type system.
 ///
 /// Mirrors the runtime value categories: numeric primitives, booleans, strings,
-/// compound types (arrays, hashes, functions), and inference-time placeholders
-/// (type variables and generics).
+/// compound types (arrays, hashes, functions), user-defined types (structs,
+/// enums), and inference-time placeholders (type variables and generics).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     I8,
@@ -28,9 +28,6 @@ pub enum Type {
     U128,
     Usize,
 
-    F32,
-    F64,
-
     Bool,
     String,
     Null,
@@ -38,6 +35,11 @@ pub enum Type {
     Array(Box<Type>),
     Hash(Box<Type>, Box<Type>),
     Function(FnType),
+
+    /// A user-defined struct type, identified by name with instantiated type arguments.
+    Struct(String, Vec<Type>),
+    /// A user-defined enum type, identified by name with instantiated type arguments.
+    Enum(String, Vec<Type>),
 
     /// A type variable introduced during inference (Algorithm W).
     Var(TypeVarId),
@@ -54,7 +56,68 @@ pub struct FnType {
     pub ret: Box<Type>,
 }
 
+/// A polymorphic type scheme.
+///
+/// Generalizes a type over a set of type variables that are not free in
+/// the surrounding environment. At each use site, `instantiate` replaces
+/// the quantified variables with fresh inference variables, enabling
+/// let-polymorphism (e.g., `let id = fn(x) { x }; id(5); id(true);`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeScheme {
+    /// Type variables universally quantified by this scheme.
+    pub forall: Vec<TypeVarId>,
+    /// The underlying type (may contain variables listed in `forall`).
+    pub ty: Type,
+}
+
+impl TypeScheme {
+    /// Creates a monomorphic scheme (no quantified variables).
+    pub fn monomorphic(ty: Type) -> Self {
+        Self {
+            forall: Vec::new(),
+            ty,
+        }
+    }
+}
+
 impl Type {
+    /// Rewrites a literal `expr`ession to match `self`'s numeric type.
+    ///
+    /// Called after the `TypeChecker`'s range checking has confirmed the value fits. For negated
+    /// literals, the prefix is collapsed into a single signed literal node.
+    pub fn coerce_literal(&self, expr: &mut Expr) {
+        let Some(val) = expr.extract_integer_value() else {
+            return;
+        };
+        let span = expr.span();
+
+        macro_rules! rewrite {
+            ($variant:ident, $ty:ty) => {
+                *expr = Expr::$variant($variant {
+                    radix: Radix::Dec,
+                    value: val as $ty,
+                    span,
+                })
+            };
+        }
+
+        match *self {
+            Self::I8 => rewrite!(I8, i8),
+            Self::I16 => rewrite!(I16, i16),
+            Self::I32 => rewrite!(I32, i32),
+            Self::I64 => rewrite!(I64, i64),
+            Self::I128 => rewrite!(I128, i128),
+            Self::Isize => rewrite!(Isize, isize),
+            Self::U8 => rewrite!(U8, u8),
+            Self::U16 => rewrite!(U16, u16),
+            Self::U32 => rewrite!(U32, u32),
+            Self::U64 => rewrite!(U64, u64),
+            Self::U128 => rewrite!(U128, u128),
+            Self::Usize => rewrite!(Usize, usize),
+            _ => {}
+        }
+    }
+
     /// Returns `true` if this is any integer type (signed or unsigned).
     pub fn is_integer(&self) -> bool {
         self.is_signed() || self.is_unsigned()
@@ -74,16 +137,6 @@ impl Type {
             self,
             Self::U8 | Self::U16 | Self::U32 | Self::U64 | Self::U128 | Self::Usize
         )
-    }
-
-    /// Returns `true` if this is a floating-point type.
-    pub fn is_float(&self) -> bool {
-        matches!(self, Self::F32 | Self::F64)
-    }
-
-    /// Returns `true` if this is any numeric type.
-    pub fn is_numeric(&self) -> bool {
-        self.is_integer() || self.is_float()
     }
 
     /// Returns the bit width for integer types, treating `isize`/`usize` as 64-bit.
@@ -106,10 +159,10 @@ impl Type {
         Some((self.is_signed(), width))
     }
 
-    /// Converts an internal `self` to a `TypeAnnotation` (for generating cast nodes).
+    /// Converts an internal `Type` to a `TypeAnnotation` for generating cast nodes.
     ///
     /// Returns `None` for non-numeric types since cast nodes only support numeric targets.
-    pub fn to_annotation(&self) -> Option<TypeAnnotation> {
+    pub fn to_type_annotation(&self) -> Option<TypeAnnotation> {
         match self {
             Self::I8 => Some(TypeAnnotation::I8),
             Self::I16 => Some(TypeAnnotation::I16),
@@ -123,11 +176,108 @@ impl Type {
             Self::U64 => Some(TypeAnnotation::U64),
             Self::U128 => Some(TypeAnnotation::U128),
             Self::Usize => Some(TypeAnnotation::Usize),
-            Self::F32 => Some(TypeAnnotation::F32),
-            Self::F64 => Some(TypeAnnotation::F64),
             _ => None,
         }
     }
+
+    /// Converts a `TypeAnnotation` (for `as` casts) to an internal `Type`.
+    pub fn from_type_annotation(ann: &TypeAnnotation) -> Self {
+        match ann {
+            TypeAnnotation::I8 => Self::I8,
+            TypeAnnotation::I16 => Self::I16,
+            TypeAnnotation::I32 => Self::I32,
+            TypeAnnotation::I64 => Self::I64,
+            TypeAnnotation::I128 => Self::I128,
+            TypeAnnotation::Isize => Self::Isize,
+            TypeAnnotation::U8 => Self::U8,
+            TypeAnnotation::U16 => Self::U16,
+            TypeAnnotation::U32 => Self::U32,
+            TypeAnnotation::U64 => Self::U64,
+            TypeAnnotation::U128 => Self::U128,
+            TypeAnnotation::Usize => Self::Usize,
+        }
+    }
+}
+
+/// A registered struct definition in the type registry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StructDef {
+    /// The struct's name (e.g., `Point`).
+    pub name: String,
+    /// Generic type parameter names declared on this struct.
+    pub generic_params: Vec<String>,
+    /// Ordered fields: `(field_name, field_type)`.
+    ///
+    /// Field types may reference generic parameters by name via `Type::Generic`.
+    pub fields: Vec<(String, Type)>,
+}
+
+/// A registered enum definition in the type registry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnumDef {
+    /// The enum's name (e.g., `Option`).
+    pub name: String,
+    /// Generic type parameter names declared on this enum.
+    pub generic_params: Vec<String>,
+    /// Ordered variants.
+    pub variants: Vec<VariantDef>,
+}
+
+/// A single enum variant definition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VariantDef {
+    /// Variant name (e.g., `Some`, `None`).
+    pub name: String,
+    /// The payload shape.
+    pub kind: VariantKind,
+}
+
+/// The payload of an enum variant.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VariantKind {
+    /// A unit variant carrying no data (e.g., `None`).
+    Unit,
+    /// A tuple variant carrying positional fields (e.g., `Some(T)`).
+    Tuple(Vec<Type>),
+    /// A struct variant carrying named fields (e.g., `Point { x: i64, y: i64 }`).
+    Struct(Vec<(String, Type)>),
+}
+
+/// A registered trait definition in the type registry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TraitDef {
+    /// The trait's name (e.g., `Display`).
+    pub name: String,
+    /// Generic type parameter names declared on this trait.
+    pub generic_params: Vec<String>,
+    /// Required method signatures.
+    pub methods: Vec<MethodSig>,
+}
+
+/// A method signature in a trait definition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MethodSig {
+    /// Method name.
+    pub name: String,
+    /// Parameter types (excluding `self`).
+    pub params: Vec<Type>,
+    /// Return type.
+    pub ret: Type,
+    /// Whether the method has a default implementation.
+    pub has_default: bool,
+    /// Whether the method takes `self` as its first parameter.
+    pub takes_self: bool,
+}
+
+/// A registered `impl` block (inherent or trait) in the type registry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImplDef {
+    /// The concrete type this impl applies to (e.g., `Point`).
+    pub self_type: Type,
+    /// If this is a trait impl, the trait name; `None` for inherent impls.
+    pub trait_name: Option<String>,
+    /// Methods defined in this impl block: `(method_name, function_type)`.
+    pub methods: Vec<(String, Type)>,
 }
 
 impl fmt::Display for Type {
@@ -145,8 +295,6 @@ impl fmt::Display for Type {
             Self::U64 => f.write_str("u64"),
             Self::U128 => f.write_str("u128"),
             Self::Usize => f.write_str("usize"),
-            Self::F32 => f.write_str("f32"),
-            Self::F64 => f.write_str("f64"),
             Self::Bool => f.write_str("bool"),
             Self::String => f.write_str("String"),
             Self::Null => f.write_str("null"),
@@ -160,6 +308,20 @@ impl fmt::Display for Type {
                     .collect::<Vec<_>>()
                     .join(", ");
                 write!(f, "fn({params}) -> {}", fn_ty.ret)
+            }
+            Self::Struct(name, args) | Self::Enum(name, args) => {
+                f.write_str(name)?;
+                if !args.is_empty() {
+                    f.write_str("<")?;
+                    for (i, arg) in args.iter().enumerate() {
+                        if i > 0 {
+                            f.write_str(", ")?;
+                        }
+                        write!(f, "{arg}")?;
+                    }
+                    f.write_str(">")?;
+                }
+                Ok(())
             }
             Self::Var(id) => write!(f, "?T{id}"),
             Self::Generic(name, bounds) => {

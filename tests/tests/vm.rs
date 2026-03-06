@@ -6,7 +6,6 @@ use maat_vm::VM;
 enum TestValue {
     I64(i64),
     I32(i32),
-    F64(f64),
     Usize(usize),
     Bool(bool),
     Str(String),
@@ -50,23 +49,14 @@ fn run_vm_test(input: &str, expected: TestValue) {
             }
             _ => panic!("expected Usize object, got: {:?}", stack_elem),
         },
-        TestValue::F64(expected_val) => match stack_elem {
-            Object::F64(val) => {
-                assert!(
-                    (val - expected_val).abs() < f64::EPSILON,
-                    "wrong F64 value for input: {input}"
-                )
-            }
-            _ => panic!("expected F64 object, got: {:?}", stack_elem),
-        },
         TestValue::Bool(expected_val) => match stack_elem {
-            Object::Boolean(val) => {
+            Object::Bool(val) => {
                 assert_eq!(val, expected_val, "wrong boolean value for input: {input}")
             }
             _ => panic!("expected boolean object, got: {:?}", stack_elem),
         },
         TestValue::Str(expected_val) => match stack_elem {
-            Object::String(val) => {
+            Object::Str(val) => {
                 assert_eq!(val, expected_val, "wrong string value for input: {input}")
             }
             _ => panic!("expected string object, got: {:?}", stack_elem),
@@ -194,11 +184,8 @@ fn boolean_expressions() {
         ("(1 > 2) == false", TestValue::Bool(true)),
         ("!true", TestValue::Bool(false)),
         ("!false", TestValue::Bool(true)),
-        ("!5", TestValue::Bool(false)),
         ("!!true", TestValue::Bool(true)),
         ("!!false", TestValue::Bool(false)),
-        ("!!5", TestValue::Bool(true)),
-        ("!(if (false) { 5; })", TestValue::Bool(true)),
     ];
 
     for (input, expected) in cases {
@@ -212,16 +199,11 @@ fn conditionals() {
         ("if (true) { 10 }", TestValue::I64(10)),
         ("if (true) { 10 } else { 20 }", TestValue::I64(10)),
         ("if (false) { 10 } else { 20 }", TestValue::I64(20)),
-        ("if (1) { 10 }", TestValue::I64(10)),
         ("if (1 < 2) { 10 }", TestValue::I64(10)),
         ("if (1 < 2) { 10 } else { 20 }", TestValue::I64(10)),
         ("if (1 > 2) { 10 } else { 20 }", TestValue::I64(20)),
         ("if (1 > 2) { 10 }", TestValue::Null),
         ("if (false) { 10 }", TestValue::Null),
-        (
-            "if ((if (false) { 10 })) { 10 } else { 20 }",
-            TestValue::I64(20),
-        ),
     ];
 
     for (input, expected) in cases {
@@ -493,6 +475,11 @@ fn builtin_functions() {
         ("rest([1, 2, 3])", TestValue::IntArray(vec![2, 3])),
         ("rest([])", TestValue::Null),
         ("push([], 1)", TestValue::IntArray(vec![1])),
+        // len returns usize
+        ("len([1, 2, 3])", TestValue::Usize(3)),
+        (r#"len("hello")"#, TestValue::Usize(5)),
+        // len with cast
+        ("len([1, 2, 3]) as i64", TestValue::I64(3)),
     ];
 
     for (input, expected) in cases {
@@ -526,6 +513,7 @@ fn stack_underflow() {
         instructions,
         constants: vec![],
         source_map: Default::default(),
+        type_registry: vec![],
     };
 
     let mut vm = VM::new(bytecode);
@@ -653,32 +641,8 @@ fn typed_integer_arithmetic() {
         ("10usize - 2usize", TestValue::Usize(8)),
         ("4usize * 5usize", TestValue::Usize(20)),
         ("20usize / 4usize", TestValue::Usize(5)),
-    ];
-
-    for (input, expected) in cases {
-        run_vm_test(input, expected);
-    }
-}
-
-#[test]
-fn float_arithmetic() {
-    let cases = vec![
-        ("1.5f64 + 2.5f64", TestValue::F64(4.0)),
-        ("10.0f64 - 3.5f64", TestValue::F64(6.5)),
-        ("2.0f64 * 3.0f64", TestValue::F64(6.0)),
-        ("10.0f64 / 4.0f64", TestValue::F64(2.5)),
-    ];
-
-    for (input, expected) in cases {
-        run_vm_test(input, expected);
-    }
-}
-
-#[test]
-fn signed_negation() {
-    let cases = vec![
+        // Signed negation
         ("-5i32", TestValue::I32(-5)),
-        ("-1.5f64", TestValue::F64(-1.5)),
     ];
 
     for (input, expected) in cases {
@@ -698,38 +662,23 @@ fn cast_expressions() {
         ("255u8 as i32", TestValue::I32(255)),
         ("1000i32 as i64", TestValue::I64(1000)),
         ("10 as usize", TestValue::Usize(10)),
-        ("42 as f64", TestValue::F64(42.0)),
-        ("3.14f64 as i64", TestValue::I64(3)),
         ("5usize as i64", TestValue::I64(5)),
     ];
 
     for (input, expected) in cases {
         run_vm_test(input, expected);
     }
-}
 
-#[test]
-fn cast_expression_errors() {
-    let cases = vec![
+    // Cast errors
+    let error_cases = vec![
         ("256 as u8", "out of range for u8"),
         ("-1 as u8", "out of range for u8"),
         ("-1 as usize", "out of range for usize"),
     ];
 
-    for (input, expected_error) in cases {
+    for (input, expected_error) in error_cases {
         run_vm_error_test(input, expected_error);
     }
-}
-
-#[test]
-fn len_returns_usize() {
-    run_vm_test("len([1, 2, 3])", TestValue::Usize(3));
-    run_vm_test(r#"len("hello")"#, TestValue::Usize(5));
-}
-
-#[test]
-fn len_with_cast() {
-    run_vm_test("len([1, 2, 3]) as i64", TestValue::I64(3));
 }
 
 #[test]
@@ -747,23 +696,8 @@ fn cross_type_integer_comparison() {
 }
 
 #[test]
-fn float_comparison_total_ordering() {
-    let cases = vec![
-        ("1.0f64 < 2.0f64", TestValue::Bool(true)),
-        ("2.0f64 > 1.0f64", TestValue::Bool(true)),
-        ("1.0f64 == 1.0f64", TestValue::Bool(true)),
-        ("1.0f64 != 2.0f64", TestValue::Bool(true)),
-        ("1.5f64 < 1.5f64", TestValue::Bool(false)),
-        ("1.5f64 > 1.5f64", TestValue::Bool(false)),
-    ];
-
-    for (input, expected) in cases {
-        run_vm_test(input, expected);
-    }
-}
-
-#[test]
-fn loop_with_break() {
+fn loop_control_flow() {
+    // break exits loop
     run_vm_test(
         r#"
         let x = 0;
@@ -777,10 +711,8 @@ fn loop_with_break() {
         "#,
         TestValue::I64(5),
     );
-}
 
-#[test]
-fn loop_with_return_from_function() {
+    // return from function inside loop
     run_vm_test(
         r#"
         let find_first = fn(arr, target) {
@@ -799,122 +731,8 @@ fn loop_with_return_from_function() {
         "#,
         TestValue::I64(2),
     );
-}
 
-#[test]
-fn while_loop() {
-    run_vm_test(
-        r#"
-        let x = 0;
-        let sum = 0;
-        while (x < 5) {
-            let x = x + 1;
-            let sum = sum + x;
-        }
-        sum;
-        "#,
-        TestValue::I64(15),
-    );
-}
-
-#[test]
-fn while_loop_false_condition() {
-    run_vm_test(
-        r#"
-        let x = 10;
-        while (x < 5) {
-            let x = x + 1;
-        }
-        x;
-        "#,
-        TestValue::I64(10),
-    );
-}
-
-#[test]
-fn for_loop_over_array() {
-    run_vm_test(
-        r#"
-        let sum = 0;
-        for x in [1, 2, 3, 4, 5] {
-            let sum = sum + x;
-        }
-        sum;
-        "#,
-        TestValue::I64(15),
-    );
-}
-
-#[test]
-fn for_loop_empty_array() {
-    run_vm_test(
-        r#"
-        let sum = 0;
-        for x in [] {
-            let sum = sum + 1;
-        }
-        sum;
-        "#,
-        TestValue::I64(0),
-    );
-}
-
-#[test]
-fn nested_loops() {
-    run_vm_test(
-        r#"
-        let total = 0;
-        let i = 0;
-        while (i < 3) {
-            let j = 0;
-            while (j < 3) {
-                let total = total + 1;
-                let j = j + 1;
-            }
-            let i = i + 1;
-        }
-        total;
-        "#,
-        TestValue::I64(9),
-    );
-}
-
-#[test]
-fn while_with_break() {
-    run_vm_test(
-        r#"
-        let x = 0;
-        while (x < 100) {
-            let x = x + 1;
-            if (x == 7) {
-                break;
-            }
-        }
-        x;
-        "#,
-        TestValue::I64(7),
-    );
-}
-
-#[test]
-fn for_with_break() {
-    run_vm_test(
-        r#"
-        let result = 0;
-        for x in [10, 20, 30, 40, 50] {
-            if (x == 30) {
-                break;
-            }
-            let result = result + x;
-        }
-        result;
-        "#,
-        TestValue::I64(30),
-    );
-}
-
-#[test]
-fn loop_in_function() {
+    // loop inside function with accumulator
     run_vm_test(
         r#"
         let countdown = fn(n) {
@@ -933,7 +751,109 @@ fn loop_in_function() {
 }
 
 #[test]
-fn nested_for_loops() {
+fn while_loops() {
+    // Basic while loop
+    run_vm_test(
+        r#"
+        let x = 0;
+        let sum = 0;
+        while (x < 5) {
+            let x = x + 1;
+            let sum = sum + x;
+        }
+        sum;
+        "#,
+        TestValue::I64(15),
+    );
+
+    // False condition (body never executes)
+    run_vm_test(
+        r#"
+        let x = 10;
+        while (x < 5) {
+            let x = x + 1;
+        }
+        x;
+        "#,
+        TestValue::I64(10),
+    );
+
+    // While with break
+    run_vm_test(
+        r#"
+        let x = 0;
+        while (x < 100) {
+            let x = x + 1;
+            if (x == 7) {
+                break;
+            }
+        }
+        x;
+        "#,
+        TestValue::I64(7),
+    );
+}
+
+#[test]
+fn for_loops() {
+    // Basic for loop
+    run_vm_test(
+        r#"
+        let sum = 0;
+        for x in [1, 2, 3, 4, 5] {
+            let sum = sum + x;
+        }
+        sum;
+        "#,
+        TestValue::I64(15),
+    );
+
+    // Empty array
+    run_vm_test(
+        r#"
+        let sum = 0;
+        for x in [] {
+            let sum = sum + 1;
+        }
+        sum;
+        "#,
+        TestValue::I64(0),
+    );
+
+    // Nested while loops
+    run_vm_test(
+        r#"
+        let total = 0;
+        let i = 0;
+        while (i < 3) {
+            let j = 0;
+            while (j < 3) {
+                let total = total + 1;
+                let j = j + 1;
+            }
+            let i = i + 1;
+        }
+        total;
+        "#,
+        TestValue::I64(9),
+    );
+
+    // For with break
+    run_vm_test(
+        r#"
+        let result = 0;
+        for x in [10, 20, 30, 40, 50] {
+            if (x == 30) {
+                break;
+            }
+            let result = result + x;
+        }
+        result;
+        "#,
+        TestValue::I64(30),
+    );
+
+    // Nested for loops
     run_vm_test(
         r#"
         let sum = 0;
@@ -946,10 +866,8 @@ fn nested_for_loops() {
         "#,
         TestValue::I64(102),
     );
-}
 
-#[test]
-fn for_loop_with_function_calls() {
+    // For loop with function calls
     run_vm_test(
         r#"
         let double = fn(x) { x * 2; };

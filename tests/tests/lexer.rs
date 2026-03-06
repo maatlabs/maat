@@ -37,7 +37,7 @@ if (5 < 10) {
         (TokenKind::Let, "let"),
         (TokenKind::Ident, "add"),
         (TokenKind::Assign, "="),
-        (TokenKind::Function, "fn"),
+        (TokenKind::Fn, "fn"),
         (TokenKind::LParen, "("),
         (TokenKind::Ident, "x"),
         (TokenKind::Comma, ","),
@@ -119,7 +119,8 @@ if (5 < 10) {
 }
 
 #[test]
-fn single_character_tokens() {
+fn operator_and_delimiter_tokens() {
+    // Single-character tokens
     let source = "=+(){},;";
     let expected = [
         (TokenKind::Assign, "="),
@@ -134,16 +135,13 @@ fn single_character_tokens() {
     ];
 
     let mut lexer = Lexer::new(source);
-
     for (kind, literal) in expected {
         let token = lexer.next_token();
         assert_eq!(token.kind, kind);
         assert_eq!(token.literal, literal);
     }
-}
 
-#[test]
-fn two_character_tokens() {
+    // Two-character tokens
     let source = "== != <= >=";
     let expected = [
         (TokenKind::Equal, "=="),
@@ -154,7 +152,6 @@ fn two_character_tokens() {
     ];
 
     let mut lexer = Lexer::new(source);
-
     for (kind, literal) in expected {
         let token = lexer.next_token();
         assert_eq!(token.kind, kind);
@@ -164,20 +161,26 @@ fn two_character_tokens() {
 
 #[test]
 fn keywords() {
-    let source = "let fn if else return true false";
+    let source = "let fn if else return true false struct enum match impl trait self Self";
     let expected = [
         (TokenKind::Let, "let"),
-        (TokenKind::Function, "fn"),
+        (TokenKind::Fn, "fn"),
         (TokenKind::If, "if"),
         (TokenKind::Else, "else"),
         (TokenKind::Return, "return"),
         (TokenKind::True, "true"),
         (TokenKind::False, "false"),
+        (TokenKind::Struct, "struct"),
+        (TokenKind::Enum, "enum"),
+        (TokenKind::Match, "match"),
+        (TokenKind::Impl, "impl"),
+        (TokenKind::Trait, "trait"),
+        (TokenKind::SelfValue, "self"),
+        (TokenKind::SelfType, "Self"),
         (TokenKind::Eof, ""),
     ];
 
     let mut lexer = Lexer::new(source);
-
     for (kind, literal) in expected {
         let token = lexer.next_token();
         assert_eq!(token.kind, kind);
@@ -197,7 +200,6 @@ fn identifiers() {
     ];
 
     let mut lexer = Lexer::new(source);
-
     for (kind, literal) in expected {
         let token = lexer.next_token();
         assert_eq!(token.kind, kind);
@@ -217,7 +219,6 @@ fn int64() {
     ];
 
     let mut lexer = Lexer::new(source);
-
     for (kind, literal) in expected {
         let token = lexer.next_token();
         assert_eq!(token.kind, kind);
@@ -243,7 +244,6 @@ fn operators() {
     ];
 
     let mut lexer = Lexer::new(source);
-
     for (kind, literal) in expected {
         let token = lexer.next_token();
         assert_eq!(token.kind, kind);
@@ -263,7 +263,6 @@ fn whitespace() {
     ];
 
     let mut lexer = Lexer::new(source);
-
     for (kind, literal) in expected {
         let token = lexer.next_token();
         assert_eq!(token.kind, kind);
@@ -291,7 +290,6 @@ fn invalid_characters() {
     ];
 
     let mut lexer = Lexer::new(source);
-
     for (kind, literal) in expected {
         let token = lexer.next_token();
         assert_eq!(token.kind, kind);
@@ -300,7 +298,8 @@ fn invalid_characters() {
 }
 
 #[test]
-fn string_literals() {
+fn string_tokens() {
+    // Basic string literals
     let source = r#""hello world" "foo bar" "" "with\nnewlines""#;
     let expected = [
         (TokenKind::String, "hello world"),
@@ -311,16 +310,13 @@ fn string_literals() {
     ];
 
     let mut lexer = Lexer::new(source);
-
     for (kind, literal) in expected {
         let token = lexer.next_token();
         assert_eq!(token.kind, kind);
         assert_eq!(token.literal, literal);
     }
-}
 
-#[test]
-fn string_escape_sequences() {
+    // Escape sequences
     let source = r#""hello \"world\"" "line1\nline2" "tab\there" "backslash\\" "quote\"" "null\0char" "mixed\t\n\r\\\"""#;
     let expected = [
         (TokenKind::String, r#"hello \"world\""#),
@@ -334,7 +330,6 @@ fn string_escape_sequences() {
     ];
 
     let mut lexer = Lexer::new(source);
-
     for (kind, literal) in expected {
         let token = lexer.next_token();
         assert_eq!(token.kind, kind);
@@ -343,19 +338,18 @@ fn string_escape_sequences() {
 }
 
 #[test]
-fn float64_literals() {
-    let source = "3.15 0.5 123.456 0.0 999.999";
+fn float_literals_are_invalid() {
+    let source = "3.15 0.5 123.456 1e10 1.5e10";
     let expected = [
-        (TokenKind::F64, "3.15"),
-        (TokenKind::F64, "0.5"),
-        (TokenKind::F64, "123.456"),
-        (TokenKind::F64, "0.0"),
-        (TokenKind::F64, "999.999"),
+        (TokenKind::Invalid, "3.15"),
+        (TokenKind::Invalid, "0.5"),
+        (TokenKind::Invalid, "123.456"),
+        (TokenKind::Invalid, "1e10"),
+        (TokenKind::Invalid, "1.5e10"),
         (TokenKind::Eof, ""),
     ];
 
     let mut lexer = Lexer::new(source);
-
     for (kind, literal) in expected {
         let token = lexer.next_token();
         assert_eq!(token.kind, kind);
@@ -364,18 +358,99 @@ fn float64_literals() {
 }
 
 #[test]
-fn number_suffixes() {
-    let source = "123_i64 456_f64 0_i64 999_f64";
+fn non_decimal_literals() {
+    // Binary
+    let source = "0b1010 0B1111 0b0";
+    let expected = [
+        (TokenKind::I64, "0b1010"),
+        (TokenKind::I64, "0B1111"),
+        (TokenKind::I64, "0b0"),
+        (TokenKind::Eof, ""),
+    ];
+
+    let mut lexer = Lexer::new(source);
+    for (kind, literal) in expected {
+        let token = lexer.next_token();
+        assert_eq!(token.kind, kind);
+        assert_eq!(token.literal, literal);
+    }
+
+    // Octal
+    let source = "0o755 0O644 0o0";
+    let expected = [
+        (TokenKind::I64, "0o755"),
+        (TokenKind::I64, "0O644"),
+        (TokenKind::I64, "0o0"),
+        (TokenKind::Eof, ""),
+    ];
+
+    let mut lexer = Lexer::new(source);
+    for (kind, literal) in expected {
+        let token = lexer.next_token();
+        assert_eq!(token.kind, kind);
+        assert_eq!(token.literal, literal);
+    }
+
+    // Hex
+    let source = "0xff 0xFF 0x0 0xDEADBEEF 0X1a2B";
+    let expected = [
+        (TokenKind::I64, "0xff"),
+        (TokenKind::I64, "0xFF"),
+        (TokenKind::I64, "0x0"),
+        (TokenKind::I64, "0xDEADBEEF"),
+        (TokenKind::I64, "0X1a2B"),
+        (TokenKind::Eof, ""),
+    ];
+
+    let mut lexer = Lexer::new(source);
+    for (kind, literal) in expected {
+        let token = lexer.next_token();
+        assert_eq!(token.kind, kind);
+        assert_eq!(token.literal, literal);
+    }
+}
+
+#[test]
+fn integer_suffixes() {
+    // Underscore-separated suffix
+    let source = "123_i64 0_i64";
     let expected = [
         (TokenKind::I64, "123"),
-        (TokenKind::F64, "456"),
         (TokenKind::I64, "0"),
-        (TokenKind::F64, "999"),
         (TokenKind::Eof, ""),
     ];
 
     let mut lexer = Lexer::new(source);
+    for (kind, literal) in expected {
+        let token = lexer.next_token();
+        assert_eq!(token.kind, kind);
+        assert_eq!(token.literal, literal);
+    }
 
+    // Rust-style direct suffix
+    let source = "123i64 0i64";
+    let expected = [
+        (TokenKind::I64, "123"),
+        (TokenKind::I64, "0"),
+        (TokenKind::Eof, ""),
+    ];
+
+    let mut lexer = Lexer::new(source);
+    for (kind, literal) in expected {
+        let token = lexer.next_token();
+        assert_eq!(token.kind, kind);
+        assert_eq!(token.literal, literal);
+    }
+
+    // Mixed radix with suffix
+    let source = "0b1010i64 0xFFi64";
+    let expected = [
+        (TokenKind::I64, "0b1010"),
+        (TokenKind::I64, "0xFF"),
+        (TokenKind::Eof, ""),
+    ];
+
+    let mut lexer = Lexer::new(source);
     for (kind, literal) in expected {
         let token = lexer.next_token();
         assert_eq!(token.kind, kind);
@@ -384,40 +459,83 @@ fn number_suffixes() {
 }
 
 #[test]
-fn scientific_notation() {
-    let source = "1e10 1.5e10 2E5 3.15E-2 1e+5 6.022e23 0e0";
+fn typed_integer_suffixes() {
+    // Signed suffixes
+    let source = "42i8 42_i8 127i16 32767i32 2147483647i64 170141183460469231731687303715884105727i128 42isize";
     let expected = [
-        (TokenKind::F64, "1e10"),
-        (TokenKind::F64, "1.5e10"),
-        (TokenKind::F64, "2E5"),
-        (TokenKind::F64, "3.15E-2"),
-        (TokenKind::F64, "1e+5"),
-        (TokenKind::F64, "6.022e23"),
-        (TokenKind::F64, "0e0"),
+        (TokenKind::I8, "42"),
+        (TokenKind::I8, "42"),
+        (TokenKind::I16, "127"),
+        (TokenKind::I32, "32767"),
+        (TokenKind::I64, "2147483647"),
+        (TokenKind::I128, "170141183460469231731687303715884105727"),
+        (TokenKind::Isize, "42"),
         (TokenKind::Eof, ""),
     ];
 
     let mut lexer = Lexer::new(source);
-
     for (kind, literal) in expected {
         let token = lexer.next_token();
         assert_eq!(token.kind, kind);
         assert_eq!(token.literal, literal);
     }
-}
 
-#[test]
-fn mixed_numbers() {
-    let source = "3.15_f64 1.5e10_f64 100_i64";
+    // Unsigned suffixes
+    let source = "42u8 42_u8 255u16 65535u32 4294967295u64 340282366920938463463374607431768211455u128 42usize";
     let expected = [
-        (TokenKind::F64, "3.15"),
-        (TokenKind::F64, "1.5e10"),
-        (TokenKind::I64, "100"),
+        (TokenKind::U8, "42"),
+        (TokenKind::U8, "42"),
+        (TokenKind::U16, "255"),
+        (TokenKind::U32, "65535"),
+        (TokenKind::U64, "4294967295"),
+        (TokenKind::U128, "340282366920938463463374607431768211455"),
+        (TokenKind::Usize, "42"),
         (TokenKind::Eof, ""),
     ];
 
     let mut lexer = Lexer::new(source);
+    for (kind, literal) in expected {
+        let token = lexer.next_token();
+        assert_eq!(token.kind, kind);
+        assert_eq!(token.literal, literal);
+    }
 
+    // Suffix boundary checking (invalid suffixes become separate idents)
+    let source = "42i641 42u641 42i12 42u12 42isizes";
+    let expected = [
+        (TokenKind::I64, "42"),
+        (TokenKind::Ident, "i641"),
+        (TokenKind::I64, "42"),
+        (TokenKind::Ident, "u641"),
+        (TokenKind::I64, "42"),
+        (TokenKind::Ident, "i12"),
+        (TokenKind::I64, "42"),
+        (TokenKind::Ident, "u12"),
+        (TokenKind::I64, "42"),
+        (TokenKind::Ident, "isizes"),
+        (TokenKind::Eof, ""),
+    ];
+
+    let mut lexer = Lexer::new(source);
+    for (kind, literal) in expected {
+        let token = lexer.next_token();
+        assert_eq!(token.kind, kind, "for literal: {}", literal);
+        assert_eq!(token.literal, literal);
+    }
+
+    // Radix with typed suffix
+    let source = "0b1010i8 0o755u16 0xFFi32 0b11111111u8 0xDEADBEEFu64 0o777isize";
+    let expected = [
+        (TokenKind::I8, "0b1010"),
+        (TokenKind::U16, "0o755"),
+        (TokenKind::I32, "0xFF"),
+        (TokenKind::U8, "0b11111111"),
+        (TokenKind::U64, "0xDEADBEEF"),
+        (TokenKind::Isize, "0o777"),
+        (TokenKind::Eof, ""),
+    ];
+
+    let mut lexer = Lexer::new(source);
     for (kind, literal) in expected {
         let token = lexer.next_token();
         assert_eq!(token.kind, kind);
@@ -430,7 +548,7 @@ fn integer_followed_by_dot_method() {
     let source = "5.abs()";
     let expected = [
         (TokenKind::I64, "5"),
-        (TokenKind::Invalid, "."),
+        (TokenKind::Dot, "."),
         (TokenKind::Ident, "abs"),
         (TokenKind::LParen, "("),
         (TokenKind::RParen, ")"),
@@ -438,105 +556,6 @@ fn integer_followed_by_dot_method() {
     ];
 
     let mut lexer = Lexer::new(source);
-
-    for (kind, literal) in expected {
-        let token = lexer.next_token();
-        assert_eq!(token.kind, kind);
-        assert_eq!(token.literal, literal);
-    }
-}
-
-#[test]
-fn binary_literals() {
-    let source = "0b1010 0B1111 0b0";
-    let expected = [
-        (TokenKind::I64, "0b1010"),
-        (TokenKind::I64, "0B1111"),
-        (TokenKind::I64, "0b0"),
-        (TokenKind::Eof, ""),
-    ];
-
-    let mut lexer = Lexer::new(source);
-
-    for (kind, literal) in expected {
-        let token = lexer.next_token();
-        assert_eq!(token.kind, kind);
-        assert_eq!(token.literal, literal);
-    }
-}
-
-#[test]
-fn octal_literals() {
-    let source = "0o755 0O644 0o0";
-    let expected = [
-        (TokenKind::I64, "0o755"),
-        (TokenKind::I64, "0O644"),
-        (TokenKind::I64, "0o0"),
-        (TokenKind::Eof, ""),
-    ];
-
-    let mut lexer = Lexer::new(source);
-
-    for (kind, literal) in expected {
-        let token = lexer.next_token();
-        assert_eq!(token.kind, kind);
-        assert_eq!(token.literal, literal);
-    }
-}
-
-#[test]
-fn hex_literals() {
-    let source = "0xff 0xFF 0x0 0xDEADBEEF 0X1a2B";
-    let expected = [
-        (TokenKind::I64, "0xff"),
-        (TokenKind::I64, "0xFF"),
-        (TokenKind::I64, "0x0"),
-        (TokenKind::I64, "0xDEADBEEF"),
-        (TokenKind::I64, "0X1a2B"),
-        (TokenKind::Eof, ""),
-    ];
-
-    let mut lexer = Lexer::new(source);
-
-    for (kind, literal) in expected {
-        let token = lexer.next_token();
-        assert_eq!(token.kind, kind);
-        assert_eq!(token.literal, literal);
-    }
-}
-
-#[test]
-fn rust_style_suffixes() {
-    let source = "123i64 456f64 0i64 999f64";
-    let expected = [
-        (TokenKind::I64, "123"),
-        (TokenKind::F64, "456"),
-        (TokenKind::I64, "0"),
-        (TokenKind::F64, "999"),
-        (TokenKind::Eof, ""),
-    ];
-
-    let mut lexer = Lexer::new(source);
-
-    for (kind, literal) in expected {
-        let token = lexer.next_token();
-        assert_eq!(token.kind, kind);
-        assert_eq!(token.literal, literal);
-    }
-}
-
-#[test]
-fn mixed_radix_and_suffixes() {
-    let source = "0b1010i64 0xFFi64 3.15f64";
-    let expected = [
-        (TokenKind::I64, "0b1010"),
-        (TokenKind::I64, "0xFF"),
-        (TokenKind::F64, "3.15"),
-        (TokenKind::Eof, ""),
-    ];
-
-    let mut lexer = Lexer::new(source);
-
     for (kind, literal) in expected {
         let token = lexer.next_token();
         assert_eq!(token.kind, kind);
@@ -587,116 +606,20 @@ fn arrays_and_hashes() {
 }
 
 #[test]
-fn signed_integer_suffixes() {
-    let source = "42i8 42_i8 127i16 32767i32 2147483647i64 170141183460469231731687303715884105727i128 42isize";
+fn custom_type_tokens() {
+    let source = "=> :: . : :: = =>";
     let expected = [
-        (TokenKind::I8, "42"),
-        (TokenKind::I8, "42"),
-        (TokenKind::I16, "127"),
-        (TokenKind::I32, "32767"),
-        (TokenKind::I64, "2147483647"),
-        (TokenKind::I128, "170141183460469231731687303715884105727"),
-        (TokenKind::Isize, "42"),
+        (TokenKind::FatArrow, "=>"),
+        (TokenKind::PathSep, "::"),
+        (TokenKind::Dot, "."),
+        (TokenKind::Colon, ":"),
+        (TokenKind::PathSep, "::"),
+        (TokenKind::Assign, "="),
+        (TokenKind::FatArrow, "=>"),
         (TokenKind::Eof, ""),
     ];
 
     let mut lexer = Lexer::new(source);
-
-    for (kind, literal) in expected {
-        let token = lexer.next_token();
-        assert_eq!(token.kind, kind);
-        assert_eq!(token.literal, literal);
-    }
-}
-
-#[test]
-fn unsigned_integer_suffixes() {
-    let source = "42u8 42_u8 255u16 65535u32 4294967295u64 340282366920938463463374607431768211455u128 42usize";
-    let expected = [
-        (TokenKind::U8, "42"),
-        (TokenKind::U8, "42"),
-        (TokenKind::U16, "255"),
-        (TokenKind::U32, "65535"),
-        (TokenKind::U64, "4294967295"),
-        (TokenKind::U128, "340282366920938463463374607431768211455"),
-        (TokenKind::Usize, "42"),
-        (TokenKind::Eof, ""),
-    ];
-
-    let mut lexer = Lexer::new(source);
-
-    for (kind, literal) in expected {
-        let token = lexer.next_token();
-        assert_eq!(token.kind, kind);
-        assert_eq!(token.literal, literal);
-    }
-}
-
-#[test]
-fn float_suffixes() {
-    let source = "3.15f32 3.15_f32 2.718f64 2.718_f64 1e10f32 1.5e-5f64";
-    let expected = [
-        (TokenKind::F32, "3.15"),
-        (TokenKind::F32, "3.15"),
-        (TokenKind::F64, "2.718"),
-        (TokenKind::F64, "2.718"),
-        (TokenKind::F32, "1e10"),
-        (TokenKind::F64, "1.5e-5"),
-        (TokenKind::Eof, ""),
-    ];
-
-    let mut lexer = Lexer::new(source);
-
-    for (kind, literal) in expected {
-        let token = lexer.next_token();
-        assert_eq!(token.kind, kind);
-        assert_eq!(token.literal, literal);
-    }
-}
-
-#[test]
-fn suffix_boundary_checking() {
-    let source = "42i641 42u641 42f641 42i12 42u12 42isizes";
-    let expected = [
-        (TokenKind::I64, "42"),
-        (TokenKind::Ident, "i641"),
-        (TokenKind::I64, "42"),
-        (TokenKind::Ident, "u641"),
-        (TokenKind::I64, "42"),
-        (TokenKind::Ident, "f641"),
-        (TokenKind::I64, "42"),
-        (TokenKind::Ident, "i12"),
-        (TokenKind::I64, "42"),
-        (TokenKind::Ident, "u12"),
-        (TokenKind::I64, "42"),
-        (TokenKind::Ident, "isizes"),
-        (TokenKind::Eof, ""),
-    ];
-
-    let mut lexer = Lexer::new(source);
-
-    for (kind, literal) in expected {
-        let token = lexer.next_token();
-        assert_eq!(token.kind, kind, "for literal: {}", literal);
-        assert_eq!(token.literal, literal);
-    }
-}
-
-#[test]
-fn radix_with_suffix() {
-    let source = "0b1010i8 0o755u16 0xFFi32 0b11111111u8 0xDEADBEEFu64 0o777isize";
-    let expected = [
-        (TokenKind::I8, "0b1010"),
-        (TokenKind::U16, "0o755"),
-        (TokenKind::I32, "0xFF"),
-        (TokenKind::U8, "0b11111111"),
-        (TokenKind::U64, "0xDEADBEEF"),
-        (TokenKind::Isize, "0o777"),
-        (TokenKind::Eof, ""),
-    ];
-
-    let mut lexer = Lexer::new(source);
-
     for (kind, literal) in expected {
         let token = lexer.next_token();
         assert_eq!(token.kind, kind);

@@ -1,76 +1,23 @@
 //! Compile-time type checker for the AST.
-//!
-//! Walks the AST, infers types for all expressions, unifies constraints,
-//! and reports errors. Inserts implicit numeric promotion casts where needed.
 
 use maat_ast::*;
-use maat_errors::{TypeError, TypeErrorKind};
+use maat_errors::{
+    MissingTraitMethodError, TraitMethodSignatureMismatchError, TypeError, TypeErrorKind,
+};
 use maat_span::Span;
 
-use crate::convert::resolve_type_expr;
 use crate::env::TypeEnv;
 use crate::promote::{self, PromotionError};
-use crate::ty::{FnType, Type};
+use crate::ty::{
+    EnumDef, FnType, ImplDef, MethodSig, StructDef, TraitDef, Type, VariantDef, VariantKind,
+};
 use crate::unify::{Substitution, UnifyError};
-
-/// Registers builtin function signatures in the type environment.
-///
-/// `print` is variadic at runtime and is not registered
-/// here. Unknown identifiers fall back to fresh type variables, which
-/// allows any number of arguments without arity errors.
-fn register_builtins(env: &mut TypeEnv) {
-    let len_arg = env.fresh_var();
-    env.define_var(
-        "len",
-        Type::Function(FnType {
-            params: vec![len_arg],
-            ret: Box::new(Type::Usize),
-        }),
-    );
-
-    let first_t = env.fresh_var();
-    let first_ret = first_t.clone();
-    env.define_var(
-        "first",
-        Type::Function(FnType {
-            params: vec![Type::Array(Box::new(first_t))],
-            ret: Box::new(first_ret),
-        }),
-    );
-
-    let last_t = env.fresh_var();
-    let last_ret = last_t.clone();
-    env.define_var(
-        "last",
-        Type::Function(FnType {
-            params: vec![Type::Array(Box::new(last_t))],
-            ret: Box::new(last_ret),
-        }),
-    );
-
-    let rest_t = env.fresh_var();
-    env.define_var(
-        "rest",
-        Type::Function(FnType {
-            params: vec![Type::Array(Box::new(rest_t.clone()))],
-            ret: Box::new(Type::Array(Box::new(rest_t))),
-        }),
-    );
-
-    let push_t = env.fresh_var();
-    env.define_var(
-        "push",
-        Type::Function(FnType {
-            params: vec![Type::Array(Box::new(push_t.clone())), push_t.clone()],
-            ret: Box::new(Type::Array(Box::new(push_t))),
-        }),
-    );
-}
 
 /// The type checker.
 ///
 /// Performs Hindley-Milner-style type inference with explicit annotations,
-/// numeric promotion rules, and compile-time overflow checking.
+/// numeric promotion rules, compile-time overflow checking, and full
+/// validation of user-defined types (structs, enums, traits, impls).
 pub struct TypeChecker {
     env: TypeEnv,
     subst: Substitution,
@@ -87,7 +34,7 @@ impl TypeChecker {
     /// Creates a new type checker with builtins pre-registered.
     pub fn new() -> Self {
         let mut env = TypeEnv::new();
-        register_builtins(&mut env);
+        env.register_builtins();
         Self {
             env,
             subst: Substitution::new(),
@@ -97,30 +44,176 @@ impl TypeChecker {
 
     /// Type-checks a program, mutating the AST to insert promotion casts.
     ///
+    /// Performs two passes: the first registers all type declarations (structs,
+    /// enums, traits) so that forward references resolve correctly; the second
+    /// checks all statements including impl blocks and expressions.
+    ///
     /// Returns accumulated type errors (empty if the program is well-typed).
     pub fn check_program(mut self, program: &mut Program) -> Vec<TypeError> {
+        for stmt in &program.statements {
+            match stmt {
+                Stmt::StructDecl(decl) => self.register_struct(decl),
+                Stmt::EnumDecl(decl) => self.register_enum(decl),
+                Stmt::TraitDecl(decl) => self.register_trait(decl),
+                _ => {}
+            }
+        }
         for stmt in &mut program.statements {
             self.check_statement(stmt);
         }
         self.errors
     }
 
-    fn check_statement(&mut self, stmt: &mut Statement) {
+    fn register_struct(&mut self, decl: &StructDecl) {
+        if self.env.lookup_struct(&decl.name).is_some() {
+            self.errors
+                .push(TypeErrorKind::DuplicateType(decl.name.clone()).at(decl.span));
+            return;
+        }
+        let generic_params = decl
+            .generic_params
+            .iter()
+            .map(|g| g.name.clone())
+            .collect::<Vec<String>>();
+        let fields = decl
+            .fields
+            .iter()
+            .map(|f| {
+                (
+                    f.name.clone(),
+                    self.resolve_field_type(&f.ty, &generic_params),
+                )
+            })
+            .collect();
+        self.env.register_struct(StructDef {
+            name: decl.name.clone(),
+            generic_params,
+            fields,
+        });
+    }
+
+    fn register_enum(&mut self, decl: &EnumDecl) {
+        if self.env.lookup_enum(&decl.name).is_some() {
+            self.errors
+                .push(TypeErrorKind::DuplicateType(decl.name.clone()).at(decl.span));
+            return;
+        }
+        let generic_params = decl
+            .generic_params
+            .iter()
+            .map(|g| g.name.clone())
+            .collect::<Vec<String>>();
+        let variants = decl
+            .variants
+            .iter()
+            .map(|v| VariantDef {
+                name: v.name.clone(),
+                kind: match &v.kind {
+                    EnumVariantKind::Unit => VariantKind::Unit,
+                    EnumVariantKind::Tuple(tys) => VariantKind::Tuple(
+                        tys.iter()
+                            .map(|t| self.resolve_field_type(t, &generic_params))
+                            .collect(),
+                    ),
+                    EnumVariantKind::Struct(fields) => VariantKind::Struct(
+                        fields
+                            .iter()
+                            .map(|f| {
+                                (
+                                    f.name.clone(),
+                                    self.resolve_field_type(&f.ty, &generic_params),
+                                )
+                            })
+                            .collect(),
+                    ),
+                },
+            })
+            .collect();
+        self.env.register_enum(EnumDef {
+            name: decl.name.clone(),
+            generic_params,
+            variants,
+        });
+    }
+
+    fn register_trait(&mut self, decl: &TraitDecl) {
+        if self.env.lookup_trait(&decl.name).is_some() {
+            self.errors
+                .push(TypeErrorKind::DuplicateType(decl.name.clone()).at(decl.span));
+            return;
+        }
+        let generic_params = decl
+            .generic_params
+            .iter()
+            .map(|g| g.name.clone())
+            .collect::<Vec<String>>();
+        let methods = decl
+            .methods
+            .iter()
+            .map(|m| {
+                let takes_self = m.params.first().is_some_and(|p| p.name == "self");
+                let params = m
+                    .params
+                    .iter()
+                    .filter(|p| p.name != "self")
+                    .map(|p| {
+                        p.type_expr
+                            .as_ref()
+                            .map(|t| self.resolve_field_type(t, &generic_params))
+                            .unwrap_or(Type::Var(0))
+                    })
+                    .collect();
+                let ret = m
+                    .return_type
+                    .as_ref()
+                    .map(|t| self.resolve_field_type(t, &generic_params))
+                    .unwrap_or(Type::Null);
+                MethodSig {
+                    name: m.name.clone(),
+                    params,
+                    ret,
+                    has_default: m.default_body.is_some(),
+                    takes_self,
+                }
+            })
+            .collect();
+        self.env.register_trait(TraitDef {
+            name: decl.name.clone(),
+            generic_params,
+            methods,
+        });
+    }
+
+    /// Resolves a type expression for a struct/enum field, treating names
+    /// that match a generic parameter as `Type::Generic`.
+    fn resolve_field_type(&self, ty: &TypeExpr, generic_params: &[String]) -> Type {
+        match ty {
+            TypeExpr::Named(named) if generic_params.contains(&named.name) => {
+                Type::Generic(named.name.clone(), vec![])
+            }
+            _ => self.env.resolve_type(ty),
+        }
+    }
+
+    fn check_statement(&mut self, stmt: &mut Stmt) {
         match stmt {
-            Statement::Let(let_stmt) => self.check_let(let_stmt),
-            Statement::Return(ret_stmt) => {
+            Stmt::Let(let_stmt) => self.check_let(let_stmt),
+            Stmt::Return(ret_stmt) => {
                 self.infer_expression(&mut ret_stmt.value);
             }
-            Statement::Expression(expr_stmt) => {
+            Stmt::Expr(expr_stmt) => {
                 self.infer_expression(&mut expr_stmt.value);
             }
-            Statement::Block(block) => self.check_block(block),
-            Statement::Loop(loop_stmt) => self.check_block(&mut loop_stmt.body),
-            Statement::While(while_stmt) => {
-                self.infer_expression(&mut while_stmt.condition);
+            Stmt::Block(block) => self.check_block(block),
+            Stmt::FnItem(fn_item) => self.check_fn_item(fn_item),
+            Stmt::Loop(loop_stmt) => self.check_block(&mut loop_stmt.body),
+            Stmt::While(while_stmt) => {
+                let cond_ty = self.infer_expression(&mut while_stmt.condition);
+                let cond_resolved = self.subst.apply(&cond_ty);
+                self.require_bool(&cond_resolved, while_stmt.condition.span());
                 self.check_block(&mut while_stmt.body);
             }
-            Statement::For(for_stmt) => {
+            Stmt::For(for_stmt) => {
                 let iter_ty = self.infer_expression(&mut for_stmt.iterable);
                 let resolved = self.subst.apply(&iter_ty);
                 let elem_ty = match resolved {
@@ -142,30 +235,27 @@ impl TypeChecker {
                 self.check_block(&mut for_stmt.body);
                 self.env.pop_scope();
             }
+
+            // Struct/Enum/Trait declarations were registered in [self.check_program] (pass 1); nothing to do here.
+            Stmt::StructDecl(_) | Stmt::EnumDecl(_) | Stmt::TraitDecl(_) => {}
+
+            Stmt::ImplBlock(impl_block) => self.check_impl_block(impl_block),
         }
     }
 
-    fn check_let(&mut self, let_stmt: &mut LetStatement) {
+    fn check_let(&mut self, let_stmt: &mut LetStmt) {
         let inferred = self.infer_expression(&mut let_stmt.value);
 
         let ty = if let Some(ann) = &let_stmt.type_annotation {
-            let expected = resolve_type_expr(ann);
+            let expected = self.env.resolve_type(ann);
             self.check_literal_range(&let_stmt.value, &expected, let_stmt.span);
 
-            // Integer literals coerce to any numeric type whose range they fit.
-            // E.g.: `let x: u8 = 5;` is valid because the unsuffixed
-            // literal `5` adapts to the declared type. When a literal is in range,
-            // we skip unification entirely. When it overflows, the range check has
-            // already reported a precise error, so we also skip the redundant
-            // type mismatch from unification.
-            let is_coercible_literal = expected.is_numeric()
-                && inferred.is_numeric()
+            let is_coercible_literal = expected.is_integer()
+                && inferred.is_integer()
                 && let_stmt.value.is_integer_literal();
 
             if is_coercible_literal {
-                // Rewrite the literal AST node to match the declared type so the
-                // compiler emits the correctly-typed constant.
-                coerce_literal(&mut let_stmt.value, &expected);
+                expected.coerce_literal(&mut let_stmt.value);
             } else if let Err(e) = self.subst.unify(&expected, &inferred) {
                 self.report_unify_error(e, let_stmt.span);
             }
@@ -174,11 +264,11 @@ impl TypeChecker {
             inferred
         };
 
-        let resolved = self.subst.apply(&ty);
-        self.env.define_var(&let_stmt.ident, resolved);
+        let scheme = self.env.generalize(&ty, &self.subst);
+        self.env.define_scheme(&let_stmt.ident, scheme);
     }
 
-    fn check_block(&mut self, block: &mut BlockStatement) {
+    fn check_block(&mut self, block: &mut BlockStmt) {
         self.env.push_scope();
         for stmt in &mut block.statements {
             self.check_statement(stmt);
@@ -186,39 +276,201 @@ impl TypeChecker {
         self.env.pop_scope();
     }
 
-    /// Infers the type of an expression, potentially mutating it
-    /// (e.g., inserting promotion casts on infix operands).
-    fn infer_expression(&mut self, expr: &mut Expression) -> Type {
-        match expr {
-            Expression::I8(_) => Type::I8,
-            Expression::I16(_) => Type::I16,
-            Expression::I32(_) => Type::I32,
-            Expression::I64(_) => Type::I64,
-            Expression::I128(_) => Type::I128,
-            Expression::Isize(_) => Type::Isize,
-            Expression::U8(_) => Type::U8,
-            Expression::U16(_) => Type::U16,
-            Expression::U32(_) => Type::U32,
-            Expression::U64(_) => Type::U64,
-            Expression::U128(_) => Type::U128,
-            Expression::Usize(_) => Type::Usize,
-            Expression::F32(_) => Type::F32,
-            Expression::F64(_) => Type::F64,
-            Expression::Boolean(_) => Type::Bool,
-            Expression::String(_) => Type::String,
+    /// Type-checks a named function declaration and binds it in the environment.
+    fn check_fn_item(&mut self, fn_item: &mut FnItem) {
+        let fn_ty = self.infer_fn_body(
+            &fn_item.generic_params,
+            &fn_item.params,
+            &fn_item.return_type,
+            &mut fn_item.body,
+            fn_item.span,
+        );
+        let scheme = self.env.generalize(&fn_ty, &self.subst);
+        self.env.define_scheme(&fn_item.name, scheme);
+    }
 
-            Expression::Identifier(ident) => {
-                self.env
-                    .lookup_var(&ident.value)
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        // Don't error on unknown idents; the compiler will catch them.
-                        // Return a fresh type variable to keep inference going.
-                        self.env.fresh_var()
-                    })
+    /// Shared inference logic for function bodies (used by both `FnItem` and `Lambda`).
+    fn infer_fn_body(
+        &mut self,
+        generic_params: &[GenericParam],
+        params: &[TypedParam],
+        return_type: &Option<TypeExpr>,
+        body: &mut BlockStmt,
+        span: Span,
+    ) -> Type {
+        self.env.push_scope();
+
+        for gp in generic_params {
+            let var = self.env.fresh_var();
+            self.env.define_var(&gp.name, var);
+        }
+
+        let param_types: Vec<Type> = params
+            .iter()
+            .map(|p| {
+                let ty = p
+                    .type_expr
+                    .as_ref()
+                    .map(|te| self.env.resolve_type(te))
+                    .unwrap_or_else(|| self.env.fresh_var());
+                self.env.define_var(&p.name, ty.clone());
+                ty
+            })
+            .collect();
+
+        let body_ty = self.infer_block(body);
+
+        let ret_ty = return_type
+            .as_ref()
+            .map(|te| self.env.resolve_type(te))
+            .unwrap_or_else(|| body_ty.clone());
+
+        if return_type.is_some()
+            && let Err(e) = self.subst.unify(&ret_ty, &body_ty)
+        {
+            self.report_unify_error(e, span);
+        }
+
+        self.env.pop_scope();
+
+        Type::Function(FnType {
+            params: param_types,
+            ret: Box::new(self.subst.apply(&ret_ty)),
+        })
+    }
+
+    fn check_impl_block(&mut self, impl_block: &mut ImplBlock) {
+        let self_type = self.env.resolve_type(&impl_block.self_type);
+
+        let trait_name = impl_block.trait_name.as_ref().and_then(|te| match te {
+            TypeExpr::Named(n) => Some(n.name.clone()),
+            TypeExpr::Generic(name, _, _) => Some(name.clone()),
+            _ => None,
+        });
+
+        if let Some(ref name) = trait_name
+            && self.env.lookup_trait(name).is_none()
+        {
+            self.errors
+                .push(TypeErrorKind::UnknownTrait(name.clone()).at(impl_block.span));
+        }
+
+        let mut method_types = Vec::new();
+        for method in &mut impl_block.methods {
+            let has_self = method.params.first().is_some_and(|p| p.name == "self");
+
+            let non_self_params = method
+                .params
+                .iter()
+                .filter(|p| p.name != "self")
+                .cloned()
+                .collect::<Vec<TypedParam>>();
+
+            self.env.push_scope();
+            if has_self {
+                self.env.define_var("self", self_type.clone());
             }
 
-            Expression::Array(array) => {
+            let fn_ty = self.infer_fn_body(
+                &method.generic_params,
+                &non_self_params,
+                &method.return_type,
+                &mut method.body,
+                method.span,
+            );
+            self.env.pop_scope();
+
+            method_types.push((method.name.clone(), fn_ty));
+        }
+
+        if let Some(ref name) = trait_name {
+            self.verify_trait_satisfaction(name, &self_type, &method_types, impl_block.span);
+        }
+
+        self.env.register_impl(ImplDef {
+            self_type,
+            trait_name,
+            methods: method_types,
+        });
+    }
+
+    /// Verifies that an impl block provides all required trait methods with
+    /// compatible signatures.
+    fn verify_trait_satisfaction(
+        &mut self,
+        trait_name: &str,
+        self_type: &Type,
+        methods: &[(String, Type)],
+        span: Span,
+    ) {
+        let required = self
+            .env
+            .required_trait_methods(trait_name)
+            .into_iter()
+            .cloned()
+            .collect::<Vec<MethodSig>>();
+
+        for sig in &required {
+            match methods.iter().find(|(name, _)| name == &sig.name) {
+                None => {
+                    self.errors.push(
+                        TypeErrorKind::MissingTraitMethod(Box::new(MissingTraitMethodError {
+                            trait_name: trait_name.to_string(),
+                            self_type: self_type.to_string(),
+                            method: sig.name.clone(),
+                        }))
+                        .at(span),
+                    );
+                }
+                Some((_, impl_ty)) => {
+                    let expected = Type::Function(FnType {
+                        params: sig.params.clone(),
+                        ret: Box::new(sig.ret.clone()),
+                    });
+                    if self.subst.unify(&expected, impl_ty).is_err() {
+                        self.errors.push(
+                            TypeErrorKind::TraitMethodSignatureMismatch(Box::new(
+                                TraitMethodSignatureMismatchError {
+                                    trait_name: trait_name.to_string(),
+                                    self_type: self_type.to_string(),
+                                    method: sig.name.clone(),
+                                    expected: expected.to_string(),
+                                    found: impl_ty.to_string(),
+                                },
+                            ))
+                            .at(span),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Infers the type of an expression, potentially mutating it
+    /// (e.g., inserting promotion casts on infix operands).
+    fn infer_expression(&mut self, expr: &mut Expr) -> Type {
+        match expr {
+            Expr::I8(_) => Type::I8,
+            Expr::I16(_) => Type::I16,
+            Expr::I32(_) => Type::I32,
+            Expr::I64(_) => Type::I64,
+            Expr::I128(_) => Type::I128,
+            Expr::Isize(_) => Type::Isize,
+            Expr::U8(_) => Type::U8,
+            Expr::U16(_) => Type::U16,
+            Expr::U32(_) => Type::U32,
+            Expr::U64(_) => Type::U64,
+            Expr::U128(_) => Type::U128,
+            Expr::Usize(_) => Type::Usize,
+            Expr::Bool(_) => Type::Bool,
+            Expr::Str(_) => Type::String,
+
+            Expr::Ident(ident) => self
+                .env
+                .instantiate(&ident.value, &self.subst)
+                .unwrap_or_else(|| self.env.fresh_var()),
+
+            Expr::Array(array) => {
                 if array.elements.is_empty() {
                     let elem = self.env.fresh_var();
                     Type::Array(Box::new(elem))
@@ -234,7 +486,7 @@ impl TypeChecker {
                 }
             }
 
-            Expression::Hash(hash) => {
+            Expr::Map(hash) => {
                 if hash.pairs.is_empty() {
                     let k = self.env.fresh_var();
                     let v = self.env.fresh_var();
@@ -262,7 +514,7 @@ impl TypeChecker {
                 }
             }
 
-            Expression::Index(idx) => {
+            Expr::Index(idx) => {
                 let collection = self.infer_expression(&mut idx.expr);
                 let _index_ty = self.infer_expression(&mut idx.index);
                 let resolved = self.subst.apply(&collection);
@@ -273,22 +525,36 @@ impl TypeChecker {
                 }
             }
 
-            Expression::Prefix(prefix) => {
+            Expr::Prefix(prefix) => {
                 let operand_ty = self.infer_expression(&mut prefix.operand);
+                let resolved = self.subst.apply(&operand_ty);
                 match prefix.operator.as_str() {
-                    "!" => Type::Bool,
-                    "-" => operand_ty,
+                    "!" => {
+                        self.require_bool(&resolved, prefix.span);
+                        Type::Bool
+                    }
+                    "-" => {
+                        if !resolved.is_integer() && !matches!(resolved, Type::Var(_)) {
+                            self.errors.push(
+                                TypeErrorKind::Mismatch {
+                                    expected: "numeric".to_string(),
+                                    found: resolved.to_string(),
+                                }
+                                .at(prefix.span),
+                            );
+                        }
+                        resolved
+                    }
                     _ => self.env.fresh_var(),
                 }
             }
 
-            Expression::Infix(infix) => self.check_infix(infix),
+            Expr::Infix(infix) => self.check_infix(infix),
 
-            Expression::Conditional(cond) => {
-                // Maat uses truthy semantics: any non-null, non-false value
-                // is considered true. We infer the condition type but do not
-                // require it to be bool.
-                self.infer_expression(&mut cond.condition);
+            Expr::Cond(cond) => {
+                let cond_ty = self.infer_expression(&mut cond.condition);
+                let cond_resolved = self.subst.apply(&cond_ty);
+                self.require_bool(&cond_resolved, cond.condition.span());
 
                 self.env.push_scope();
                 let cons_ty = self.infer_block(&mut cond.consequence);
@@ -307,52 +573,15 @@ impl TypeChecker {
                 }
             }
 
-            Expression::Function(func) => {
-                self.env.push_scope();
+            Expr::Lambda(lambda) => self.infer_fn_body(
+                &lambda.generic_params,
+                &lambda.params,
+                &lambda.return_type,
+                &mut lambda.body,
+                lambda.span,
+            ),
 
-                // Register generic params as type variables
-                for gp in &func.generic_params {
-                    let var = self.env.fresh_var();
-                    self.env.define_var(&gp.name, var);
-                }
-
-                let param_types: Vec<Type> = func
-                    .params
-                    .iter()
-                    .map(|p| {
-                        let ty = p
-                            .type_expr
-                            .as_ref()
-                            .map(resolve_type_expr)
-                            .unwrap_or_else(|| self.env.fresh_var());
-                        self.env.define_var(&p.name, ty.clone());
-                        ty
-                    })
-                    .collect();
-
-                let body_ty = self.infer_block(&mut func.body);
-
-                let ret_ty = func
-                    .return_type
-                    .as_ref()
-                    .map(resolve_type_expr)
-                    .unwrap_or_else(|| body_ty.clone());
-
-                if func.return_type.is_some()
-                    && let Err(e) = self.subst.unify(&ret_ty, &body_ty)
-                {
-                    self.report_unify_error(e, func.span);
-                }
-
-                self.env.pop_scope();
-
-                Type::Function(FnType {
-                    params: param_types,
-                    ret: Box::new(self.subst.apply(&ret_ty)),
-                })
-            }
-
-            Expression::Call(call) => {
+            Expr::Call(call) => {
                 let func_ty = self.infer_expression(&mut call.function);
                 let resolved = self.subst.apply(&func_ty);
 
@@ -376,11 +605,8 @@ impl TypeChecker {
                             for (param, arg) in fn_ty.params.iter().zip(arg_types.iter()) {
                                 let p = self.subst.apply(param);
                                 let a = self.subst.apply(arg);
-                                // Allow numeric promotion at call sites (e.g., passing
-                                // i64 where usize is expected). The VM handles the
-                                // conversion at runtime via OpConvert.
-                                if p.is_numeric()
-                                    && a.is_numeric()
+                                if p.is_integer()
+                                    && a.is_integer()
                                     && p != a
                                     && promote::common_numeric_type(&p, &a).is_ok()
                                 {
@@ -412,27 +638,693 @@ impl TypeChecker {
                 }
             }
 
-            Expression::Cast(cast) => {
+            Expr::Cast(cast) => {
                 self.infer_expression(&mut cast.expr);
-                let ann = &cast.target;
-                type_annotation_to_type(ann)
+                Type::from_type_annotation(&cast.target)
             }
 
-            Expression::Break(break_expr) => {
+            Expr::Break(break_expr) => {
                 if let Some(val) = &mut break_expr.value {
                     self.infer_expression(val);
                 }
                 Type::Never
             }
 
-            Expression::Continue(_) => Type::Never,
+            Expr::Continue(_) => Type::Never,
 
-            Expression::Macro(_) => self.env.fresh_var(),
+            Expr::Macro(_) => self.env.fresh_var(),
+
+            Expr::Match(match_expr) => self.check_match_expr(match_expr),
+
+            Expr::FieldAccess(field_access) => self.check_field_access(field_access),
+
+            Expr::MethodCall(method_call) => self.check_method_call(method_call),
+
+            Expr::StructLit(struct_lit) => self.check_struct_literal(struct_lit),
+
+            Expr::PathExpr(path_expr) => self.check_path_expr(path_expr),
+        }
+    }
+
+    /// Type-checks a struct literal expression (e.g., `Point { x: 1, y: 2 }`).
+    fn check_struct_literal(&mut self, lit: &mut StructLitExpr) -> Type {
+        let struct_def = self.env.lookup_struct(&lit.name).cloned();
+        let Some(def) = struct_def else {
+            self.errors
+                .push(TypeErrorKind::UnknownType(lit.name.clone()).at(lit.span));
+            return self.env.fresh_var();
+        };
+
+        let type_args = def
+            .generic_params
+            .iter()
+            .map(|_| self.env.fresh_var())
+            .collect::<Vec<Type>>();
+
+        for (field_name, field_expr) in &mut lit.fields {
+            let field_ty = self.infer_expression(field_expr);
+            if let Some((_, expected_ty)) = def.fields.iter().find(|(n, _)| n == field_name) {
+                let resolved =
+                    self.instantiate_generic_type(expected_ty, &def.generic_params, &type_args);
+                if let Err(e) = self.subst.unify(&resolved, &field_ty) {
+                    self.report_unify_error(e, field_expr.span());
+                }
+            } else {
+                self.errors.push(
+                    TypeErrorKind::UnknownField {
+                        ty: lit.name.clone(),
+                        field: field_name.clone(),
+                    }
+                    .at(lit.span),
+                );
+            }
+        }
+
+        for (def_field_name, _) in &def.fields {
+            if !lit.fields.iter().any(|(n, _)| n == def_field_name) {
+                self.errors.push(
+                    TypeErrorKind::UnknownField {
+                        ty: format!("missing field `{}` in `{}`", def_field_name, lit.name),
+                        field: def_field_name.clone(),
+                    }
+                    .at(lit.span),
+                );
+            }
+        }
+
+        Type::Struct(
+            lit.name.clone(),
+            type_args.iter().map(|t| self.subst.apply(t)).collect(),
+        )
+    }
+
+    /// Type-checks a path expression (e.g., `Option::Some`, `Color::Red`).
+    fn check_path_expr(&mut self, path: &PathExpr) -> Type {
+        if path.segments.len() == 2 {
+            let type_name = &path.segments[0];
+            let variant_name = &path.segments[1];
+
+            if let Some(enum_def) = self.env.lookup_enum(type_name).cloned() {
+                let type_args = enum_def
+                    .generic_params
+                    .iter()
+                    .map(|_| self.env.fresh_var())
+                    .collect::<Vec<Type>>();
+
+                if let Some(variant) = enum_def.variants.iter().find(|v| v.name == *variant_name) {
+                    match &variant.kind {
+                        VariantKind::Unit => {
+                            return Type::Enum(
+                                type_name.clone(),
+                                type_args.iter().map(|t| self.subst.apply(t)).collect(),
+                            );
+                        }
+                        VariantKind::Tuple(field_types) => {
+                            let params = field_types
+                                .iter()
+                                .map(|t| {
+                                    self.instantiate_generic_type(
+                                        t,
+                                        &enum_def.generic_params,
+                                        &type_args,
+                                    )
+                                })
+                                .collect();
+                            let ret = Type::Enum(
+                                type_name.clone(),
+                                type_args.iter().map(|t| self.subst.apply(t)).collect(),
+                            );
+                            return Type::Function(FnType {
+                                params,
+                                ret: Box::new(ret),
+                            });
+                        }
+                        VariantKind::Struct(_) => {
+                            return Type::Enum(
+                                type_name.clone(),
+                                type_args.iter().map(|t| self.subst.apply(t)).collect(),
+                            );
+                        }
+                    }
+                } else {
+                    self.errors.push(
+                        TypeErrorKind::UnknownField {
+                            ty: type_name.clone(),
+                            field: variant_name.clone(),
+                        }
+                        .at(path.span),
+                    );
+                }
+            }
+        }
+
+        // Try as a qualified method lookup (e.g., `Counter::new`).
+        if path.segments.len() == 2 {
+            let type_name = &path.segments[0];
+            let method_name = &path.segments[1];
+            if let Some(method_ty) = self.env.lookup_method_by_name(type_name, method_name) {
+                return method_ty.clone();
+            }
+        }
+
+        // Fallback: try as a variable lookup.
+        let full_name = path.segments.join("::");
+        self.env
+            .instantiate(&full_name, &self.subst)
+            .unwrap_or_else(|| {
+                self.errors
+                    .push(TypeErrorKind::UnknownType(full_name).at(path.span));
+                self.env.fresh_var()
+            })
+    }
+
+    fn check_field_access(&mut self, fa: &mut FieldAccessExpr) -> Type {
+        let obj_ty = self.infer_expression(&mut fa.object);
+        let resolved = self.subst.apply(&obj_ty);
+
+        match &resolved {
+            Type::Struct(name, type_args) => {
+                let struct_def = self.env.lookup_struct(name).cloned();
+                match struct_def {
+                    Some(def) => match def.fields.iter().find(|(fname, _)| fname == &fa.field) {
+                        Some((_, field_ty)) => {
+                            self.instantiate_generic_type(field_ty, &def.generic_params, type_args)
+                        }
+                        None => {
+                            self.errors.push(
+                                TypeErrorKind::UnknownField {
+                                    ty: resolved.to_string(),
+                                    field: fa.field.clone(),
+                                }
+                                .at(fa.span),
+                            );
+                            self.env.fresh_var()
+                        }
+                    },
+                    None => {
+                        self.errors
+                            .push(TypeErrorKind::UnknownType(name.clone()).at(fa.span));
+                        self.env.fresh_var()
+                    }
+                }
+            }
+            Type::Var(_) => self.env.fresh_var(),
+            _ => {
+                self.errors.push(
+                    TypeErrorKind::UnknownField {
+                        ty: resolved.to_string(),
+                        field: fa.field.clone(),
+                    }
+                    .at(fa.span),
+                );
+                self.env.fresh_var()
+            }
+        }
+    }
+
+    fn check_method_call(&mut self, mc: &mut MethodCallExpr) -> Type {
+        let obj_ty = self.infer_expression(&mut mc.object);
+        let resolved = self.subst.apply(&obj_ty);
+
+        let arg_types = mc
+            .arguments
+            .iter_mut()
+            .map(|a| self.infer_expression(a))
+            .collect::<Vec<Type>>();
+
+        let type_name = match &resolved {
+            Type::Struct(name, _) | Type::Enum(name, _) => Some(name.clone()),
+            _ => None,
+        };
+
+        let method_ty = type_name.as_ref().and_then(|name| {
+            self.env
+                .lookup_method(&resolved, &mc.method)
+                .or_else(|| self.env.lookup_method_by_name(name, &mc.method))
+                .cloned()
+        });
+
+        match method_ty {
+            Some(Type::Function(fn_ty)) => {
+                // Method params exclude `self`, but the compiler
+                // passes `self` implicitly. So here we check non-self params.
+                if fn_ty.params.len() != arg_types.len() {
+                    self.errors.push(
+                        TypeErrorKind::WrongArity {
+                            expected: fn_ty.params.len(),
+                            found: arg_types.len(),
+                        }
+                        .at(mc.span),
+                    );
+                } else {
+                    for (param, arg) in fn_ty.params.iter().zip(arg_types.iter()) {
+                        let p = self.subst.apply(param);
+                        let a = self.subst.apply(arg);
+                        if let Err(e) = self.subst.unify(&p, &a) {
+                            self.report_unify_error(e, mc.span);
+                        }
+                    }
+                }
+                self.subst.apply(&fn_ty.ret)
+            }
+            Some(_) => self.env.fresh_var(),
+            None => {
+                if matches!(resolved, Type::Var(_)) {
+                    return self.env.fresh_var();
+                }
+                self.errors.push(
+                    TypeErrorKind::UnknownMethod {
+                        ty: resolved.to_string(),
+                        method: mc.method.clone(),
+                    }
+                    .at(mc.span),
+                );
+                self.env.fresh_var()
+            }
+        }
+    }
+
+    fn check_match_expr(&mut self, expr: &mut MatchExpr) -> Type {
+        let scrutinee_ty = self.infer_expression(&mut expr.scrutinee);
+        let scrutinee_resolved = self.subst.apply(&scrutinee_ty);
+
+        let mut arm_result_ty: Option<Type> = None;
+
+        for arm in &mut expr.arms {
+            self.env.push_scope();
+            self.check_pattern(&arm.pattern, &scrutinee_resolved);
+
+            if let Some(guard) = &mut arm.guard {
+                let guard_ty = self.infer_expression(guard);
+                let guard_resolved = self.subst.apply(&guard_ty);
+                self.require_bool(&guard_resolved, guard.span());
+            }
+
+            let body_ty = self.infer_expression(&mut arm.body);
+            self.env.pop_scope();
+
+            match &arm_result_ty {
+                Some(prev) => {
+                    if let Err(e) = self.subst.unify(prev, &body_ty) {
+                        self.report_unify_error(e, arm.span);
+                    }
+                }
+                None => arm_result_ty = Some(body_ty),
+            }
+        }
+
+        self.check_exhaustiveness(&scrutinee_resolved, expr);
+
+        arm_result_ty
+            .map(|ty| self.subst.apply(&ty))
+            .unwrap_or(Type::Never)
+    }
+
+    /// Checks a pattern against the scrutinee type, introducing bindings
+    /// into the current scope.
+    fn check_pattern(&mut self, p: &Pattern, scrutinee_ty: &Type) {
+        match p {
+            Pattern::Wildcard(_) => {}
+            Pattern::Ident(name, _) => {
+                self.env.define_var(name, scrutinee_ty.clone());
+            }
+            Pattern::Literal(expr) => {
+                let lit_ty = self.infer_literal_pattern_type(expr);
+                if self.subst.unify(&lit_ty, scrutinee_ty).is_err() {
+                    self.errors.push(
+                        TypeErrorKind::Mismatch {
+                            expected: scrutinee_ty.to_string(),
+                            found: lit_ty.to_string(),
+                        }
+                        .at(expr.span()),
+                    );
+                }
+            }
+            Pattern::TupleStruct { path, fields, span } => {
+                self.check_tuple_struct_pattern(path, fields, scrutinee_ty, *span);
+            }
+            Pattern::Struct { path, fields, span } => {
+                self.check_struct_pattern(path, fields, scrutinee_ty, *span);
+            }
+            Pattern::Or(patterns, _) => {
+                for pat in patterns {
+                    self.check_pattern(pat, scrutinee_ty);
+                }
+            }
+        }
+    }
+
+    /// Infers the type of a literal expression used in a pattern context.
+    fn infer_literal_pattern_type(&self, expr: &Expr) -> Type {
+        match expr {
+            Expr::I8(_) => Type::I8,
+            Expr::I16(_) => Type::I16,
+            Expr::I32(_) => Type::I32,
+            Expr::I64(_) => Type::I64,
+            Expr::I128(_) => Type::I128,
+            Expr::Isize(_) => Type::Isize,
+            Expr::U8(_) => Type::U8,
+            Expr::U16(_) => Type::U16,
+            Expr::U32(_) => Type::U32,
+            Expr::U64(_) => Type::U64,
+            Expr::U128(_) => Type::U128,
+            Expr::Usize(_) => Type::Usize,
+            Expr::Bool(_) => Type::Bool,
+            Expr::Str(_) => Type::String,
+            _ => Type::Null,
+        }
+    }
+
+    /// Checks a tuple-struct pattern (e.g., `Some(x)`) against the scrutinee.
+    fn check_tuple_struct_pattern(
+        &mut self,
+        variant_name: &str,
+        fields: &[Pattern],
+        scrutinee_ty: &Type,
+        span: Span,
+    ) {
+        let enum_info = match scrutinee_ty {
+            Type::Enum(name, type_args) => self
+                .env
+                .lookup_enum(name)
+                .cloned()
+                .map(|def| (def, type_args.clone())),
+            _ => self.find_enum_for_variant(variant_name),
+        };
+
+        let Some((enum_def, type_args)) = enum_info else {
+            // Not a known variant; skip checking but still bind identifiers.
+            for field in fields {
+                if let Pattern::Ident(name, _) = field {
+                    let fresh = self.env.fresh_var();
+                    self.env.define_var(name, fresh);
+                }
+            }
+            return;
+        };
+
+        let Some(variant) = enum_def.variants.iter().find(|v| v.name == variant_name) else {
+            self.errors.push(
+                TypeErrorKind::UnknownField {
+                    ty: enum_def.name.clone(),
+                    field: variant_name.to_string(),
+                }
+                .at(span),
+            );
+            return;
+        };
+
+        match &variant.kind {
+            VariantKind::Tuple(payload_types) => {
+                if payload_types.len() != fields.len() {
+                    self.errors.push(
+                        TypeErrorKind::WrongArity {
+                            expected: payload_types.len(),
+                            found: fields.len(),
+                        }
+                        .at(span),
+                    );
+                    return;
+                }
+                for (field_pat, payload_ty) in fields.iter().zip(payload_types.iter()) {
+                    let resolved = self.instantiate_generic_type(
+                        payload_ty,
+                        &enum_def.generic_params,
+                        &type_args,
+                    );
+                    self.check_pattern(field_pat, &resolved);
+                }
+            }
+            VariantKind::Unit => {
+                if !fields.is_empty() {
+                    self.errors.push(
+                        TypeErrorKind::WrongArity {
+                            expected: 0,
+                            found: fields.len(),
+                        }
+                        .at(span),
+                    );
+                }
+            }
+            VariantKind::Struct(_) => {
+                self.errors.push(
+                    TypeErrorKind::Mismatch {
+                        expected: "struct pattern".to_string(),
+                        found: "tuple pattern".to_string(),
+                    }
+                    .at(span),
+                );
+            }
+        }
+    }
+
+    /// Checks a struct pattern (e.g., `Point { x, y }`) against the scrutinee.
+    fn check_struct_pattern(
+        &mut self,
+        type_name: &str,
+        fields: &[PatternField],
+        scrutinee_ty: &Type,
+        span: Span,
+    ) {
+        let struct_info = match scrutinee_ty {
+            Type::Struct(name, type_args) if name == type_name => self
+                .env
+                .lookup_struct(name)
+                .cloned()
+                .map(|def| (def, type_args.clone())),
+            _ => None,
+        };
+
+        let Some((struct_def, type_args)) = struct_info else {
+            for field in fields {
+                let name = field
+                    .pattern
+                    .as_ref()
+                    .and_then(|p| match p.as_ref() {
+                        Pattern::Ident(n, _) => Some(n.clone()),
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| field.name.clone());
+                let fresh = self.env.fresh_var();
+                self.env.define_var(&name, fresh);
+            }
+            return;
+        };
+
+        for pf in fields {
+            match struct_def
+                .fields
+                .iter()
+                .find(|(fname, _)| fname == &pf.name)
+            {
+                Some((_, field_ty)) => {
+                    let resolved = self.instantiate_generic_type(
+                        field_ty,
+                        &struct_def.generic_params,
+                        &type_args,
+                    );
+                    match &pf.pattern {
+                        Some(sub_pat) => self.check_pattern(sub_pat, &resolved),
+                        None => self.env.define_var(&pf.name, resolved),
+                    }
+                }
+                None => {
+                    self.errors.push(
+                        TypeErrorKind::UnknownField {
+                            ty: struct_def.name.clone(),
+                            field: pf.name.clone(),
+                        }
+                        .at(span),
+                    );
+                }
+            }
+        }
+    }
+
+    /// Searches all registered enums for a variant with the given name.
+    fn find_enum_for_variant(&mut self, variant_name: &str) -> Option<(EnumDef, Vec<Type>)> {
+        let def = self
+            .env
+            .all_enums()
+            .find(|def| def.variants.iter().any(|v| v.name == variant_name))
+            .cloned()?;
+        let type_args = def
+            .generic_params
+            .iter()
+            .map(|_| self.env.fresh_var())
+            .collect();
+        Some((def, type_args))
+    }
+
+    /// Substitutes generic type parameters with concrete type arguments.
+    fn instantiate_generic_type(
+        &self,
+        ty: &Type,
+        generic_params: &[String],
+        type_args: &[Type],
+    ) -> Type {
+        match ty {
+            Type::Generic(name, _) => generic_params
+                .iter()
+                .position(|g| g == name)
+                .and_then(|i| type_args.get(i))
+                .cloned()
+                .unwrap_or_else(|| ty.clone()),
+            Type::Array(elem) => Type::Array(Box::new(self.instantiate_generic_type(
+                elem,
+                generic_params,
+                type_args,
+            ))),
+            Type::Hash(k, v) => Type::Hash(
+                Box::new(self.instantiate_generic_type(k, generic_params, type_args)),
+                Box::new(self.instantiate_generic_type(v, generic_params, type_args)),
+            ),
+            Type::Function(fn_ty) => Type::Function(FnType {
+                params: fn_ty
+                    .params
+                    .iter()
+                    .map(|p| self.instantiate_generic_type(p, generic_params, type_args))
+                    .collect(),
+                ret: Box::new(self.instantiate_generic_type(&fn_ty.ret, generic_params, type_args)),
+            }),
+            Type::Struct(name, args) => Type::Struct(
+                name.clone(),
+                args.iter()
+                    .map(|a| self.instantiate_generic_type(a, generic_params, type_args))
+                    .collect(),
+            ),
+            Type::Enum(name, args) => Type::Enum(
+                name.clone(),
+                args.iter()
+                    .map(|a| self.instantiate_generic_type(a, generic_params, type_args))
+                    .collect(),
+            ),
+            _ => ty.clone(),
+        }
+    }
+
+    /// Checks that a `match` expression is exhaustive.
+    ///
+    /// For enum types, verifies that all variants are covered (or a wildcard/
+    /// catch-all pattern is present). For non-enum types, requires a wildcard
+    /// or ident catch-all.
+    fn check_exhaustiveness(&mut self, scrutinee_ty: &Type, match_expr: &MatchExpr) {
+        let enum_def = match scrutinee_ty {
+            Type::Enum(name, _) => self.env.lookup_enum(name).cloned(),
+            _ => None,
+        };
+
+        let has_wildcard = match_expr
+            .arms
+            .iter()
+            .any(|arm| arm.guard.is_none() && self.pattern_is_catch_all(&arm.pattern, &enum_def));
+
+        if has_wildcard {
+            return;
+        }
+
+        match scrutinee_ty {
+            Type::Enum(_, _) => {
+                if let Some(def) = &enum_def {
+                    let covered = match_expr
+                        .arms
+                        .iter()
+                        .filter_map(|arm| self.extract_variant_name(&arm.pattern, def))
+                        .collect::<std::collections::HashSet<&str>>();
+
+                    let missing = def
+                        .variants
+                        .iter()
+                        .map(|v| v.name.as_str())
+                        .filter(|name| !covered.contains(name))
+                        .collect::<Vec<&str>>();
+
+                    if !missing.is_empty() {
+                        self.errors.push(
+                            TypeErrorKind::NonExhaustiveMatch {
+                                missing: missing.join(", "),
+                            }
+                            .at(match_expr.span),
+                        );
+                    }
+                }
+            }
+            Type::Bool => {
+                let has_true = match_expr.arms.iter().any(|arm| {
+                    matches!(&arm.pattern, Pattern::Literal(e) if matches!(e.as_ref(), Expr::Bool(Bool { value: true, .. })))
+                });
+                let has_false = match_expr.arms.iter().any(|arm| {
+                    matches!(&arm.pattern, Pattern::Literal(e) if matches!(e.as_ref(), Expr::Bool(Bool { value: false, .. })))
+                });
+                if !has_true || !has_false {
+                    self.errors.push(
+                        TypeErrorKind::NonExhaustiveMatch {
+                            missing: "not all boolean values covered".to_string(),
+                        }
+                        .at(match_expr.span),
+                    );
+                }
+            }
+            _ => {
+                // For non-enum, non-bool types, a catch-all is required.
+                self.errors.push(
+                    TypeErrorKind::NonExhaustiveMatch {
+                        missing: "missing wildcard `_` or catch-all pattern".to_string(),
+                    }
+                    .at(match_expr.span),
+                );
+            }
+        }
+    }
+
+    /// Returns `true` if the pattern catches all values unconditionally.
+    ///
+    /// An ident pattern is a catch-all unless it matches a known enum variant
+    /// name in the scrutinee's enum type.
+    fn pattern_is_catch_all(&self, p: &Pattern, enum_def: &Option<EnumDef>) -> bool {
+        match p {
+            Pattern::Wildcard(_) => true,
+            Pattern::Ident(name, _) => !enum_def
+                .as_ref()
+                .is_some_and(|def| def.variants.iter().any(|v| v.name == *name)),
+            _ => false,
+        }
+    }
+
+    /// Extracts the variant name from a pattern if it is a constructor pattern.
+    fn extract_variant_name<'a>(&self, p: &'a Pattern, enum_def: &EnumDef) -> Option<&'a str> {
+        match p {
+            Pattern::TupleStruct { path, .. } => Some(path.as_str()),
+            Pattern::Struct { path, .. } => Some(path.as_str()),
+            Pattern::Ident(name, _) => {
+                // Check if this identifier is actually a unit variant name.
+                if enum_def.variants.iter().any(|v| v.name == *name) {
+                    Some(name.as_str())
+                } else {
+                    None
+                }
+            }
+            Pattern::Or(pats, _) => pats
+                .iter()
+                .find_map(|p| self.extract_variant_name(p, enum_def)),
+            _ => None,
         }
     }
 
     /// Checks an infix expression, inserting promotion casts if needed.
     fn check_infix(&mut self, infix: &mut InfixExpr) -> Type {
+        if infix.operator == "&&" || infix.operator == "||" {
+            let lhs_ty = self.infer_expression(&mut infix.lhs);
+            let lhs_resolved = self.subst.apply(&lhs_ty);
+            self.require_bool(&lhs_resolved, infix.lhs.span());
+
+            let rhs_ty = self.infer_expression(&mut infix.rhs);
+            let rhs_resolved = self.subst.apply(&rhs_ty);
+            self.require_bool(&rhs_resolved, infix.rhs.span());
+
+            return Type::Bool;
+        }
+
         let lhs_ty = self.infer_expression(&mut infix.lhs);
         let rhs_ty = self.infer_expression(&mut infix.rhs);
 
@@ -458,7 +1350,7 @@ impl TypeChecker {
         }
 
         // Numeric operations
-        if lhs_resolved.is_numeric() && rhs_resolved.is_numeric() {
+        if lhs_resolved.is_integer() && rhs_resolved.is_integer() {
             if lhs_resolved == rhs_resolved {
                 return if is_comparison {
                     Type::Bool
@@ -473,11 +1365,6 @@ impl TypeChecker {
                     self.maybe_insert_cast(&mut infix.rhs, &rhs_resolved, &promoted);
                     if is_comparison { Type::Bool } else { promoted }
                 }
-                Err(PromotionError::ImplicitFloat) => {
-                    self.errors
-                        .push(TypeErrorKind::ImplicitFloatPromotion.at(infix.span));
-                    self.env.fresh_var()
-                }
                 Err(PromotionError::NonNumeric(ty)) => {
                     self.errors.push(
                         TypeErrorKind::Mismatch {
@@ -490,7 +1377,6 @@ impl TypeChecker {
                 }
             }
         } else if matches!(lhs_resolved, Type::Var(_)) || matches!(rhs_resolved, Type::Var(_)) {
-            // If either side is a type variable, unify and return
             if let Err(e) = self.subst.unify(&lhs_resolved, &rhs_resolved) {
                 self.report_unify_error(e, infix.span);
             }
@@ -512,20 +1398,20 @@ impl TypeChecker {
     }
 
     /// Wraps an expression in a `Cast` node if it needs promotion.
-    fn maybe_insert_cast(&self, expr: &mut Box<Expression>, current: &Type, target: &Type) {
+    fn maybe_insert_cast(&self, expr: &mut Box<Expr>, current: &Type, target: &Type) {
         if current == target {
             return;
         }
-        if let Some(ann) = target.to_annotation() {
+        if let Some(ann) = target.to_type_annotation() {
             let span = expr.span();
             let inner = std::mem::replace(
                 expr.as_mut(),
-                Expression::Boolean(BooleanLiteral {
+                Expr::Bool(Bool {
                     value: false,
                     span: Span::ZERO,
                 }),
             );
-            *expr.as_mut() = Expression::Cast(CastExpr {
+            *expr.as_mut() = Expr::Cast(CastExpr {
                 expr: Box::new(inner),
                 target: ann,
                 span,
@@ -534,12 +1420,16 @@ impl TypeChecker {
     }
 
     /// Infers the type of a block (the type of its last expression statement).
-    fn infer_block(&mut self, block: &mut BlockStatement) -> Type {
+    fn infer_block(&mut self, block: &mut BlockStmt) -> Type {
         let mut last = Type::Null;
         for stmt in &mut block.statements {
             match stmt {
-                Statement::Expression(es) => {
+                Stmt::Expr(es) => {
                     last = self.infer_expression(&mut es.value);
+                }
+                Stmt::Return(ret) => {
+                    self.infer_expression(&mut ret.value);
+                    last = Type::Never;
                 }
                 _ => {
                     self.check_statement(stmt);
@@ -551,7 +1441,7 @@ impl TypeChecker {
     }
 
     /// Checks that a literal value fits within the declared type's range.
-    fn check_literal_range(&mut self, expr: &Expression, expected: &Type, span: Span) {
+    fn check_literal_range(&mut self, expr: &Expr, expected: &Type, span: Span) {
         let Some(val) = expr.extract_integer_value() else {
             return;
         };
@@ -587,6 +1477,24 @@ impl TypeChecker {
         }
     }
 
+    /// Ensures a resolved type is `Bool`, reporting a mismatch if not.
+    fn require_bool(&mut self, resolved: &Type, span: Span) {
+        if !matches!(resolved, Type::Bool | Type::Var(_)) {
+            self.errors.push(
+                TypeErrorKind::Mismatch {
+                    expected: "bool".to_string(),
+                    found: resolved.to_string(),
+                }
+                .at(span),
+            );
+        }
+        if let Type::Var(_) = resolved
+            && let Err(e) = self.subst.unify(resolved, &Type::Bool)
+        {
+            self.report_unify_error(e, span);
+        }
+    }
+
     fn report_unify_error(&mut self, err: UnifyError, span: Span) {
         let kind = match err {
             UnifyError::Mismatch(a, b) => TypeErrorKind::Mismatch {
@@ -598,62 +1506,5 @@ impl TypeChecker {
             }
         };
         self.errors.push(kind.at(span));
-    }
-}
-
-/// Converts a `TypeAnnotation` (for `as` casts) to an internal `Type`.
-fn type_annotation_to_type(ann: &TypeAnnotation) -> Type {
-    match ann {
-        TypeAnnotation::I8 => Type::I8,
-        TypeAnnotation::I16 => Type::I16,
-        TypeAnnotation::I32 => Type::I32,
-        TypeAnnotation::I64 => Type::I64,
-        TypeAnnotation::I128 => Type::I128,
-        TypeAnnotation::Isize => Type::Isize,
-        TypeAnnotation::U8 => Type::U8,
-        TypeAnnotation::U16 => Type::U16,
-        TypeAnnotation::U32 => Type::U32,
-        TypeAnnotation::U64 => Type::U64,
-        TypeAnnotation::U128 => Type::U128,
-        TypeAnnotation::Usize => Type::Usize,
-        TypeAnnotation::F32 => Type::F32,
-        TypeAnnotation::F64 => Type::F64,
-    }
-}
-
-/// Rewrites a literal expression to match the target numeric type.
-///
-/// Called after range checking has confirmed the value fits. For negated
-/// literals, the prefix is collapsed into a single signed literal node.
-fn coerce_literal(expr: &mut Expression, target: &Type) {
-    let Some(val) = expr.extract_integer_value() else {
-        return;
-    };
-    let span = expr.span();
-
-    macro_rules! rewrite {
-        ($variant:ident, $ty:ty) => {
-            *expr = Expression::$variant($variant {
-                radix: Radix::Dec,
-                value: val as $ty,
-                span,
-            })
-        };
-    }
-
-    match target {
-        Type::I8 => rewrite!(I8, i8),
-        Type::I16 => rewrite!(I16, i16),
-        Type::I32 => rewrite!(I32, i32),
-        Type::I64 => rewrite!(I64, i64),
-        Type::I128 => rewrite!(I128, i128),
-        Type::Isize => rewrite!(Isize, isize),
-        Type::U8 => rewrite!(U8, u8),
-        Type::U16 => rewrite!(U16, u16),
-        Type::U32 => rewrite!(U32, u32),
-        Type::U64 => rewrite!(U64, u64),
-        Type::U128 => rewrite!(U128, u128),
-        Type::Usize => rewrite!(Usize, usize),
-        _ => {}
     }
 }

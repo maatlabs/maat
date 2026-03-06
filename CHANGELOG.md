@@ -4,6 +4,81 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-03-06
+
+Custom types release. Maat now supports user-defined structs, enums, traits, impl blocks, and pattern matching with Rust-native syntax. Floating-point types have been removed as they are incompatible with finite-field arithmetic. `Option<T>` and `Result<T, E>` are pre-registered as language-level enums.
+
+### Added
+
+#### Custom Types
+
+- **Structs**: `struct Point { x: i64, y: i64 }` with named fields, generics (`struct Wrapper<T> { inner: T }`), and nested structs
+- **Enums**: `enum Shape { Circle(i64), Rect(i64, i64) }` with unit, tuple, and struct variants
+- **Traits**: `trait Describable { fn describe(self) -> i64; }` with required and default method signatures
+- **Impl blocks**: Inherent (`impl Point { ... }`) and trait (`impl Describable for Point { ... }`) implementations
+- **Pattern matching**: `match expr { Pattern => body, ... }` with literal, identifier, tuple-struct, wildcard (`_`), and or-patterns
+- **Field access**: `point.x` dot syntax for struct fields
+- **Method calls**: `point.sum()` with automatic `self` passing; static methods via `Type::method()` path syntax
+- **`Option<T>`** (`Some(T)` / `None`) and **`Result<T, E>`** (`Ok(T)` / `Err(E)`) pre-registered as built-in enums--no user declaration required
+- Duplicate declarations of `Option` or `Result` rejected at compile time
+
+#### New Opcodes
+
+| Opcode      | Description                                                                 |
+| ----------- | --------------------------------------------------------------------------- |
+| `Construct` | Build a struct or enum variant from stack values (type index + field count) |
+| `GetField`  | Extract a field from a struct or enum variant by index                      |
+| `MatchTag`  | Compare enum variant tag and conditionally jump (peek, no pop)              |
+
+#### New Runtime Objects
+
+- **`Object::Struct`**: Type index + ordered field vector
+- **`Object::EnumVariant`**: Type index + variant tag + field vector
+- Full serialization support for both via `postcard`
+
+#### Type System
+
+- Two-pass type checking: pass 1 registers all type declarations (enabling forward references), pass 2 checks all expressions and statements
+- Struct literal field validation (unknown fields, missing fields, type mismatches)
+- Enum variant constructor resolution (`Shape::Circle(5)` as tuple constructor, `Color::Red` as unit value)
+- Method resolution: inherent impls first, then trait impls (static dispatch)
+- Trait satisfaction checking: all required methods must be implemented with correct signatures
+- `TypeScheme`-based let-polymorphism: `let id = fn(x) { x }; id(5); id(true);` now works correctly
+- Polymorphic function instantiation per call site
+
+#### Testing & Examples
+
+- Integration tests in `tests/tests/custom_types.rs` covering structs, enums, methods, traits, generics, `Option`, `Result`, chained matching, and serialization round-trips
+- New `examples/custom_types.mt` showcasing structs, enums, methods, `Option`, and `Result`
+- Benchmarks for struct construction + methods, enum matching, and `Option` matching
+
+### Changed
+
+- **Opcode count**: 32 -> 35 (`Construct`, `GetField`, `MatchTag`)
+- **Bytecode**: Added `type_registry: Vec<TypeDef>` field for struct/enum metadata, included in serialization
+- **AST**: Added `Stmt::StructDecl`, `Stmt::EnumDecl`, `Stmt::TraitDecl`, `Stmt::ImplBlock`, `Expr::Match`, `Expr::FieldAccess`, `Expr::MethodCall`, `Expr::StructLit`, `Expr::PathExpr`, and `Pattern` enum
+- **Lexer**: Added keywords (`struct`, `enum`, `match`, `impl`, `trait`, `self`, `Self`) and tokens (`=>`, `::`, `.`)
+- **Parser**: Struct literal disambiguation (uppercase-first + `{` = struct, lowercase = hash map); path expression parsing for `Enum::Variant` and `Type::method`
+- **Compiler**: Type registry shared between compiler and VM; methods compiled as `Type::method` qualified bindings; `match` compiled as `MatchTag`/`CondJump` chains with back-patching
+- **Evaluator**: `StructLit`, `PathExpr`, `Match`, `FieldAccess`, `MethodCall` added to unsupported-in-tree-walker error group
+- **Constant folding**: Moved from `maat_types` to `maat_ast` crate; updated to treat type declarations as leaves
+- **CLI**: Consolidated error handling into `diagnostic.rs`; merged `pipeline.rs` into `cmd.rs`
+
+### Removed
+
+- **`F32`/`F64` floating-point types**: Removed from lexer, parser, AST, type system, codegen, VM, and runtime. Floats are fundamentally incompatible with finite-field arithmetic--any source using floats is now a compile-time error.
+- **`Expr::FnItem` conflation**: Split into `Stmt::FnItem` (named function declaration) and `Expr::Lambda` (anonymous closure expression).
+- **Truthy condition semantics**: `if`/`while` conditions must be `Type::Bool`--no implicit truthiness from integers, strings, or null.
+
+### Security
+
+- Float removal eliminates a class of non-determinism incompatible with ZK proofs
+- Explicit boolean conditions prevent implicit type coercion in control flow
+- Struct field access validated at compile time (no runtime field lookup by name)
+- No unsafe code
+
+---
+
 ## [0.6.0] - 2026-02-26
 
 Type system foundation release. Maat now performs Hindley-Milner type inference (Algorithm W) over the entire program, catching type errors at compile time. This release also introduces loop constructs (`for`, `while`, `loop`), typed function parameters, return type annotations, generic type parameters, and trait bounds--laying the groundwork for custom types in a future release.
@@ -495,6 +570,7 @@ When adding entries to this changelog for future releases:
 3. **Audience**: Write for users, not developers (focus on impact, not implementation)
 4. **Links**: Add comparison links at the bottom: `[0.2.0]: https://github.com/maatlabs/maat/compare/v0.1.0...v0.2.0`
 
+[0.7.0]: https://github.com/maatlabs/maat/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/maatlabs/maat/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/maatlabs/maat/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/maatlabs/maat/compare/v0.3.0...v0.4.0

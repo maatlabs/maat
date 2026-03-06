@@ -353,7 +353,7 @@ fn compile_strings() {
 
         for (i, expected) in expected_constants.iter().enumerate() {
             match &bytecode.constants[i] {
-                Object::String(value) => {
+                Object::Str(value) => {
                     assert_eq!(value, expected, "constant {i} wrong for input: {input}")
                 }
                 _ => panic!("expected string constant at index {i}"),

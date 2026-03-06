@@ -6,14 +6,15 @@
 
 use std::io::{self, BufRead, Write};
 
-use maat_ast::{Node, Statement};
+use maat_ast::fold::fold_constants;
+use maat_ast::{Node, Stmt};
 use maat_codegen::{Compiler, SymbolsTable};
 use maat_errors::Error;
 use maat_eval::{define_macros, expand_macros};
 use maat_lexer::Lexer;
 use maat_parser::Parser;
 use maat_runtime::{Env, Object};
-use maat_types::{TypeChecker, fold_constants};
+use maat_types::TypeChecker;
 use maat_vm::VM;
 
 use crate::diagnostic;
@@ -52,7 +53,7 @@ pub fn start<R: BufRead, W: Write>(mut reader: R, writer: &mut W) -> io::Result<
         }
 
         let mut parser = Parser::new(Lexer::new(line));
-        let program = parser.parse_program();
+        let program = parser.parse();
 
         if !parser.errors().is_empty() {
             for err in parser.errors() {
@@ -88,10 +89,7 @@ pub fn start<R: BufRead, W: Write>(mut reader: R, writer: &mut W) -> io::Result<
         }
 
         let only_let_stmts = !program.statements.is_empty()
-            && program
-                .statements
-                .iter()
-                .all(|s| matches!(s, Statement::Let(_)));
+            && program.statements.iter().all(|s| matches!(s, Stmt::Let(_)));
 
         let prev_symbols = symbols_table.clone();
         let prev_constants = constants.clone();

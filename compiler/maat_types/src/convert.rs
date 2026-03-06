@@ -7,19 +7,19 @@ use crate::ty::{FnType, Type};
 /// Resolves a parsed type expression into an internal type.
 ///
 /// Maps named types to their corresponding [`Type`] variants:
-/// - Numeric types (`i8`, `i64`, `f64`, etc.)
+/// - Numeric types (`i8`, `i64`, `u32`, etc.)
 /// - `bool` -> [`Type::Bool`]
 /// - `String` -> [`Type::String`]
 /// - `null` -> [`Type::Null`]
 /// - Unknown names are treated as generic type references.
 ///
-/// Compound types ([`TypeExpr::Array`], [`TypeExpr::Hash`], [`TypeExpr::Fn`],
+/// Compound types ([`TypeExpr::Array`], [`TypeExpr::Map`], [`TypeExpr::Fn`],
 /// [`TypeExpr::Generic`]) are resolved recursively.
 pub fn resolve_type_expr(expr: &TypeExpr) -> Type {
     match expr {
         TypeExpr::Named(named) => resolve_named(&named.name),
         TypeExpr::Array(elem, _) => Type::Array(Box::new(resolve_type_expr(elem))),
-        TypeExpr::Hash(k, v, _) => Type::Hash(
+        TypeExpr::Map(k, v, _) => Type::Hash(
             Box::new(resolve_type_expr(k)),
             Box::new(resolve_type_expr(v)),
         ),
@@ -49,8 +49,6 @@ fn resolve_named(name: &str) -> Type {
         "u64" => Type::U64,
         "u128" => Type::U128,
         "usize" => Type::Usize,
-        "f32" => Type::F32,
-        "f64" => Type::F64,
         "bool" => Type::Bool,
         "String" => Type::String,
         "null" => Type::Null,
@@ -71,7 +69,6 @@ mod tests {
             ("i8", Type::I8),
             ("i64", Type::I64),
             ("u32", Type::U32),
-            ("f64", Type::F64),
             ("bool", Type::Bool),
             ("String", Type::String),
             ("null", Type::Null),

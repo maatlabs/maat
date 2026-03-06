@@ -45,16 +45,16 @@ impl ParseError {
 #[derive(Debug, thiserror::Error)]
 pub enum EvalError {
     #[error("{0}")]
-    Identifier(String),
+    Ident(String),
 
     #[error("{0}")]
-    IndexExpression(String),
+    IndexExpr(String),
 
     #[error("{0}")]
-    PrefixExpression(String),
+    PrefixExpr(String),
 
     #[error("{0}")]
-    InfixExpression(String),
+    InfixExpr(String),
 
     #[error("{0}")]
     Boolean(String),
@@ -99,8 +99,52 @@ pub enum TypeErrorKind {
 
     #[error("numeric overflow: `{value}` out of range for `{target}`")]
     NumericOverflow { value: String, target: String },
-    #[error("implicit float promotion is not allowed; use an explicit `as` cast")]
-    ImplicitFloatPromotion,
+
+    #[error("unknown type `{0}`")]
+    UnknownType(String),
+
+    #[error("no field `{field}` on type `{ty}`")]
+    UnknownField { ty: String, field: String },
+
+    #[error("no method `{method}` found for type `{ty}`")]
+    UnknownMethod { ty: String, method: String },
+
+    #[error("duplicate type definition `{0}`")]
+    DuplicateType(String),
+
+    #[error("{0}")]
+    MissingTraitMethod(Box<MissingTraitMethodError>),
+
+    #[error("{0}")]
+    TraitMethodSignatureMismatch(Box<TraitMethodSignatureMismatchError>),
+
+    #[error("non-exhaustive patterns in `match`: {missing}")]
+    NonExhaustiveMatch { missing: String },
+
+    #[error("unknown trait `{0}`")]
+    UnknownTrait(String),
+}
+
+/// Detail for a missing trait method error.
+#[derive(Debug, thiserror::Error)]
+#[error("missing trait method `{method}` in impl of `{trait_name}` for `{self_type}`")]
+pub struct MissingTraitMethodError {
+    pub trait_name: String,
+    pub self_type: String,
+    pub method: String,
+}
+
+/// Detail for a trait method signature mismatch error.
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "method `{method}` has wrong signature in impl of `{trait_name}` for `{self_type}`: expected `{expected}`, found `{found}`"
+)]
+pub struct TraitMethodSignatureMismatchError {
+    pub trait_name: String,
+    pub self_type: String,
+    pub method: String,
+    pub expected: String,
+    pub found: String,
 }
 
 impl TypeErrorKind {
@@ -141,7 +185,7 @@ pub enum CompileErrorKind {
     #[error(
         "unsupported expression type '{expr_type}' (not yet implemented in this compiler phase)"
     )]
-    UnsupportedExpression { expr_type: String },
+    UnsupportedExpr { expr_type: String },
 
     #[error("invalid opcode 0x{opcode:02x} at instruction position {position}")]
     InvalidOpcode { opcode: u8, position: usize },

@@ -2,7 +2,7 @@ use std::fmt;
 use std::rc::Rc;
 
 use indexmap::IndexMap;
-use maat_ast::{BlockStatement, Node};
+use maat_ast::{BlockStmt, Node};
 use maat_errors::{Error, EvalError, Result};
 use maat_span::SourceMap;
 use serde::{Deserialize, Serialize};
@@ -11,8 +11,8 @@ use crate::Env;
 
 pub type BuiltinFn = fn(&[Object]) -> Result<Object>;
 
-pub const TRUE: Object = Object::Boolean(true);
-pub const FALSE: Object = Object::Boolean(false);
+pub const TRUE: Object = Object::Bool(true);
+pub const FALSE: Object = Object::Bool(false);
 pub const NULL: Object = Object::Null;
 
 /// Runtime value representation in the interpreter.
@@ -50,15 +50,10 @@ pub enum Object {
     /// Pointer-sized unsigned integer.
     Usize(usize),
 
-    /// 32-bit floating-point number.
-    F32(f32),
-    /// 64-bit floating-point number.
-    F64(f64),
-
     /// A boolean value (true or false).
-    Boolean(bool),
+    Bool(bool),
     /// A string literal.
-    String(String),
+    Str(String),
     /// An array literal.
     Array(Vec<Object>),
     /// A hashable object.
@@ -81,6 +76,10 @@ pub enum Object {
     CompiledFunction(CompiledFunction),
     /// A closure wrapping a compiled function with captured free variables.
     Closure(Closure),
+    /// A user-defined struct instance.
+    Struct(StructObject),
+    /// A user-defined enum variant instance.
+    EnumVariant(EnumVariantObject),
 }
 
 impl Object {
@@ -95,13 +94,13 @@ impl Object {
         ($($obj:ident => $ast_name:ident($ast_type:ident)),* $(,)?) => {
             match obj {
                 $(
-                    Self::$obj(v) => Some(Node::Expression(Expression::$ast_name(ast::$ast_type {
+                    Self::$obj(v) => Some(Node::Expr(Expr::$ast_name(ast::$ast_type {
                         radix: Radix::Dec,
                         value: *v,
                         span: Span::ZERO,
                     }))),
                 )*
-                Self::Boolean(b) => Some(Node::Expression(Expression::Boolean(BooleanLiteral {
+                Self::Bool(b) => Some(Node::Expr(Expr::Bool(Bool {
                     value: *b,
                     span: Span::ZERO,
                 }))),
@@ -134,7 +133,7 @@ impl Object {
     #[inline]
     pub fn is_truthy(&self) -> bool {
         match self {
-            Object::Boolean(b) => *b,
+            Object::Bool(b) => *b,
             Object::Null => false,
             _ => true,
         }
@@ -218,12 +217,10 @@ impl Object {
             Self::U64(_) => "U64",
             Self::U128(_) => "U128",
             Self::Usize(_) => "Usize",
-            Self::F32(_) => "F32",
-            Self::F64(_) => "F64",
-            Self::Boolean(_) => "Boolean",
-            Self::String(_) => "String",
+            Self::Bool(_) => "Bool",
+            Self::Str(_) => "Str",
             Self::Array(_) => "Array",
-            Self::Hash(_) => "Hashable",
+            Self::Hash(_) => "HashObject",
             Self::Function(_) => "Function",
             Self::Macro(_) => "Macro",
             Self::Quote(_) => "Quote",
@@ -233,6 +230,8 @@ impl Object {
             Self::Builtin(_) => "BuiltinFn",
             Self::CompiledFunction(_) => "CompiledFunction",
             Self::Closure(_) => "Closure",
+            Self::Struct(_) => "Struct",
+            Self::EnumVariant(_) => "EnumVariant",
         }
     }
 }
@@ -258,14 +257,14 @@ enum SerializableObject {
     U64(u64),
     U128(u128),
     Usize(usize),
-    F32(f32),
-    F64(f64),
-    Boolean(bool),
-    String(String),
+    Bool(bool),
+    Str(String),
     Array(Vec<Object>),
     Hash(HashObject),
     CompiledFunction(CompiledFunction),
     Closure(Closure),
+    Struct(StructObject),
+    EnumVariant(EnumVariantObject),
 }
 
 impl Serialize for Object {
@@ -287,14 +286,14 @@ impl Serialize for Object {
             Self::U64(v) => SerializableObject::U64(*v),
             Self::U128(v) => SerializableObject::U128(*v),
             Self::Usize(v) => SerializableObject::Usize(*v),
-            Self::F32(v) => SerializableObject::F32(*v),
-            Self::F64(v) => SerializableObject::F64(*v),
-            Self::Boolean(v) => SerializableObject::Boolean(*v),
-            Self::String(v) => SerializableObject::String(v.clone()),
+            Self::Bool(v) => SerializableObject::Bool(*v),
+            Self::Str(v) => SerializableObject::Str(v.clone()),
             Self::Array(v) => SerializableObject::Array(v.clone()),
             Self::Hash(v) => SerializableObject::Hash(v.clone()),
             Self::CompiledFunction(v) => SerializableObject::CompiledFunction(v.clone()),
             Self::Closure(v) => SerializableObject::Closure(v.clone()),
+            Self::Struct(v) => SerializableObject::Struct(v.clone()),
+            Self::EnumVariant(v) => SerializableObject::EnumVariant(v.clone()),
             other => {
                 return Err(serde::ser::Error::custom(format!(
                     "non-serializable object type: {}",
@@ -324,14 +323,14 @@ impl<'de> Deserialize<'de> for Object {
             SerializableObject::U64(v) => Self::U64(v),
             SerializableObject::U128(v) => Self::U128(v),
             SerializableObject::Usize(v) => Self::Usize(v),
-            SerializableObject::F32(v) => Self::F32(v),
-            SerializableObject::F64(v) => Self::F64(v),
-            SerializableObject::Boolean(v) => Self::Boolean(v),
-            SerializableObject::String(v) => Self::String(v),
+            SerializableObject::Bool(v) => Self::Bool(v),
+            SerializableObject::Str(v) => Self::Str(v),
             SerializableObject::Array(v) => Self::Array(v),
             SerializableObject::Hash(v) => Self::Hash(v),
             SerializableObject::CompiledFunction(v) => Self::CompiledFunction(v),
             SerializableObject::Closure(v) => Self::Closure(v),
+            SerializableObject::Struct(v) => Self::Struct(v),
+            SerializableObject::EnumVariant(v) => Self::EnumVariant(v),
         })
     }
 }
@@ -353,10 +352,8 @@ impl PartialEq for Object {
             (U64(a), U64(b)) => a == b,
             (U128(a), U128(b)) => a == b,
             (Usize(a), Usize(b)) => a == b,
-            (F32(a), F32(b)) => a.total_cmp(b).is_eq(),
-            (F64(a), F64(b)) => a.total_cmp(b).is_eq(),
-            (Boolean(a), Boolean(b)) => a == b,
-            (String(a), String(b)) => a == b,
+            (Bool(a), Bool(b)) => a == b,
+            (Str(a), Str(b)) => a == b,
             (Array(a1), Array(a2)) => a1 == a2,
             (Hash(h1), Hash(h2)) => h1 == h2,
             (Function(f1), Function(f2)) => f1 == f2,
@@ -368,6 +365,8 @@ impl PartialEq for Object {
             (Builtin(f1), Builtin(f2)) => std::ptr::fn_addr_eq(*f1, *f2),
             (CompiledFunction(c1), CompiledFunction(c2)) => c1 == c2,
             (Closure(c1), Closure(c2)) => c1 == c2,
+            (Struct(s1), Struct(s2)) => s1 == s2,
+            (EnumVariant(e1), EnumVariant(e2)) => e1 == e2,
             _ => false,
         }
     }
@@ -377,7 +376,7 @@ impl PartialEq for Object {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Function {
     pub params: Vec<String>,
-    pub body: BlockStatement,
+    pub body: BlockStmt,
     pub env: Env,
 }
 
@@ -385,7 +384,7 @@ pub struct Function {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Macro {
     pub params: Vec<String>,
-    pub body: BlockStatement,
+    pub body: BlockStmt,
     pub env: Env,
 }
 
@@ -437,6 +436,59 @@ pub struct Closure {
     pub free_vars: Vec<Object>,
 }
 
+/// A user-defined struct instance at runtime.
+///
+/// Stores the type registry index and field values in declaration order.
+/// Field names are resolved at compile time; the VM accesses fields by index.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StructObject {
+    /// Index into the shared type registry.
+    pub type_index: u16,
+    /// Field values in declaration order.
+    pub fields: Vec<Object>,
+}
+
+/// A user-defined enum variant instance at runtime.
+///
+/// Stores the type registry index, variant tag (discriminant), and
+/// any associated data fields.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EnumVariantObject {
+    /// Index into the shared type registry.
+    pub type_index: u16,
+    /// Variant discriminant (positional index within the enum definition).
+    pub tag: u16,
+    /// Associated data fields (empty for unit variants).
+    pub fields: Vec<Object>,
+}
+
+/// A type definition in the shared type registry.
+///
+/// Shared between the compiler (which registers types during compilation)
+/// and the VM (which reads type metadata for field access and pattern matching).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum TypeDef {
+    /// A struct type with ordered named fields.
+    Struct {
+        name: String,
+        field_names: Vec<String>,
+    },
+    /// An enum type with ordered variants.
+    Enum {
+        name: String,
+        variants: Vec<VariantInfo>,
+    },
+}
+
+/// Metadata for a single enum variant.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VariantInfo {
+    /// Variant name (e.g., `Some`, `None`).
+    pub name: String,
+    /// Number of data fields this variant carries.
+    pub field_count: u8,
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct HashObject {
     pub pairs: IndexMap<Hashable, Object>,
@@ -456,8 +508,8 @@ pub enum Hashable {
     U64(u64),
     U128(u128),
     Usize(usize),
-    Boolean(bool),
-    String(String),
+    Bool(bool),
+    Str(String),
 }
 
 impl TryFrom<Object> for Hashable {
@@ -477,8 +529,8 @@ impl TryFrom<Object> for Hashable {
             Object::U64(i) => Ok(Self::U64(i)),
             Object::U128(i) => Ok(Self::U128(i)),
             Object::Usize(i) => Ok(Self::Usize(i)),
-            Object::Boolean(b) => Ok(Self::Boolean(b)),
-            Object::String(s) => Ok(Self::String(s)),
+            Object::Bool(b) => Ok(Self::Bool(b)),
+            Object::Str(s) => Ok(Self::Str(s)),
             obj => Err(EvalError::NotHashable(obj.type_name().to_owned()).into()),
         }
     }
@@ -500,10 +552,8 @@ impl fmt::Display for Object {
             Self::U64(v) => v.fmt(f),
             Self::U128(v) => v.fmt(f),
             Self::Usize(v) => v.fmt(f),
-            Self::F32(v) => v.fmt(f),
-            Self::F64(v) => v.fmt(f),
-            Self::Boolean(boolean) => boolean.fmt(f),
-            Self::String(string) => string.fmt(f),
+            Self::Bool(boolean) => boolean.fmt(f),
+            Self::Str(string) => string.fmt(f),
             Self::Array(array) => {
                 write!(
                     f,
@@ -525,6 +575,36 @@ impl fmt::Display for Object {
             Self::Builtin(_) => write!(f, "builtin function"),
             Self::CompiledFunction(cf) => write!(f, "CompiledFunction[{:p}]", cf),
             Self::Closure(cl) => write!(f, "Closure[{:p}]", &cl.func),
+            Self::Struct(s) => {
+                write!(f, "Struct({}", s.type_index)?;
+                if !s.fields.is_empty() {
+                    write!(
+                        f,
+                        " {{ {} }}",
+                        s.fields
+                            .iter()
+                            .map(|v| format!("{v}"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )?;
+                }
+                write!(f, ")")
+            }
+            Self::EnumVariant(ev) => {
+                write!(f, "EnumVariant({}::{})", ev.type_index, ev.tag)?;
+                if !ev.fields.is_empty() {
+                    write!(
+                        f,
+                        "({})",
+                        ev.fields
+                            .iter()
+                            .map(|v| format!("{v}"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )?;
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -576,8 +656,8 @@ impl fmt::Display for Hashable {
             Self::U64(v) => v.fmt(f),
             Self::U128(v) => v.fmt(f),
             Self::Usize(v) => v.fmt(f),
-            Self::Boolean(b) => b.fmt(f),
-            Self::String(s) => s.fmt(f),
+            Self::Bool(b) => b.fmt(f),
+            Self::Str(s) => s.fmt(f),
         }
     }
 }

@@ -48,6 +48,7 @@ impl Substitution {
             Type::Function(fn_ty) => {
                 fn_ty.params.iter().any(|p| self.occurs(var, p)) || self.occurs(var, &fn_ty.ret)
             }
+            Type::Struct(_, args) | Type::Enum(_, args) => args.iter().any(|a| self.occurs(var, a)),
             _ => false,
         }
     }
@@ -77,6 +78,17 @@ impl Substitution {
                 self.unify(va, vb)
             }
 
+            (Type::Struct(na, args_a), Type::Struct(nb, args_b))
+            | (Type::Enum(na, args_a), Type::Enum(nb, args_b)) => {
+                if na != nb || args_a.len() != args_b.len() {
+                    return Err(UnifyError::Mismatch(a, b));
+                }
+                for (pa, pb) in args_a.iter().zip(args_b.iter()) {
+                    self.unify(pa, pb)?;
+                }
+                Ok(())
+            }
+
             (Type::Function(fa), Type::Function(fb)) => {
                 if fa.params.len() != fb.params.len() {
                     return Err(UnifyError::Mismatch(a, b));
@@ -104,6 +116,12 @@ impl Substitution {
                 params: fn_ty.params.iter().map(|p| self.apply(p)).collect(),
                 ret: Box::new(self.apply(&fn_ty.ret)),
             }),
+            Type::Struct(name, args) => {
+                Type::Struct(name.clone(), args.iter().map(|a| self.apply(a)).collect())
+            }
+            Type::Enum(name, args) => {
+                Type::Enum(name.clone(), args.iter().map(|a| self.apply(a)).collect())
+            }
             _ => ty.clone(),
         }
     }
@@ -111,19 +129,6 @@ impl Substitution {
     /// Looks up the binding for a type variable.
     pub fn get(&self, var: &TypeVarId) -> Option<&Type> {
         self.map.get(var)
-    }
-
-    /// Composes another substitution into this one.
-    ///
-    /// Applies `other` to all existing bindings, then merges `other`'s
-    /// bindings (without overwriting existing ones).
-    pub fn compose(&mut self, other: &Substitution) {
-        for (_, ty) in self.map.iter_mut() {
-            *ty = other.apply(ty);
-        }
-        for (&var, ty) in &other.map {
-            self.map.entry(var).or_insert_with(|| ty.clone());
-        }
     }
 }
 

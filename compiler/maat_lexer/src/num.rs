@@ -17,8 +17,6 @@ pub enum Suffix {
     U64,
     U128,
     Usize,
-    F32,
-    F64,
 }
 
 impl Suffix {
@@ -38,8 +36,6 @@ impl Suffix {
             Self::U64 => TokenKind::U64,
             Self::U128 => TokenKind::U128,
             Self::Usize => TokenKind::Usize,
-            Self::F32 => TokenKind::F32,
-            Self::F64 => TokenKind::F64,
         }
     }
 }
@@ -58,6 +54,10 @@ pub(super) fn match_int_suffix(bytes: &[u8]) -> Option<(Suffix, usize)> {
     }
 
     let prefix = *bytes.first()?;
+
+    if prefix != b'i' && prefix != b'u' {
+        return None;
+    }
 
     // Check single-digit suffixes: i8/u8
     if bytes.get(1..2) == Some(b"8") && !bytes.get(2).is_some_and(is_ident_continue) {
@@ -103,37 +103,6 @@ pub(super) fn match_int_suffix(bytes: &[u8]) -> Option<(Suffix, usize)> {
             Suffix::Usize
         };
         return Some((suffix, 5));
-    }
-
-    None
-}
-
-/// Matches float suffixes. Returns the specific suffix type and its length.
-/// Supports: f32, f64.
-///
-/// Boundary rule: Only match if suffix is followed by non-alphanumeric character.
-/// This prevents matching partial suffixes like "f64" in "42f641", such as in Rust
-/// where invalid suffixes like "f641" cause errors.
-#[inline]
-pub(super) fn match_float_suffix(bytes: &[u8]) -> Option<(Suffix, usize)> {
-    #[inline]
-    fn is_ident_continue(b: &u8) -> bool {
-        b.is_ascii_alphanumeric() || *b == b'_'
-    }
-
-    if bytes.first()? != &b'f' {
-        return None;
-    }
-
-    if let Some(digits) = bytes.get(1..3)
-        && !bytes.get(3).is_some_and(is_ident_continue)
-    {
-        let suffix = match digits {
-            b"32" => Suffix::F32,
-            b"64" => Suffix::F64,
-            _ => return None,
-        };
-        return Some((suffix, 3));
     }
 
     None

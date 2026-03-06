@@ -10,7 +10,8 @@ use indexmap::IndexMap;
 use maat_bytecode::{Bytecode, MAX_FRAMES, MAX_GLOBALS, MAX_STACK_SIZE, Opcode, TypeTag};
 use maat_errors::{Result, VmError};
 use maat_runtime::{
-    BUILTINS, Closure, CompiledFunction, FALSE, HashObject, Hashable, NULL, Object, TRUE,
+    BUILTINS, Closure, CompiledFunction, EnumVariantObject, FALSE, HashObject, Hashable, NULL,
+    Object, StructObject, TRUE, TypeDef,
 };
 use maat_span::{SourceMap, Span};
 
@@ -39,24 +40,9 @@ macro_rules! int_binop {
     };
 }
 
-/// Dispatches floating-point arithmetic across F32 and F64 variants.
-///
-/// Returns `None` if the operands are not the same float type.
-macro_rules! float_binop {
-    ($left:expr, $right:expr, $op:tt) => {
-        match ($left, $right) {
-            (Object::F32(l), Object::F32(r)) => Some(Object::F32(*l $op *r)),
-            (Object::F64(l), Object::F64(r)) => Some(Object::F64(*l $op *r)),
-            _ => None,
-        }
-    };
-}
-
 /// Dispatches ordered comparison across all 12 integer variants.
 ///
 /// Returns `None` if the operands are not the same integer type.
-/// Float comparisons are handled separately via `total_cmp` for
-/// deterministic ordering of NaN, negative zero, and infinity.
 macro_rules! int_cmp {
     ($left:expr, $right:expr, $op:tt) => {
         match ($left, $right) {
@@ -72,35 +58,6 @@ macro_rules! int_cmp {
             (Object::U64(l), Object::U64(r)) => Some(*l $op *r),
             (Object::U128(l), Object::U128(r)) => Some(*l $op *r),
             (Object::Usize(l), Object::Usize(r)) => Some(*l $op *r),
-            _ => None,
-        }
-    };
-}
-
-/// Dispatches float comparison using `total_cmp` for deterministic ordering.
-///
-/// Unlike IEEE 754 partial ordering, `total_cmp` provides a total order where:
-/// - NaN values are ordered (negative NaN < -Inf < ... < Inf < positive NaN)
-/// - Negative zero is less than positive zero (-0.0 < 0.0)
-///
-/// This guarantees deterministic comparison results regardless of NaN payload
-/// or zero sign bit.
-macro_rules! float_cmp {
-    ($left:expr, $right:expr, $op:tt) => {
-        match ($left, $right) {
-            (Object::F32(l), Object::F32(r)) => Some(l.total_cmp(r) $op std::cmp::Ordering::Equal),
-            (Object::F64(l), Object::F64(r)) => Some(l.total_cmp(r) $op std::cmp::Ordering::Equal),
-            _ => None,
-        }
-    };
-}
-
-/// Dispatches ordered float comparison using `total_cmp`.
-macro_rules! float_ord {
-    ($left:expr, $right:expr, $ord:pat) => {
-        match ($left, $right) {
-            (Object::F32(l), Object::F32(r)) => Some(matches!(l.total_cmp(r), $ord)),
-            (Object::F64(l), Object::F64(r)) => Some(matches!(l.total_cmp(r), $ord)),
             _ => None,
         }
     };
@@ -132,8 +89,6 @@ macro_rules! checked_neg {
 enum WideValue {
     Int(i128),
     Uint(u128),
-    F32(f32),
-    F64(f64),
 }
 
 /// A single call frame on the VM's frame stack.
@@ -178,6 +133,7 @@ pub struct VM {
     globals: Vec<Object>,
     frames: Vec<Frame>,
     source_map: SourceMap,
+    type_registry: Vec<TypeDef>,
 }
 
 impl VM {
@@ -187,6 +143,7 @@ impl VM {
     /// closure and placed as the initial frame.
     pub fn new(bytecode: Bytecode) -> Self {
         let source_map = bytecode.source_map;
+        let type_registry = bytecode.type_registry;
         let main_closure = Closure {
             func: CompiledFunction {
                 instructions: Rc::from(bytecode.instructions.as_bytes()),
@@ -205,6 +162,7 @@ impl VM {
             globals: Vec::with_capacity(MAX_GLOBALS),
             frames: vec![main_frame],
             source_map,
+            type_registry,
         }
     }
 
@@ -214,6 +172,7 @@ impl VM {
     /// across multiple bytecode executions.
     pub fn with_globals(bytecode: Bytecode, globals: Vec<Object>) -> Self {
         let source_map = bytecode.source_map;
+        let type_registry = bytecode.type_registry;
         let main_closure = Closure {
             func: CompiledFunction {
                 instructions: Rc::from(bytecode.instructions.as_bytes()),
@@ -232,6 +191,7 @@ impl VM {
             globals,
             frames: vec![main_frame],
             source_map,
+            type_registry,
         }
     }
 
@@ -491,6 +451,23 @@ impl VM {
                     self.current_frame_mut()?.ip += 1;
                     self.execute_convert(tag_byte)?;
                 }
+                Opcode::Construct => {
+                    let type_index = self.read_u16_operand(ip + 1)?;
+                    let num_fields = self.read_u8_operand(ip + 3)?;
+                    self.current_frame_mut()?.ip += 3;
+                    self.execute_construct(type_index, num_fields)?;
+                }
+                Opcode::GetField => {
+                    let field_index = self.read_u16_operand(ip + 1)?;
+                    self.current_frame_mut()?.ip += 2;
+                    self.execute_get_field(field_index)?;
+                }
+                Opcode::MatchTag => {
+                    let expected_tag = self.read_u16_operand(ip + 1)?;
+                    let jump_target = self.read_u16_operand(ip + 3)?;
+                    self.current_frame_mut()?.ip += 4;
+                    self.execute_match_tag(expected_tag, jump_target)?;
+                }
                 Opcode::ReturnValue => {
                     let return_value = self.pop_stack()?;
                     let frame = self.pop_frame()?;
@@ -658,7 +635,7 @@ impl VM {
         let right = self.pop_stack()?;
         let left = self.pop_stack()?;
 
-        if let (Object::String(l), Object::String(r)) = (&left, &right) {
+        if let (Object::Str(l), Object::Str(r)) = (&left, &right) {
             return self.execute_binary_string_operation(op, l, r);
         }
 
@@ -671,17 +648,6 @@ impl VM {
         };
         if let Some(maybe_val) = int_result {
             let val = maybe_val.ok_or_else(|| self.vm_error("integer arithmetic overflow"))?;
-            return self.push_stack(val);
-        }
-
-        let float_result = match op {
-            Opcode::Add => float_binop!(&left, &right, +),
-            Opcode::Sub => float_binop!(&left, &right, -),
-            Opcode::Mul => float_binop!(&left, &right, *),
-            Opcode::Div => float_binop!(&left, &right, /),
-            _ => None,
-        };
-        if let Some(val) = float_result {
             return self.push_stack(val);
         }
 
@@ -699,7 +665,7 @@ impl VM {
 
         // Same-type numeric comparison
         if let Some(result) = self.compare_numeric(op, &left, &right) {
-            return self.push_stack(Object::Boolean(result));
+            return self.push_stack(Object::Bool(result));
         }
 
         // Cross-type integer comparison via i128 widening
@@ -711,13 +677,13 @@ impl VM {
                 Opcode::LessThan => l < r,
                 _ => unreachable!(),
             };
-            return self.push_stack(Object::Boolean(result));
+            return self.push_stack(Object::Bool(result));
         }
 
         // Non-numeric equality (booleans, strings, arrays, etc.)
         match op {
-            Opcode::Equal => self.push_stack(Object::Boolean(left == right)),
-            Opcode::NotEqual => self.push_stack(Object::Boolean(left != right)),
+            Opcode::Equal => self.push_stack(Object::Bool(left == right)),
+            Opcode::NotEqual => self.push_stack(Object::Bool(left != right)),
             _ => Err(self.vm_error(format!(
                 "unsupported comparison: {:?} ({} {})",
                 op,
@@ -727,21 +693,15 @@ impl VM {
         }
     }
 
-    /// Attempts same-type numeric comparison across all numeric variants.
+    /// Attempts same-type numeric comparison across all integer variants.
     ///
-    /// Integer comparisons use standard operators. Float comparisons use
-    /// `total_cmp` for deterministic ordering of NaN, negative zero, and
-    /// infinity values.
-    ///
-    /// Returns `None` if the operands are not the same numeric type.
+    /// Returns `None` if the operands are not the same integer type.
     fn compare_numeric(&self, op: Opcode, left: &Object, right: &Object) -> Option<bool> {
         match op {
-            Opcode::Equal => int_cmp!(left, right, ==).or_else(|| float_cmp!(left, right, ==)),
-            Opcode::NotEqual => int_cmp!(left, right, !=).or_else(|| float_cmp!(left, right, !=)),
-            Opcode::GreaterThan => int_cmp!(left, right, >)
-                .or_else(|| float_ord!(left, right, std::cmp::Ordering::Greater)),
-            Opcode::LessThan => int_cmp!(left, right, <)
-                .or_else(|| float_ord!(left, right, std::cmp::Ordering::Less)),
+            Opcode::Equal => int_cmp!(left, right, ==),
+            Opcode::NotEqual => int_cmp!(left, right, !=),
+            Opcode::GreaterThan => int_cmp!(left, right, >),
+            Opcode::LessThan => int_cmp!(left, right, <),
             _ => None,
         }
     }
@@ -749,13 +709,13 @@ impl VM {
     /// Executes the logical NOT (bang) operator.
     fn execute_bang_operator(&mut self) -> Result<()> {
         let result = match self.pop_stack()? {
-            Object::Boolean(false) | Object::Null => TRUE,
+            Object::Bool(false) | Object::Null => TRUE,
             _ => FALSE,
         };
         self.push_stack(result)
     }
 
-    /// Executes the unary minus operator for all signed integer and float types.
+    /// Executes the unary minus operator for all signed integer types.
     fn execute_minus_operator(&mut self) -> Result<()> {
         let operand = self.pop_stack()?;
 
@@ -764,14 +724,10 @@ impl VM {
             return self.push_stack(val);
         }
 
-        match operand {
-            Object::F32(v) => self.push_stack(Object::F32(-v)),
-            Object::F64(v) => self.push_stack(Object::F64(-v)),
-            _ => Err(self.vm_error(format!(
-                "unsupported type for negation: {}",
-                operand.type_name()
-            ))),
-        }
+        Err(self.vm_error(format!(
+            "unsupported type for negation: {}",
+            operand.type_name()
+        )))
     }
 
     /// Executes an explicit type conversion (`as` operator).
@@ -808,8 +764,6 @@ impl VM {
             TypeTag::U64 => self.narrow_int::<u64>(wide, "u64").map(Object::U64),
             TypeTag::U128 => self.narrow_int::<u128>(wide, "u128").map(Object::U128),
             TypeTag::Usize => self.narrow_int::<usize>(wide, "usize").map(Object::Usize),
-            TypeTag::F32 => Self::to_f32(wide),
-            TypeTag::F64 => Self::to_f64(wide),
         }
     }
 
@@ -831,8 +785,6 @@ impl VM {
             Object::U64(v) => Ok(WideValue::Uint(*v as u128)),
             Object::U128(v) => Ok(WideValue::Uint(*v)),
             Object::Usize(v) => Ok(WideValue::Uint(*v as u128)),
-            Object::F32(v) => Ok(WideValue::F32(*v)),
-            Object::F64(v) => Ok(WideValue::F64(*v)),
             _ => Err(self.vm_error(format!(
                 "cannot cast {} to a numeric type",
                 value.type_name()
@@ -850,42 +802,6 @@ impl VM {
                 .map_err(|_| self.vm_error(format!("value {v} out of range for {type_name}"))),
             WideValue::Uint(v) => T::try_from(v)
                 .map_err(|_| self.vm_error(format!("value {v} out of range for {type_name}"))),
-            WideValue::F32(v) => {
-                if !v.is_finite() {
-                    return Err(self.vm_error(format!("cannot cast non-finite f32 to {type_name}")));
-                }
-                let i = v as i128;
-                T::try_from(i)
-                    .map_err(|_| self.vm_error(format!("value {v} out of range for {type_name}")))
-            }
-            WideValue::F64(v) => {
-                if !v.is_finite() {
-                    return Err(self.vm_error(format!("cannot cast non-finite f64 to {type_name}")));
-                }
-                let i = v as i128;
-                T::try_from(i)
-                    .map_err(|_| self.vm_error(format!("value {v} out of range for {type_name}")))
-            }
-        }
-    }
-
-    /// Converts a wide value to f32.
-    fn to_f32(wide: WideValue) -> Result<Object> {
-        match wide {
-            WideValue::Int(v) => Ok(Object::F32(v as f32)),
-            WideValue::Uint(v) => Ok(Object::F32(v as f32)),
-            WideValue::F32(v) => Ok(Object::F32(v)),
-            WideValue::F64(v) => Ok(Object::F32(v as f32)),
-        }
-    }
-
-    /// Converts a wide value to f64.
-    fn to_f64(wide: WideValue) -> Result<Object> {
-        match wide {
-            WideValue::Int(v) => Ok(Object::F64(v as f64)),
-            WideValue::Uint(v) => Ok(Object::F64(v as f64)),
-            WideValue::F32(v) => Ok(Object::F64(v as f64)),
-            WideValue::F64(v) => Ok(Object::F64(v)),
         }
     }
 
@@ -902,7 +818,7 @@ impl VM {
         let mut result = String::with_capacity(left.len() + right.len());
         result.push_str(left);
         result.push_str(right);
-        self.push_stack(Object::String(result))
+        self.push_stack(Object::Str(result))
     }
 
     /// Builds an array object from the top `num_elements` stack values.
@@ -978,5 +894,93 @@ impl VM {
             Some(value) => self.push_stack(value.clone()),
             None => self.push_stack(NULL),
         }
+    }
+
+    /// Constructs a struct or enum variant from stack values.
+    ///
+    /// The type registry index encodes whether this is a struct or an enum
+    /// variant. For enums, the variant tag is packed into the high bits of
+    /// the type index: `type_index = (registry_index << 8) | variant_tag`.
+    fn execute_construct(&mut self, type_index: usize, num_fields: usize) -> Result<()> {
+        let registry_index = type_index >> 8;
+        let variant_tag = (type_index & 0xFF) as u16;
+
+        if num_fields > self.sp {
+            return Err(self.vm_error(format!(
+                "stack underflow in construct: need {num_fields} fields, stack has {}",
+                self.sp
+            )));
+        }
+        let start = self.sp - num_fields;
+        let fields = self.stack[start..self.sp].to_vec();
+        self.sp = start;
+
+        let type_def = self.type_registry.get(registry_index).ok_or_else(|| {
+            self.vm_error(format!(
+                "type registry index out of bounds: {registry_index}"
+            ))
+        })?;
+
+        let obj = match type_def {
+            TypeDef::Struct { .. } => Object::Struct(StructObject {
+                type_index: registry_index as u16,
+                fields,
+            }),
+            TypeDef::Enum { .. } => Object::EnumVariant(EnumVariantObject {
+                type_index: registry_index as u16,
+                tag: variant_tag,
+                fields,
+            }),
+        };
+
+        self.push_stack(obj)
+    }
+
+    /// Reads a field from a struct or enum variant on top of the stack.
+    fn execute_get_field(&mut self, field_index: usize) -> Result<()> {
+        let obj = self.pop_stack()?;
+        let fields = match &obj {
+            Object::Struct(s) => &s.fields,
+            Object::EnumVariant(v) => &v.fields,
+            _ => {
+                return Err(self.vm_error(format!("cannot access field on {}", obj.type_name())));
+            }
+        };
+
+        let value = fields.get(field_index).cloned().ok_or_else(|| {
+            self.vm_error(format!(
+                "field index {field_index} out of bounds (object has {} fields)",
+                fields.len()
+            ))
+        })?;
+
+        self.push_stack(value)
+    }
+
+    /// Tests an enum variant's tag and conditionally jumps.
+    ///
+    /// Peeks at the top of the stack (does not pop). If the variant's tag
+    /// matches `expected_tag`, execution continues to the next instruction.
+    /// Otherwise, the instruction pointer jumps to `jump_target`.
+    fn execute_match_tag(&mut self, expected_tag: usize, jump_target: usize) -> Result<()> {
+        let obj = self
+            .stack
+            .get(self.sp - 1)
+            .ok_or_else(|| self.vm_error("stack underflow in match_tag"))?;
+
+        let actual_tag = match obj {
+            Object::EnumVariant(v) => v.tag as usize,
+            _ => {
+                return Err(self.vm_error(format!(
+                    "match_tag requires an enum variant, got {}",
+                    obj.type_name()
+                )));
+            }
+        };
+
+        if actual_tag != expected_tag {
+            self.current_frame_mut()?.ip = jump_target as isize - 1;
+        }
+        Ok(())
     }
 }

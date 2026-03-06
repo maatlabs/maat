@@ -33,7 +33,7 @@ pub enum TokenKind {
     /// The `false` boolean literal.
     False,
     /// The `fn` keyword for function definitions.
-    Function,
+    Fn,
     /// The `return` keyword for early returns.
     Return,
     /// The `macro` keyword for macro definitions.
@@ -54,6 +54,21 @@ pub enum TokenKind {
     Continue,
     /// The `where` keyword for trait bound clauses.
     Where,
+
+    /// The `struct` keyword for structure type declarations.
+    Struct,
+    /// The `enum` keyword for enumeration type declarations.
+    Enum,
+    /// The `match` keyword for pattern-matching expressions.
+    Match,
+    /// The `impl` keyword for inherent and trait implementation blocks.
+    Impl,
+    /// The `trait` keyword for trait declarations.
+    Trait,
+    /// The `self` value keyword for method receivers.
+    SelfValue,
+    /// The `Self` type keyword for the implementing type in `impl` and `trait` blocks.
+    SelfType,
 
     /// A user-defined identifier (variable, function name, etc.).
     Ident,
@@ -86,11 +101,6 @@ pub enum TokenKind {
     /// A pointer-sized unsigned integer literal.
     Usize,
 
-    /// A 32-bit floating-point number.
-    F32,
-    /// A 64-bit floating-point number.
-    F64,
-
     /// The assignment operator `=`.
     Assign,
     /// The addition operator `+`.
@@ -119,6 +129,10 @@ pub enum TokenKind {
     Equal,
     /// The inequality comparison operator `!=`.
     NotEqual,
+    /// The logical AND operator `&&`.
+    And,
+    /// The logical OR operator `||`.
+    Or,
 
     /// The comma delimiter `,`.
     Comma,
@@ -140,6 +154,12 @@ pub enum TokenKind {
     RBracket,
     /// The return type arrow `->`.
     Arrow,
+    /// The fat arrow `=>` used in match arms.
+    FatArrow,
+    /// The path separator `::` for qualified paths.
+    PathSep,
+    /// The dot `.` for field access and method calls.
+    Dot,
 
     /// An invalid or unrecognized token.
     Invalid,
@@ -168,7 +188,7 @@ impl TokenKind {
     /// ```
     /// # use maat_lexer::TokenKind;
     /// assert_eq!(TokenKind::keyword_or_ident("let"), TokenKind::Let);
-    /// assert_eq!(TokenKind::keyword_or_ident("fn"), TokenKind::Function);
+    /// assert_eq!(TokenKind::keyword_or_ident("fn"), TokenKind::Fn);
     /// assert_eq!(TokenKind::keyword_or_ident("myvar"), TokenKind::Ident);
     /// ```
     #[inline]
@@ -179,7 +199,7 @@ impl TokenKind {
             "else" => Self::Else,
             "true" => Self::True,
             "false" => Self::False,
-            "fn" => Self::Function,
+            "fn" => Self::Fn,
             "return" => Self::Return,
             "macro" => Self::Macro,
             "as" => Self::As,
@@ -190,6 +210,13 @@ impl TokenKind {
             "break" => Self::Break,
             "continue" => Self::Continue,
             "where" => Self::Where,
+            "struct" => Self::Struct,
+            "enum" => Self::Enum,
+            "match" => Self::Match,
+            "impl" => Self::Impl,
+            "trait" => Self::Trait,
+            "self" => Self::SelfValue,
+            "Self" => Self::SelfType,
             _ => Self::Ident,
         }
     }

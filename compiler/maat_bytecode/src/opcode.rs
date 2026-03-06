@@ -132,6 +132,20 @@ pub enum Opcode {
     /// Convert a numeric value to a different numeric type.
     /// Operands: [u8] - target type tag (see [`TypeTag`])
     Convert = 31,
+
+    /// Construct a struct or enum variant from the top N stack elements.
+    /// Operands: [u16] - type registry index, [u8] - number of fields
+    Construct = 32,
+
+    /// Read a field from a struct object on top of the stack.
+    /// Operands: [u16] - field index
+    GetField = 33,
+
+    /// Read the variant tag from an enum object on top of the stack.
+    /// If the tag matches, jump over the operand's target address;
+    /// otherwise jump to the target.
+    /// Operands: [u16] - expected variant tag, [u16] - jump target on mismatch
+    MatchTag = 34,
 }
 
 impl Opcode {
@@ -171,6 +185,9 @@ impl Opcode {
             Self::GetFree => "OpGetFree",
             Self::CurrentClosure => "OpCurrentClosure",
             Self::Convert => "OpConvert",
+            Self::Construct => "OpConstruct",
+            Self::GetField => "OpGetField",
+            Self::MatchTag => "OpMatchTag",
         }
     }
 
@@ -187,8 +204,10 @@ impl Opcode {
             | Self::SetGlobal
             | Self::GetGlobal
             | Self::Array
-            | Self::Hash => &[2],
-            Self::Closure => &[2, 1],
+            | Self::Hash
+            | Self::GetField => &[2],
+            Self::Closure | Self::Construct => &[2, 1],
+            Self::MatchTag => &[2, 2],
             Self::Call
             | Self::GetLocal
             | Self::SetLocal
@@ -252,6 +271,9 @@ impl Opcode {
             29 => Some(Self::GetFree),
             30 => Some(Self::CurrentClosure),
             31 => Some(Self::Convert),
+            32 => Some(Self::Construct),
+            33 => Some(Self::GetField),
+            34 => Some(Self::MatchTag),
             _ => None,
         }
     }
@@ -282,8 +304,6 @@ pub enum TypeTag {
     U64 = 9,
     U128 = 10,
     Usize = 11,
-    F32 = 12,
-    F64 = 13,
 }
 
 impl TypeTag {
@@ -303,8 +323,6 @@ impl TypeTag {
             9 => Some(Self::U64),
             10 => Some(Self::U128),
             11 => Some(Self::Usize),
-            12 => Some(Self::F32),
-            13 => Some(Self::F64),
             _ => None,
         }
     }
@@ -331,8 +349,6 @@ impl TypeTag {
             Self::U64 => "u64",
             Self::U128 => "u128",
             Self::Usize => "usize",
-            Self::F32 => "f32",
-            Self::F64 => "f64",
         }
     }
 }
@@ -343,7 +359,7 @@ mod tests {
 
     #[test]
     fn opcode_roundtrip() {
-        for byte in 0..=31 {
+        for byte in 0..=34 {
             let opcode = Opcode::from_byte(byte).unwrap();
             assert_eq!(opcode.to_byte(), byte);
         }

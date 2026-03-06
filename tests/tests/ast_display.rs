@@ -12,10 +12,10 @@ fn program() {
     assert_eq!(prog.to_string(), "");
 
     // Program with a single let statement
-    let stmt = Statement::Let(LetStatement {
+    let stmt = Stmt::Let(LetStmt {
         ident: "x".to_string(),
         type_annotation: None,
-        value: Expression::I32(I32 {
+        value: Expr::I32(I32 {
             radix: Radix::Dec,
             value: 42,
             span: span(),
@@ -28,15 +28,15 @@ fn program() {
     assert_eq!(prog.to_string(), "let x = 42;");
 
     // Program with multiple statements
-    let stmt1 = Statement::Return(ReturnStatement {
-        value: Expression::Boolean(BooleanLiteral {
+    let stmt1 = Stmt::Return(ReturnStmt {
+        value: Expr::Bool(Bool {
             value: true,
             span: span(),
         }),
         span: span(),
     });
-    let stmt2 = Statement::Expression(ExpressionStatement {
-        value: Expression::Identifier(Ident {
+    let stmt2 = Stmt::Expr(ExprStmt {
+        value: Expr::Ident(Ident {
             value: "foo".to_string(),
             span: span(),
         }),
@@ -51,10 +51,10 @@ fn program() {
 #[test]
 fn let_statement() {
     // Without type annotation
-    let let_stmt = LetStatement {
+    let let_stmt = LetStmt {
         ident: "x".to_string(),
         type_annotation: None,
-        value: Expression::I64(I64 {
+        value: Expr::I64(I64 {
             radix: Radix::Dec,
             value: 100,
             span: span(),
@@ -68,10 +68,10 @@ fn let_statement() {
         name: "i32".to_string(),
         span: span(),
     });
-    let let_stmt = LetStatement {
+    let let_stmt = LetStmt {
         ident: "y".to_string(),
         type_annotation: Some(type_ann),
-        value: Expression::U8(U8 {
+        value: Expr::U8(U8 {
             radix: Radix::Hex,
             value: 0xff,
             span: span(),
@@ -83,8 +83,8 @@ fn let_statement() {
 
 #[test]
 fn return_statement() {
-    let ret = ReturnStatement {
-        value: Expression::Identifier(Ident {
+    let ret = ReturnStmt {
+        value: Expr::Ident(Ident {
             value: "result".to_string(),
             span: span(),
         }),
@@ -95,19 +95,19 @@ fn return_statement() {
 
 #[test]
 fn expression_statement() {
-    let expr_stmt = ExpressionStatement {
-        value: Expression::Call(CallExpr {
-            function: Box::new(Expression::Identifier(Ident {
+    let expr_stmt = ExprStmt {
+        value: Expr::Call(CallExpr {
+            function: Box::new(Expr::Ident(Ident {
                 value: "foo".to_string(),
                 span: span(),
             })),
             arguments: vec![
-                Expression::I32(I32 {
+                Expr::I32(I32 {
                     radix: Radix::Dec,
                     value: 1,
                     span: span(),
                 }),
-                Expression::I32(I32 {
+                Expr::I32(I32 {
                     radix: Radix::Dec,
                     value: 2,
                     span: span(),
@@ -123,45 +123,45 @@ fn expression_statement() {
 #[test]
 fn block_statement() {
     // Empty block
-    let block = BlockStatement {
+    let block = BlockStmt {
         statements: vec![],
         span: span(),
     };
     assert_eq!(block.to_string(), "{}");
 
     // Block with one statement
-    let stmt = Statement::Let(LetStatement {
+    let stmt = Stmt::Let(LetStmt {
         ident: "a".to_string(),
         type_annotation: None,
-        value: Expression::Boolean(BooleanLiteral {
+        value: Expr::Bool(Bool {
             value: false,
             span: span(),
         }),
         span: span(),
     });
-    let block = BlockStatement {
+    let block = BlockStmt {
         statements: vec![stmt],
         span: span(),
     };
     assert_eq!(block.to_string(), "{\nlet a = false;\n}");
 
     // Block with multiple statements
-    let stmt1 = Statement::Return(ReturnStatement {
-        value: Expression::I32(I32 {
+    let stmt1 = Stmt::Return(ReturnStmt {
+        value: Expr::I32(I32 {
             radix: Radix::Dec,
             value: 10,
             span: span(),
         }),
         span: span(),
     });
-    let stmt2 = Statement::Expression(ExpressionStatement {
-        value: Expression::Identifier(Ident {
+    let stmt2 = Stmt::Expr(ExprStmt {
+        value: Expr::Ident(Ident {
             value: "b".to_string(),
             span: span(),
         }),
         span: span(),
     });
-    let block = BlockStatement {
+    let block = BlockStmt {
         statements: vec![stmt1, stmt2],
         span: span(),
     };
@@ -170,14 +170,14 @@ fn block_statement() {
 
 #[test]
 fn array_literal() {
-    let empty = ArrayLiteral {
+    let empty = Array {
         elements: vec![],
         span: span(),
     };
     assert_eq!(empty.to_string(), "[]");
 
-    let single = ArrayLiteral {
-        elements: vec![Expression::Boolean(BooleanLiteral {
+    let single = Array {
+        elements: vec![Expr::Bool(Bool {
             value: true,
             span: span(),
         })],
@@ -185,19 +185,19 @@ fn array_literal() {
     };
     assert_eq!(single.to_string(), "[true]");
 
-    let multiple = ArrayLiteral {
+    let multiple = Array {
         elements: vec![
-            Expression::I32(I32 {
+            Expr::I32(I32 {
                 radix: Radix::Dec,
                 value: 1,
                 span: span(),
             }),
-            Expression::I32(I32 {
+            Expr::I32(I32 {
                 radix: Radix::Dec,
                 value: 2,
                 span: span(),
             }),
-            Expression::I32(I32 {
+            Expr::I32(I32 {
                 radix: Radix::Dec,
                 value: 3,
                 span: span(),
@@ -211,11 +211,11 @@ fn array_literal() {
 #[test]
 fn index_expression() {
     let index = IndexExpr {
-        expr: Box::new(Expression::Identifier(Ident {
+        expr: Box::new(Expr::Ident(Ident {
             value: "arr".to_string(),
             span: span(),
         })),
-        index: Box::new(Expression::I32(I32 {
+        index: Box::new(Expr::I32(I32 {
             radix: Radix::Dec,
             value: 5,
             span: span(),
@@ -227,19 +227,19 @@ fn index_expression() {
 
 #[test]
 fn hash_literal() {
-    let empty = HashLiteral {
+    let empty = Map {
         pairs: vec![],
         span: span(),
     };
     assert_eq!(empty.to_string(), "{}");
 
-    let single = HashLiteral {
+    let single = Map {
         pairs: vec![(
-            Expression::String(StringLiteral {
+            Expr::Str(Str {
                 value: "a".to_string(),
                 span: span(),
             }),
-            Expression::I32(I32 {
+            Expr::I32(I32 {
                 radix: Radix::Dec,
                 value: 1,
                 span: span(),
@@ -249,25 +249,25 @@ fn hash_literal() {
     };
     assert_eq!(single.to_string(), "{a: 1}");
 
-    let multiple = HashLiteral {
+    let multiple = Map {
         pairs: vec![
             (
-                Expression::String(StringLiteral {
+                Expr::Str(Str {
                     value: "x".to_string(),
                     span: span(),
                 }),
-                Expression::I32(I32 {
+                Expr::I32(I32 {
                     radix: Radix::Dec,
                     value: 10,
                     span: span(),
                 }),
             ),
             (
-                Expression::String(StringLiteral {
+                Expr::Str(Str {
                     value: "y".to_string(),
                     span: span(),
                 }),
-                Expression::I32(I32 {
+                Expr::I32(I32 {
                     radix: Radix::Dec,
                     value: 20,
                     span: span(),
@@ -283,7 +283,7 @@ fn hash_literal() {
 fn prefix_expression() {
     let neg = PrefixExpr {
         operator: "-".to_string(),
-        operand: Box::new(Expression::I32(I32 {
+        operand: Box::new(Expr::I32(I32 {
             radix: Radix::Dec,
             value: 42,
             span: span(),
@@ -294,7 +294,7 @@ fn prefix_expression() {
 
     let not = PrefixExpr {
         operator: "!".to_string(),
-        operand: Box::new(Expression::Boolean(BooleanLiteral {
+        operand: Box::new(Expr::Bool(Bool {
             value: true,
             span: span(),
         })),
@@ -306,13 +306,13 @@ fn prefix_expression() {
 #[test]
 fn infix_expression() {
     let add = InfixExpr {
-        lhs: Box::new(Expression::I32(I32 {
+        lhs: Box::new(Expr::I32(I32 {
             radix: Radix::Dec,
             value: 1,
             span: span(),
         })),
         operator: "+".to_string(),
-        rhs: Box::new(Expression::I32(I32 {
+        rhs: Box::new(Expr::I32(I32 {
             radix: Radix::Dec,
             value: 2,
             span: span(),
@@ -322,12 +322,12 @@ fn infix_expression() {
     assert_eq!(add.to_string(), "(1 + 2)");
 
     let eq = InfixExpr {
-        lhs: Box::new(Expression::Identifier(Ident {
+        lhs: Box::new(Expr::Ident(Ident {
             value: "x".to_string(),
             span: span(),
         })),
         operator: "==".to_string(),
-        rhs: Box::new(Expression::I32(I32 {
+        rhs: Box::new(Expr::I32(I32 {
             radix: Radix::Dec,
             value: 0,
             span: span(),
@@ -339,15 +339,15 @@ fn infix_expression() {
 
 #[test]
 fn conditional_expression() {
-    let condition = Expression::Identifier(Ident {
+    let condition = Expr::Ident(Ident {
         value: "cond".to_string(),
         span: span(),
     });
-    let consequence = BlockStatement {
-        statements: vec![Statement::Let(LetStatement {
+    let consequence = BlockStmt {
+        statements: vec![Stmt::Let(LetStmt {
             ident: "x".to_string(),
             type_annotation: None,
-            value: Expression::I32(I32 {
+            value: Expr::I32(I32 {
                 radix: Radix::Dec,
                 value: 1,
                 span: span(),
@@ -356,11 +356,11 @@ fn conditional_expression() {
         })],
         span: span(),
     };
-    let alternative = BlockStatement {
-        statements: vec![Statement::Let(LetStatement {
+    let alternative = BlockStmt {
+        statements: vec![Stmt::Let(LetStmt {
             ident: "x".to_string(),
             type_annotation: None,
-            value: Expression::I32(I32 {
+            value: Expr::I32(I32 {
                 radix: Radix::Dec,
                 value: 2,
                 span: span(),
@@ -371,7 +371,7 @@ fn conditional_expression() {
     };
 
     // If without else
-    let cond_if = ConditionalExpr {
+    let cond_if = CondExpr {
         condition: Box::new(condition.clone()),
         consequence: consequence.clone(),
         alternative: None,
@@ -380,7 +380,7 @@ fn conditional_expression() {
     assert_eq!(cond_if.to_string(), "if cond {\nlet x = 1;\n}");
 
     // If with else
-    let cond_if_else = ConditionalExpr {
+    let cond_if_else = CondExpr {
         condition: Box::new(condition),
         consequence,
         alternative: Some(alternative),
@@ -393,21 +393,23 @@ fn conditional_expression() {
 }
 
 #[test]
-fn function() {
+fn lambda() {
     // Anonymous function with no generics, no return type, empty body
-    let func_anon = Function {
-        name: None,
+    let func = Lambda {
         params: vec![],
         generic_params: vec![],
         return_type: None,
-        body: BlockStatement {
+        body: BlockStmt {
             statements: vec![],
             span: span(),
         },
         span: span(),
     };
-    assert_eq!(func_anon.to_string(), "fn() {}");
+    assert_eq!(func.to_string(), "fn() {}");
+}
 
+#[test]
+fn function() {
     // Named function with parameters, generics, return type, non-empty body
     let param1 = TypedParam {
         name: "a".to_string(),
@@ -437,9 +439,9 @@ fn function() {
         name: "T".to_string(),
         span: span(),
     });
-    let body = BlockStatement {
-        statements: vec![Statement::Return(ReturnStatement {
-            value: Expression::Identifier(Ident {
+    let body = BlockStmt {
+        statements: vec![Stmt::Return(ReturnStmt {
+            value: Expr::Ident(Ident {
                 value: "a".to_string(),
                 span: span(),
             }),
@@ -448,8 +450,8 @@ fn function() {
         span: span(),
     };
 
-    let func_named = Function {
-        name: Some("identity".to_string()),
+    let func = FnItem {
+        name: "identity".to_string(),
         params: vec![param1, param2],
         generic_params: vec![generic],
         return_type: Some(return_ty),
@@ -457,7 +459,7 @@ fn function() {
         span: span(),
     };
     assert_eq!(
-        func_named.to_string(),
+        func.to_string(),
         "fn identity<T: Copy>(a: T, b: i64) -> T {\nreturn a;\n}"
     );
 
@@ -466,23 +468,23 @@ fn function() {
         bounds: vec![],
         span: span(),
     };
-    let func_simple = Function {
-        name: Some("identity".to_string()),
+    let func = FnItem {
+        name: "identity".to_string(),
         params: vec![],
         generic_params: vec![generic_no_bounds],
         return_type: None,
         body,
         span: span(),
     };
-    assert_eq!(func_simple.to_string(), "fn identity<U>() {\nreturn a;\n}");
+    assert_eq!(func.to_string(), "fn identity<U>() {\nreturn a;\n}");
 }
 
 #[test]
 fn macro_literal() {
     // No parameters, empty body
-    let macro_empty = MacroLiteral {
+    let macro_empty = Macro {
         params: vec![],
-        body: BlockStatement {
+        body: BlockStmt {
             statements: vec![],
             span: span(),
         },
@@ -491,9 +493,9 @@ fn macro_literal() {
     assert_eq!(macro_empty.to_string(), "macro() {}");
 
     // Parameters and body
-    let body = BlockStatement {
-        statements: vec![Statement::Expression(ExpressionStatement {
-            value: Expression::Identifier(Ident {
+    let body = BlockStmt {
+        statements: vec![Stmt::Expr(ExprStmt {
+            value: Expr::Ident(Ident {
                 value: "x".to_string(),
                 span: span(),
             }),
@@ -501,7 +503,7 @@ fn macro_literal() {
         })],
         span: span(),
     };
-    let macro_with_params = MacroLiteral {
+    let macro_with_params = Macro {
         params: vec!["$a".to_string(), "$b".to_string()],
         body,
         span: span(),
@@ -512,7 +514,7 @@ fn macro_literal() {
 #[test]
 fn call_expression() {
     let call_empty = CallExpr {
-        function: Box::new(Expression::Identifier(Ident {
+        function: Box::new(Expr::Ident(Ident {
             value: "f".to_string(),
             span: span(),
         })),
@@ -522,11 +524,11 @@ fn call_expression() {
     assert_eq!(call_empty.to_string(), "f()");
 
     let call_one = CallExpr {
-        function: Box::new(Expression::Identifier(Ident {
+        function: Box::new(Expr::Ident(Ident {
             value: "f".to_string(),
             span: span(),
         })),
-        arguments: vec![Expression::I32(I32 {
+        arguments: vec![Expr::I32(I32 {
             radix: Radix::Dec,
             value: 42,
             span: span(),
@@ -536,17 +538,17 @@ fn call_expression() {
     assert_eq!(call_one.to_string(), "f(42)");
 
     let call_multi = CallExpr {
-        function: Box::new(Expression::Identifier(Ident {
+        function: Box::new(Expr::Ident(Ident {
             value: "add".to_string(),
             span: span(),
         })),
         arguments: vec![
-            Expression::I32(I32 {
+            Expr::I32(I32 {
                 radix: Radix::Dec,
                 value: 1,
                 span: span(),
             }),
-            Expression::I32(I32 {
+            Expr::I32(I32 {
                 radix: Radix::Dec,
                 value: 2,
                 span: span(),
@@ -560,7 +562,7 @@ fn call_expression() {
 #[test]
 fn type_cast() {
     let i32_to_i64 = CastExpr {
-        expr: Box::new(Expression::I32(I32 {
+        expr: Box::new(Expr::I32(I32 {
             radix: Radix::Dec,
             value: 42,
             span: span(),
@@ -569,19 +571,12 @@ fn type_cast() {
         span: span(),
     };
     assert_eq!(i32_to_i64.to_string(), "(42 as i64)");
-
-    let f64_to_u32 = CastExpr {
-        expr: Box::new(Expression::F64(F64::from(2.56f64))),
-        target: TypeAnnotation::U32,
-        span: span(),
-    };
-    assert_eq!(f64_to_u32.to_string(), "(2.56 as u32)");
 }
 
 #[test]
 fn infinite_loop() {
-    let empty_loop = LoopStatement {
-        body: BlockStatement {
+    let empty_loop = LoopStmt {
+        body: BlockStmt {
             statements: vec![],
             span: span(),
         },
@@ -590,9 +585,9 @@ fn infinite_loop() {
     assert_eq!(empty_loop.to_string(), "loop {}");
 
     // A loop with one `break;` statement
-    let body = BlockStatement {
-        statements: vec![Statement::Expression(ExpressionStatement {
-            value: Expression::Break(BreakExpr {
+    let body = BlockStmt {
+        statements: vec![Stmt::Expr(ExprStmt {
+            value: Expr::Break(BreakExpr {
                 value: None,
                 span: span(),
             }),
@@ -600,19 +595,19 @@ fn infinite_loop() {
         })],
         span: span(),
     };
-    let loop_with_break = LoopStatement { body, span: span() };
+    let loop_with_break = LoopStmt { body, span: span() };
     assert_eq!(loop_with_break.to_string(), "loop {\nbreak\n}");
 }
 
 #[test]
 fn while_loop() {
-    let condition = Expression::Identifier(Ident {
+    let condition = Expr::Ident(Ident {
         value: "cond".to_string(),
         span: span(),
     });
-    let empty_body = WhileStatement {
+    let empty_body = WhileStmt {
         condition: Box::new(condition.clone()),
-        body: BlockStatement {
+        body: BlockStmt {
             statements: vec![],
             span: span(),
         },
@@ -620,10 +615,10 @@ fn while_loop() {
     };
     assert_eq!(empty_body.to_string(), "while cond {}");
 
-    let body = BlockStatement {
-        statements: vec![Statement::Expression(ExpressionStatement {
-            value: Expression::Call(CallExpr {
-                function: Box::new(Expression::Identifier(Ident {
+    let body = BlockStmt {
+        statements: vec![Stmt::Expr(ExprStmt {
+            value: Expr::Call(CallExpr {
+                function: Box::new(Expr::Ident(Ident {
                     value: "work".to_string(),
                     span: span(),
                 })),
@@ -634,7 +629,7 @@ fn while_loop() {
         })],
         span: span(),
     };
-    let while_stmt = WhileStatement {
+    let while_stmt = WhileStmt {
         condition: Box::new(condition),
         body,
         span: span(),
@@ -644,14 +639,14 @@ fn while_loop() {
 
 #[test]
 fn for_loop() {
-    let iterable = Expression::Identifier(Ident {
+    let iterable = Expr::Ident(Ident {
         value: "0..10".to_string(),
         span: span(),
     });
-    let empty_body = ForStatement {
+    let empty_body = ForStmt {
         ident: "i".to_string(),
         iterable: Box::new(iterable.clone()),
-        body: BlockStatement {
+        body: BlockStmt {
             statements: vec![],
             span: span(),
         },
@@ -659,14 +654,14 @@ fn for_loop() {
     };
     assert_eq!(empty_body.to_string(), "for i in 0..10 {}");
 
-    let body = BlockStatement {
-        statements: vec![Statement::Expression(ExpressionStatement {
-            value: Expression::Call(CallExpr {
-                function: Box::new(Expression::Identifier(Ident {
+    let body = BlockStmt {
+        statements: vec![Stmt::Expr(ExprStmt {
+            value: Expr::Call(CallExpr {
+                function: Box::new(Expr::Ident(Ident {
                     value: "println".to_string(),
                     span: span(),
                 })),
-                arguments: vec![Expression::Identifier(Ident {
+                arguments: vec![Expr::Ident(Ident {
                     value: "i".to_string(),
                     span: span(),
                 })],
@@ -676,7 +671,7 @@ fn for_loop() {
         })],
         span: span(),
     };
-    let for_stmt = ForStatement {
+    let for_stmt = ForStmt {
         ident: "i".to_string(),
         iterable: Box::new(iterable),
         body,
@@ -694,7 +689,7 @@ fn break_expression() {
     assert_eq!(break_no_val.to_string(), "break");
 
     let break_with_val = BreakExpr {
-        value: Some(Box::new(Expression::I32(I32 {
+        value: Some(Box::new(Expr::I32(I32 {
             radix: Radix::Dec,
             value: 42,
             span: span(),
