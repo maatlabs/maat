@@ -50,6 +50,29 @@ let greet = fn(name) {
 greet("World");
 "#;
 
+const STRUCT_SOURCE: &str = "
+struct Point { x: i64, y: i64 }
+impl Point {
+    fn sum(self) -> i64 { self.x + self.y }
+}
+let p = Point { x: 3, y: 4 };
+p.sum()
+";
+
+const ENUM_MATCH_SOURCE: &str = "
+enum Shape { Circle(i64), Rect(i64, i64) }
+let s = Shape::Rect(3, 4);
+match s { Circle(r) => r, Rect(w, h) => w * h }
+";
+
+const OPTION_SOURCE: &str = "
+fn safe_div(a: i64, b: i64) -> Option<i64> {
+    if (b == 0) { Option::None } else { Option::Some(a / b) }
+}
+let r = safe_div(10, 2);
+match r { Some(v) => v, None => -1 }
+";
+
 fn run_vm(source: &str) {
     let bytecode = compile(black_box(source));
     let mut vm = VM::new(bytecode);
@@ -118,6 +141,24 @@ fn bench_string_operations(c: &mut Criterion) {
     });
 }
 
+fn bench_struct_method(c: &mut Criterion) {
+    c.bench_function("struct_method/vm", |b| {
+        b.iter(|| run_vm(STRUCT_SOURCE));
+    });
+}
+
+fn bench_enum_match(c: &mut Criterion) {
+    c.bench_function("enum_match/vm", |b| {
+        b.iter(|| run_vm(ENUM_MATCH_SOURCE));
+    });
+}
+
+fn bench_option_match(c: &mut Criterion) {
+    c.bench_function("option_match/vm", |b| {
+        b.iter(|| run_vm(OPTION_SOURCE));
+    });
+}
+
 criterion_group! {
     name = fibonacci_benches;
     config = Criterion::default().measurement_time(std::time::Duration::from_secs(10));
@@ -128,5 +169,8 @@ criterion_group!(
     bench_closures,
     bench_array_iteration,
     bench_string_operations,
+    bench_struct_method,
+    bench_enum_match,
+    bench_option_match,
 );
 criterion_main!(fibonacci_benches, feature_benches);
