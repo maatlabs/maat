@@ -8,6 +8,7 @@ use maat_ast::{NamedType, TypeExpr};
 use crate::convert::resolve_type_expr;
 use crate::ty::{
     EnumDef, FnType, ImplDef, MethodSig, StructDef, TraitDef, Type, TypeScheme, TypeVarId,
+    VariantDef, VariantKind,
 };
 use crate::unify::Substitution;
 
@@ -93,6 +94,41 @@ impl TypeEnv {
                 params: vec![Type::Array(Box::new(t.clone())), t.clone()],
                 ret: Box::new(Type::Array(Box::new(t))),
             })
+        });
+
+        self.register_builtin_enums();
+    }
+
+    /// Registers `Option<T>` and `Result<T, E>` as language-level enum types.
+    fn register_builtin_enums(&mut self) {
+        self.register_enum(EnumDef {
+            name: "Option".to_string(),
+            generic_params: vec!["T".to_string()],
+            variants: vec![
+                VariantDef {
+                    name: "Some".to_string(),
+                    kind: VariantKind::Tuple(vec![Type::Generic("T".to_string(), vec![])]),
+                },
+                VariantDef {
+                    name: "None".to_string(),
+                    kind: VariantKind::Unit,
+                },
+            ],
+        });
+
+        self.register_enum(EnumDef {
+            name: "Result".to_string(),
+            generic_params: vec!["T".to_string(), "E".to_string()],
+            variants: vec![
+                VariantDef {
+                    name: "Ok".to_string(),
+                    kind: VariantKind::Tuple(vec![Type::Generic("T".to_string(), vec![])]),
+                },
+                VariantDef {
+                    name: "Err".to_string(),
+                    kind: VariantKind::Tuple(vec![Type::Generic("E".to_string(), vec![])]),
+                },
+            ],
         });
     }
 

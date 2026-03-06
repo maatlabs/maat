@@ -198,7 +198,7 @@ fn struct_declarations() {
 fn enum_declarations() {
     assert_no_type_errors("enum Direction { North, South, East, West }");
     assert_no_type_errors("enum Shape { Circle(i64), Rectangle(i64, i64) }");
-    assert_no_type_errors("enum Option<T> { Some(T), None }");
+    assert_no_type_errors("enum Maybe<T> { Just(T), Nothing }");
 }
 
 #[test]
@@ -286,10 +286,9 @@ fn match_exhaustiveness() {
     // Both bool values covered
     assert_no_type_errors("let x = true; match x { true => 1, false => 0 }");
 
-    // Tuple struct pattern with wildcard
+    // Tuple struct pattern with wildcard (uses built-in Option<T>)
     assert_no_type_errors(
-        "enum Option<T> { Some(T), None }
-         fn unwrap(opt: Option<i64>) -> i64 {
+        "fn unwrap(opt: Option<i64>) -> i64 {
              match opt { Some(v) => v, None => 0 }
          }",
     );

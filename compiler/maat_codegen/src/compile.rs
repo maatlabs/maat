@@ -94,7 +94,7 @@ impl Compiler {
             scope_index: 0,
             loop_contexts: Vec::new(),
             for_loop_counter: 0,
-            type_registry: Vec::new(),
+            type_registry: Self::builtin_type_registry(),
         }
     }
 
@@ -112,7 +112,7 @@ impl Compiler {
             scope_index: 0,
             loop_contexts: Vec::new(),
             for_loop_counter: 0,
-            type_registry: Vec::new(),
+            type_registry: Self::builtin_type_registry(),
         }
     }
 
@@ -121,6 +121,38 @@ impl Compiler {
         for (i, (name, _)) in BUILTINS.iter().enumerate() {
             table.define_builtin(i, name);
         }
+    }
+
+    /// Returns the type registry pre-populated with built-in enum types.
+    fn builtin_type_registry() -> Vec<TypeDef> {
+        vec![
+            TypeDef::Enum {
+                name: "Option".to_string(),
+                variants: vec![
+                    VariantInfo {
+                        name: "Some".to_string(),
+                        field_count: 1,
+                    },
+                    VariantInfo {
+                        name: "None".to_string(),
+                        field_count: 0,
+                    },
+                ],
+            },
+            TypeDef::Enum {
+                name: "Result".to_string(),
+                variants: vec![
+                    VariantInfo {
+                        name: "Ok".to_string(),
+                        field_count: 1,
+                    },
+                    VariantInfo {
+                        name: "Err".to_string(),
+                        field_count: 1,
+                    },
+                ],
+            },
+        ]
     }
 
     /// Extracts the compiled bytecode and constants.
@@ -883,6 +915,26 @@ impl Compiler {
                         let next_arm = self.current_instructions().len();
                         self.replace_match_tag_target(match_tag_pos, next_arm)?;
                     }
+                }
+                Pattern::Ident(name, _)
+                    if name != "_" && self.find_variant_in_registry(name).is_some() =>
+                {
+                    let (_, variant_tag, _) = self.find_variant_in_registry(name).unwrap();
+                    let match_tag_pos =
+                        self.emit(Opcode::MatchTag, &[variant_tag, Self::JUMP], span);
+
+                    self.emit(Opcode::Pop, &[], span);
+
+                    self.compile_expression(&arm.body)?;
+                    if self.last_instruction_is(Opcode::Pop) {
+                        self.remove_last_pop();
+                    }
+
+                    let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
+                    end_jumps.push(end_jump);
+
+                    let next_arm = self.current_instructions().len();
+                    self.replace_match_tag_target(match_tag_pos, next_arm)?;
                 }
                 Pattern::Ident(name, _) if name != "_" => {
                     self.define_and_set(name, span)?;

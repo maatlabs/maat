@@ -778,6 +778,15 @@ impl TypeChecker {
             }
         }
 
+        // Try as a qualified method lookup (e.g., `Counter::new`).
+        if path.segments.len() == 2 {
+            let type_name = &path.segments[0];
+            let method_name = &path.segments[1];
+            if let Some(method_ty) = self.env.lookup_method_by_name(type_name, method_name) {
+                return method_ty.clone();
+            }
+        }
+
         // Fallback: try as a variable lookup.
         let full_name = path.segments.join("::");
         self.env
