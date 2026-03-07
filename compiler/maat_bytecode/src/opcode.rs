@@ -150,7 +150,6 @@ pub enum Opcode {
 
 impl Opcode {
     /// Returns the name of this opcode for disassembly.
-    #[inline]
     pub const fn name(self) -> &'static str {
         match self {
             Self::Constant => "OpConstant",
@@ -331,25 +330,6 @@ impl TypeTag {
     #[inline]
     pub const fn to_byte(self) -> u8 {
         self as u8
-    }
-
-    /// Returns the human-readable name of this type.
-    #[inline]
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::I8 => "i8",
-            Self::I16 => "i16",
-            Self::I32 => "i32",
-            Self::I64 => "i64",
-            Self::I128 => "i128",
-            Self::Isize => "isize",
-            Self::U8 => "u8",
-            Self::U16 => "u16",
-            Self::U32 => "u32",
-            Self::U64 => "u64",
-            Self::U128 => "u128",
-            Self::Usize => "usize",
-        }
     }
 }
 
