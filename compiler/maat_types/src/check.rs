@@ -205,7 +205,7 @@ impl TypeChecker {
                 self.infer_expression(&mut expr_stmt.value);
             }
             Stmt::Block(block) => self.check_block(block),
-            Stmt::FnItem(fn_item) => self.check_fn_item(fn_item),
+            Stmt::FuncDef(fn_item) => self.check_fn_item(fn_item),
             Stmt::Loop(loop_stmt) => self.check_block(&mut loop_stmt.body),
             Stmt::While(while_stmt) => {
                 let cond_ty = self.infer_expression(&mut while_stmt.condition);
@@ -277,7 +277,7 @@ impl TypeChecker {
     }
 
     /// Type-checks a named function declaration and binds it in the environment.
-    fn check_fn_item(&mut self, fn_item: &mut FnItem) {
+    fn check_fn_item(&mut self, fn_item: &mut FuncDef) {
         let fn_ty = self.infer_fn_body(
             &fn_item.generic_params,
             &fn_item.params,
@@ -289,7 +289,7 @@ impl TypeChecker {
         self.env.define_scheme(&fn_item.name, scheme);
     }
 
-    /// Shared inference logic for function bodies (used by both `FnItem` and `Lambda`).
+    /// Shared inference logic for function bodies (used by both `FuncDef` and `Lambda`).
     fn infer_fn_body(
         &mut self,
         generic_params: &[GenericParam],

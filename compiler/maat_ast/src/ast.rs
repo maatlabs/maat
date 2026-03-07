@@ -29,7 +29,7 @@ pub enum Stmt {
     Return(ReturnStmt),
     Expr(ExprStmt),
     Block(BlockStmt),
-    FnItem(FnItem),
+    FuncDef(FuncDef),
     Loop(LoopStmt),
     While(WhileStmt),
     For(ForStmt),
@@ -72,7 +72,7 @@ pub struct BlockStmt {
 
 /// A named function declaration: `fn foo<T>(x: T, y: i64) -> T { x }`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FnItem {
+pub struct FuncDef {
     pub name: String,
     pub params: Vec<TypedParam>,
     pub generic_params: Vec<GenericParam>,
@@ -81,7 +81,7 @@ pub struct FnItem {
     pub span: Span,
 }
 
-impl FnItem {
+impl FuncDef {
     /// Returns an iterator over the parameter names.
     pub fn param_names(&self) -> impl Iterator<Item = &str> {
         self.params.iter().map(|p| p.name.as_str())
@@ -482,7 +482,7 @@ pub struct ImplBlock {
     pub trait_name: Option<TypeExpr>,
     pub self_type: TypeExpr,
     pub generic_params: Vec<GenericParam>,
-    pub methods: Vec<FnItem>,
+    pub methods: Vec<FuncDef>,
     pub span: Span,
 }
 

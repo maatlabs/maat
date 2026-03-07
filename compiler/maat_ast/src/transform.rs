@@ -109,13 +109,13 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                     Stmt::Block(block)
                 }
 
-                Stmt::FnItem(mut fn_item) => {
+                Stmt::FuncDef(mut fn_item) => {
                     fn_item.body =
                         match transform(Node::Stmt(Stmt::Block(fn_item.body)), transformer) {
                             Node::Stmt(Stmt::Block(b)) => b,
                             _ => unreachable!("Block transformation returned non-block"),
                         };
-                    Stmt::FnItem(fn_item)
+                    Stmt::FuncDef(fn_item)
                 }
 
                 Stmt::Loop(mut loop_stmt) => {

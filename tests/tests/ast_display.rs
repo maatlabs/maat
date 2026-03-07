@@ -450,7 +450,7 @@ fn function() {
         span: span(),
     };
 
-    let func = FnItem {
+    let func = FuncDef {
         name: "identity".to_string(),
         params: vec![param1, param2],
         generic_params: vec![generic],
@@ -468,7 +468,7 @@ fn function() {
         bounds: vec![],
         span: span(),
     };
-    let func = FnItem {
+    let func = FuncDef {
         name: "identity".to_string(),
         params: vec![],
         generic_params: vec![generic_no_bounds],

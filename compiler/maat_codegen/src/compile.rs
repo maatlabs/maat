@@ -246,7 +246,7 @@ impl Compiler {
                 Ok(())
             }
 
-            Stmt::FnItem(fn_item) => {
+            Stmt::FuncDef(fn_item) => {
                 let span = fn_item.span;
                 self.compile_fn_body(
                     Some(&fn_item.name),
@@ -1172,7 +1172,7 @@ impl Compiler {
     ///
     /// Creates a fresh instruction stream and an enclosed symbol table
     /// that chains to the current one.
-    /// Compiles a function body (shared by `Stmt::FnItem` and `Expr::Lambda`).
+    /// Compiles a function body (shared by `Stmt::FuncDef` and `Expr::Lambda`).
     ///
     /// Enters a new scope, optionally defines a function name for recursive
     /// self-reference, compiles parameters and body, and emits the closure

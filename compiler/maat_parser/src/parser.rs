@@ -169,7 +169,7 @@ impl<'a> Parser<'a> {
             TokenKind::Let => self.parse_let_statement().map(Stmt::Let),
             TokenKind::Return => self.parse_return_statement().map(Stmt::Return),
             TokenKind::Fn if self.peek_token_is(TokenKind::Ident) => {
-                self.parse_fn_declaration().map(Stmt::FnItem)
+                self.parse_fn_declaration().map(Stmt::FuncDef)
             }
             TokenKind::Loop => self.parse_loop_statement().map(Stmt::Loop),
             TokenKind::While => self.parse_while_statement().map(Stmt::While),
@@ -1351,7 +1351,7 @@ impl<'a> Parser<'a> {
     ///
     /// This is identical to a named function declaration but accepts `self`
     /// as the first parameter name.
-    fn parse_impl_method(&mut self) -> Option<FnItem> {
+    fn parse_impl_method(&mut self) -> Option<FuncDef> {
         let start = self.current.span;
 
         if !self.expect_peek(TokenKind::Ident) {
@@ -1385,7 +1385,7 @@ impl<'a> Parser<'a> {
         let body = self.parse_block_statement()?;
         let end = self.current.span;
 
-        Some(FnItem {
+        Some(FuncDef {
             name,
             params,
             generic_params,
@@ -1481,7 +1481,7 @@ impl<'a> Parser<'a> {
     /// Parses a named function declaration: `fn name<T>(params) -> ret { body }`.
     ///
     /// Called when the current token is `fn` and the peek token is an identifier.
-    fn parse_fn_declaration(&mut self) -> Option<FnItem> {
+    fn parse_fn_declaration(&mut self) -> Option<FuncDef> {
         let start = self.current.span;
 
         if !self.expect_peek(TokenKind::Ident) {
@@ -1515,7 +1515,7 @@ impl<'a> Parser<'a> {
         let body = self.parse_block_statement()?;
         let end = self.current.span;
 
-        Some(FnItem {
+        Some(FuncDef {
             name,
             params,
             generic_params,

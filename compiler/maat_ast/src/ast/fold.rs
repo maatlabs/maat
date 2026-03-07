@@ -26,7 +26,7 @@ fn fold_statement(stmt: &mut Stmt, errors: &mut Vec<TypeError>) {
         Stmt::Return(ret_stmt) => fold_expression(&mut ret_stmt.value, errors),
         Stmt::Expr(expr_stmt) => fold_expression(&mut expr_stmt.value, errors),
         Stmt::Block(block) => fold_block(block, errors),
-        Stmt::FnItem(fn_item) => fold_block(&mut fn_item.body, errors),
+        Stmt::FuncDef(fn_item) => fold_block(&mut fn_item.body, errors),
         Stmt::Loop(loop_stmt) => fold_block(&mut loop_stmt.body, errors),
         Stmt::While(while_stmt) => {
             fold_expression(&mut while_stmt.condition, errors);

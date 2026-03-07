@@ -28,7 +28,7 @@ impl fmt::Display for Stmt {
             Self::Return(ret_stmt) => ret_stmt.fmt(f)?,
             Self::Expr(expr_stmt) => expr_stmt.fmt(f)?,
             Self::Block(block_stmt) => block_stmt.fmt(f)?,
-            Self::FnItem(fn_item) => fn_item.fmt(f)?,
+            Self::FuncDef(fn_item) => fn_item.fmt(f)?,
             Self::Loop(loop_stmt) => loop_stmt.fmt(f)?,
             Self::While(while_stmt) => while_stmt.fmt(f)?,
             Self::For(for_stmt) => for_stmt.fmt(f)?,
@@ -186,7 +186,7 @@ impl fmt::Display for CondExpr {
     }
 }
 
-impl fmt::Display for FnItem {
+impl fmt::Display for FuncDef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let params = self
             .params

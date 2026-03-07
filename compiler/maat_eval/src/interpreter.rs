@@ -40,7 +40,7 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
             }
             Stmt::Expr(es) => eval(Node::Expr(es.value), env),
             Stmt::Block(bs) => eval_block_statement(&bs, env),
-            Stmt::FnItem(fn_item) => {
+            Stmt::FuncDef(fn_item) => {
                 let obj = Object::Function(Function {
                     params: fn_item.param_names().map(String::from).collect(),
                     body: fn_item.body,
