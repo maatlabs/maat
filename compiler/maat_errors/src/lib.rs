@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use maat_span::Span;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -24,6 +26,9 @@ pub enum Error {
 
     #[error("serialization error: {0}")]
     Serialization(#[from] SerializationError),
+
+    #[error("module error: {0}")]
+    Module(#[from] ModuleError),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -320,4 +325,62 @@ pub enum SerializationError {
     /// An error occurred while decoding bytecode with postcard.
     #[error("bytecode decode error: {0}")]
     PostcardDecode(String),
+}
+
+/// A module resolution error with file context and source span.
+///
+/// Wraps [`ModuleErrorKind`] with the originating file path and span
+/// for rich diagnostic output.
+#[derive(Debug, thiserror::Error)]
+#[error("{file}: {kind}", file = file.display())]
+pub struct ModuleError {
+    pub kind: ModuleErrorKind,
+    pub span: Span,
+    /// The file in which the error was encountered.
+    pub file: PathBuf,
+}
+
+/// The underlying variant of a module resolution error.
+#[derive(Debug, thiserror::Error)]
+pub enum ModuleErrorKind {
+    /// A `mod foo;` declaration could not be resolved to a source file.
+    #[error("module `{module_name}` not found; searched: {}", candidates.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", "))]
+    FileNotFound {
+        module_name: String,
+        candidates: Vec<PathBuf>,
+    },
+
+    /// A cycle was detected in the module dependency graph.
+    #[error("cyclic module dependency: {}", cycle.join(" -> "))]
+    CyclicDependency {
+        /// The module names forming the cycle, in visitation order.
+        cycle: Vec<String>,
+    },
+
+    /// A module was declared more than once in the same parent module.
+    #[error("duplicate module declaration `{module_name}`")]
+    DuplicateModule { module_name: String },
+
+    /// The parser encountered errors in a module source file.
+    #[error("parse errors in `{}`:{}", file.display(), messages.iter().map(|m| format!("\n  {m}")).collect::<String>())]
+    ParseErrors {
+        file: PathBuf,
+        messages: Vec<String>,
+    },
+
+    /// An I/O error occurred while reading a source file.
+    #[error("cannot read `{}`: {message}", path.display())]
+    Io { path: PathBuf, message: String },
+}
+
+impl ModuleErrorKind {
+    /// Attaches a source span and file path to this error kind,
+    /// producing a [`ModuleError`].
+    pub fn at(self, span: Span, file: PathBuf) -> ModuleError {
+        ModuleError {
+            kind: self,
+            span,
+            file,
+        }
+    }
 }

@@ -1,0 +1,16 @@
+[package]
+name = "maat_module"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+maat_ast = { path = "../maat_ast" }
+maat_errors = { path = "../maat_errors" }
+maat_lexer = { path = "../maat_lexer" }
+maat_parser = { path = "../maat_parser" }
+maat_span = { path = "../maat_span" }
+
+[dev-dependencies]
+tempfile = "3"
