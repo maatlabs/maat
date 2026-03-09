@@ -78,7 +78,7 @@ impl<'a> Parser<'a> {
         self.peek.kind == kind
     }
 
-    /// If the next token is `expected`, consume it and return true.
+    /// If the peek token is `expected`, consume it and return true.
     /// Otherwise, register the error message and return false.
     fn expect_peek(&mut self, expected: TokenKind) -> bool {
         if self.peek_token_is(expected) {
@@ -87,7 +87,7 @@ impl<'a> Parser<'a> {
         }
 
         let err = format!(
-            "expected next token to be `{:?}`, got `{:?}` instead",
+            "expected peek token to be `{:?}`, got `{:?}` instead",
             expected, self.peek.kind
         );
         self.push_error(err);
@@ -98,6 +98,19 @@ impl<'a> Parser<'a> {
     /// and read a fresh `peek` token from the lexer.
     fn next_token(&mut self) {
         self.current = std::mem::replace(&mut self.peek, self.lexer.next_token());
+    }
+
+    /// Determine if an item being parsed is marked `pub`lic by checking for the keyword.
+    ///
+    /// If the current token is `TokenKind::Pub`, consume it and return true,
+    /// else false.
+    fn is_public(&mut self) -> bool {
+        if self.cur_token_is(TokenKind::Pub) {
+            self.next_token();
+            true
+        } else {
+            false
+        }
     }
 
     /// Pushes an error with the current token's span.
@@ -167,7 +180,7 @@ impl<'a> Parser<'a> {
     fn parse_statement(&mut self) -> Option<Stmt> {
         match self.current.kind {
             TokenKind::Pub => self.parse_pub_item(),
-            TokenKind::Use => self.parse_use_stmt().map(Stmt::Use),
+            TokenKind::Use => self.parse_use_stmt(false).map(Stmt::Use),
             TokenKind::Mod => self.parse_mod_stmt(false).map(Stmt::Mod),
             TokenKind::Let => self.parse_let_statement().map(Stmt::Let),
             TokenKind::Return => self.parse_return_statement().map(Stmt::Return),
@@ -197,6 +210,7 @@ impl<'a> Parser<'a> {
             TokenKind::Enum => self.parse_enum_decl(true).map(Stmt::EnumDecl),
             TokenKind::Trait => self.parse_trait_decl(true).map(Stmt::TraitDecl),
             TokenKind::Mod => self.parse_mod_stmt(true).map(Stmt::Mod),
+            TokenKind::Use => self.parse_use_stmt(true).map(Stmt::Use),
             _ => {
                 self.push_error(format!(
                     "`pub` cannot be applied to `{:?}`",
@@ -209,7 +223,8 @@ impl<'a> Parser<'a> {
 
     /// Parses a `use` statement:
     /// `use foo::bar;`, `use foo::bar::{baz, qux};`, or `use foo;`.
-    fn parse_use_stmt(&mut self) -> Option<UseStmt> {
+    /// When `is_public` is `true`, the statement is a re-export (`pub use`).
+    fn parse_use_stmt(&mut self, is_public: bool) -> Option<UseStmt> {
         let start = self.current.span;
 
         if !self.expect_peek(TokenKind::Ident) {
@@ -231,6 +246,7 @@ impl<'a> Parser<'a> {
                 return Some(UseStmt {
                     path,
                     items: Some(items),
+                    is_public,
                     span: start.merge(end),
                 });
             }
@@ -248,6 +264,7 @@ impl<'a> Parser<'a> {
         Some(UseStmt {
             path,
             items: None,
+            is_public,
             span: start.merge(end),
         })
     }
@@ -1196,6 +1213,9 @@ impl<'a> Parser<'a> {
 
     fn parse_struct_field(&mut self) -> Option<StructField> {
         let start = self.current.span;
+
+        let is_public = self.is_public();
+
         if !self.cur_token_is(TokenKind::Ident) {
             self.push_error(format!(
                 "expected field name, got `{:?}`",
@@ -1215,6 +1235,7 @@ impl<'a> Parser<'a> {
         Some(StructField {
             name,
             ty,
+            is_public,
             span: start.merge(end),
         })
     }
@@ -1456,9 +1477,12 @@ impl<'a> Parser<'a> {
         let mut methods = Vec::new();
         while !self.peek_token_is(TokenKind::RBrace) && !self.peek_token_is(TokenKind::Eof) {
             self.next_token();
+
+            let is_public = self.is_public();
+
             if self.cur_token_is(TokenKind::Fn) {
                 if self.peek_token_is(TokenKind::Ident) {
-                    let method = self.parse_impl_method()?;
+                    let method = self.parse_impl_method(is_public)?;
                     methods.push(method);
                 } else {
                     self.push_error(format!(
@@ -1493,8 +1517,9 @@ impl<'a> Parser<'a> {
     /// Parses a method definition inside an `impl` block.
     ///
     /// This is identical to a named function declaration but accepts `self`
-    /// as the first parameter name.
-    fn parse_impl_method(&mut self) -> Option<FuncDef> {
+    /// as the first parameter name. The `is_public` flag indicates whether the
+    /// method was preceded by `pub`.
+    fn parse_impl_method(&mut self, is_public: bool) -> Option<FuncDef> {
         let start = self.current.span;
 
         if !self.expect_peek(TokenKind::Ident) {
@@ -1534,7 +1559,7 @@ impl<'a> Parser<'a> {
             generic_params,
             return_type,
             body,
-            is_public: false,
+            is_public,
             span: start.merge(end),
         })
     }

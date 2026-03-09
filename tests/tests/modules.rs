@@ -110,13 +110,26 @@ fn parse_pub_fn() {
 }
 
 #[test]
-fn parse_pub_struct() {
+fn parse_pub_structs() {
+    // public struct, private fields
     let program = parse("pub struct Point { x: i64, y: i64 }");
     let Stmt::StructDecl(decl) = expect_single_stmt(&program) else {
         panic!("expected StructDecl statement");
     };
     assert_eq!(decl.name, "Point");
     assert!(decl.is_public);
+
+    // public struct, mixed visibility for fields
+    let program = parse("pub struct Point { pub x: i64, y: i64 }");
+    let Stmt::StructDecl(decl) = expect_single_stmt(&program) else {
+        panic!("expected StructDecl statement");
+    };
+    assert!(decl.is_public);
+    assert_eq!(decl.fields.len(), 2);
+    assert!(decl.fields[0].is_public);
+    assert_eq!(decl.fields[0].name, "x");
+    assert!(!decl.fields[1].is_public);
+    assert_eq!(decl.fields[1].name, "y");
 }
 
 #[test]
@@ -155,4 +168,55 @@ fn parse_mixed_module_items() {
     assert!(matches!(&program.statements[1], Stmt::Mod(_)));
     assert!(matches!(&program.statements[2], Stmt::FuncDef(f) if f.is_public));
     assert!(matches!(&program.statements[3], Stmt::StructDecl(s) if s.is_public));
+}
+
+#[test]
+fn parse_pub_impl_methods() {
+    let program = parse(
+        r#"
+        impl Point {
+            pub fn new(x: i64, y: i64) -> Point {
+                Point { x: x, y: y }
+            }
+            fn private_helper(self) -> i64 {
+                self.x
+            }
+            pub fn distance(self) -> i64 {
+                self.x + self.y
+            }
+        }
+    "#,
+    );
+    let Stmt::ImplBlock(impl_block) = expect_single_stmt(&program) else {
+        panic!("expected ImplBlock statement");
+    };
+    assert_eq!(impl_block.methods.len(), 3);
+    assert!(impl_block.methods[0].is_public);
+    assert_eq!(impl_block.methods[0].name, "new");
+    assert!(!impl_block.methods[1].is_public);
+    assert_eq!(impl_block.methods[1].name, "private_helper");
+    assert!(impl_block.methods[2].is_public);
+    assert_eq!(impl_block.methods[2].name, "distance");
+}
+
+#[test]
+fn parse_reexports() {
+    let program = parse("pub use foo::bar;");
+    let Stmt::Use(use_stmt) = expect_single_stmt(&program) else {
+        panic!("expected Use statement");
+    };
+    assert!(use_stmt.is_public);
+    assert_eq!(use_stmt.path, vec!["foo", "bar"]);
+    assert!(use_stmt.items.is_none());
+
+    let program = parse("pub use math::{sin, cos};");
+    let Stmt::Use(use_stmt) = expect_single_stmt(&program) else {
+        panic!("expected Use statement");
+    };
+    assert!(use_stmt.is_public);
+    assert_eq!(use_stmt.path, vec!["math"]);
+    assert_eq!(
+        use_stmt.items.as_ref().unwrap(),
+        &vec!["sin".to_string(), "cos".to_string()]
+    );
 }

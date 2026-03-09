@@ -423,11 +423,13 @@ pub struct StructDecl {
     pub span: Span,
 }
 
-/// A named field in a struct declaration: `field_name: FieldType`.
+/// A named field in a struct declaration:
+/// `field_name: FieldType` or `pub field_name: FieldType`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StructField {
     pub name: String,
     pub ty: TypeExpr,
+    pub is_public: bool,
     pub span: Span,
 }
 
@@ -496,6 +498,7 @@ pub struct ImplBlock {
 ///
 /// Imports items from other modules into the current scope. Glob imports
 /// (`use foo::*`) are deliberately unsupported to preserve ZK auditability.
+/// When `is_public` is `true`, the import is a re-export (`pub use`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct UseStmt {
     /// The path segments leading to the imported item(s) (e.g., `["foo", "bar"]`).
@@ -503,6 +506,8 @@ pub struct UseStmt {
     /// When present, the specific items imported from the path (e.g., `{baz, qux}`).
     /// When `None`, the final segment itself is the imported item.
     pub items: Option<Vec<String>>,
+    /// Whether this is a re-export (`pub use`).
+    pub is_public: bool,
     pub span: Span,
 }
 
