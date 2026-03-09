@@ -353,6 +353,19 @@ impl Compiler {
             Stmt::TraitDecl(_) => Ok(()),
             Stmt::ImplBlock(impl_block) => self.compile_impl_block(impl_block),
 
+            Stmt::Use(_) | Stmt::Mod(_) => {
+                let span = match stmt {
+                    Stmt::Use(u) => u.span,
+                    Stmt::Mod(m) => m.span,
+                    _ => unreachable!(),
+                };
+                Err(CompileErrorKind::UnsupportedExpr {
+                    expr_type: "module system statements (use/mod)".to_string(),
+                }
+                .at(span)
+                .into())
+            }
+
             Stmt::For(for_stmt) => {
                 // Desugar: evaluate iterable, bind a hidden counter, iterate via index.
                 //

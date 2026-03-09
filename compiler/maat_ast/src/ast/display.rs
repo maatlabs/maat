@@ -36,6 +36,8 @@ impl fmt::Display for Stmt {
             Self::EnumDecl(e) => e.fmt(f)?,
             Self::TraitDecl(t) => t.fmt(f)?,
             Self::ImplBlock(i) => i.fmt(f)?,
+            Self::Use(u) => u.fmt(f)?,
+            Self::Mod(m) => m.fmt(f)?,
         }
         Ok(())
     }
@@ -530,6 +532,32 @@ impl fmt::Display for StructLitExpr {
 impl fmt::Display for PathExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.segments.join("::"))
+    }
+}
+
+impl fmt::Display for UseStmt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let path = self.path.join("::");
+        match &self.items {
+            Some(items) => write!(f, "use {}::{{{}}};", path, items.join(", ")),
+            None => write!(f, "use {};", path),
+        }
+    }
+}
+
+impl fmt::Display for ModStmt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let vis = if self.is_public { "pub " } else { "" };
+        match &self.body {
+            Some(body) => {
+                writeln!(f, "{vis}mod {} {{", self.name)?;
+                for stmt in body {
+                    writeln!(f, "    {stmt}")?;
+                }
+                write!(f, "}}")
+            }
+            None => write!(f, "{vis}mod {};", self.name),
+        }
     }
 }
 

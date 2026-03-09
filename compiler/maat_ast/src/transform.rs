@@ -157,14 +157,31 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                     Stmt::For(for_stmt)
                 }
 
-                // Type declaration statements are treated as leaves. Their internal
-                // structure (fields, variants, methods) is not traversed by the
-                // general AST transformer. Macro expansion targets expressions and
-                // bindings, not type definitions.
+                Stmt::Mod(mut mod_stmt) => {
+                    if let Some(body) = mod_stmt.body {
+                        mod_stmt.body = Some(
+                            body.into_iter()
+                                .map(|stmt| match transform(Node::Stmt(stmt), transformer) {
+                                    Node::Stmt(s) => s,
+                                    _ => {
+                                        unreachable!("Stmt transformation returned non-statement")
+                                    }
+                                })
+                                .collect(),
+                        );
+                    }
+                    Stmt::Mod(mod_stmt)
+                }
+
+                // Type declaration and import statements are treated as leaves.
+                // Their internal structure is not traversed by the general AST
+                // transformer. Macro expansion targets expressions and bindings,
+                // not type definitions or imports.
                 stmt @ (Stmt::StructDecl(_)
                 | Stmt::EnumDecl(_)
                 | Stmt::TraitDecl(_)
-                | Stmt::ImplBlock(_)) => stmt,
+                | Stmt::ImplBlock(_)
+                | Stmt::Use(_)) => stmt,
             };
             Node::Stmt(new_stmt)
         }

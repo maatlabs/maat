@@ -37,6 +37,8 @@ pub enum Stmt {
     EnumDecl(EnumDecl),
     TraitDecl(TraitDecl),
     ImplBlock(ImplBlock),
+    Use(UseStmt),
+    Mod(ModStmt),
 }
 
 /// A `let` binding: `let <ident> = <value>;` or
@@ -78,6 +80,7 @@ pub struct FuncDef {
     pub generic_params: Vec<GenericParam>,
     pub return_type: Option<TypeExpr>,
     pub body: BlockStmt,
+    pub is_public: bool,
     pub span: Span,
 }
 
@@ -416,6 +419,7 @@ pub struct StructDecl {
     pub name: String,
     pub generic_params: Vec<GenericParam>,
     pub fields: Vec<StructField>,
+    pub is_public: bool,
     pub span: Span,
 }
 
@@ -433,6 +437,7 @@ pub struct EnumDecl {
     pub name: String,
     pub generic_params: Vec<GenericParam>,
     pub variants: Vec<EnumVariant>,
+    pub is_public: bool,
     pub span: Span,
 }
 
@@ -461,6 +466,7 @@ pub struct TraitDecl {
     pub name: String,
     pub generic_params: Vec<GenericParam>,
     pub methods: Vec<TraitMethod>,
+    pub is_public: bool,
     pub span: Span,
 }
 
@@ -483,6 +489,31 @@ pub struct ImplBlock {
     pub self_type: TypeExpr,
     pub generic_params: Vec<GenericParam>,
     pub methods: Vec<FuncDef>,
+    pub span: Span,
+}
+
+/// A `use` import statement: `use foo::bar;` or `use foo::bar::{baz, qux};`.
+///
+/// Imports items from other modules into the current scope. Glob imports
+/// (`use foo::*`) are deliberately unsupported to preserve ZK auditability.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct UseStmt {
+    /// The path segments leading to the imported item(s) (e.g., `["foo", "bar"]`).
+    pub path: Vec<String>,
+    /// When present, the specific items imported from the path (e.g., `{baz, qux}`).
+    /// When `None`, the final segment itself is the imported item.
+    pub items: Option<Vec<String>>,
+    pub span: Span,
+}
+
+/// A `mod` declaration: `mod foo;` (external file) or `mod foo { ... }` (inline).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ModStmt {
+    /// The module name.
+    pub name: String,
+    /// The inline body, if present. `None` means an external file module (`mod foo;`).
+    pub body: Option<Vec<Stmt>>,
+    pub is_public: bool,
     pub span: Span,
 }
 

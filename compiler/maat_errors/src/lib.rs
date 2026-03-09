@@ -123,6 +123,9 @@ pub enum TypeErrorKind {
 
     #[error("unknown trait `{0}`")]
     UnknownTrait(String),
+
+    #[error("unsupported: {0}")]
+    Unsupported(String),
 }
 
 /// Detail for a missing trait method error.

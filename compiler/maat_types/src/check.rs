@@ -240,6 +240,17 @@ impl TypeChecker {
             Stmt::StructDecl(_) | Stmt::EnumDecl(_) | Stmt::TraitDecl(_) => {}
 
             Stmt::ImplBlock(impl_block) => self.check_impl_block(impl_block),
+
+            Stmt::Use(_) | Stmt::Mod(_) => {
+                self.errors.push(
+                    TypeErrorKind::Unsupported("module system is not yet supported".to_string())
+                        .at(match stmt {
+                            Stmt::Use(u) => u.span,
+                            Stmt::Mod(m) => m.span,
+                            _ => unreachable!(),
+                        }),
+                );
+            }
         }
     }
 

@@ -36,7 +36,7 @@ fn fold_statement(stmt: &mut Stmt, errors: &mut Vec<TypeError>) {
             fold_expression(&mut for_stmt.iterable, errors);
             fold_block(&mut for_stmt.body, errors);
         }
-        Stmt::StructDecl(_) | Stmt::EnumDecl(_) => {}
+        Stmt::StructDecl(_) | Stmt::EnumDecl(_) | Stmt::Use(_) => {}
         Stmt::TraitDecl(decl) => {
             for method in &mut decl.methods {
                 if let Some(body) = &mut method.default_body {
@@ -47,6 +47,13 @@ fn fold_statement(stmt: &mut Stmt, errors: &mut Vec<TypeError>) {
         Stmt::ImplBlock(impl_block) => {
             for method in &mut impl_block.methods {
                 fold_block(&mut method.body, errors);
+            }
+        }
+        Stmt::Mod(mod_stmt) => {
+            if let Some(body) = &mut mod_stmt.body {
+                for stmt in body {
+                    fold_statement(stmt, errors);
+                }
             }
         }
     }

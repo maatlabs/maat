@@ -166,19 +166,159 @@ impl<'a> Parser<'a> {
 
     fn parse_statement(&mut self) -> Option<Stmt> {
         match self.current.kind {
+            TokenKind::Pub => self.parse_pub_item(),
+            TokenKind::Use => self.parse_use_stmt().map(Stmt::Use),
+            TokenKind::Mod => self.parse_mod_stmt(false).map(Stmt::Mod),
             TokenKind::Let => self.parse_let_statement().map(Stmt::Let),
             TokenKind::Return => self.parse_return_statement().map(Stmt::Return),
             TokenKind::Fn if self.peek_token_is(TokenKind::Ident) => {
-                self.parse_fn_declaration().map(Stmt::FuncDef)
+                self.parse_fn_declaration(false).map(Stmt::FuncDef)
             }
             TokenKind::Loop => self.parse_loop_statement().map(Stmt::Loop),
             TokenKind::While => self.parse_while_statement().map(Stmt::While),
             TokenKind::For => self.parse_for_statement().map(Stmt::For),
-            TokenKind::Struct => self.parse_struct_decl().map(Stmt::StructDecl),
-            TokenKind::Enum => self.parse_enum_decl().map(Stmt::EnumDecl),
-            TokenKind::Trait => self.parse_trait_decl().map(Stmt::TraitDecl),
+            TokenKind::Struct => self.parse_struct_decl(false).map(Stmt::StructDecl),
+            TokenKind::Enum => self.parse_enum_decl(false).map(Stmt::EnumDecl),
+            TokenKind::Trait => self.parse_trait_decl(false).map(Stmt::TraitDecl),
             TokenKind::Impl => self.parse_impl_block().map(Stmt::ImplBlock),
             _ => self.parse_expression_statement().map(Stmt::Expr),
+        }
+    }
+
+    /// Parses a `pub`-prefixed item by consuming the `pub` keyword
+    /// and delegating to the appropriate item parser with `is_public: true`.
+    fn parse_pub_item(&mut self) -> Option<Stmt> {
+        self.next_token();
+        match self.current.kind {
+            TokenKind::Fn if self.peek_token_is(TokenKind::Ident) => {
+                self.parse_fn_declaration(true).map(Stmt::FuncDef)
+            }
+            TokenKind::Struct => self.parse_struct_decl(true).map(Stmt::StructDecl),
+            TokenKind::Enum => self.parse_enum_decl(true).map(Stmt::EnumDecl),
+            TokenKind::Trait => self.parse_trait_decl(true).map(Stmt::TraitDecl),
+            TokenKind::Mod => self.parse_mod_stmt(true).map(Stmt::Mod),
+            _ => {
+                self.push_error(format!(
+                    "`pub` cannot be applied to `{:?}`",
+                    self.current.kind
+                ));
+                None
+            }
+        }
+    }
+
+    /// Parses a `use` statement:
+    /// `use foo::bar;`, `use foo::bar::{baz, qux};`, or `use foo;`.
+    fn parse_use_stmt(&mut self) -> Option<UseStmt> {
+        let start = self.current.span;
+
+        if !self.expect_peek(TokenKind::Ident) {
+            return None;
+        }
+
+        let mut path = vec![self.current.literal.to_string()];
+
+        while self.peek_token_is(TokenKind::PathSep) {
+            self.next_token();
+
+            if self.peek_token_is(TokenKind::LBrace) {
+                self.next_token();
+                let items = self.parse_use_item_list()?;
+                let end = self.current.span;
+                if self.peek_token_is(TokenKind::Semicolon) {
+                    self.next_token();
+                }
+                return Some(UseStmt {
+                    path,
+                    items: Some(items),
+                    span: start.merge(end),
+                });
+            }
+
+            if !self.expect_peek(TokenKind::Ident) {
+                return None;
+            }
+            path.push(self.current.literal.to_string());
+        }
+
+        let end = self.current.span;
+        if self.peek_token_is(TokenKind::Semicolon) {
+            self.next_token();
+        }
+        Some(UseStmt {
+            path,
+            items: None,
+            span: start.merge(end),
+        })
+    }
+
+    /// Parses the item list in a grouped `use` import: `{foo, bar, baz}`.
+    fn parse_use_item_list(&mut self) -> Option<Vec<String>> {
+        let mut items = Vec::new();
+
+        if self.peek_token_is(TokenKind::RBrace) {
+            self.next_token();
+            return Some(items);
+        }
+
+        if !self.expect_peek(TokenKind::Ident) {
+            return None;
+        }
+        items.push(self.current.literal.to_string());
+
+        while self.peek_token_is(TokenKind::Comma) {
+            self.next_token();
+            if !self.expect_peek(TokenKind::Ident) {
+                return None;
+            }
+            items.push(self.current.literal.to_string());
+        }
+
+        if !self.expect_peek(TokenKind::RBrace) {
+            return None;
+        }
+        Some(items)
+    }
+
+    /// Parses a `mod` declaration: `mod foo;` (external) or `mod foo { ... }` (inline).
+    fn parse_mod_stmt(&mut self, is_public: bool) -> Option<ModStmt> {
+        let start = self.current.span;
+
+        if !self.expect_peek(TokenKind::Ident) {
+            return None;
+        }
+        let name = self.current.literal.to_string();
+
+        if self.peek_token_is(TokenKind::LBrace) {
+            self.next_token();
+            let mut body = Vec::new();
+            while !self.peek_token_is(TokenKind::RBrace) && !self.peek_token_is(TokenKind::Eof) {
+                self.next_token();
+                if let Some(stmt) = self.parse_statement() {
+                    body.push(stmt);
+                }
+            }
+            if !self.expect_peek(TokenKind::RBrace) {
+                return None;
+            }
+            let end = self.current.span;
+            Some(ModStmt {
+                name,
+                body: Some(body),
+                is_public,
+                span: start.merge(end),
+            })
+        } else {
+            let end = self.current.span;
+            if self.peek_token_is(TokenKind::Semicolon) {
+                self.next_token();
+            }
+            Some(ModStmt {
+                name,
+                body: None,
+                is_public,
+                span: start.merge(end),
+            })
         }
     }
 
@@ -1011,7 +1151,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_struct_decl(&mut self) -> Option<StructDecl> {
+    fn parse_struct_decl(&mut self, is_public: bool) -> Option<StructDecl> {
         let start = self.current.span;
 
         if !self.expect_peek(TokenKind::Ident) {
@@ -1049,6 +1189,7 @@ impl<'a> Parser<'a> {
             name,
             generic_params,
             fields,
+            is_public,
             span: start.merge(end),
         })
     }
@@ -1078,7 +1219,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_enum_decl(&mut self) -> Option<EnumDecl> {
+    fn parse_enum_decl(&mut self, is_public: bool) -> Option<EnumDecl> {
         let start = self.current.span;
 
         if !self.expect_peek(TokenKind::Ident) {
@@ -1116,6 +1257,7 @@ impl<'a> Parser<'a> {
             name,
             generic_params,
             variants,
+            is_public,
             span: start.merge(end),
         })
     }
@@ -1184,7 +1326,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_trait_decl(&mut self) -> Option<TraitDecl> {
+    fn parse_trait_decl(&mut self, is_public: bool) -> Option<TraitDecl> {
         let start = self.current.span;
 
         if !self.expect_peek(TokenKind::Ident) {
@@ -1227,6 +1369,7 @@ impl<'a> Parser<'a> {
             name,
             generic_params,
             methods,
+            is_public,
             span: start.merge(end),
         })
     }
@@ -1391,6 +1534,7 @@ impl<'a> Parser<'a> {
             generic_params,
             return_type,
             body,
+            is_public: false,
             span: start.merge(end),
         })
     }
@@ -1481,7 +1625,7 @@ impl<'a> Parser<'a> {
     /// Parses a named function declaration: `fn name<T>(params) -> ret { body }`.
     ///
     /// Called when the current token is `fn` and the peek token is an identifier.
-    fn parse_fn_declaration(&mut self) -> Option<FuncDef> {
+    fn parse_fn_declaration(&mut self, is_public: bool) -> Option<FuncDef> {
         let start = self.current.span;
 
         if !self.expect_peek(TokenKind::Ident) {
@@ -1521,6 +1665,7 @@ impl<'a> Parser<'a> {
             generic_params,
             return_type,
             body,
+            is_public,
             span: start.merge(end),
         })
     }

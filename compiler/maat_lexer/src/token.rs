@@ -54,7 +54,6 @@ pub enum TokenKind {
     Continue,
     /// The `where` keyword for trait bound clauses.
     Where,
-
     /// The `struct` keyword for structure type declarations.
     Struct,
     /// The `enum` keyword for enumeration type declarations.
@@ -69,6 +68,12 @@ pub enum TokenKind {
     SelfValue,
     /// The `Self` type keyword for the implementing type in `impl` and `trait` blocks.
     SelfType,
+    /// The `mod` keyword for module declarations.
+    Mod,
+    /// The `use` keyword for importing items from other modules.
+    Use,
+    /// The `pub` keyword for visibility modifiers.
+    Pub,
 
     /// A user-defined identifier (variable, function name, etc.).
     Ident,
@@ -217,6 +222,9 @@ impl TokenKind {
             "trait" => Self::Trait,
             "self" => Self::SelfValue,
             "Self" => Self::SelfType,
+            "mod" => Self::Mod,
+            "use" => Self::Use,
+            "pub" => Self::Pub,
             _ => Self::Ident,
         }
     }
