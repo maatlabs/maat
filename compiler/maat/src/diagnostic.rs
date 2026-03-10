@@ -5,19 +5,8 @@
 //! source span is available.
 
 use ariadne::{Color, Label, Report, ReportKind, Source};
-use maat_errors::{CompileError, Error, ParseError, TypeError, VmError};
+use maat_errors::{CompileError, ModuleError, ParseError, TypeError, VmError};
 use maat_span::Span;
-
-/// Routes an [`Error`] to the appropriate diagnostic reporter.
-pub fn report_error(path: &str, source: &str, error: &Error) {
-    match error {
-        Error::Parse(e) => report_parse_error(path, source, e),
-        Error::Compile(e) => report_compile_error(path, source, e),
-        Error::Type(e) => report_type_error(path, source, e),
-        Error::Vm(e) => report_vm_error(path, source, e),
-        _ => eprintln!("{path}: {error}"),
-    }
-}
 
 /// Renders a parse error with a source snippet to stderr.
 pub fn report_parse_error(path: &str, source: &str, error: &ParseError) {
@@ -95,6 +84,15 @@ pub fn report_type_error(path: &str, source: &str, error: &TypeError) {
         .finish()
         .eprint((path, Source::from(source)))
         .ok();
+}
+
+/// Renders a module-level error to stderr.
+///
+/// Module errors wrap type, compile, and parse errors from individual
+/// modules with file path context. The error's display format includes
+/// the originating file and a list of sub-errors.
+pub fn report_module_error(error: &ModuleError) {
+    eprintln!("error: {error}");
 }
 
 /// Converts a byte-offset [`Span`] to a character-offset range suitable for

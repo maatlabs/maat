@@ -17,9 +17,11 @@ maat_parser = { path = "../compiler/maat_parser" }
 maat_runtime = { path = "../compiler/maat_runtime" }
 maat_types = { path = "../compiler/maat_types" }
 maat_span = { path = "../compiler/maat_span" }
+maat_module = { path = "../compiler/maat_module" }
 maat_vm = { path = "../compiler/maat_vm" }
 
 [dev-dependencies]
+tempfile = "3"
 criterion = { version = "0.8", features = ["html_reports"] }
 
 [[bench]]

@@ -15,4 +15,7 @@ pub mod unify;
 
 pub use check::TypeChecker;
 pub use convert::resolve_type_expr;
-pub use ty::{EnumDef, ImplDef, MethodSig, StructDef, TraitDef, Type, VariantDef, VariantKind};
+pub use env::TypeEnv;
+pub use ty::{
+    EnumDef, ImplDef, MethodSig, StructDef, TraitDef, Type, TypeScheme, VariantDef, VariantKind,
+};

@@ -450,12 +450,13 @@ fn function() {
         span: span(),
     };
 
-    let func = FnItem {
+    let func = FuncDef {
         name: "identity".to_string(),
         params: vec![param1, param2],
         generic_params: vec![generic],
         return_type: Some(return_ty),
         body: body.clone(),
+        is_public: false,
         span: span(),
     };
     assert_eq!(
@@ -468,12 +469,13 @@ fn function() {
         bounds: vec![],
         span: span(),
     };
-    let func = FnItem {
+    let func = FuncDef {
         name: "identity".to_string(),
         params: vec![],
         generic_params: vec![generic_no_bounds],
         return_type: None,
         body,
+        is_public: false,
         span: span(),
     };
     assert_eq!(func.to_string(), "fn identity<U>() {\nreturn a;\n}");

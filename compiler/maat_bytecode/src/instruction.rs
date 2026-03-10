@@ -77,18 +77,21 @@ impl Instructions {
 }
 
 impl From<Vec<u8>> for Instructions {
+    #[inline]
     fn from(bytes: Vec<u8>) -> Self {
         Self(bytes)
     }
 }
 
 impl From<Instructions> for Vec<u8> {
+    #[inline]
     fn from(ins: Instructions) -> Self {
         ins.0
     }
 }
 
 impl AsRef<[u8]> for Instructions {
+    #[inline]
     fn as_ref(&self) -> &[u8] {
         &self.0
     }

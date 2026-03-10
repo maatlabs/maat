@@ -61,6 +61,77 @@ cargo run --release -- build examples/fibonacci.mt -o fibonacci.mtc
 cargo run --release -- exec fibonacci.mtc
 ```
 
+### Multi-Module Projects
+
+Maat supports multi-file programs with `mod`, `use`, and `pub`. Imports are resolved relative to the entry file, and the compiler builds a dependency graph, type-checks each module, and produces a single linked bytecode output.
+
+Given a project layout:
+
+```txt
+my_project/
+  main.mt
+  geometry.mt
+  math.mt
+```
+
+**`main.mt`**:
+
+```rust
+mod geometry;
+mod math;
+
+use geometry::Point;
+use math::add;
+
+let p = Point { x: 3, y: 4 };
+print(add(p.x, p.y));
+print(p.sum());
+```
+
+**`geometry.mt`**:
+
+```rust
+pub struct Point {
+    pub x: i64,
+    pub y: i64,
+}
+
+impl Point {
+    pub fn sum(self) -> i64 { self.x + self.y }
+}
+```
+
+**`math.mt`**:
+
+```rust
+pub fn add(a: i64, b: i64) -> i64 { a + b }
+
+fn internal_helper() -> i64 { 0 }
+```
+
+Run it:
+
+```bash
+cargo run --release -- run my_project/main.mt
+```
+
+Build it to a single `.mtc`:
+
+```bash
+cargo run --release -- build my_project/main.mt -o my_project.mtc
+cargo run --release -- exec my_project.mtc
+```
+
+Key rules:
+
+- `mod foo;` declares a dependency on `foo.mt` (or `foo/mod.mt`) relative to the declaring file
+- `use foo::bar;` or `use foo::{bar, baz};` imports specific public items -- no glob imports (`use foo::*`) for ZK auditability
+- Items without `pub` are module-private and inaccessible to importers
+- Circular module dependencies are detected and rejected at compile time
+- `pub use foo::bar;` re-exports items through intermediate modules
+
+A working multi-module example is included at `examples/modules/`.
+
 ### Running the REPL
 
 Start an interactive REPL session. The REPL compiles each line to bytecode and executes it on the VM:
@@ -150,9 +221,9 @@ cargo doc --all-features --no-deps --open
 
 ## Architecture
 
-Maat uses a single compilation pipeline: source code is parsed into an AST, macro-expanded via `maat_eval`, type-checked by `maat_types` using Hindley-Milner inference (Algorithm W), compiled to bytecode by `maat_codegen`, and executed on the stack-based `maat_vm`. The `maat_eval` crate (the tree-walking evaluator) is reduced to a macro-expansion-only engine (`define_macros`/`expand_macros`).
+Maat uses a multi-module compilation pipeline. Source files are parsed into per-module ASTs, organized into a dependency graph by `maat_module`, type-checked independently with cross-module visibility enforcement, compiled to bytecode by a shared `maat_codegen` compiler instance (which implicitly links all modules into a single instruction stream), and executed on the stack-based `maat_vm`. The `maat_eval` crate (the tree-walking evaluator) is reduced to a macro-expansion-only engine (`define_macros`/`expand_macros`).
 
-The type checker infers types for the entire program, catching mismatches at compile time. Type annotations are optional--the inference engine deduces types from usage--but can be provided on `let` bindings, function parameters, and return types for documentation or to constrain polymorphism. Generic functions with parametric polymorphism are supported (`fn identity<T>(x: T) -> T { x }`).
+The type checker infers types for each module using Hindley-Milner inference (Algorithm W), with imported bindings injected from dependency modules' public exports. Type annotations are optional--the inference engine deduces types from usage--but can be provided on `let` bindings, function parameters, and return types for documentation or to constrain polymorphism. Generic functions with parametric polymorphism are supported (`fn identity<T>(x: T) -> T { x }`).
 
 Custom types follow Rust syntax: `struct`, `enum` (with unit, tuple, and struct variants), `trait`, and `impl` blocks (both inherent and trait impls). Pattern matching via `match` supports literal, identifier, tuple-struct, wildcard, and or-patterns. Methods are statically dispatched. `Option<T>` and `Result<T, E>` are pre-registered as language-level enums.
 
@@ -172,6 +243,7 @@ Errors are reported with precise `file:line:col` locations using source maps and
 | `maat_types`    | Hindley-Milner type inference (Algorithm W)                      |
 | `maat_bytecode` | Instruction set encoding/decoding and serialization (35 opcodes) |
 | `maat_codegen`  | AST-to-bytecode compiler with scope analysis                     |
+| `maat_module`   | Module resolution, dependency graph, and multi-module pipeline   |
 | `maat_vm`       | Stack-based virtual machine                                      |
 
 ## Contributing
@@ -186,14 +258,14 @@ Unless you explicitly state otherwise, any contribution intentionally submitted 
 
 ## Status
 
-Maat is currently at version 0.7 and is still going through several improvements in order to deliver the best-in-class experience as a fully-fledged Turing-complete ZK programming language.
+Maat is currently at version 0.8 and is still going through several improvements in order to deliver the best-in-class experience as a fully-fledged Turing-complete ZK programming language.
 
 ## Disclaimer
 
-Early adopters should be aware that Maat 0.7 is a transient accomplishment towards Maat 1.0, for which a formal audit process is expected. In the meantime, we invite you to know and experiment with Maat, but we don't recommend using it to build mission-critical systems.
+Early adopters should be aware that Maat 0.8 is a transient accomplishment towards Maat 1.0, for which a formal audit process is expected. In the meantime, we invite you to know and experiment with Maat, but we don't recommend using it to build mission-critical systems.
 
 ## Acknowledgments
 
-Maat's early architecture (v0.1–v0.4) was inspired by Thorsten Ball's [Writing An Interpreter In Go](https://interpreterbook.com), [The Lost Chapter: A Macro System for Monkey](https://interpreterbook.com/lost/), and [Writing A Compiler In Go](https://compilerbook.com). The lexer structure, Pratt parser skeleton, tree-walking evaluator, macro system, and initial bytecode VM design trace back to these books, translated from Go to Rust.
+Maat's early architecture (v0.1--v0.4) was inspired by Thorsten Ball's [Writing An Interpreter In Go](https://interpreterbook.com), [The Lost Chapter: A Macro System for Monkey](https://interpreterbook.com/lost/), and [Writing A Compiler In Go](https://compilerbook.com). The lexer structure, Pratt parser skeleton, tree-walking evaluator, macro system, and initial bytecode VM design trace back to these books, translated from Go to Rust.
 
-Since then, Maat has diverged substantially. The language now features `Hindley-Milner` type inference, Rust-native custom types (structs, enums, traits, impl blocks, pattern matching), a ZK-first design that rejects floating-point and implicit truthiness, built-in `Option<T>` and `Result<T, E>`, source-location diagnostics, bytecode serialization, and a CLI toolchain--none of which originate from the source material.
+Since then, Maat has diverged substantially. The language now features `Hindley-Milner` type inference, Rust-native custom types (structs, enums, traits, impl blocks, pattern matching), a multi-file module system with visibility enforcement, a ZK-first design that rejects floating-point and implicit truthiness, built-in `Option<T>` and `Result<T, E>`, source-location diagnostics, bytecode serialization, and a CLI toolchain--none of which originate from the source material.

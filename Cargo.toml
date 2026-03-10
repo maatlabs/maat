@@ -12,13 +12,14 @@ members = [
     "compiler/maat_types",
     "compiler/maat_codegen",
     "compiler/maat_vm",
+    "compiler/maat_module",
     "compiler/maat",
     "tests",
 ]
 default-members = ["compiler/maat"]
 
 [workspace.package]
-version = "0.7.0"
+version = "0.8.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/maatlabs/maat"

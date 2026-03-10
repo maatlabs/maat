@@ -42,6 +42,22 @@ impl TypeChecker {
         }
     }
 
+    /// Returns a reference to the type environment.
+    ///
+    /// Used by the module orchestrator to extract public exports
+    /// after type checking completes.
+    pub fn env(&self) -> &TypeEnv {
+        &self.env
+    }
+
+    /// Returns a mutable reference to the type environment.
+    ///
+    /// Used by the module orchestrator to inject imported type
+    /// definitions before type checking begins.
+    pub fn env_mut(&mut self) -> &mut TypeEnv {
+        &mut self.env
+    }
+
     /// Type-checks a program, mutating the AST to insert promotion casts.
     ///
     /// Performs two passes: the first registers all type declarations (structs,
@@ -50,6 +66,16 @@ impl TypeChecker {
     ///
     /// Returns accumulated type errors (empty if the program is well-typed).
     pub fn check_program(mut self, program: &mut Program) -> Vec<TypeError> {
+        self.check_program_mut(program);
+        self.errors
+    }
+
+    /// Type-checks a program without consuming the checker.
+    ///
+    /// Behaves identically to [`check_program`](Self::check_program) but
+    /// borrows `self` mutably, allowing the caller to inspect the type
+    /// environment afterwards (e.g., to extract module exports).
+    pub fn check_program_mut(&mut self, program: &mut Program) {
         for stmt in &program.statements {
             match stmt {
                 Stmt::StructDecl(decl) => self.register_struct(decl),
@@ -61,7 +87,11 @@ impl TypeChecker {
         for stmt in &mut program.statements {
             self.check_statement(stmt);
         }
-        self.errors
+    }
+
+    /// Returns the accumulated type errors.
+    pub fn errors(&self) -> &[TypeError] {
+        &self.errors
     }
 
     fn register_struct(&mut self, decl: &StructDecl) {
@@ -205,7 +235,7 @@ impl TypeChecker {
                 self.infer_expression(&mut expr_stmt.value);
             }
             Stmt::Block(block) => self.check_block(block),
-            Stmt::FnItem(fn_item) => self.check_fn_item(fn_item),
+            Stmt::FuncDef(fn_item) => self.check_fn_item(fn_item),
             Stmt::Loop(loop_stmt) => self.check_block(&mut loop_stmt.body),
             Stmt::While(while_stmt) => {
                 let cond_ty = self.infer_expression(&mut while_stmt.condition);
@@ -240,6 +270,11 @@ impl TypeChecker {
             Stmt::StructDecl(_) | Stmt::EnumDecl(_) | Stmt::TraitDecl(_) => {}
 
             Stmt::ImplBlock(impl_block) => self.check_impl_block(impl_block),
+
+            // Module declarations (`mod foo;` / `mod foo { ... }`) and import
+            // statements (`use foo::bar;`) are resolved by the module orchestrator
+            // before per-module type checking runs. No action needed here.
+            Stmt::Use(_) | Stmt::Mod(_) => {}
         }
     }
 
@@ -277,7 +312,7 @@ impl TypeChecker {
     }
 
     /// Type-checks a named function declaration and binds it in the environment.
-    fn check_fn_item(&mut self, fn_item: &mut FnItem) {
+    fn check_fn_item(&mut self, fn_item: &mut FuncDef) {
         let fn_ty = self.infer_fn_body(
             &fn_item.generic_params,
             &fn_item.params,
@@ -289,7 +324,7 @@ impl TypeChecker {
         self.env.define_scheme(&fn_item.name, scheme);
     }
 
-    /// Shared inference logic for function bodies (used by both `FnItem` and `Lambda`).
+    /// Shared inference logic for function bodies (used by both `FuncDef` and `Lambda`).
     fn infer_fn_body(
         &mut self,
         generic_params: &[GenericParam],

@@ -116,6 +116,23 @@ impl Compiler {
         }
     }
 
+    /// Returns a mutable reference to the compiler's symbols table.
+    ///
+    /// Used by the module pipeline to define imported symbols before
+    /// compilation, so that cross-module references resolve correctly.
+    pub fn symbols_table_mut(&mut self) -> &mut SymbolsTable {
+        &mut self.symbols_table
+    }
+
+    /// Returns a mutable reference to the compiler's type registry.
+    ///
+    /// Used by the module pipeline to register imported type definitions
+    /// (structs, enums) so that construction and field access work
+    /// across module boundaries.
+    pub fn type_registry_mut(&mut self) -> &mut Vec<TypeDef> {
+        &mut self.type_registry
+    }
+
     /// Registers all built-in functions in the given symbols table.
     fn register_builtins(table: &mut SymbolsTable) {
         for (i, (name, _)) in BUILTINS.iter().enumerate() {
@@ -197,7 +214,7 @@ impl Compiler {
     }
 
     /// Compiles a program node (list of statements).
-    fn compile_program(&mut self, program: &Program) -> Result<()> {
+    pub fn compile_program(&mut self, program: &Program) -> Result<()> {
         for stmt in &program.statements {
             self.compile_statement(stmt)?;
         }
@@ -246,7 +263,7 @@ impl Compiler {
                 Ok(())
             }
 
-            Stmt::FnItem(fn_item) => {
+            Stmt::FuncDef(fn_item) => {
                 let span = fn_item.span;
                 self.compile_fn_body(
                     Some(&fn_item.name),
@@ -352,6 +369,10 @@ impl Compiler {
             }
             Stmt::TraitDecl(_) => Ok(()),
             Stmt::ImplBlock(impl_block) => self.compile_impl_block(impl_block),
+
+            // Module declarations and import statements are resolved by the
+            // module orchestrator before per-module compilation. No-op here.
+            Stmt::Use(_) | Stmt::Mod(_) => Ok(()),
 
             Stmt::For(for_stmt) => {
                 // Desugar: evaluate iterable, bind a hidden counter, iterate via index.
@@ -1172,7 +1193,7 @@ impl Compiler {
     ///
     /// Creates a fresh instruction stream and an enclosed symbol table
     /// that chains to the current one.
-    /// Compiles a function body (shared by `Stmt::FnItem` and `Expr::Lambda`).
+    /// Compiles a function body (shared by `Stmt::FuncDef` and `Expr::Lambda`).
     ///
     /// Enters a new scope, optionally defines a function name for recursive
     /// self-reference, compiles parameters and body, and emits the closure

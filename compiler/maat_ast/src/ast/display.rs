@@ -28,7 +28,7 @@ impl fmt::Display for Stmt {
             Self::Return(ret_stmt) => ret_stmt.fmt(f)?,
             Self::Expr(expr_stmt) => expr_stmt.fmt(f)?,
             Self::Block(block_stmt) => block_stmt.fmt(f)?,
-            Self::FnItem(fn_item) => fn_item.fmt(f)?,
+            Self::FuncDef(fn_item) => fn_item.fmt(f)?,
             Self::Loop(loop_stmt) => loop_stmt.fmt(f)?,
             Self::While(while_stmt) => while_stmt.fmt(f)?,
             Self::For(for_stmt) => for_stmt.fmt(f)?,
@@ -36,6 +36,8 @@ impl fmt::Display for Stmt {
             Self::EnumDecl(e) => e.fmt(f)?,
             Self::TraitDecl(t) => t.fmt(f)?,
             Self::ImplBlock(i) => i.fmt(f)?,
+            Self::Use(u) => u.fmt(f)?,
+            Self::Mod(m) => m.fmt(f)?,
         }
         Ok(())
     }
@@ -186,7 +188,7 @@ impl fmt::Display for CondExpr {
     }
 }
 
-impl fmt::Display for FnItem {
+impl fmt::Display for FuncDef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let params = self
             .params
@@ -213,7 +215,12 @@ impl fmt::Display for FnItem {
             .as_ref()
             .map_or(String::new(), |t| format!(" -> {t}"));
 
-        write!(f, "fn {}{generics}({params}){ret} {}", self.name, self.body)
+        let vis = visibility_modifier(self.is_public);
+        write!(
+            f,
+            "{vis}fn {}{generics}({params}){ret} {}",
+            self.name, self.body
+        )
     }
 }
 
@@ -310,8 +317,9 @@ impl fmt::Display for ContinueExpr {
 
 impl fmt::Display for StructDecl {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let vis = visibility_modifier(self.is_public);
         let generics = fmt_generic_params(&self.generic_params);
-        write!(f, "struct {}{generics}", self.name)?;
+        write!(f, "{vis}struct {}{generics}", self.name)?;
         if self.fields.is_empty() {
             write!(f, " {{}}")
         } else {
@@ -326,14 +334,16 @@ impl fmt::Display for StructDecl {
 
 impl fmt::Display for StructField {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {}", self.name, self.ty)
+        let vis = visibility_modifier(self.is_public);
+        write!(f, "{vis}{}: {}", self.name, self.ty)
     }
 }
 
 impl fmt::Display for EnumDecl {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let vis = visibility_modifier(self.is_public);
         let generics = fmt_generic_params(&self.generic_params);
-        write!(f, "enum {}{generics}", self.name)?;
+        write!(f, "{vis}enum {}{generics}", self.name)?;
         if self.variants.is_empty() {
             write!(f, " {{}}")
         } else {
@@ -379,8 +389,9 @@ impl fmt::Display for EnumVariantKind {
 
 impl fmt::Display for TraitDecl {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let vis = visibility_modifier(self.is_public);
         let generics = fmt_generic_params(&self.generic_params);
-        write!(f, "trait {}{generics}", self.name)?;
+        write!(f, "{vis}trait {}{generics}", self.name)?;
         if self.methods.is_empty() {
             write!(f, " {{}}")
         } else {
@@ -533,6 +544,33 @@ impl fmt::Display for PathExpr {
     }
 }
 
+impl fmt::Display for UseStmt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let vis = visibility_modifier(self.is_public);
+        let path = self.path.join("::");
+        match &self.items {
+            Some(items) => write!(f, "{vis}use {}::{{{}}};", path, items.join(", ")),
+            None => write!(f, "{vis}use {};", path),
+        }
+    }
+}
+
+impl fmt::Display for ModStmt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let vis = visibility_modifier(self.is_public);
+        match &self.body {
+            Some(body) => {
+                writeln!(f, "{vis}mod {} {{", self.name)?;
+                for stmt in body {
+                    writeln!(f, "    {stmt}")?;
+                }
+                write!(f, "}}")
+            }
+            None => write!(f, "{vis}mod {};", self.name),
+        }
+    }
+}
+
 /// Formats a generic parameter list as `<T, U: Bound>`, or an empty string if empty.
 fn fmt_generic_params(params: &[GenericParam]) -> String {
     if params.is_empty() {
@@ -616,4 +654,11 @@ impl fmt::Display for UnknownTypeAnnotation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("unknown type annotation")
     }
+}
+
+/// Helper to check if an item's `is_public` field is set or not.
+/// If set, returns "pub", else "".
+#[inline]
+fn visibility_modifier(vis: bool) -> &'static str {
+    if vis { "pub " } else { "" }
 }

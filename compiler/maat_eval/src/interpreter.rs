@@ -40,7 +40,7 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
             }
             Stmt::Expr(es) => eval(Node::Expr(es.value), env),
             Stmt::Block(bs) => eval_block_statement(&bs, env),
-            Stmt::FnItem(fn_item) => {
+            Stmt::FuncDef(fn_item) => {
                 let obj = Object::Function(Function {
                     params: fn_item.param_names().map(String::from).collect(),
                     body: fn_item.body,
@@ -52,9 +52,12 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
             Stmt::Loop(loop_stmt) => eval_loop_statement(loop_stmt, env),
             Stmt::While(while_stmt) => eval_while_statement(while_stmt, env),
             Stmt::For(for_stmt) => eval_for_statement(for_stmt, env),
-            Stmt::StructDecl(_) | Stmt::EnumDecl(_) | Stmt::TraitDecl(_) | Stmt::ImplBlock(_) => {
-                Ok(NULL)
-            }
+            Stmt::StructDecl(_)
+            | Stmt::EnumDecl(_)
+            | Stmt::TraitDecl(_)
+            | Stmt::ImplBlock(_)
+            | Stmt::Use(_)
+            | Stmt::Mod(_) => Ok(NULL),
         },
 
         Node::Expr(expr) => match expr {

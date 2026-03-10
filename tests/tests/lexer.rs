@@ -161,7 +161,8 @@ fn operator_and_delimiter_tokens() {
 
 #[test]
 fn keywords() {
-    let source = "let fn if else return true false struct enum match impl trait self Self";
+    let source =
+        "let fn if else return true false struct enum match impl trait self Self mod use pub";
     let expected = [
         (TokenKind::Let, "let"),
         (TokenKind::Fn, "fn"),
@@ -177,6 +178,9 @@ fn keywords() {
         (TokenKind::Trait, "trait"),
         (TokenKind::SelfValue, "self"),
         (TokenKind::SelfType, "Self"),
+        (TokenKind::Mod, "mod"),
+        (TokenKind::Use, "use"),
+        (TokenKind::Pub, "pub"),
         (TokenKind::Eof, ""),
     ];
 
