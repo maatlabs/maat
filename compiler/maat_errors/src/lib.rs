@@ -131,6 +131,9 @@ pub enum TypeErrorKind {
 
     #[error("unsupported: {0}")]
     Unsupported(String),
+
+    #[error("item `{item}` is private to module `{module}`")]
+    PrivateAccess { item: String, module: String },
 }
 
 /// Detail for a missing trait method error.
@@ -364,6 +367,20 @@ pub enum ModuleErrorKind {
     /// The parser encountered errors in a module source file.
     #[error("parse errors in `{}`:{}", file.display(), messages.iter().map(|m| format!("\n  {m}")).collect::<String>())]
     ParseErrors {
+        file: PathBuf,
+        messages: Vec<String>,
+    },
+
+    /// Type errors encountered during module type checking.
+    #[error("type errors in `{}`:{}", file.display(), messages.iter().map(|m| format!("\n  {m}")).collect::<String>())]
+    TypeErrors {
+        file: PathBuf,
+        messages: Vec<String>,
+    },
+
+    /// Compilation errors encountered during module code generation.
+    #[error("compile errors in `{}`:{}", file.display(), messages.iter().map(|m| format!("\n  {m}")).collect::<String>())]
+    CompileErrors {
         file: PathBuf,
         messages: Vec<String>,
     },

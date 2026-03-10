@@ -116,6 +116,23 @@ impl Compiler {
         }
     }
 
+    /// Returns a mutable reference to the compiler's symbols table.
+    ///
+    /// Used by the module pipeline to define imported symbols before
+    /// compilation, so that cross-module references resolve correctly.
+    pub fn symbols_table_mut(&mut self) -> &mut SymbolsTable {
+        &mut self.symbols_table
+    }
+
+    /// Returns a mutable reference to the compiler's type registry.
+    ///
+    /// Used by the module pipeline to register imported type definitions
+    /// (structs, enums) so that construction and field access work
+    /// across module boundaries.
+    pub fn type_registry_mut(&mut self) -> &mut Vec<TypeDef> {
+        &mut self.type_registry
+    }
+
     /// Registers all built-in functions in the given symbols table.
     fn register_builtins(table: &mut SymbolsTable) {
         for (i, (name, _)) in BUILTINS.iter().enumerate() {
@@ -197,7 +214,7 @@ impl Compiler {
     }
 
     /// Compiles a program node (list of statements).
-    fn compile_program(&mut self, program: &Program) -> Result<()> {
+    pub fn compile_program(&mut self, program: &Program) -> Result<()> {
         for stmt in &program.statements {
             self.compile_statement(stmt)?;
         }
@@ -353,18 +370,9 @@ impl Compiler {
             Stmt::TraitDecl(_) => Ok(()),
             Stmt::ImplBlock(impl_block) => self.compile_impl_block(impl_block),
 
-            Stmt::Use(_) | Stmt::Mod(_) => {
-                let span = match stmt {
-                    Stmt::Use(u) => u.span,
-                    Stmt::Mod(m) => m.span,
-                    _ => unreachable!(),
-                };
-                Err(CompileErrorKind::UnsupportedExpr {
-                    expr_type: "module system statements (use/mod)".to_string(),
-                }
-                .at(span)
-                .into())
-            }
+            // Module declarations and import statements are resolved by the
+            // module orchestrator before per-module compilation. No-op here.
+            Stmt::Use(_) | Stmt::Mod(_) => Ok(()),
 
             Stmt::For(for_stmt) => {
                 // Desugar: evaluate iterable, bind a hidden counter, iterate via index.

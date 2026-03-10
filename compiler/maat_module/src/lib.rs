@@ -20,7 +20,9 @@
 //! and an error is produced. If neither exists, a resolution error is
 //! produced.
 
+mod exports;
 mod graph;
+mod pipeline;
 mod resolve;
 
 use maat_errors::ModuleError;
@@ -28,5 +30,7 @@ use maat_errors::ModuleError;
 /// A specialized [`Result`](std::result::Result) type for module resolution operations.
 pub type ModuleResult<T> = std::result::Result<T, ModuleError>;
 
+pub use exports::ModuleExports;
 pub use graph::{ModuleGraph, ModuleId, ModuleNode};
+pub use pipeline::{CompiledModules, check_and_compile};
 pub use resolve::resolve_module_graph;

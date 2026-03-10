@@ -587,10 +587,14 @@ name = "maat_module"
 version = "0.7.0"
 dependencies = [
  "maat_ast",
+ "maat_bytecode",
+ "maat_codegen",
  "maat_errors",
  "maat_lexer",
  "maat_parser",
+ "maat_runtime",
  "maat_span",
+ "maat_types",
  "tempfile",
 ]
 

@@ -236,6 +236,11 @@ impl TypeEnv {
         self.enums.values()
     }
 
+    /// Returns an iterator over all registered impl blocks.
+    pub fn all_impls(&self) -> impl Iterator<Item = &ImplDef> {
+        self.impls.iter()
+    }
+
     /// Returns all required method signatures for a trait.
     pub fn required_trait_methods(&self, trait_name: &str) -> Vec<&MethodSig> {
         self.traits
