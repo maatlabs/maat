@@ -28,7 +28,7 @@ mod resolve;
 
 use maat_errors::ModuleError;
 
-/// A specialized [`Result`](std::result::Result) type for module resolution operations.
+/// A specialized [`Result`] type for module resolution operations.
 pub type ModuleResult<T> = std::result::Result<T, ModuleError>;
 
 pub use exports::ModuleExports;

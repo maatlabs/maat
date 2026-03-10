@@ -83,7 +83,7 @@ impl ModuleGraph {
 
     /// Records a dependency edge from `parent` to `child`.
     ///
-    /// Both identifiers must have been returned by a prior [`add_node`](Self::add_node) call.
+    /// Both identifiers must have been returned by a prior `add_node` call.
     pub(crate) fn add_edge(&mut self, parent: ModuleId, child: ModuleId) {
         debug_assert!(
             (parent.0 as usize) < self.edges.len(),
@@ -101,7 +101,7 @@ impl ModuleGraph {
     ///
     /// # Panics
     ///
-    /// Panics if `id` was not returned by [`add_node`](Self::add_node).
+    /// Panics if `id` was not returned by `add_node`
     pub fn node(&self, id: ModuleId) -> &ModuleNode {
         &self.nodes[id.0 as usize]
     }
@@ -110,7 +110,7 @@ impl ModuleGraph {
     ///
     /// # Panics
     ///
-    /// Panics if `id` was not returned by [`add_node`](Self::add_node).
+    /// Panics if `id` was not returned by `add_node`.
     pub fn node_mut(&mut self, id: ModuleId) -> &mut ModuleNode {
         &mut self.nodes[id.0 as usize]
     }
@@ -143,7 +143,7 @@ impl ModuleGraph {
     ///
     /// # Panics
     ///
-    /// Panics if `id` was not returned by [`add_node`](Self::add_node).
+    /// Panics if `id` was not returned by `add_node`.
     pub fn dependencies(&self, id: ModuleId) -> &[ModuleId] {
         &self.edges[id.0 as usize]
     }
