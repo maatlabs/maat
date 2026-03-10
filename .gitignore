@@ -7,3 +7,6 @@
 
 # From Cargo
 target
+
+# Compiled bytecode
+*.mtc
