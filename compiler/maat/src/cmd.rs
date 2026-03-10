@@ -1,22 +1,18 @@
 use std::path::Path;
 use std::process;
 
-use maat_ast::Node;
-use maat_ast::fold::fold_constants;
 use maat_bytecode::Bytecode;
-use maat_codegen::Compiler;
-use maat_eval::{define_macros, expand_macros};
-use maat_lexer::Lexer;
-use maat_parser::Parser;
-use maat_runtime::Env;
-use maat_types::TypeChecker;
+use maat_module::{check_and_compile, resolve_module_graph};
 use maat_vm::VM;
 
 use crate::diagnostic;
 
 /// Bytecode compilation for the `maat build` command.
 ///
-/// Compiles a source file and writes serialized bytecode to disk.
+/// Resolves module imports relative to the source file, builds the
+/// module dependency graph, type-checks and compiles all modules into
+/// linked bytecode, and writes the serialized result to disk.
+///
 /// If `output_path` is `None`, the output file is derived from the
 /// source path by replacing its extension with `.mtc`.
 pub fn build(source_path: &Path, output_path: Option<&Path>) {
@@ -87,11 +83,10 @@ pub fn execute(path: &Path) {
 
 /// File execution for the `maat run` command.
 ///
-/// Reads, compiles, and executes a Maat source file.
-/// The execution pipeline:
-/// 1. Compile the source file to bytecode via [`compile_source`]
-/// 2. Execute the bytecode on the VM
-/// 3. Print the result of the last expression (if non-null)
+/// Resolves module imports relative to the source file, builds the
+/// module dependency graph, type-checks and compiles all modules into
+/// linked bytecode, then executes it on the VM. The result of the last
+/// expression (if non-null) is printed to stdout.
 pub fn run(path: &Path) {
     require_extension(path, "mt", "run");
 
@@ -123,89 +118,28 @@ fn require_extension(path: &Path, expected: &str, command: &str) {
     }
 }
 
-/// Shared utils for the `run` and `build` commands.
-/// Compiles a `.mt` source file to [`Bytecode`].
+/// Compiles a `.mt` source file (and all its module dependencies) to
+/// linked [`Bytecode`].
 ///
-/// Runs the full pipeline: read -> parse -> macro expand -> compile.
-/// Prints rich diagnostics and exits the process on any error.
+/// Runs the full multi-module pipeline:
+/// 1. Resolve the module dependency graph starting from the entry file
+/// 2. Type-check each module independently with visibility enforcement
+/// 3. Compile all modules with a shared compiler (implicit linking)
+///
+/// Prints diagnostics and exits the process on any error.
 fn compile_source(path: &Path) -> Bytecode {
-    let source = read_source_file(path);
-    let filename = path.display().to_string();
-
-    let mut parser = Parser::new(Lexer::new(&source));
-    let program = parser.parse();
-
-    if !parser.errors().is_empty() {
-        for err in parser.errors() {
-            diagnostic::report_parse_error(&filename, &source, err);
+    let mut graph = match resolve_module_graph(path) {
+        Ok(g) => g,
+        Err(e) => {
+            diagnostic::report_module_error(&e);
+            process::exit(1);
         }
-        process::exit(1);
-    }
-
-    let macro_env = Env::default();
-    let program = define_macros(program, &macro_env);
-    let expanded = expand_macros(Node::Program(program), &macro_env);
-    let mut program = match expanded {
-        Node::Program(p) => p,
-        _ => unreachable!("expand_macros preserves Program variant"),
     };
 
-    let type_errors = TypeChecker::new().check_program(&mut program);
-    if !type_errors.is_empty() {
-        for err in &type_errors {
-            diagnostic::report_type_error(&filename, &source, err);
-        }
-        process::exit(1);
-    }
-
-    let fold_errors = fold_constants(&mut program);
-    if !fold_errors.is_empty() {
-        for err in &fold_errors {
-            diagnostic::report_type_error(&filename, &source, err);
-        }
-        process::exit(1);
-    }
-
-    let mut compiler = Compiler::new();
-    if let Err(e) = compiler.compile(&Node::Program(program)) {
-        diagnostic::report_error(&filename, &source, &e);
-        process::exit(1);
-    }
-
-    match compiler.bytecode() {
+    match check_and_compile(&mut graph) {
         Ok(bc) => bc,
         Err(e) => {
-            diagnostic::report_error(&filename, &source, &e);
-            process::exit(1);
-        }
-    }
-}
-
-/// Reads a source file with UTF-8 validation and BOM rejection.
-///
-/// Exits with an error message if the file cannot be read, contains
-/// invalid UTF-8, or starts with a byte-order mark.
-fn read_source_file(path: &Path) -> String {
-    let bytes = match std::fs::read(path) {
-        Ok(b) => b,
-        Err(e) => {
-            eprintln!("error: cannot read '{}': {e}", path.display());
-            process::exit(1);
-        }
-    };
-
-    if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
-        eprintln!(
-            "error: '{}' starts with a UTF-8 BOM. Maat source files must not contain a byte-order mark",
-            path.display()
-        );
-        process::exit(1);
-    }
-
-    match String::from_utf8(bytes) {
-        Ok(s) => s,
-        Err(_) => {
-            eprintln!("error: '{}' is not valid UTF-8", path.display());
+            diagnostic::report_module_error(&e);
             process::exit(1);
         }
     }

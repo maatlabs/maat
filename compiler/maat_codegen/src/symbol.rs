@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use indexmap::IndexMap;
 use maat_bytecode::{MAX_GLOBALS, MAX_LOCALS};
 use maat_errors::{CompileError, CompileErrorKind, Result};
@@ -14,12 +16,18 @@ use maat_errors::{CompileError, CompileErrorKind, Result};
 /// enclosing scope, the table automatically promotes it to a free
 /// variable, recording the original symbol for the compiler to emit
 /// the appropriate load instructions at closure-creation time.
+///
+/// Symbols can be masked to temporarily hide them from resolution
+/// without removing their storage indices. This supports multi-module
+/// compilation where a shared compiler must prevent cross-module
+/// symbol leaks while preserving global index assignments.
 #[derive(Debug, Clone, Default)]
 pub struct SymbolsTable {
     store: IndexMap<String, Symbol>,
     num_definitions: usize,
     outer: Option<Box<SymbolsTable>>,
     free_vars: Vec<Symbol>,
+    masked: HashSet<String>,
 }
 
 /// A resolved symbol with its scope and storage index.
@@ -67,6 +75,7 @@ impl SymbolsTable {
             num_definitions: 0,
             outer: Some(Box::new(outer)),
             free_vars: Vec::new(),
+            masked: HashSet::new(),
         }
     }
 
@@ -97,11 +106,13 @@ impl SymbolsTable {
         };
 
         // Reuse the existing index when rebinding a name at the same scope level.
+        // Unmasking ensures that imported symbols become resolvable again.
         if self
             .store
             .get(name)
             .is_some_and(|existing| existing.scope == scope)
         {
+            self.masked.remove(name);
             return Ok(&self.store[name]);
         }
 
@@ -169,7 +180,9 @@ impl SymbolsTable {
     /// This records the capture chain so the compiler can emit the correct
     /// load instructions when creating closures.
     pub fn resolve_symbol(&mut self, name: &str) -> Option<Symbol> {
-        if let Some(symbol) = self.store.get(name) {
+        if let Some(symbol) = self.store.get(name)
+            && !self.masked.contains(name)
+        {
             return Some(symbol.clone());
         }
 
@@ -196,6 +209,29 @@ impl SymbolsTable {
     /// Returns `None` if this is a top-level (global) table.
     pub fn take_outer(self) -> Option<SymbolsTable> {
         self.outer.map(|b| *b)
+    }
+
+    /// Returns the names of all unmasked, globally-scoped symbols.
+    ///
+    /// Useful for snapshotting the global namespace before compiling a
+    /// module, so that newly-defined globals can be identified afterward.
+    pub fn global_symbol_names(&self) -> Vec<String> {
+        self.store
+            .iter()
+            .filter(|(name, sym)| sym.scope == SymbolScope::Global && !self.masked.contains(*name))
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
+
+    /// Masks a symbol, hiding it from resolution without removing its
+    /// storage index.
+    ///
+    /// Masked symbols retain their global indices so that re-defining
+    /// them (via import injection) reuses the same slot. This prevents
+    /// cross-module symbol leaks in shared-compiler pipelines while
+    /// keeping the bytecode's index references valid.
+    pub fn mask_symbol(&mut self, name: &str) {
+        self.masked.insert(name.to_string());
     }
 
     /// Promotes an outer-scope symbol to a free variable in the current scope.

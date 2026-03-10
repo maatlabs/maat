@@ -1,8 +1,10 @@
-//! Multi-module type checking and compilation pipeline.
+//! Multi-module type checking, compilation, and linking pipeline.
 //!
-//! Orchestrates per-module type checking and compilation in topological
-//! order, threading public exports from dependency modules into each
-//! downstream module's type environment.
+//! Orchestrates per-module type checking in topological order (each module
+//! gets its own [`TypeEnv`] with imported bindings), then compiles all
+//! modules using a single shared [`Compiler`]. The shared compiler ensures
+//! that globals, constants, and type registry entries occupy a unified
+//! index space, making linking implicit in the compilation step.
 
 use std::collections::HashMap;
 
@@ -18,39 +20,44 @@ use maat_types::{
 
 use crate::{ModuleExports, ModuleGraph, ModuleId, ModuleResult};
 
-/// The result of type-checking and compiling all modules in a module graph.
-#[derive(Debug)]
-pub struct CompiledModules {
-    /// Per-module compiled bytecodes, indexed by `ModuleId`.
-    pub bytecodes: HashMap<ModuleId, Bytecode>,
-    /// Per-module public exports, indexed by `ModuleId`.
-    pub exports: HashMap<ModuleId, ModuleExports>,
-}
-
-/// Type-checks and compiles all modules in the given graph in topological order.
+/// Type-checks, compiles, and links all modules in the given graph.
 ///
-/// For each module (leaves first, root last):
-/// 1. Resolves `use` statements by importing public exports from dependency modules
-/// 2. Type-checks the module, enforcing visibility
-/// 3. Extracts public exports for downstream consumers
-/// 4. Compiles the module to bytecode
+/// The pipeline operates in two phases:
+///
+/// 1. **Type checking** — Each module is type-checked independently with
+///    its own [`TypeEnv`], after injecting public exports from dependencies.
+///    This enforces module-level visibility while allowing cross-module
+///    type resolution.
+///
+/// 2. **Compilation** — All modules are compiled in topological order
+///    (leaves first, root last) using a single shared [`Compiler`]. This
+///    ensures that:
+///    - `define_symbol` reuses existing global indices for imported names
+///      rather than allocating duplicates
+///    - Constants and type definitions share a single pool
+///    - The resulting instruction stream naturally executes dependency
+///      initialization code before the root module
+///
+/// The output is a single [`Bytecode`] ready for VM execution or
+/// serialization to `.mtc`.
 ///
 /// # Errors
 ///
 /// Returns a [`ModuleError`](maat_errors::ModuleError) if type checking or
 /// compilation fails for any module.
-pub fn check_and_compile(graph: &mut ModuleGraph) -> ModuleResult<CompiledModules> {
+pub fn check_and_compile(graph: &mut ModuleGraph) -> ModuleResult<Bytecode> {
     let mut exports: HashMap<ModuleId, ModuleExports> = HashMap::new();
-    let mut bytecodes: HashMap<ModuleId, Bytecode> = HashMap::new();
-
     let topo_order = graph.topo_order().to_vec();
+
+    // Phase 1: Type-check each module independently and extract exports.
+    // Resolved imports are cached to avoid redundant work in phase 2.
+    let mut cached_imports: HashMap<ModuleId, Vec<ResolvedImport>> = HashMap::new();
 
     for &module_id in &topo_order {
         let node = graph.node(module_id);
-        let qualified_path = node.qualified_path.clone();
         let file_path = node.path.clone();
 
-        let imports = resolve_imports(&node.program, &qualified_path, &exports, graph)?;
+        let imports = resolve_imports(&node.program, &exports, graph)?;
 
         let program = &mut graph.node_mut(module_id).program;
         let mut checker = TypeChecker::new();
@@ -82,10 +89,32 @@ pub fn check_and_compile(graph: &mut ModuleGraph) -> ModuleResult<CompiledModule
             .at(Span::ZERO, file_path));
         }
 
-        let mut compiler = Compiler::new();
-        for import in &imports {
-            inject_import_into_compiler(&mut compiler, import);
+        cached_imports.insert(module_id, imports);
+    }
+
+    // Phase 2: Compile all modules with a shared compiler. Because the
+    // compiler's symbol table and constant pool persist across modules,
+    // `define_symbol` reuses existing global indices for imported symbols,
+    // i.e., no post-hoc linking or index remapping is required.
+    //
+    // After each non-root module is compiled, newly-defined globals that
+    // are not part of the module's public exports are hidden from the
+    // symbol table, preventing private symbols from leaking into
+    // subsequent modules.
+    let mut compiler = Compiler::new();
+
+    for &module_id in &topo_order {
+        let file_path = graph.node(module_id).path.clone();
+
+        if let Some(imports) = cached_imports.get(&module_id) {
+            for import in imports {
+                inject_import_into_compiler(&mut compiler, import);
+            }
         }
+
+        let before = compiler.symbols_table_mut().global_symbol_names();
+
+        let program = &graph.node(module_id).program;
         compiler.compile_program(program).map_err(|e| {
             ModuleErrorKind::CompileErrors {
                 file: file_path.clone(),
@@ -94,18 +123,70 @@ pub fn check_and_compile(graph: &mut ModuleGraph) -> ModuleResult<CompiledModule
             .at(Span::ZERO, file_path.clone())
         })?;
 
-        let bytecode = compiler.bytecode().map_err(|e| {
-            ModuleErrorKind::CompileErrors {
-                file: file_path.clone(),
-                messages: vec![e.to_string()],
+        // Mask all newly-defined globals after compiling a non-root
+        // module. Masking hides symbols from resolution without removing
+        // their storage indices, so that `inject_import_into_compiler`
+        // in subsequent iterations can unmask and reuse the same global
+        // slot via `define_symbol`. This prevents both private and public
+        // symbols from leaking into modules that have not explicitly
+        // imported them.
+        if module_id != ModuleId::ROOT {
+            let after = compiler.symbols_table_mut().global_symbol_names();
+            for name in after {
+                if !before.contains(&name) {
+                    compiler.symbols_table_mut().mask_symbol(&name);
+                }
             }
-            .at(Span::ZERO, file_path)
-        })?;
-
-        bytecodes.insert(module_id, bytecode);
+        }
     }
 
-    Ok(CompiledModules { bytecodes, exports })
+    let root_path = graph.root().path.clone();
+    compiler.bytecode().map_err(|e| {
+        ModuleErrorKind::CompileErrors {
+            file: root_path.clone(),
+            messages: vec![e.to_string()],
+        }
+        .at(Span::ZERO, root_path)
+    })
+}
+
+/// Returns the per-module public exports extracted during type checking.
+///
+/// This is a convenience for tests and tooling that need to inspect
+/// which items are publicly visible from each module without running
+/// the full compilation phase.
+pub fn check_exports(graph: &mut ModuleGraph) -> ModuleResult<HashMap<ModuleId, ModuleExports>> {
+    let mut exports: HashMap<ModuleId, ModuleExports> = HashMap::new();
+    let topo_order = graph.topo_order().to_vec();
+
+    for &module_id in &topo_order {
+        let node = graph.node(module_id);
+        let file_path = node.path.clone();
+
+        let imports = resolve_imports(&node.program, &exports, graph)?;
+
+        let program = &mut graph.node_mut(module_id).program;
+        let mut checker = TypeChecker::new();
+        for import in &imports {
+            inject_import(checker.env_mut(), import);
+        }
+        checker.check_program_mut(program);
+
+        let type_errors = checker.errors();
+        if !type_errors.is_empty() {
+            let messages = type_errors.iter().map(|e| e.kind.to_string()).collect();
+            return Err(ModuleErrorKind::TypeErrors {
+                file: file_path.clone(),
+                messages,
+            }
+            .at(Span::ZERO, file_path));
+        }
+
+        let module_exports = extract_exports(program, checker.env());
+        exports.insert(module_id, module_exports);
+    }
+
+    Ok(exports)
 }
 
 /// A resolved import ready to be injected into a module's type environment.
@@ -130,7 +211,6 @@ enum ImportKind {
 /// Resolves all `use` statements in a module's program against the available exports.
 fn resolve_imports(
     program: &Program,
-    _qualified_path: &[String],
     exports: &HashMap<ModuleId, ModuleExports>,
     graph: &ModuleGraph,
 ) -> ModuleResult<Vec<ResolvedImport>> {
@@ -152,8 +232,8 @@ fn resolve_imports(
             .map(|n| n.id);
 
         let Some(target_id) = target_id else {
-            // Module not found in the graph; this will be caught as a
-            // type error downstream. Skip for now.
+            // Module not in the graph; use of its items will fail
+            // with an undefined variable error during compilation.
             continue;
         };
         let Some(target_exports) = exports.get(&target_id) else {
@@ -167,10 +247,11 @@ fn resolve_imports(
             // `use foo::bar;`: import `bar` from module `foo`.
             vec![use_stmt.path.last().unwrap().clone()]
         } else {
-            // `use foo;` without qualified path resolution is not yet
-            // supported because qualified
-            // module-path resolution is not yet implemented; reject
-            // this form with a clear error.
+            // `use foo;` (bare module import) is intentionally a no-op.
+            // Maat requires explicit item imports (`use foo::bar;` or
+            // `use foo::{bar, baz};`) for ZK auditability. The bare
+            // form is silently skipped; any attempt to use unimported
+            // items will fail with an undefined variable error.
             continue;
         };
 
@@ -240,9 +321,10 @@ fn find_exports(exports: &ModuleExports, name: &str, result: &mut Vec<ResolvedIm
 
 /// Injects a resolved import into the compiler's symbol table and type registry.
 ///
-/// Defines imported bindings as global symbols so that cross-module references
-/// compile without "undefined variable" errors. The actual values will be
-/// linked in at the linking phase.
+/// For bindings, `define_symbol` reuses the existing global index if the symbol
+/// was already defined by a prior module's compilation (this is the mechanism
+/// by which the shared compiler avoids duplicate global slots for cross-module
+/// references).
 fn inject_import_into_compiler(compiler: &mut Compiler, import: &ResolvedImport) {
     match &import.kind {
         ImportKind::Binding(_) => {
@@ -410,241 +492,4 @@ fn extract_exports(program: &Program, env: &TypeEnv) -> ModuleExports {
     }
 
     exports
-}
-
-#[cfg(test)]
-mod tests {
-    use std::fs;
-
-    use super::*;
-    use crate::resolve_module_graph;
-
-    /// Creates a temporary directory tree from a list of `(relative_path, content)` pairs.
-    fn setup_temp_project(pairs: &[(&str, &str)]) -> tempfile::TempDir {
-        let dir = tempfile::tempdir().expect("failed to create temp dir");
-        for (path, content) in pairs {
-            let full = dir.path().join(path);
-            if let Some(parent) = full.parent() {
-                fs::create_dir_all(parent).expect("failed to create directory");
-            }
-            fs::write(&full, content).expect("failed to write file");
-        }
-        dir
-    }
-
-    /// Resolves and compiles a multi-file project, returning the compiled modules.
-    fn compile_project(pairs: &[(&str, &str)]) -> ModuleResult<CompiledModules> {
-        let dir = setup_temp_project(pairs);
-        let mut graph = resolve_module_graph(&dir.path().join("main.mt"))?;
-        check_and_compile(&mut graph)
-    }
-
-    #[test]
-    fn single_module_compiles() {
-        let result = compile_project(&[("main.mt", "let x: i64 = 42;")]);
-        assert!(result.is_ok());
-        let compiled = result.unwrap();
-        assert_eq!(compiled.bytecodes.len(), 1);
-    }
-
-    #[test]
-    fn import_pub_function() {
-        let result = compile_project(&[
-            (
-                "main.mt",
-                "mod math;\nuse math::add;\nlet result: i64 = add(1, 2);",
-            ),
-            ("math.mt", "pub fn add(a: i64, b: i64) -> i64 { a + b }"),
-        ]);
-        assert!(result.is_ok(), "expected Ok, got: {:?}", result.err());
-        assert_eq!(result.unwrap().bytecodes.len(), 2);
-    }
-
-    #[test]
-    fn try_import_private_function() {
-        let result = compile_project(&[
-            (
-                "main.mt",
-                "mod math;\nuse math::secret;\nlet x: i64 = secret();",
-            ),
-            ("math.mt", "fn secret() -> i64 { 42 }"),
-        ]);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn import_grouped_pub_items() {
-        let result = compile_project(&[
-            (
-                "main.mt",
-                "mod math;\nuse math::{add, sub};\nlet x: i64 = add(1, 2);\nlet y: i64 = sub(5, 3);",
-            ),
-            (
-                "math.mt",
-                "pub fn add(a: i64, b: i64) -> i64 { a + b }\npub fn sub(a: i64, b: i64) -> i64 { a - b }",
-            ),
-        ]);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn bare_use_module_is_noop() {
-        // `use math;` without qualified path support is silently ignored.
-        // Items remain inaccessible without explicit import paths.
-        let result = compile_project(&[
-            ("main.mt", "mod math;\nuse math;\nlet x: i64 = add(1, 2);"),
-            ("math.mt", "pub fn add(a: i64, b: i64) -> i64 { a + b }"),
-        ]);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn import_specific_items_from_group() {
-        let result = compile_project(&[
-            (
-                "main.mt",
-                "mod math;\nuse math::{add, sub};\nlet x: i64 = add(1, 2);\nlet y: i64 = sub(5, 3);",
-            ),
-            (
-                "math.mt",
-                "pub fn add(a: i64, b: i64) -> i64 { a + b }\npub fn sub(a: i64, b: i64) -> i64 { a - b }\nfn internal() -> i64 { 0 }",
-            ),
-        ]);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn import_pub_custom_types() {
-        let result = compile_project(&[
-            (
-                "main.mt",
-                "mod types;\nuse types::Point;\nlet p = Point { x: 1, y: 2 };\nlet px: i64 = p.x;",
-            ),
-            (
-                "types.mt",
-                "pub struct Point {\n    pub x: i64,\n    pub y: i64,\n}",
-            ),
-        ]);
-        assert!(result.is_ok());
-
-        let result = compile_project(&[
-            (
-                "main.mt",
-                "mod types;\nuse types::Color;\nlet c = Color::Red;",
-            ),
-            (
-                "types.mt",
-                "pub enum Color {\n    Red,\n    Green,\n    Blue,\n}",
-            ),
-        ]);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn type_error_in_dependency_module() {
-        let result = compile_project(&[
-            ("main.mt", "mod bad;"),
-            ("bad.mt", "pub fn broken() -> i64 { true }"),
-        ]);
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(
-            err.to_string().contains("type error"),
-            "expected type error, got: {}",
-            err
-        );
-    }
-
-    #[test]
-    fn diamond_dependency_compiles() {
-        let result = compile_project(&[
-            (
-                "main.mt",
-                "mod a;\nmod b;\nuse a::from_a;\nuse b::from_b;\nlet x: i64 = from_a();\nlet y: i64 = from_b();",
-            ),
-            ("a.mt", "pub fn from_a() -> i64 { 1 }"),
-            ("b.mt", "pub fn from_b() -> i64 { 2 }"),
-        ]);
-        assert!(result.is_ok());
-        let compiled = result.unwrap();
-        assert_eq!(compiled.bytecodes.len(), 3);
-    }
-
-    #[test]
-    fn reexport_pub_use() {
-        let result = compile_project(&[
-            (
-                "main.mt",
-                "mod facade;\nuse facade::helper;\nlet x: i64 = helper();",
-            ),
-            ("facade.mt", "mod utils;\npub use utils::helper;"),
-            ("facade/utils.mt", "pub fn helper() -> i64 { 42 }"),
-        ]);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn exports_only_pub_items() {
-        let dir = setup_temp_project(&[
-            ("main.mt", "mod lib;"),
-            (
-                "lib.mt",
-                "pub fn visible() -> i64 { 1 }\nfn hidden() -> i64 { 2 }",
-            ),
-        ]);
-        let mut graph = resolve_module_graph(&dir.path().join("main.mt")).unwrap();
-        let compiled = check_and_compile(&mut graph).unwrap();
-
-        // Find the lib module's exports (not root).
-        let lib_exports = compiled
-            .exports
-            .iter()
-            .find(|(id, _)| **id != ModuleId::ROOT)
-            .map(|(_, e)| e)
-            .unwrap();
-
-        assert_eq!(lib_exports.bindings.len(), 1);
-        assert_eq!(lib_exports.bindings[0].0, "visible");
-    }
-
-    #[test]
-    fn impl_blocks_export_only_pub_methods() {
-        let dir = setup_temp_project(&[
-            ("main.mt", "mod shapes;"),
-            (
-                "shapes.mt",
-                "pub struct Circle {\n    pub radius: i64,\n}\n\nimpl Circle {\n    pub fn area(self) -> i64 { self.radius }\n    fn secret(self) -> i64 { self.radius }\n}",
-            ),
-        ]);
-        let mut graph = resolve_module_graph(&dir.path().join("main.mt")).unwrap();
-        let compiled = check_and_compile(&mut graph).unwrap();
-
-        let shapes_exports = compiled
-            .exports
-            .iter()
-            .find(|(id, _)| **id != ModuleId::ROOT)
-            .map(|(_, e)| e)
-            .unwrap();
-
-        assert_eq!(shapes_exports.impls.len(), 1);
-        let imp = &shapes_exports.impls[0];
-        assert_eq!(imp.methods.len(), 1, "only pub methods should be exported");
-        assert_eq!(imp.methods[0].0, "area");
-    }
-
-    #[test]
-    fn nested_module_import() {
-        let result = compile_project(&[
-            (
-                "main.mt",
-                "mod outer;\nuse outer::greet;\nlet msg: i64 = greet();",
-            ),
-            (
-                "outer.mt",
-                "mod inner;\nuse inner::value;\npub fn greet() -> i64 { value() }",
-            ),
-            ("outer/inner.mt", "pub fn value() -> i64 { 99 }"),
-        ]);
-        assert!(result.is_ok());
-    }
 }

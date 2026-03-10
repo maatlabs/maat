@@ -515,6 +515,7 @@ dependencies = [
  "maat_errors",
  "maat_eval",
  "maat_lexer",
+ "maat_module",
  "maat_parser",
  "maat_runtime",
  "maat_span",
@@ -637,11 +638,13 @@ dependencies = [
  "maat_errors",
  "maat_eval",
  "maat_lexer",
+ "maat_module",
  "maat_parser",
  "maat_runtime",
  "maat_span",
  "maat_types",
  "maat_vm",
+ "tempfile",
 ]
 
 [[package]]

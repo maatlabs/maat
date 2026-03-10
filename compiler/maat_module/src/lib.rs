@@ -1,4 +1,5 @@
-//! Module resolution and dependency graph construction for the Maat compiler.
+//! Module resolution, dependency graph construction, and multi-module
+//! compilation for the Maat compiler.
 //!
 //! This crate builds a directed acyclic graph (DAG) of module dependencies
 //! before compilation begins. Each reachable source file is parsed independently,
@@ -32,5 +33,5 @@ pub type ModuleResult<T> = std::result::Result<T, ModuleError>;
 
 pub use exports::ModuleExports;
 pub use graph::{ModuleGraph, ModuleId, ModuleNode};
-pub use pipeline::{CompiledModules, check_and_compile};
+pub use pipeline::{check_and_compile, check_exports};
 pub use resolve::resolve_module_graph;

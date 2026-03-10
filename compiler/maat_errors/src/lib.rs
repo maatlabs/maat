@@ -193,9 +193,7 @@ pub enum CompileErrorKind {
     #[error("unsupported operator '{operator}' in {context}")]
     UnsupportedOperator { operator: String, context: String },
 
-    #[error(
-        "unsupported expression type '{expr_type}' (not yet implemented in this compiler phase)"
-    )]
+    #[error("unsupported expression type '{expr_type}'")]
     UnsupportedExpr { expr_type: String },
 
     #[error("invalid opcode 0x{opcode:02x} at instruction position {position}")]

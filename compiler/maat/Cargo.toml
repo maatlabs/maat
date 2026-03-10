@@ -19,6 +19,7 @@ maat_codegen = { path = "../maat_codegen" }
 maat_errors = { path = "../maat_errors" }
 maat_eval = { path = "../maat_eval" }
 maat_lexer = { path = "../maat_lexer" }
+maat_module = { path = "../maat_module" }
 maat_parser = { path = "../maat_parser" }
 maat_runtime = { path = "../maat_runtime" }
 maat_types = { path = "../maat_types" }
