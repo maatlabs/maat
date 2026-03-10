@@ -4,6 +4,68 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-03-10
+
+Module system release. Maat now supports multi-file programs with `mod`, `use`, and `pub`. Modules are resolved from the filesystem, organized into a dependency graph, type-checked independently with cross-module visibility enforcement, and compiled into a single linked bytecode via a shared compiler. No separate linking pass is required.
+
+### Added
+
+#### Module System
+
+- **`mod` declarations**: `mod foo;` resolves to `foo.mt` or `foo/mod.mt` relative to the declaring file. `mod foo { ... }` for inline modules
+- **`use` imports**: `use foo::bar;` for single items, `use foo::{bar, baz};` for grouped imports. No glob imports (`use foo::*`) -- explicit imports only for ZK auditability
+- **`pub` visibility**: `pub fn`, `pub struct`, `pub enum`, `pub trait`, and `pub` on struct fields and `impl` methods. Items without `pub` are module-private
+- **`pub use` re-exports**: `pub use foo::bar;` forwards items through intermediate modules
+- **Nested modules**: `mod outer;` where `outer.mt` contains `mod inner;` resolving to `outer/inner.mt`
+- **Cycle detection**: DFS with gray/black coloring detects circular module dependencies at resolution time
+- **Diamond dependencies**: Multiple modules depending on the same leaf module compile correctly
+
+#### New Crate: `maat_module`
+
+- `ModuleId` unique identifier per module (`ROOT = 0`)
+- `ModuleGraph` directed acyclic graph with topological ordering (leaves-first compilation)
+- `resolve_module_graph(entry: &Path)` recursively parses all reachable files and builds the DAG
+- `check_and_compile(graph: &mut ModuleGraph)` orchestrates per-module type checking and shared-compiler compilation
+- `ModuleExports` tracks public bindings, structs, enums, traits, and impl blocks per module
+
+#### Symbol Masking
+
+- `SymbolsTable::mask_symbol` / `global_symbol_names` for cross-module visibility enforcement in the shared compiler
+- After compiling each non-root module, all newly-defined globals are masked. Downstream modules see only explicitly imported symbols via `define_symbol` unmasking
+
+#### New Error Types
+
+- `ModuleError` with `ModuleErrorKind` variants: `FileNotFound`, `CyclicDependency`, `DuplicateModule`, `ParseErrors`, `TypeErrors`, `CompileErrors`, `Io`
+- `TypeErrorKind::PrivateAccess { item, module }` for cross-module visibility violations
+
+#### Testing & Examples
+
+- Integration tests in `tests/tests/modules.rs` covering resolution, cycle detection, exports, visibility, diamond dependencies, re-exports, nested modules, struct/enum imports, and serialization round-trips
+- New `examples/modules/` multi-module example demonstrating `mod`/`use`/`pub` with `main.mt`, `geometry.mt`, and `math.mt`
+
+### Changed
+
+- **CLI pipeline**: `maat run` and `maat build` now use the multi-module pipeline (`resolve_module_graph` + `check_and_compile`). Single-file programs work unchanged as a single-node module graph
+- **`maat_codegen`**: `compile_program()` made public. Added `symbols_table_mut()` and `type_registry_mut()` accessors for cross-module import injection. `Stmt::Use` and `Stmt::Mod` compile as no-ops
+- **`maat_types`**: Added `env()`, `env_mut()`, `check_program_mut()`, `errors()`, `into_errors()` to `TypeChecker`. Added `all_structs()`, `all_traits()`, `all_impls()`, `global_bindings()` to `TypeEnv`. `Stmt::Use` and `Stmt::Mod` type-check as no-ops
+- **`maat_ast`**: Added `Stmt::Use(UseStmt)` and `Stmt::Mod(ModStmt)`. Added `is_public: bool` to `FuncDef`, `StructDecl`, `EnumDecl`, `TraitDecl`. Added `is_public` to `UseStmt` for re-exports. Display, transform, and fold updated for new variants
+- **Lexer**: Added `Mod`, `Use`, `Pub` keywords
+- **Parser**: `pub` prefix modifier delegates to item parsers with `is_public: true`. `parse_use_stmt()` handles simple and grouped imports. `parse_mod_stmt()` handles external and inline modules
+- **Evaluator**: `Stmt::Use` and `Stmt::Mod` are no-ops (evaluator is macro-expansion only)
+- **Diagnostics**: Added `report_module_error()` for rendering module-level errors
+- **AST rename**: `FnItem` renamed to `FuncDef` across the codebase
+- **Crate table**: `maat_module` added to workspace members
+
+### Security
+
+- Explicit imports only (no glob `*`) ensures all cross-module dependencies are auditable
+- Private-by-default visibility prevents accidental exposure of internal implementation details
+- Cycle detection prevents infinite loops in module resolution
+- Symbol masking enforces module boundaries at the compiler level, not just the type checker
+- No unsafe code
+
+---
+
 ## [0.7.0] - 2026-03-06
 
 Custom types release. Maat now supports user-defined structs, enums, traits, impl blocks, and pattern matching with Rust-native syntax. Floating-point types have been removed as they are incompatible with finite-field arithmetic. `Option<T>` and `Result<T, E>` are pre-registered as language-level enums.
@@ -570,6 +632,7 @@ When adding entries to this changelog for future releases:
 3. **Audience**: Write for users, not developers (focus on impact, not implementation)
 4. **Links**: Add comparison links at the bottom: `[0.2.0]: https://github.com/maatlabs/maat/compare/v0.1.0...v0.2.0`
 
+[0.8.0]: https://github.com/maatlabs/maat/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/maatlabs/maat/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/maatlabs/maat/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/maatlabs/maat/compare/v0.4.0...v0.5.0
