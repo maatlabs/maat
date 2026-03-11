@@ -1,9 +1,9 @@
 let map = fn(arr, f) {
     let iter = fn(arr, acc) {
-        if (len(arr) == 0) {
+        if (arr.len() == 0usize) {
             acc
         } else {
-            iter(rest(arr), push(acc, f(first(arr))));
+            iter(arr.rest(), acc.push(f(arr.first())));
         }
     };
     iter(arr, []);
@@ -11,10 +11,10 @@ let map = fn(arr, f) {
 
 let reduce = fn(arr, init, f) {
     let iter = fn(arr, acc) {
-        if (len(arr) == 0) {
+        if (arr.len() == 0usize) {
             acc
         } else {
-            iter(rest(arr), f(acc, first(arr)));
+            iter(arr.rest(), f(acc, arr.first()));
         }
     };
     iter(arr, init);
@@ -22,13 +22,13 @@ let reduce = fn(arr, init, f) {
 
 let filter = fn(arr, predicate) {
     let iter = fn(arr, acc) {
-        if (len(arr) == 0) {
+        if (arr.len() == 0usize) {
             acc
         } else {
-            let head = first(arr);
-            let tail = rest(arr);
+            let head = arr.first();
+            let tail = arr.rest();
             if (predicate(head)) {
-                iter(tail, push(acc, head));
+                iter(tail, acc.push(head));
             } else {
                 iter(tail, acc);
             }

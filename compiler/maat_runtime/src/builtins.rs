@@ -14,6 +14,13 @@ pub const QUOTE: &str = "quote";
 /// This is a special form handled during quote evaluation, not a regular builtin.
 pub const UNQUOTE: &str = "unquote";
 
+/// Names of built-in types that expose inherent methods.
+///
+/// The compiler uses this list when resolving method calls: after checking
+/// user-defined types in the type registry, it falls back to these names
+/// and looks for `{type_name}::{method}` in the symbol table.
+pub const BUILTIN_TYPE_NAMES: &[&str] = &["Array", "str"];
+
 /// Declares the builtin function registry.
 ///
 /// Generates three items:
@@ -52,27 +59,15 @@ macro_rules! define_builtins {
 }
 
 define_builtins! {
-    "len" => len,
     "print" => print,
-    "first" => first,
-    "last" => last,
-    "rest" => rest,
-    "push" => push,
+    "Array::len" | "str::len" => builtin_len,
+    "Array::first" => array_first,
+    "Array::last" => array_last,
+    "Array::rest" => array_rest,
+    "Array::push" => array_push,
 }
 
-pub fn len(args: &[Object]) -> Result<Object> {
-    expect_arg_count(args, 1)?;
-    match &args[0] {
-        Object::Array(arr) => Ok(Object::Usize(arr.len())),
-        Object::Str(s) => Ok(Object::Usize(s.len())),
-        _ => Err(EvalError::Builtin(format!(
-            "argument to `len` not supported: {}",
-            args[0].type_name()
-        ))
-        .into()),
-    }
-}
-
+/// Prints arguments to stdout, separated by spaces.
 pub fn print(args: &[Object]) -> Result<Object> {
     if args.is_empty() {
         println!();
@@ -88,64 +83,71 @@ pub fn print(args: &[Object]) -> Result<Object> {
     Ok(NULL)
 }
 
-pub fn first(args: &[Object]) -> Result<Object> {
-    expect_arg_count(args, 1)?;
+/// Returns the length of an array or string. Receiver: `self` at `args[0]`.
+fn builtin_len(args: &[Object]) -> Result<Object> {
+    expect_arg_count("len", args, 1)?;
     match &args[0] {
-        Object::Array(arr) => match arr.first() {
-            Some(obj) => Ok(obj.clone()),
-            None => Ok(NULL),
-        },
-        obj => arr_builtin_error(obj, "first"),
+        Object::Array(arr) => Ok(Object::Usize(arr.len())),
+        Object::Str(s) => Ok(Object::Usize(s.len())),
+        other => method_type_error(other, "len", "array or str"),
     }
 }
 
-pub fn last(args: &[Object]) -> Result<Object> {
-    expect_arg_count(args, 1)?;
+/// Returns the first element of an array, or `null` if empty.
+fn array_first(args: &[Object]) -> Result<Object> {
+    expect_arg_count("Array::first", args, 1)?;
     match &args[0] {
-        Object::Array(arr) => match arr.last() {
-            Some(obj) => Ok(obj.clone()),
-            None => Ok(NULL),
-        },
-        obj => arr_builtin_error(obj, "last"),
+        Object::Array(arr) => Ok(arr.first().cloned().unwrap_or(NULL)),
+        other => method_type_error(other, "first", "array"),
     }
 }
 
-pub fn rest(args: &[Object]) -> Result<Object> {
-    expect_arg_count(args, 1)?;
+/// Returns the last element of an array, or `null` if empty.
+fn array_last(args: &[Object]) -> Result<Object> {
+    expect_arg_count("Array::last", args, 1)?;
     match &args[0] {
-        Object::Array(arr) => match arr.split_first() {
-            Some((_, tail)) => Ok(Object::Array(tail.to_vec())),
-            None => Ok(NULL),
-        },
-        obj => arr_builtin_error(obj, "rest"),
+        Object::Array(arr) => Ok(arr.last().cloned().unwrap_or(NULL)),
+        other => method_type_error(other, "last", "array"),
     }
 }
 
-pub fn push(args: &[Object]) -> Result<Object> {
-    expect_arg_count(args, 2)?;
+/// Returns all elements after the first, or `null` if empty.
+fn array_rest(args: &[Object]) -> Result<Object> {
+    expect_arg_count("Array::rest", args, 1)?;
+    match &args[0] {
+        Object::Array(arr) => arr
+            .split_first()
+            .map_or(Ok(NULL), |(_, tail)| Ok(Object::Array(tail.to_vec()))),
+        other => method_type_error(other, "rest", "array"),
+    }
+}
+
+/// Returns a new array with `value` appended. Receiver at `args[0]`, value at `args[1]`.
+fn array_push(args: &[Object]) -> Result<Object> {
+    expect_arg_count("Array::push", args, 2)?;
     match &args[0] {
         Object::Array(arr) => {
             let mut new_arr = arr.to_vec();
             new_arr.push(args[1].clone());
             Ok(Object::Array(new_arr))
         }
-        obj => arr_builtin_error(obj, "push"),
+        other => method_type_error(other, "push", "array"),
     }
 }
 
-fn expect_arg_count(args: &[Object], count: usize) -> Result<()> {
+fn expect_arg_count(method: &str, args: &[Object], count: usize) -> Result<()> {
     (args.len() == count).then_some(()).ok_or(
         EvalError::Builtin(format!(
-            "wrong number of arguments. got={}, want={count}",
+            "{method}: wrong number of arguments. got={}, want={count}",
             args.len()
         ))
         .into(),
     )
 }
 
-fn arr_builtin_error(obj: &Object, func: &str) -> Result<Object> {
+fn method_type_error(obj: &Object, method: &str, expected_type: &str) -> Result<Object> {
     Err(EvalError::Builtin(format!(
-        "argument to `{func}` must be an array, got={}",
+        "cannot call `{method}` on {}, expected {expected_type}",
         obj.type_name()
     ))
     .into())

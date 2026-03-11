@@ -120,10 +120,10 @@ fn structs() {
         "struct Stack { items: [i64] }
          impl Stack {
              fn peek(self) -> Option<i64> {
-                 if (len(self.items) == 0usize) {
+                 if (self.items.len() == 0usize) {
                      Option::None
                  } else {
-                     Option::Some(first(self.items))
+                     Option::Some(self.items.first())
                  }
              }
          }
@@ -136,10 +136,10 @@ fn structs() {
         "struct Stack { items: [i64] }
          impl Stack {
              fn peek(self) -> Option<i64> {
-                 if (len(self.items) == 0usize) {
+                 if (self.items.len() == 0usize) {
                      Option::None
                  } else {
-                     Option::Some(first(self.items))
+                     Option::Some(self.items.first())
                  }
              }
          }
@@ -217,7 +217,7 @@ fn enums() {
         "let arr = [Option::Some(1), Option::Some(3), Option::Some(6)];
          let total = 0;
          let i = 0;
-         while (i < len(arr) as i64) {
+         while (i < arr.len() as i64) {
              let val = match arr[i] { Some(v) => v, _ => 0 };
              let total = total + val;
              let i = i + 1;

@@ -8,7 +8,7 @@ use maat_bytecode::{
     Bytecode, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, Opcode, TypeTag, encode,
 };
 use maat_errors::{CompileError, CompileErrorKind, Error, Result};
-use maat_runtime::{BUILTINS, CompiledFunction, Object, TypeDef, VariantInfo};
+use maat_runtime::{BUILTIN_TYPE_NAMES, BUILTINS, CompiledFunction, Object, TypeDef, VariantInfo};
 use maat_span::{SourceMap, Span};
 
 use crate::{Symbol, SymbolScope, SymbolsTable};
@@ -402,13 +402,13 @@ impl Compiler {
                 self.compile_expression(&for_stmt.iterable)?;
                 let iter_sym = self.define_and_set(&iter_name, span)?;
 
-                // __len_N = len(__iter_N)
+                // __len_N = Array::len(__iter_N)
                 let len_builtin = self
                     .symbols_table
-                    .resolve_symbol("len")
+                    .resolve_symbol("Array::len")
                     .ok_or_else(|| {
                         CompileErrorKind::UndefinedVariable {
-                            name: "len".to_string(),
+                            name: "Array::len".to_string(),
                         }
                         .at(span)
                     })?
@@ -1100,6 +1100,7 @@ impl Compiler {
     fn compile_method_call(&mut self, mc: &MethodCallExpr) -> Result<()> {
         let span = mc.span;
 
+        // Search user-defined types in the type registry first.
         let qualified_name = self
             .type_registry
             .iter()
@@ -1111,6 +1112,15 @@ impl Compiler {
                 self.symbols_table
                     .resolve_symbol(&candidate)
                     .map(|_| candidate)
+            })
+            .or_else(|| {
+                // Fall back to built-in type methods (Array, str).
+                BUILTIN_TYPE_NAMES.iter().find_map(|type_name| {
+                    let candidate = format!("{type_name}::{}", mc.method);
+                    self.symbols_table
+                        .resolve_symbol(&candidate)
+                        .map(|_| candidate)
+                })
             })
             .ok_or_else(|| {
                 CompileErrorKind::UndefinedVariable {

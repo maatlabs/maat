@@ -887,22 +887,30 @@ impl TypeChecker {
             .map(|a| self.infer_expression(a))
             .collect::<Vec<Type>>();
 
-        let type_name = match &resolved {
-            Type::Struct(name, _) | Type::Enum(name, _) => Some(name.clone()),
-            _ => None,
-        };
-
-        let method_ty = type_name.as_ref().and_then(|name| {
-            self.env
-                .lookup_method(&resolved, &mc.method)
-                .or_else(|| self.env.lookup_method_by_name(name, &mc.method))
-                .cloned()
-        });
+        let method_ty = self
+            .env
+            .instantiate_builtin_method(&resolved, &mc.method, &self.subst)
+            .map(|(inst_self, inst_fn)| {
+                if let Err(e) = self.subst.unify(&inst_self, &resolved) {
+                    self.report_unify_error(e, mc.span);
+                }
+                self.subst.apply(&inst_fn)
+            })
+            .or_else(|| {
+                self.env
+                    .lookup_method(&resolved, &mc.method)
+                    .or_else(|| match &resolved {
+                        Type::Struct(name, _) | Type::Enum(name, _) => {
+                            self.env.lookup_method_by_name(name, &mc.method)
+                        }
+                        _ => None,
+                    })
+                    .cloned()
+                    .map(|ty| self.subst.apply(&ty))
+            });
 
         match method_ty {
             Some(Type::Function(fn_ty)) => {
-                // Method params exclude `self`, but the compiler
-                // passes `self` implicitly. So here we check non-self params.
                 if fn_ty.params.len() != arg_types.len() {
                     self.errors.push(
                         TypeErrorKind::WrongArity {

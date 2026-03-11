@@ -7,7 +7,7 @@ mod builtins;
 mod env;
 mod object;
 
-pub use builtins::{BUILTIN_COUNT, BUILTINS, QUOTE, UNQUOTE, get_builtin};
+pub use builtins::{BUILTIN_COUNT, BUILTIN_TYPE_NAMES, BUILTINS, QUOTE, UNQUOTE, get_builtin};
 pub use env::Env;
 pub use object::{
     BuiltinFn, Closure, CompiledFunction, EnumVariantObject, FALSE, Function, HashObject, Hashable,

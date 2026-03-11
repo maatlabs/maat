@@ -5,12 +5,22 @@ use std::collections::HashSet;
 use indexmap::IndexMap;
 use maat_ast::{NamedType, TypeExpr};
 
-use crate::convert::resolve_type_expr;
-use crate::ty::{
-    EnumDef, FnType, ImplDef, MethodSig, StructDef, TraitDef, Type, TypeScheme, TypeVarId,
-    VariantDef, VariantKind,
-};
 use crate::unify::Substitution;
+use crate::{
+    EnumDef, FnType, ImplDef, MethodSig, StructDef, TraitDef, Type, TypeScheme, TypeVarId,
+    VariantDef, VariantKind, resolve_type_expr,
+};
+
+/// Polymorphic method signature for a built-in type.
+#[derive(Debug, Clone)]
+struct BuiltinMethodScheme {
+    /// Type variables universally quantified in this method.
+    forall: Vec<TypeVarId>,
+    /// The self-type pattern (e.g., `[?T0]` for array methods).
+    self_type: Type,
+    /// The method's function type (parameters exclude `self`).
+    fn_type: Type,
+}
 
 /// Lexically scoped type environment.
 ///
@@ -26,6 +36,7 @@ pub struct TypeEnv {
     enums: IndexMap<String, EnumDef>,
     traits: IndexMap<String, TraitDef>,
     impls: Vec<ImplDef>,
+    builtin_method_schemes: IndexMap<String, BuiltinMethodScheme>,
 }
 
 impl Default for TypeEnv {
@@ -44,59 +55,91 @@ impl TypeEnv {
             enums: IndexMap::new(),
             traits: IndexMap::new(),
             impls: Vec::new(),
+            builtin_method_schemes: IndexMap::new(),
         }
     }
 
-    /// Registers builtin function signatures in the type environment.
+    /// Registers builtin function signatures and inherent method impls
+    /// for built-in types in the type environment.
     ///
-    /// Each builtin with type variables is stored as a generalized `TypeScheme`
-    /// so that each call site receives fresh inference variables.
-    ///
-    /// `print` is variadic at runtime and is not registered
-    /// here. Unknown identifiers fall back to fresh type variables, which
+    /// `print` is variadic at runtime and is not registered here.
+    /// Unknown identifiers fall back to fresh type variables, which
     /// allows any number of arguments without arity errors.
     pub fn register_builtins(&mut self) {
-        // len(collection) -> usize
-        self.register_builtin("len", |t| {
-            Type::Function(FnType {
-                params: vec![t],
-                ret: Box::new(Type::Usize),
-            })
-        });
-
-        // first([T]) -> T
-        self.register_builtin("first", |t| {
-            Type::Function(FnType {
-                params: vec![Type::Array(Box::new(t.clone()))],
-                ret: Box::new(t),
-            })
-        });
-
-        // last([T]) -> T
-        self.register_builtin("last", |t| {
-            Type::Function(FnType {
-                params: vec![Type::Array(Box::new(t.clone()))],
-                ret: Box::new(t),
-            })
-        });
-
-        // rest([T]) -> [T]
-        self.register_builtin("rest", |t| {
-            Type::Function(FnType {
-                params: vec![Type::Array(Box::new(t.clone()))],
-                ret: Box::new(Type::Array(Box::new(t))),
-            })
-        });
-
-        // push([T], T) -> [T]
-        self.register_builtin("push", |t| {
-            Type::Function(FnType {
-                params: vec![Type::Array(Box::new(t.clone())), t.clone()],
-                ret: Box::new(Type::Array(Box::new(t))),
-            })
-        });
-
+        self.register_builtin_methods();
         self.register_builtin_enums();
+    }
+
+    /// Registers inherent methods on built-in types (`[T]` and `str`).
+    fn register_builtin_methods(&mut self) {
+        let elem_id = self.next_var;
+        self.next_var += 1;
+        let elem = Type::Var(elem_id);
+        let array_ty = Type::Array(Box::new(elem.clone()));
+        let forall = vec![elem_id];
+
+        // impl [T]
+        let array_methods = [
+            (
+                "Array::len",
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Usize),
+                }),
+            ),
+            (
+                "Array::first",
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(elem.clone()),
+                }),
+            ),
+            (
+                "Array::last",
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(elem.clone()),
+                }),
+            ),
+            (
+                "Array::rest",
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(array_ty.clone()),
+                }),
+            ),
+            (
+                "Array::push",
+                Type::Function(FnType {
+                    params: vec![elem],
+                    ret: Box::new(array_ty.clone()),
+                }),
+            ),
+        ];
+
+        for (name, fn_type) in array_methods {
+            self.builtin_method_schemes.insert(
+                name.to_string(),
+                BuiltinMethodScheme {
+                    forall: forall.clone(),
+                    self_type: array_ty.clone(),
+                    fn_type,
+                },
+            );
+        }
+
+        // impl str
+        self.builtin_method_schemes.insert(
+            "str::len".to_string(),
+            BuiltinMethodScheme {
+                forall: vec![],
+                self_type: Type::String,
+                fn_type: Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Usize),
+                }),
+            },
+        );
     }
 
     /// Registers `Option<T>` and `Result<T, E>` as language-level enum types.
@@ -130,22 +173,6 @@ impl TypeEnv {
                 },
             ],
         });
-    }
-
-    fn register_builtin(&mut self, name: &str, build: impl FnOnce(Type) -> Type) {
-        let var = self.fresh_var();
-        let var_id = match var {
-            Type::Var(id) => id,
-            _ => unreachable!(),
-        };
-        let ty = build(var);
-        self.define_scheme(
-            name,
-            TypeScheme {
-                forall: vec![var_id],
-                ty,
-            },
-        );
     }
 
     /// Registers a struct definition.
@@ -185,6 +212,10 @@ impl TypeEnv {
 
     /// Looks up a method on a concrete type by searching inherent impl blocks first,
     /// then trait impl blocks.
+    ///
+    /// This handles user-defined types only. For built-in types (`[T]`, `str`),
+    /// use [`instantiate_builtin_method`](Self::instantiate_builtin_method) which
+    /// provides proper polymorphic instantiation with fresh type variables at each call site.
     ///
     /// Returns the function type of the method if found.
     pub fn lookup_method(&self, self_type: &Type, method_name: &str) -> Option<&Type> {
@@ -229,6 +260,52 @@ impl TypeEnv {
                     .find(|(name, _)| name == method_name)
                     .map(|(_, ty)| ty)
             })
+    }
+
+    /// Instantiates a built-in method's type scheme with fresh type variables.
+    ///
+    /// For polymorphic methods (e.g., `[T].first() -> T`), each call site
+    /// receives fresh inference variables that are independent of all other
+    /// call sites. This prevents the type pollution that would occur if a
+    /// single shared type variable were reused across different array element
+    /// types.
+    ///
+    /// Returns `(instantiated_self_type, instantiated_fn_type)` on success.
+    /// The caller must unify `instantiated_self_type` with the actual receiver
+    /// to bind the element type variables, then apply the substitution to
+    /// `instantiated_fn_type` to resolve the concrete return type.
+    ///
+    /// Returns `None` if the receiver is not a built-in type or no matching
+    /// method exists.
+    pub fn instantiate_builtin_method(
+        &mut self,
+        receiver: &Type,
+        method_name: &str,
+        subst: &Substitution,
+    ) -> Option<(Type, Type)> {
+        let prefix = match receiver {
+            Type::Array(_) => "Array",
+            Type::String => "str",
+            _ => return None,
+        };
+
+        let key = format!("{prefix}::{method_name}");
+        let scheme = self.builtin_method_schemes.get(&key)?.clone();
+
+        if scheme.forall.is_empty() {
+            return Some((subst.apply(&scheme.self_type), subst.apply(&scheme.fn_type)));
+        }
+
+        let mut local_subst = subst.clone();
+        for &var in &scheme.forall {
+            let fresh = self.fresh_var();
+            local_subst.bind(var, fresh);
+        }
+
+        Some((
+            local_subst.apply(&scheme.self_type),
+            local_subst.apply(&scheme.fn_type),
+        ))
     }
 
     /// Returns an iterator over all registered enum definitions.
@@ -486,8 +563,71 @@ mod tests {
         env.define_var("x", Type::Var(0));
         env.next_var = 1;
 
-        // ?T0 is free in the env, so generalize should NOT quantify it
+        // ?T0 is free in the env, so `generalize` should NOT quantify it
         let scheme = env.generalize(&Type::Var(0), &subst);
         assert!(scheme.forall.is_empty());
+    }
+
+    #[test]
+    fn builtin_method_instantiation_produces_fresh_vars() {
+        let mut env = TypeEnv::new();
+        env.register_builtins();
+        let subst = Substitution::new();
+
+        let i64_array = Type::Array(Box::new(Type::I64));
+        let str_array = Type::Array(Box::new(Type::String));
+
+        // Two separate instantiations should produce independent type variables.
+        let (self1, fn1) = env
+            .instantiate_builtin_method(&i64_array, "first", &subst)
+            .expect("Array::first should exist");
+        let (self2, fn2) = env
+            .instantiate_builtin_method(&str_array, "first", &subst)
+            .expect("Array::first should exist");
+
+        match (&self1, &self2) {
+            (Type::Array(a), Type::Array(b)) => {
+                assert_ne!(
+                    a, b,
+                    "each instantiation must use independent type variables"
+                );
+            }
+            _ => panic!("expected Array types"),
+        }
+
+        match (&fn1, &fn2) {
+            (Type::Function(f1), Type::Function(f2)) => {
+                assert_ne!(
+                    f1.ret, f2.ret,
+                    "return types must use independent type variables"
+                );
+            }
+            _ => panic!("expected Function types"),
+        }
+    }
+
+    #[test]
+    fn builtin_method_unification_resolves_element_type() {
+        let mut env = TypeEnv::new();
+        env.register_builtins();
+        let mut subst = Substitution::new();
+
+        let i64_array = Type::Array(Box::new(Type::I64));
+
+        let (inst_self, inst_fn) = env
+            .instantiate_builtin_method(&i64_array, "first", &subst)
+            .expect("Array::first should exist");
+
+        // Unify the instantiated self-type with the actual receiver.
+        subst
+            .unify(&inst_self, &i64_array)
+            .expect("unification should succeed");
+
+        match subst.apply(&inst_fn) {
+            Type::Function(fn_ty) => {
+                assert_eq!(*fn_ty.ret, Type::I64, "return type should resolve to i64");
+            }
+            _ => panic!("expected Function type"),
+        }
     }
 }

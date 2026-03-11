@@ -16,7 +16,7 @@ let binary_search = fn(arr, target: i64) -> i64 {
             }
         }
     };
-    search(0, len(arr) as i64 - 1);
+    search(0, arr.len() as i64 - 1);
 };
 
 let sorted = [2, 5, 8, 12, 16, 23, 38, 56, 72, 91];

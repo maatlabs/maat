@@ -337,3 +337,42 @@ fn type_resolution_with_custom_types() {
          fn show(c: Color) -> i64 { 0 }",
     );
 }
+
+#[test]
+fn builtin_type_methods() {
+    assert_no_type_errors("[1, 2, 3].len();");
+    assert_no_type_errors("[1, 2, 3].first();");
+    assert_no_type_errors("[1, 2, 3].last();");
+    assert_no_type_errors("[1, 2, 3].rest();");
+    assert_no_type_errors("[1, 2, 3].push(4);");
+    assert_no_type_errors(r#""hello".len();"#);
+
+    // Method on variable
+    assert_no_type_errors("let arr = [1, 2, 3]; arr.len();");
+    assert_no_type_errors(r#"let s = "hello"; s.len();"#);
+
+    // Unknown method on array
+    assert_type_error_contains("[1, 2, 3].foobar();", "no method `foobar`");
+
+    // Polymorphic instantiation: different element types in the same scope
+    // must not pollute each other's type variables.
+    assert_no_type_errors(
+        r#"
+        let a = [1, 2, 3].first();
+        let b = ["x", "y"].first();
+        let c = [true, false].last();
+        "#,
+    );
+
+    // Method chaining
+    assert_no_type_errors("[1, 2, 3].rest().first();");
+    assert_no_type_errors("[1, 2].push(3).len();");
+    assert_no_type_errors(
+        r#"
+        let nums = [10, 20, 30];
+        let strs = ["a", "b", "c"];
+        let n = nums.rest().len();
+        let s = strs.rest().first();
+        "#,
+    );
+}

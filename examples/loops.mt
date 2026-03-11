@@ -40,7 +40,7 @@ let sieve = fn(candidate: i64, limit: i64, acc) {
         acc
     } else {
         if (is_prime(candidate)) {
-            sieve(candidate + 1, limit, push(acc, candidate));
+            sieve(candidate + 1, limit, acc.push(candidate));
         } else {
             sieve(candidate + 1, limit, acc);
         }
@@ -54,7 +54,7 @@ let matrix = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
 let flat = [];
 for row in matrix {
     for val in row {
-        let flat = push(flat, val);
+        let flat = flat.push(val);
     }
 }
 print(flat);

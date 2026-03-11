@@ -461,25 +461,26 @@ fn calling_functions_with_wrong_arguments() {
 }
 
 #[test]
-fn builtin_functions() {
+fn builtin_methods() {
     let cases = vec![
-        (r#"len("")"#, TestValue::Usize(0)),
-        (r#"len("four")"#, TestValue::Usize(4)),
-        ("len([1, 2, 3])", TestValue::Usize(3)),
-        ("len([])", TestValue::Usize(0)),
-        (r#"print("hello", "world!")"#, TestValue::Null),
-        ("first([1, 2, 3])", TestValue::I64(1)),
-        ("first([])", TestValue::Null),
-        ("last([1, 2, 3])", TestValue::I64(3)),
-        ("last([])", TestValue::Null),
-        ("rest([1, 2, 3])", TestValue::IntArray(vec![2, 3])),
-        ("rest([])", TestValue::Null),
-        ("push([], 1)", TestValue::IntArray(vec![1])),
-        // len returns usize
-        ("len([1, 2, 3])", TestValue::Usize(3)),
-        (r#"len("hello")"#, TestValue::Usize(5)),
+        // Array methods
+        ("[1, 2, 3].len()", TestValue::Usize(3)),
+        ("[].len()", TestValue::Usize(0)),
+        ("[1, 2, 3].first()", TestValue::I64(1)),
+        ("[].first()", TestValue::Null),
+        ("[1, 2, 3].last()", TestValue::I64(3)),
+        ("[].last()", TestValue::Null),
+        ("[1, 2, 3].rest()", TestValue::IntArray(vec![2, 3])),
+        ("[].rest()", TestValue::Null),
+        ("[].push(1)", TestValue::IntArray(vec![1])),
+        // str methods
+        (r#""".len()"#, TestValue::Usize(0)),
+        (r#""four".len()"#, TestValue::Usize(4)),
+        (r#""hello".len()"#, TestValue::Usize(5)),
         // len with cast
-        ("len([1, 2, 3]) as i64", TestValue::I64(3)),
+        ("[1, 2, 3].len() as i64", TestValue::I64(3)),
+        // print remains a free function
+        (r#"print("hello", "world!")"#, TestValue::Null),
     ];
 
     for (input, expected) in cases {
@@ -488,18 +489,29 @@ fn builtin_functions() {
 }
 
 #[test]
-fn builtin_function_errors() {
-    let cases = vec![
-        ("len(1)", "argument to `len` not supported"),
-        (r#"len("one", "two")"#, "wrong number of arguments"),
-        ("first(1)", "argument to `first` must be an array"),
-        ("last(1)", "argument to `last` must be an array"),
-        ("push(1, 1)", "argument to `push` must be an array"),
-    ];
+fn builtin_method_chaining() {
+    // `push` returns a new array, so chaining is possible
+    run_vm_test("[1, 2].push(3).len()", TestValue::Usize(3));
 
-    for (input, expected_error) in cases {
-        run_vm_error_test(input, expected_error);
-    }
+    // `rest` returns a new array
+    run_vm_test("[1, 2, 3].rest().first()", TestValue::I64(2));
+
+    run_vm_test("[1, 2, 3].rest().last()", TestValue::I64(3));
+
+    run_vm_test("let arr = [10, 20, 30]; arr.len()", TestValue::Usize(3));
+
+    run_vm_test("let arr = [10, 20, 30]; arr.first()", TestValue::I64(10));
+
+    run_vm_test("let arr = [10, 20, 30]; arr.last()", TestValue::I64(30));
+
+    run_vm_test(r#"let s = "hello world"; s.len()"#, TestValue::Usize(11));
+
+    run_vm_test(
+        "let arr = [1, 2, 3]; arr.len() as i64 + 1",
+        TestValue::I64(4),
+    );
+
+    run_vm_test("let arr = [1, 2, 3]; arr.rest().len()", TestValue::Usize(2));
 }
 
 #[test]
@@ -595,7 +607,7 @@ fn closure_captures_array_with_builtins() {
         r#"
         let sum = fn(arr) {
             let iter = fn(idx, acc) {
-                if (idx == len(arr)) {
+                if (idx == arr.len()) {
                     acc
                 } else {
                     iter(idx + 1, acc + arr[idx]);
@@ -684,10 +696,10 @@ fn cast_expressions() {
 #[test]
 fn cross_type_integer_comparison() {
     let cases = vec![
-        ("5 == len([1, 2, 3, 4, 5])", TestValue::Bool(true)),
-        ("5 != len([1, 2, 3, 4, 5])", TestValue::Bool(false)),
-        ("10 > len([1, 2, 3])", TestValue::Bool(true)),
-        ("1 < len([1, 2, 3])", TestValue::Bool(true)),
+        ("5 == [1, 2, 3, 4, 5].len()", TestValue::Bool(true)),
+        ("5 != [1, 2, 3, 4, 5].len()", TestValue::Bool(false)),
+        ("10 > [1, 2, 3].len()", TestValue::Bool(true)),
+        ("1 < [1, 2, 3].len()", TestValue::Bool(true)),
     ];
 
     for (input, expected) in cases {
@@ -718,7 +730,7 @@ fn loop_control_flow() {
         let find_first = fn(arr, target) {
             let i = 0;
             loop {
-                if (i == len(arr) as i64) {
+                if (i == arr.len() as i64) {
                     return -1;
                 }
                 if (arr[i] == target) {
