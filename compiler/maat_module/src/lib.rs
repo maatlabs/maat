@@ -25,6 +25,7 @@ mod exports;
 mod graph;
 mod pipeline;
 mod resolve;
+mod stdlib;
 
 use maat_errors::ModuleError;
 

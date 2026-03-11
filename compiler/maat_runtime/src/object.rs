@@ -1,7 +1,7 @@
 use std::fmt;
 use std::rc::Rc;
 
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 use maat_ast::{BlockStmt, Node};
 use maat_errors::{Error, EvalError, Result};
 use maat_span::SourceMap;
@@ -80,6 +80,8 @@ pub enum Object {
     Struct(StructObject),
     /// A user-defined enum variant instance.
     EnumVariant(EnumVariantObject),
+    /// An ordered set of unique hashable values, backed by `IndexSet`.
+    Set(IndexSet<Hashable>),
 }
 
 impl Object {
@@ -232,6 +234,7 @@ impl Object {
             Self::Closure(_) => "Closure",
             Self::Struct(_) => "Struct",
             Self::EnumVariant(_) => "EnumVariant",
+            Self::Set(_) => "Set",
         }
     }
 }
@@ -265,6 +268,7 @@ enum SerializableObject {
     Closure(Closure),
     Struct(StructObject),
     EnumVariant(EnumVariantObject),
+    Set(IndexSet<Hashable>),
 }
 
 impl Serialize for Object {
@@ -294,6 +298,7 @@ impl Serialize for Object {
             Self::Closure(v) => SerializableObject::Closure(v.clone()),
             Self::Struct(v) => SerializableObject::Struct(v.clone()),
             Self::EnumVariant(v) => SerializableObject::EnumVariant(v.clone()),
+            Self::Set(v) => SerializableObject::Set(v.clone()),
             other => {
                 return Err(serde::ser::Error::custom(format!(
                     "non-serializable object type: {}",
@@ -331,6 +336,7 @@ impl<'de> Deserialize<'de> for Object {
             SerializableObject::Closure(v) => Self::Closure(v),
             SerializableObject::Struct(v) => Self::Struct(v),
             SerializableObject::EnumVariant(v) => Self::EnumVariant(v),
+            SerializableObject::Set(v) => Self::Set(v),
         })
     }
 }
@@ -367,6 +373,7 @@ impl PartialEq for Object {
             (Closure(c1), Closure(c2)) => c1 == c2,
             (Struct(s1), Struct(s2)) => s1 == s2,
             (EnumVariant(e1), EnumVariant(e2)) => e1 == e2,
+            (Set(s1), Set(s2)) => s1 == s2,
             _ => false,
         }
     }
@@ -604,6 +611,16 @@ impl fmt::Display for Object {
                     )?;
                 }
                 Ok(())
+            }
+            Self::Set(set) => {
+                write!(
+                    f,
+                    "Set({{{}}})",
+                    set.iter()
+                        .map(|v| format!("{v}"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
             }
         }
     }

@@ -50,7 +50,7 @@ fn resolve_named(name: &str) -> Type {
         "u128" => Type::U128,
         "usize" => Type::Usize,
         "bool" => Type::Bool,
-        "String" => Type::String,
+        "str" | "String" => Type::String,
         "null" => Type::Null,
         other => Type::Generic(other.to_string(), vec![]),
     }

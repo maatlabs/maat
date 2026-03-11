@@ -221,15 +221,29 @@ fn resolve_imports(
             continue;
         };
 
-        let target_module_name = &use_stmt.path[0];
-        let target_id = graph
-            .nodes()
-            .find(|n| {
-                n.qualified_path
-                    .last()
-                    .is_some_and(|last| last == target_module_name)
-            })
-            .map(|n| n.id);
+        // Determine the module path and items to import.
+        //
+        // For group imports (`use foo::{bar, baz};`), the full path
+        // identifies the module and `items` lists the imported names.
+        //
+        // For non-group imports (`use foo::bar;` or `use std::math::abs;`),
+        // everything except the last segment identifies the module, and
+        // the last segment is the imported item.
+        let (module_path, items_to_import) = if let Some(items) = &use_stmt.items {
+            (use_stmt.path.as_slice(), items.clone())
+        } else if use_stmt.path.len() >= 2 {
+            let split = use_stmt.path.len() - 1;
+            (&use_stmt.path[..split], vec![use_stmt.path[split].clone()])
+        } else {
+            // `use foo;` (bare module import) is intentionally a no-op.
+            // Maat requires explicit item imports (`use foo::bar;` or
+            // `use foo::{bar, baz};`) for ZK auditability. The bare
+            // form is silently skipped; any attempt to use unimported
+            // items will fail with an undefined variable error.
+            continue;
+        };
+
+        let target_id = find_module_by_path(graph, module_path);
 
         let Some(target_id) = target_id else {
             // Module not in the graph; use of its items will fail
@@ -240,27 +254,33 @@ fn resolve_imports(
             continue;
         };
 
-        let items_to_import = if let Some(items) = &use_stmt.items {
-            // `use foo::{bar, baz};`: import specific items.
-            items.clone()
-        } else if use_stmt.path.len() >= 2 {
-            // `use foo::bar;`: import `bar` from module `foo`.
-            vec![use_stmt.path.last().unwrap().clone()]
-        } else {
-            // `use foo;` (bare module import) is intentionally a no-op.
-            // Maat requires explicit item imports (`use foo::bar;` or
-            // `use foo::{bar, baz};`) for ZK auditability. The bare
-            // form is silently skipped; any attempt to use unimported
-            // items will fail with an undefined variable error.
-            continue;
-        };
-
         for item_name in &items_to_import {
             find_exports(target_exports, item_name, &mut result);
         }
     }
 
     Ok(result)
+}
+
+/// Finds a module in the graph by matching a use-path against qualified paths.
+///
+/// For a single-segment path like `["math"]`, matches modules whose
+/// qualified path ends with `"math"`. For multi-segment paths like
+/// `["std", "math"]`, requires an exact match against the full
+/// qualified path.
+fn find_module_by_path(graph: &ModuleGraph, module_path: &[String]) -> Option<ModuleId> {
+    graph
+        .nodes()
+        .find(|n| {
+            if module_path.len() == 1 {
+                n.qualified_path
+                    .last()
+                    .is_some_and(|last| last == &module_path[0])
+            } else {
+                n.qualified_path == module_path
+            }
+        })
+        .map(|n| n.id)
 }
 
 /// Finds all exports matching `name` and appends them to `result`.

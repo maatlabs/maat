@@ -50,6 +50,9 @@ pub fn resolve_module_graph(entry: &Path) -> ModuleResult<ModuleGraph> {
 
     let mut resolver = Resolver::new();
     resolver.resolve_file(&canonical, Vec::new())?;
+
+    crate::stdlib::inject_stdlib_modules(&mut resolver.graph)?;
+
     resolver.compute_topo_order()?;
     Ok(resolver.graph)
 }

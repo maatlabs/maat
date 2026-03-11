@@ -68,6 +68,26 @@ impl TypeEnv {
     pub fn register_builtins(&mut self) {
         self.register_builtin_methods();
         self.register_builtin_enums();
+        self.register_builtin_ctors();
+    }
+
+    /// Registers constructor functions and opaque types for built-in types.
+    fn register_builtin_ctors(&mut self) {
+        self.register_struct(StructDef {
+            name: "Set".to_string(),
+            generic_params: vec![],
+            fields: vec![],
+        });
+
+        // Set::new() -> Set
+        let set_ty = Type::Struct("Set".to_string(), vec![]);
+        self.define_scheme(
+            "Set::new",
+            TypeScheme::monomorphic(Type::Function(FnType {
+                params: vec![],
+                ret: Box::new(set_ty),
+            })),
+        );
     }
 
     /// Registers inherent methods on built-in types (`[T]` and `str`).
@@ -115,6 +135,13 @@ impl TypeEnv {
                     ret: Box::new(array_ty.clone()),
                 }),
             ),
+            (
+                "Array::join",
+                Type::Function(FnType {
+                    params: vec![Type::String],
+                    ret: Box::new(Type::String),
+                }),
+            ),
         ];
 
         for (name, fn_type) in array_methods {
@@ -129,17 +156,129 @@ impl TypeEnv {
         }
 
         // impl str
-        self.builtin_method_schemes.insert(
-            "str::len".to_string(),
-            BuiltinMethodScheme {
-                forall: vec![],
-                self_type: Type::String,
-                fn_type: Type::Function(FnType {
+        let str_methods = [
+            (
+                "str::len",
+                Type::Function(FnType {
                     params: vec![],
                     ret: Box::new(Type::Usize),
                 }),
-            },
-        );
+            ),
+            (
+                "str::trim",
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::String),
+                }),
+            ),
+            (
+                "str::contains",
+                Type::Function(FnType {
+                    params: vec![Type::String],
+                    ret: Box::new(Type::Bool),
+                }),
+            ),
+            (
+                "str::starts_with",
+                Type::Function(FnType {
+                    params: vec![Type::String],
+                    ret: Box::new(Type::Bool),
+                }),
+            ),
+            (
+                "str::ends_with",
+                Type::Function(FnType {
+                    params: vec![Type::String],
+                    ret: Box::new(Type::Bool),
+                }),
+            ),
+            (
+                "str::split",
+                Type::Function(FnType {
+                    params: vec![Type::String],
+                    ret: Box::new(Type::Array(Box::new(Type::String))),
+                }),
+            ),
+            (
+                "str::parse_int",
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::I64),
+                }),
+            ),
+        ];
+
+        for (name, fn_type) in str_methods {
+            self.builtin_method_schemes.insert(
+                name.to_string(),
+                BuiltinMethodScheme {
+                    forall: vec![],
+                    self_type: Type::String,
+                    fn_type,
+                },
+            );
+        }
+
+        // impl Set
+        let set_ty = Type::Struct("Set".to_string(), vec![]);
+        let set_elem_id = self.next_var;
+        self.next_var += 1;
+        let set_elem = Type::Var(set_elem_id);
+        let set_forall = vec![set_elem_id];
+
+        let set_methods = [
+            (
+                "Set::insert",
+                set_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![set_elem.clone()],
+                    ret: Box::new(set_ty.clone()),
+                }),
+            ),
+            (
+                "Set::contains",
+                set_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![set_elem.clone()],
+                    ret: Box::new(Type::Bool),
+                }),
+            ),
+            (
+                "Set::remove",
+                set_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![set_elem],
+                    ret: Box::new(set_ty.clone()),
+                }),
+            ),
+            (
+                "Set::len",
+                vec![],
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Usize),
+                }),
+            ),
+            (
+                "Set::to_array",
+                vec![],
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Array(Box::new(Type::Var(set_elem_id)))),
+                }),
+            ),
+        ];
+
+        for (name, forall, fn_type) in set_methods {
+            self.builtin_method_schemes.insert(
+                name.to_string(),
+                BuiltinMethodScheme {
+                    forall,
+                    self_type: set_ty.clone(),
+                    fn_type,
+                },
+            );
+        }
     }
 
     /// Registers `Option<T>` and `Result<T, E>` as language-level enum types.
@@ -286,6 +425,7 @@ impl TypeEnv {
         let prefix = match receiver {
             Type::Array(_) => "Array",
             Type::String => "str",
+            Type::Struct(name, _) if name == "Set" => "Set",
             _ => return None,
         };
 
