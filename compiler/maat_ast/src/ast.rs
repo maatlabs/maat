@@ -772,3 +772,40 @@ impl std::str::FromStr for TypeAnnotation {
         }
     }
 }
+
+/// Unescapes a string literal by processing escape sequences.
+///
+/// Supports standard escape sequences:
+/// - `\\` -> backslash
+/// - `\"` -> double quote
+/// - `\n` -> newline
+/// - `\r` -> carriage return
+/// - `\t` -> tab
+/// - `\0` -> null character
+///
+/// Invalid escape sequences are preserved as-is.
+pub fn unescape_string(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            match chars.next() {
+                Some('\\') => result.push('\\'),
+                Some('"') => result.push('"'),
+                Some('n') => result.push('\n'),
+                Some('r') => result.push('\r'),
+                Some('t') => result.push('\t'),
+                Some('0') => result.push('\0'),
+                Some(c) => {
+                    result.push('\\');
+                    result.push(c);
+                }
+                None => result.push('\\'),
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+    result
+}

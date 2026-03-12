@@ -216,6 +216,16 @@ impl Compiler {
     /// Compiles a program node (list of statements).
     pub fn compile_program(&mut self, program: &Program) -> Result<()> {
         for stmt in &program.statements {
+            if let Stmt::FuncDef(fn_item) = stmt {
+                let span = fn_item.span;
+                match self.symbols_table.define_symbol(&fn_item.name) {
+                    Ok(_) => {}
+                    Err(e) => return Err(self.attach_span(e, span)),
+                }
+            }
+        }
+
+        for stmt in &program.statements {
             self.compile_statement(stmt)?;
         }
         Ok(())
@@ -296,7 +306,7 @@ impl Compiler {
                     continue_jumps: Vec::new(),
                 });
 
-                self.compile_block_statement(&loop_stmt.body)?;
+                self.compile_block_statements_flat(&loop_stmt.body)?;
 
                 self.emit(Opcode::Jump, &[start], loop_stmt.span);
 
@@ -324,7 +334,7 @@ impl Compiler {
                 self.compile_expression(&while_stmt.condition)?;
                 let exit_jump = self.emit(Opcode::CondJump, &[Self::JUMP], while_stmt.span);
 
-                self.compile_block_statement(&while_stmt.body)?;
+                self.compile_block_statements_flat(&while_stmt.body)?;
 
                 self.emit(Opcode::Jump, &[start], while_stmt.span);
 
@@ -448,7 +458,7 @@ impl Compiler {
                 let _ = elem_sym; // used only for side effect of defining the binding
 
                 // body
-                self.compile_block_statement(&for_stmt.body)?;
+                self.compile_block_statements_flat(&for_stmt.body)?;
 
                 // continue_target: __i = __i + 1
                 let continue_target = self.current_instructions().len();
@@ -479,8 +489,26 @@ impl Compiler {
         }
     }
 
-    /// Compiles a sequence of statements.
+    /// Compiles a sequence of statements within a lexical block scope.
+    ///
+    /// Variables defined inside the block are scoped to it and become
+    /// invisible after the block exits, matching Rust's lexical scoping.
+    /// Used for `if`/`else` branches and standalone blocks where variable
+    /// isolation is desired.
     fn compile_block_statement(&mut self, block: &BlockStmt) -> Result<()> {
+        self.symbols_table.push_block_scope();
+        for stmt in &block.statements {
+            self.compile_statement(stmt)?;
+        }
+        self.symbols_table.pop_block_scope();
+        Ok(())
+    }
+
+    /// Compiles a block's statements without introducing a new block scope.
+    ///
+    /// Used for loop bodies (`while`, `loop`, `for`) where `let` rebinding
+    /// of outer variables (e.g. loop counters) must persist across iterations.
+    fn compile_block_statements_flat(&mut self, block: &BlockStmt) -> Result<()> {
         for stmt in &block.statements {
             self.compile_statement(stmt)?;
         }
@@ -572,26 +600,43 @@ impl Compiler {
                 self.compile_expression(&infix_expr.lhs)?;
                 self.compile_expression(&infix_expr.rhs)?;
 
-                let opcode = match infix_expr.operator.as_str() {
-                    "+" => Opcode::Add,
-                    "-" => Opcode::Sub,
-                    "*" => Opcode::Mul,
-                    "/" => Opcode::Div,
-                    ">" => Opcode::GreaterThan,
-                    "<" => Opcode::LessThan,
-                    "==" => Opcode::Equal,
-                    "!=" => Opcode::NotEqual,
-                    op => {
-                        return Err(CompileErrorKind::UnsupportedOperator {
-                            operator: op.to_string(),
-                            context: "infix expression".to_string(),
-                        }
-                        .at(span)
-                        .into());
+                match infix_expr.operator.as_str() {
+                    ">=" => {
+                        self.emit(Opcode::LessThan, &[], span);
+                        self.emit(Opcode::Bang, &[], span);
                     }
-                };
-
-                self.emit(opcode, &[], span);
+                    "<=" => {
+                        self.emit(Opcode::GreaterThan, &[], span);
+                        self.emit(Opcode::Bang, &[], span);
+                    }
+                    op => {
+                        let opcode = match op {
+                            "+" => Opcode::Add,
+                            "-" => Opcode::Sub,
+                            "*" => Opcode::Mul,
+                            "/" => Opcode::Div,
+                            "%" => Opcode::Mod,
+                            ">" => Opcode::GreaterThan,
+                            "<" => Opcode::LessThan,
+                            "==" => Opcode::Equal,
+                            "!=" => Opcode::NotEqual,
+                            "&" => Opcode::BitAnd,
+                            "|" => Opcode::BitOr,
+                            "^" => Opcode::BitXor,
+                            "<<" => Opcode::Shl,
+                            ">>" => Opcode::Shr,
+                            _ => {
+                                return Err(CompileErrorKind::UnsupportedOperator {
+                                    operator: op.to_string(),
+                                    context: "infix expression".to_string(),
+                                }
+                                .at(span)
+                                .into());
+                            }
+                        };
+                        self.emit(opcode, &[], span);
+                    }
+                }
                 Ok(())
             }
 
@@ -642,7 +687,7 @@ impl Compiler {
             }
 
             Expr::Str(s) => {
-                let constant = Object::Str(s.value.clone());
+                let constant = Object::Str(maat_ast::unescape_string(&s.value));
                 let index = self.add_constant(constant)?;
                 self.emit(Opcode::Constant, &[index], span);
                 Ok(())
@@ -852,7 +897,7 @@ impl Compiler {
                     self.emit(Opcode::Construct, &[type_index, field_count], span);
                     self.emit(Opcode::ReturnValue, &[], span);
 
-                    let num_locals = self.symbols_table.num_definitions();
+                    let num_locals = self.symbols_table.max_definitions();
                     let (instructions, inner_source_map) = self.leave_scope()?;
                     let compiled_fn = Object::CompiledFunction(CompiledFunction {
                         instructions: Rc::from(instructions.as_bytes()),
@@ -1239,7 +1284,7 @@ impl Compiler {
 
         let free_vars = self.symbols_table.free_vars().to_vec();
         let num_free = free_vars.len();
-        let num_locals = self.symbols_table.num_definitions();
+        let num_locals = self.symbols_table.max_definitions();
         let (instructions, inner_source_map) = self.leave_scope()?;
 
         for sym in &free_vars {

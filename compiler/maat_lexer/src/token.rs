@@ -118,6 +118,19 @@ pub enum TokenKind {
     Asterisk,
     /// The division operator `/`.
     Slash,
+    /// The modulo (remainder) operator `%`.
+    Percent,
+
+    /// The compound addition assignment operator `+=`.
+    AddAssign,
+    /// The compound subtraction assignment operator `-=`.
+    SubAssign,
+    /// The compound multiplication assignment operator `*=`.
+    MulAssign,
+    /// The compound division assignment operator `/=`.
+    DivAssign,
+    /// The compound modulo assignment operator `%=`.
+    RemAssign,
 
     /// The less-than comparison operator or
     /// left angle bracket `<`.
@@ -138,6 +151,17 @@ pub enum TokenKind {
     And,
     /// The logical OR operator `||`.
     Or,
+
+    /// The bitwise AND operator `&`.
+    Ampersand,
+    /// The bitwise OR operator `|`.
+    Pipe,
+    /// The bitwise XOR operator `^`.
+    Caret,
+    /// The left shift operator `<<`.
+    ShiftLeft,
+    /// The right shift operator `>>`.
+    ShiftRight,
 
     /// The comma delimiter `,`.
     Comma,

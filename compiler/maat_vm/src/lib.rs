@@ -82,6 +82,56 @@ macro_rules! checked_neg {
     };
 }
 
+/// Dispatches a bitwise binary operation across all 12 integer variants.
+///
+/// Returns `Option<Object>`:
+/// - `None`: operands are not the same integer type
+/// - `Some(result)`: the result of the operation
+macro_rules! int_bitwise {
+    ($left:expr, $right:expr, $op:tt) => {
+        match ($left, $right) {
+            (Object::I8(l), Object::I8(r)) => Some(Object::I8(*l $op *r)),
+            (Object::I16(l), Object::I16(r)) => Some(Object::I16(*l $op *r)),
+            (Object::I32(l), Object::I32(r)) => Some(Object::I32(*l $op *r)),
+            (Object::I64(l), Object::I64(r)) => Some(Object::I64(*l $op *r)),
+            (Object::I128(l), Object::I128(r)) => Some(Object::I128(*l $op *r)),
+            (Object::Isize(l), Object::Isize(r)) => Some(Object::Isize(*l $op *r)),
+            (Object::U8(l), Object::U8(r)) => Some(Object::U8(*l $op *r)),
+            (Object::U16(l), Object::U16(r)) => Some(Object::U16(*l $op *r)),
+            (Object::U32(l), Object::U32(r)) => Some(Object::U32(*l $op *r)),
+            (Object::U64(l), Object::U64(r)) => Some(Object::U64(*l $op *r)),
+            (Object::U128(l), Object::U128(r)) => Some(Object::U128(*l $op *r)),
+            (Object::Usize(l), Object::Usize(r)) => Some(Object::Usize(*l $op *r)),
+            _ => None,
+        }
+    };
+}
+
+/// Dispatches a checked shift operation across all 12 integer variants.
+///
+/// Returns `Option<Option<Object>>`:
+/// - outer `None`: operands are not the same integer type
+/// - inner `None`: shift amount too large
+macro_rules! int_shift {
+    ($left:expr, $right:expr, $method:ident) => {
+        match ($left, $right) {
+            (Object::I8(l), Object::I8(r)) => Some(l.$method(*r as u32).map(Object::I8)),
+            (Object::I16(l), Object::I16(r)) => Some(l.$method(*r as u32).map(Object::I16)),
+            (Object::I32(l), Object::I32(r)) => Some(l.$method(*r as u32).map(Object::I32)),
+            (Object::I64(l), Object::I64(r)) => Some(l.$method(*r as u32).map(Object::I64)),
+            (Object::I128(l), Object::I128(r)) => Some(l.$method(*r as u32).map(Object::I128)),
+            (Object::Isize(l), Object::Isize(r)) => Some(l.$method(*r as u32).map(Object::Isize)),
+            (Object::U8(l), Object::U8(r)) => Some(l.$method(*r as u32).map(Object::U8)),
+            (Object::U16(l), Object::U16(r)) => Some(l.$method(*r as u32).map(Object::U16)),
+            (Object::U32(l), Object::U32(r)) => Some(l.$method(*r as u32).map(Object::U32)),
+            (Object::U64(l), Object::U64(r)) => Some(l.$method(*r as u32).map(Object::U64)),
+            (Object::U128(l), Object::U128(r)) => Some(l.$method(*r as u32).map(Object::U128)),
+            (Object::Usize(l), Object::Usize(r)) => Some(l.$method(*r as u32).map(Object::Usize)),
+            _ => None,
+        }
+    };
+}
+
 /// Intermediate representation for type conversion.
 ///
 /// All numeric source values are widened into one of these variants
@@ -326,7 +376,16 @@ impl VM {
                 Opcode::Pop => {
                     self.pop_stack()?;
                 }
-                Opcode::Add | Opcode::Sub | Opcode::Mul | Opcode::Div => {
+                Opcode::Add
+                | Opcode::Sub
+                | Opcode::Mul
+                | Opcode::Div
+                | Opcode::Mod
+                | Opcode::BitAnd
+                | Opcode::BitOr
+                | Opcode::BitXor
+                | Opcode::Shl
+                | Opcode::Shr => {
                     self.execute_binary_operation(op)?;
                 }
                 Opcode::True => self.push_stack(TRUE)?,
@@ -630,7 +689,7 @@ impl VM {
         Ok(self.stack[self.sp].clone())
     }
 
-    /// Executes a binary arithmetic operation across all numeric types.
+    /// Executes a binary arithmetic, bitwise, or shift operation across all numeric types.
     fn execute_binary_operation(&mut self, op: Opcode) -> Result<()> {
         let right = self.pop_stack()?;
         let left = self.pop_stack()?;
@@ -639,15 +698,28 @@ impl VM {
             return self.execute_binary_string_operation(op, l, r);
         }
 
-        let int_result = match op {
+        let checked_result = match op {
             Opcode::Add => int_binop!(&left, &right, checked_add),
             Opcode::Sub => int_binop!(&left, &right, checked_sub),
             Opcode::Mul => int_binop!(&left, &right, checked_mul),
             Opcode::Div => int_binop!(&left, &right, checked_div),
+            Opcode::Mod => int_binop!(&left, &right, checked_rem),
+            Opcode::Shl => int_shift!(&left, &right, checked_shl),
+            Opcode::Shr => int_shift!(&left, &right, checked_shr),
             _ => None,
         };
-        if let Some(maybe_val) = int_result {
+        if let Some(maybe_val) = checked_result {
             let val = maybe_val.ok_or_else(|| self.vm_error("integer arithmetic overflow"))?;
+            return self.push_stack(val);
+        }
+
+        let bitwise_result = match op {
+            Opcode::BitAnd => int_bitwise!(&left, &right, &),
+            Opcode::BitOr => int_bitwise!(&left, &right, |),
+            Opcode::BitXor => int_bitwise!(&left, &right, ^),
+            _ => None,
+        };
+        if let Some(val) = bitwise_result {
             return self.push_stack(val);
         }
 

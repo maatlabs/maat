@@ -25,9 +25,24 @@ use maat_errors::{CompileError, CompileErrorKind, Result};
 pub struct SymbolsTable {
     store: IndexMap<String, Symbol>,
     num_definitions: usize,
+    max_definitions: usize,
     outer: Option<Box<SymbolsTable>>,
     free_vars: Vec<Symbol>,
     masked: HashSet<String>,
+    block_scopes: Vec<BlockScope>,
+}
+
+/// Tracks symbols defined within a single block scope.
+///
+/// When the block exits, all symbols recorded here are removed from the
+/// store and `num_definitions` is restored, enabling local slot reuse
+/// across non-overlapping blocks within the same function. Any symbols
+/// that were shadowed are restored to their original bindings.
+#[derive(Debug, Clone)]
+struct BlockScope {
+    num_definitions_at_entry: usize,
+    names: Vec<String>,
+    shadowed: Vec<Symbol>,
 }
 
 /// A resolved symbol with its scope and storage index.
@@ -73,15 +88,50 @@ impl SymbolsTable {
         Self {
             store: IndexMap::new(),
             num_definitions: 0,
+            max_definitions: 0,
             outer: Some(Box::new(outer)),
             free_vars: Vec::new(),
             masked: HashSet::new(),
+            block_scopes: Vec::new(),
         }
     }
 
-    /// Returns the number of symbols defined in this scope.
-    pub fn num_definitions(&self) -> usize {
-        self.num_definitions
+    /// Returns the number of local slots the VM must allocate for this scope.
+    ///
+    /// This is the high-water mark of simultaneously live locals,
+    /// accounting for slot reuse across non-overlapping block scopes.
+    pub fn max_definitions(&self) -> usize {
+        self.max_definitions
+    }
+
+    /// Enters a new block scope, saving the current definition count.
+    ///
+    /// Variables defined after this call are tracked so they can be
+    /// removed when `pop_block_scope` is called, enabling lexical
+    /// block scoping within a single function.
+    pub fn push_block_scope(&mut self) {
+        self.block_scopes.push(BlockScope {
+            num_definitions_at_entry: self.num_definitions,
+            names: Vec::new(),
+            shadowed: Vec::new(),
+        });
+    }
+
+    /// Exits the current block scope, removing locally defined symbols.
+    ///
+    /// All symbols defined since the matching `push_block_scope` are
+    /// removed from the store and `num_definitions` is restored,
+    /// allowing the local slot indices to be reused by subsequent blocks.
+    pub fn pop_block_scope(&mut self) {
+        if let Some(block) = self.block_scopes.pop() {
+            for name in &block.names {
+                self.store.swap_remove(name);
+            }
+            for sym in block.shadowed {
+                self.store.insert(sym.name.clone(), sym);
+            }
+            self.num_definitions = block.num_definitions_at_entry;
+        }
     }
 
     /// Defines a symbol, assigning it the next available index.
@@ -105,15 +155,30 @@ impl SymbolsTable {
             SymbolScope::Global
         };
 
-        // Reuse the existing index when rebinding a name at the same scope level.
-        // Unmasking ensures that imported symbols become resolvable again.
+        // Reuse the existing index when rebinding a name at the same scope level,
+        // but only if the symbol was defined within the current block scope.
+        // If the existing symbol predates the current block, this is a shadow
+        // and must receive a new slot so the outer binding is preserved on exit.
         if self
             .store
             .get(name)
             .is_some_and(|existing| existing.scope == scope)
         {
-            self.masked.remove(name);
-            return Ok(&self.store[name]);
+            let is_shadow = self
+                .block_scopes
+                .last()
+                .is_some_and(|block| self.store[name].index < block.num_definitions_at_entry);
+
+            if !is_shadow {
+                self.masked.remove(name);
+                return Ok(&self.store[name]);
+            }
+
+            // Save the original symbol so it can be restored when the
+            // block scope exits.
+            if let Some(block) = self.block_scopes.last_mut() {
+                block.shadowed.push(self.store[name].clone());
+            }
         }
 
         match scope {
@@ -141,6 +206,12 @@ impl SymbolsTable {
         };
         self.store.insert(name.to_string(), symbol);
         self.num_definitions += 1;
+        if self.num_definitions > self.max_definitions {
+            self.max_definitions = self.num_definitions;
+        }
+        if let Some(block) = self.block_scopes.last_mut() {
+            block.names.push(name.to_string());
+        }
         Ok(&self.store[name])
     }
 
@@ -485,7 +556,7 @@ mod tests {
         assert_eq!(b_sym.index, 0);
 
         assert_eq!(
-            local.num_definitions(),
+            local.max_definitions(),
             1,
             "function name should not increment num_definitions"
         );

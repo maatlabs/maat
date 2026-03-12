@@ -194,8 +194,70 @@ impl<'a> Parser<'a> {
             TokenKind::Enum => self.parse_enum_decl(false).map(Stmt::EnumDecl),
             TokenKind::Trait => self.parse_trait_decl(false).map(Stmt::TraitDecl),
             TokenKind::Impl => self.parse_impl_block().map(Stmt::ImplBlock),
+            TokenKind::Ident if self.is_compound_assignment() => {
+                self.parse_compound_assignment().map(Stmt::Let)
+            }
             _ => self.parse_expression_statement().map(Stmt::Expr),
         }
+    }
+
+    /// Returns `true` if the peek token is a compound assignment operator.
+    fn is_compound_assignment(&self) -> bool {
+        matches!(
+            self.peek.kind,
+            TokenKind::AddAssign
+                | TokenKind::SubAssign
+                | TokenKind::MulAssign
+                | TokenKind::DivAssign
+                | TokenKind::RemAssign
+        )
+    }
+
+    /// Desugars `x += expr` into `let x = x + expr`.
+    ///
+    /// **NOTE**: Currently, the `mut` keyword is unsupported,
+    /// so this routine is for variable shadowing, not a mutation
+    /// in Maat-speak.
+    fn parse_compound_assignment(&mut self) -> Option<LetStmt> {
+        let start = self.current.span;
+        let ident = self.current.literal.to_string();
+        let ident_span = self.current.span;
+
+        self.next_token();
+        let operator = match self.current.kind {
+            TokenKind::AddAssign => "+",
+            TokenKind::SubAssign => "-",
+            TokenKind::MulAssign => "*",
+            TokenKind::DivAssign => "/",
+            TokenKind::RemAssign => "%",
+            _ => unreachable!(),
+        };
+
+        self.next_token();
+        let rhs = self.parse_expression(LOWEST)?;
+        let end = rhs.span();
+
+        let lhs = Box::new(Expr::Ident(Ident {
+            value: ident.clone(),
+            span: ident_span,
+        }));
+        let value = Expr::Infix(InfixExpr {
+            lhs,
+            operator: operator.to_string(),
+            rhs: Box::new(rhs),
+            span: start.merge(end),
+        });
+
+        if self.peek_token_is(TokenKind::Semicolon) {
+            self.next_token();
+        }
+
+        Some(LetStmt {
+            ident,
+            value,
+            type_annotation: None,
+            span: start.merge(end),
+        })
     }
 
     /// Parses a `pub`-prefixed item by consuming the `pub` keyword
@@ -454,6 +516,7 @@ impl<'a> Parser<'a> {
                 | TokenKind::Minus
                 | TokenKind::Slash
                 | TokenKind::Asterisk
+                | TokenKind::Percent
                 | TokenKind::Equal
                 | TokenKind::NotEqual
                 | TokenKind::Less
@@ -462,6 +525,11 @@ impl<'a> Parser<'a> {
                 | TokenKind::GreaterEqual
                 | TokenKind::And
                 | TokenKind::Or
+                | TokenKind::Ampersand
+                | TokenKind::Pipe
+                | TokenKind::Caret
+                | TokenKind::ShiftLeft
+                | TokenKind::ShiftRight
                 | TokenKind::As
                 | TokenKind::LParen
                 | TokenKind::LBracket
@@ -768,10 +836,23 @@ impl<'a> Parser<'a> {
         let consequence = self.parse_block_statement()?;
         let alternative = if self.peek_token_is(TokenKind::Else) {
             self.next_token();
-            if !self.expect_peek(TokenKind::LBrace) {
+            // ...else if
+            if self.peek_token_is(TokenKind::If) {
+                self.next_token();
+                let nested_cond = self.parse_conditional_expression()?;
+                let nested_span = nested_cond.span();
+                Some(BlockStmt {
+                    statements: vec![Stmt::Expr(ExprStmt {
+                        value: nested_cond,
+                        span: nested_span,
+                    })],
+                    span: nested_span,
+                })
+            } else if self.expect_peek(TokenKind::LBrace) {
+                Some(self.parse_block_statement()?)
+            } else {
                 return None;
             }
-            Some(self.parse_block_statement()?)
         } else {
             None
         };

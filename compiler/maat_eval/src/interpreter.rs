@@ -76,7 +76,7 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
             Expr::Usize(v) => Ok(Object::Usize(v.value)),
 
             Expr::Bool(b) => Ok(Object::Bool(b.value)),
-            Expr::Str(s) => Ok(Object::Str(unescape_string(&s.value))),
+            Expr::Str(s) => Ok(Object::Str(maat_ast::unescape_string(&s.value))),
             Expr::Array(array_lit) => {
                 let elements = eval_expressions(&array_lit.elements, env)?;
                 Ok(Object::Array(elements))
@@ -710,43 +710,6 @@ impl_infix_op_int! {
     u64 => U64, "u64",
     u128 => U128, "u128",
     usize => Usize, "usize",
-}
-
-/// Unescapes a string literal by processing escape sequences.
-///
-/// Supports standard escape sequences:
-/// - `\\` → backslash
-/// - `\"` → double quote
-/// - `\n` → newline
-/// - `\r` → carriage return
-/// - `\t` → tab
-/// - `\0` → null character
-///
-/// Invalid escape sequences are preserved as-is.
-fn unescape_string(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars();
-
-    while let Some(ch) = chars.next() {
-        if ch == '\\' {
-            match chars.next() {
-                Some('\\') => result.push('\\'),
-                Some('"') => result.push('"'),
-                Some('n') => result.push('\n'),
-                Some('r') => result.push('\r'),
-                Some('t') => result.push('\t'),
-                Some('0') => result.push('\0'),
-                Some(c) => {
-                    result.push('\\');
-                    result.push(c);
-                }
-                None => result.push('\\'),
-            }
-        } else {
-            result.push(ch);
-        }
-    }
-    result
 }
 
 /// Checks if a node is a call to the `unquote` builtin.
