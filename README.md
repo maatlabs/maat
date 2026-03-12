@@ -4,9 +4,11 @@
   <img src="./assets/maat-lang-transparent-logo.png" alt="Logo" width="200">
 </p>
 
-## Overview
-
 _Maat_ is a Turing-complete programming language designed to encourage proof-driven development.
+
+**WARNING:** This is a research project. It has not been audited and may contain bugs and security flaws. This implementation is NOT ready for production use.
+
+## Overview
 
 Proof-Driven Development (PDD) is software development methodology that emphasizes formal verification and mathematical proofs to ensure the correctness and reliability of code. It is an extension of test-driven development (TDD), but instead of relying solely on tests, it uses formal methods to prove properties of the code.
 
