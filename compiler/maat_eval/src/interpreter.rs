@@ -34,6 +34,11 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
                 env.set(ls.ident, &obj);
                 Ok(obj)
             }
+            Stmt::ReAssign(assign) => {
+                let obj = eval(Node::Expr(assign.value), env)?;
+                env.set(assign.ident, &obj);
+                Ok(obj)
+            }
             Stmt::Return(rs) => {
                 let obj = eval(Node::Expr(rs.value), env)?;
                 Ok(Object::ReturnValue(Box::new(obj)))
@@ -454,6 +459,16 @@ fn eval_infix_op<T: InfixOp>(operator: &str, lhs: T, rhs: T) -> Result<Object> {
                 ))
                 .into()
             }),
+        "%" => lhs
+            .checked_rem_euclid(rhs)
+            .map(|v| v.into_object())
+            .ok_or_else(|| {
+                EvalError::Number(format!(
+                    "modulo error: {} % {} (division by zero or overflow)",
+                    lhs, rhs
+                ))
+                .into()
+            }),
 
         "<" => Ok(Object::Bool(lhs < rhs)),
         ">" => Ok(Object::Bool(lhs > rhs)),
@@ -657,6 +672,7 @@ trait InfixOp: Copy + PartialOrd + PartialEq + core::fmt::Display {
     fn checked_sub(self, rhs: Self) -> Option<Self>;
     fn checked_mul(self, rhs: Self) -> Option<Self>;
     fn checked_div(self, rhs: Self) -> Option<Self>;
+    fn checked_rem_euclid(self, rhs: Self) -> Option<Self>;
 }
 
 macro_rules! impl_infix_op_int {
@@ -691,6 +707,11 @@ macro_rules! impl_infix_op_int {
                 #[inline]
                 fn checked_div(self, rhs: Self) -> Option<Self> {
                     <$t>::checked_div(self, rhs)
+                }
+
+                #[inline]
+                fn checked_rem_euclid(self, rhs: Self) -> Option<Self> {
+                    <$t>::checked_rem_euclid(self, rhs)
                 }
             }
         )*

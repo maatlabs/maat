@@ -350,7 +350,7 @@ fn inject_import_into_compiler(compiler: &mut Compiler, import: &ResolvedImport)
         ImportKind::Binding(_) => {
             let _ = compiler
                 .symbols_table_mut()
-                .define_symbol(&import.local_name);
+                .define_symbol(&import.local_name, false);
         }
         ImportKind::Struct(def) => {
             compiler.type_registry_mut().push(TypeDef::Struct {
@@ -388,7 +388,9 @@ fn inject_import_into_compiler(compiler: &mut Compiler, import: &ResolvedImport)
             };
             for (method_name, _) in &def.methods {
                 let qualified = format!("{type_name}::{method_name}");
-                let _ = compiler.symbols_table_mut().define_symbol(&qualified);
+                let _ = compiler
+                    .symbols_table_mut()
+                    .define_symbol(&qualified, false);
             }
         }
     }

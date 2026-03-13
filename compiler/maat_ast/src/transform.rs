@@ -81,6 +81,15 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                     Stmt::Let(let_stmt)
                 }
 
+                Stmt::ReAssign(mut assign_stmt) => {
+                    assign_stmt.value = match transform(Node::Expr(assign_stmt.value), transformer)
+                    {
+                        Node::Expr(e) => e,
+                        _ => unreachable!("Expr transformation returned non-expression"),
+                    };
+                    Stmt::ReAssign(assign_stmt)
+                }
+
                 Stmt::Return(mut ret_stmt) => {
                     ret_stmt.value = match transform(Node::Expr(ret_stmt.value), transformer) {
                         Node::Expr(e) => e,

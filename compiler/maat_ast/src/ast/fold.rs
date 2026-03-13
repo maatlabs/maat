@@ -23,6 +23,7 @@ pub fn fold_constants(program: &mut Program) -> Vec<TypeError> {
 fn fold_statement(stmt: &mut Stmt, errors: &mut Vec<TypeError>) {
     match stmt {
         Stmt::Let(let_stmt) => fold_expression(&mut let_stmt.value, errors),
+        Stmt::ReAssign(assign_stmt) => fold_expression(&mut assign_stmt.value, errors),
         Stmt::Return(ret_stmt) => fold_expression(&mut ret_stmt.value, errors),
         Stmt::Expr(expr_stmt) => fold_expression(&mut expr_stmt.value, errors),
         Stmt::Block(block) => fold_block(block, errors),
@@ -198,6 +199,7 @@ fn try_fold_infix(infix: &InfixExpr, errors: &mut Vec<TypeError>) -> Option<Expr
                 "-" => $lhs.value.checked_sub($rhs.value),
                 "*" => $lhs.value.checked_mul($rhs.value),
                 "/" => $lhs.value.checked_div($rhs.value),
+                "%" => $lhs.value.checked_rem_euclid($rhs.value),
                 _ => return try_fold_comparison(infix),
             };
             match result {

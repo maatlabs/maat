@@ -218,7 +218,7 @@ impl Compiler {
         for stmt in &program.statements {
             if let Stmt::FuncDef(fn_item) = stmt {
                 let span = fn_item.span;
-                match self.symbols_table.define_symbol(&fn_item.name) {
+                match self.symbols_table.define_symbol(&fn_item.name, false) {
                     Ok(_) => {}
                     Err(e) => return Err(self.attach_span(e, span)),
                 }
@@ -253,7 +253,10 @@ impl Compiler {
                 } else {
                     self.compile_expression(&let_stmt.value)?;
                 }
-                let symbol = match self.symbols_table.define_symbol(&let_stmt.ident) {
+                let symbol = match self
+                    .symbols_table
+                    .define_symbol(&let_stmt.ident, let_stmt.mutable)
+                {
                     Ok(s) => s,
                     Err(e) => return Err(self.attach_span(e, span)),
                 };
@@ -267,6 +270,40 @@ impl Compiler {
                 };
                 Ok(())
             }
+            Stmt::ReAssign(assign_stmt) => {
+                let span = assign_stmt.span;
+                let symbol = self
+                    .symbols_table
+                    .resolve_symbol(&assign_stmt.ident)
+                    .ok_or_else(|| {
+                        CompileErrorKind::UndefinedVariable {
+                            name: assign_stmt.ident.clone(),
+                        }
+                        .at(span)
+                    })?;
+                if !symbol.mutable {
+                    return Err(CompileErrorKind::ImmutableAssignment {
+                        name: assign_stmt.ident.clone(),
+                    }
+                    .at(span)
+                    .into());
+                }
+                self.compile_expression(&assign_stmt.value)?;
+                match symbol.scope {
+                    SymbolScope::Global => self.emit(Opcode::SetGlobal, &[symbol.index], span),
+                    SymbolScope::Local => self.emit(Opcode::SetLocal, &[symbol.index], span),
+                    SymbolScope::Free => self.emit(Opcode::SetLocal, &[symbol.index], span),
+                    SymbolScope::Builtin | SymbolScope::Function => {
+                        return Err(CompileErrorKind::ImmutableAssignment {
+                            name: assign_stmt.ident.clone(),
+                        }
+                        .at(span)
+                        .into());
+                    }
+                };
+                Ok(())
+            }
+
             Stmt::Return(ret_stmt) => {
                 self.compile_expression(&ret_stmt.value)?;
                 self.emit(Opcode::ReturnValue, &[], ret_stmt.span);
@@ -282,7 +319,7 @@ impl Compiler {
                     &fn_item.body,
                     span,
                 )?;
-                let symbol = match self.symbols_table.define_symbol(&fn_item.name) {
+                let symbol = match self.symbols_table.define_symbol(&fn_item.name, false) {
                     Ok(s) => s,
                     Err(e) => return Err(self.attach_span(e, span)),
                 };
@@ -306,7 +343,7 @@ impl Compiler {
                     continue_jumps: Vec::new(),
                 });
 
-                self.compile_block_statements_flat(&loop_stmt.body)?;
+                self.compile_block_statement(&loop_stmt.body)?;
 
                 self.emit(Opcode::Jump, &[start], loop_stmt.span);
 
@@ -334,7 +371,7 @@ impl Compiler {
                 self.compile_expression(&while_stmt.condition)?;
                 let exit_jump = self.emit(Opcode::CondJump, &[Self::JUMP], while_stmt.span);
 
-                self.compile_block_statements_flat(&while_stmt.body)?;
+                self.compile_block_statement(&while_stmt.body)?;
 
                 self.emit(Opcode::Jump, &[start], while_stmt.span);
 
@@ -410,7 +447,7 @@ impl Compiler {
 
                 // __iter_N
                 self.compile_expression(&for_stmt.iterable)?;
-                let iter_sym = self.define_and_set(&iter_name, span)?;
+                let iter_sym = self.define_and_set(&iter_name, false, span)?;
 
                 // __len_N = Array::len(__iter_N)
                 let len_builtin = self
@@ -426,12 +463,12 @@ impl Compiler {
                 self.load_symbol(&len_builtin, span);
                 self.load_symbol(&iter_sym, span);
                 self.emit(Opcode::Call, &[1], span);
-                let len_sym = self.define_and_set(&len_name, span)?;
+                let len_sym = self.define_and_set(&len_name, false, span)?;
 
                 // __i_N = 0
                 let zero_idx = self.add_constant(Object::I64(0))?;
                 self.emit(Opcode::Constant, &[zero_idx], span);
-                let i_sym = self.define_and_set(&i_name, span)?;
+                let i_sym = self.define_and_set(&i_name, false, span)?;
 
                 // loop_start: condition check (__i < __len)
                 let loop_start = self.current_instructions().len();
@@ -454,11 +491,11 @@ impl Compiler {
                 self.load_symbol(&iter_sym, span);
                 self.load_symbol(&i_sym, span);
                 self.emit(Opcode::Index, &[], span);
-                let elem_sym = self.define_and_set(&for_stmt.ident, span)?;
+                let elem_sym = self.define_and_set(&for_stmt.ident, false, span)?;
                 let _ = elem_sym; // used only for side effect of defining the binding
 
                 // body
-                self.compile_block_statements_flat(&for_stmt.body)?;
+                self.compile_block_statement(&for_stmt.body)?;
 
                 // continue_target: __i = __i + 1
                 let continue_target = self.current_instructions().len();
@@ -501,17 +538,6 @@ impl Compiler {
             self.compile_statement(stmt)?;
         }
         self.symbols_table.pop_block_scope();
-        Ok(())
-    }
-
-    /// Compiles a block's statements without introducing a new block scope.
-    ///
-    /// Used for loop bodies (`while`, `loop`, `for`) where `let` rebinding
-    /// of outer variables (e.g. loop counters) must persist across iterations.
-    fn compile_block_statements_flat(&mut self, block: &BlockStmt) -> Result<()> {
-        for stmt in &block.statements {
-            self.compile_statement(stmt)?;
-        }
         Ok(())
     }
 
@@ -881,7 +907,7 @@ impl Compiler {
                     let mut param_names = Vec::with_capacity(field_count);
                     for i in 0..field_count {
                         let name = format!("__field_{i}");
-                        if let Err(e) = self.symbols_table.define_symbol(&name) {
+                        if let Err(e) = self.symbols_table.define_symbol(&name, false) {
                             return Err(self.attach_span(e, span));
                         }
                         param_names.push(name);
@@ -1003,7 +1029,7 @@ impl Compiler {
                     self.replace_match_tag_target(match_tag_pos, next_arm)?;
                 }
                 Pattern::Ident(name, _) if name != "_" => {
-                    self.define_and_set(name, span)?;
+                    self.define_and_set(name, false, span)?;
                     self.compile_expression(&arm.body)?;
                     if self.last_instruction_is(Opcode::Pop) {
                         self.remove_last_pop();
@@ -1077,10 +1103,10 @@ impl Compiler {
                 if i == 0 {
                     let hidden = format!("__match_scrutinee_{}", self.for_loop_counter);
                     self.for_loop_counter += 1;
-                    let hidden_sym = self.define_and_set(&hidden, span)?;
+                    let hidden_sym = self.define_and_set(&hidden, false, span)?;
                     self.load_symbol(&hidden_sym, span);
                     self.emit(Opcode::GetField, &[i], span);
-                    self.define_and_set(name, span)?;
+                    self.define_and_set(name, false, span)?;
                     continue;
                 }
 
@@ -1093,7 +1119,7 @@ impl Compiler {
                 })?;
                 self.load_symbol(&hidden_sym, span);
                 self.emit(Opcode::GetField, &[i], span);
-                self.define_and_set(name, span)?;
+                self.define_and_set(name, false, span)?;
             }
         }
         Ok(())
@@ -1268,7 +1294,7 @@ impl Compiler {
         }
 
         for param in param_names {
-            if let Err(e) = self.symbols_table.define_symbol(param) {
+            if let Err(e) = self.symbols_table.define_symbol(param, false) {
                 return Err(self.attach_span(e, span));
             }
         }
@@ -1324,7 +1350,7 @@ impl Compiler {
                 span,
             )?;
 
-            let symbol = match self.symbols_table.define_symbol(&qualified_name) {
+            let symbol = match self.symbols_table.define_symbol(&qualified_name, false) {
                 Ok(s) => s,
                 Err(e) => return Err(self.attach_span(e, span)),
             };
@@ -1376,8 +1402,8 @@ impl Compiler {
     }
 
     /// Defines a symbol and emits the corresponding store instruction.
-    fn define_and_set(&mut self, name: &str, span: Span) -> Result<Symbol> {
-        let symbol = match self.symbols_table.define_symbol(name) {
+    fn define_and_set(&mut self, name: &str, mutable: bool, span: Span) -> Result<Symbol> {
+        let symbol = match self.symbols_table.define_symbol(name, mutable) {
             Ok(s) => s.clone(),
             Err(e) => return Err(self.attach_span(e, span)),
         };

@@ -228,6 +228,9 @@ impl TypeChecker {
     fn check_statement(&mut self, stmt: &mut Stmt) {
         match stmt {
             Stmt::Let(let_stmt) => self.check_let(let_stmt),
+            Stmt::ReAssign(assign_stmt) => {
+                self.infer_expression(&mut assign_stmt.value);
+            }
             Stmt::Return(ret_stmt) => {
                 self.infer_expression(&mut ret_stmt.value);
             }

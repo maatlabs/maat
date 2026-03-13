@@ -100,7 +100,7 @@ impl<'a> Parser<'a> {
         self.current = std::mem::replace(&mut self.peek, self.lexer.next_token());
     }
 
-    /// Determine if an item being parsed is marked `pub`lic by checking for the keyword.
+    /// Determine if an item being parsed is marked `pub` by checking for the keyword.
     ///
     /// If the current token is `TokenKind::Pub`, consume it and return true,
     /// else false.
@@ -195,7 +195,10 @@ impl<'a> Parser<'a> {
             TokenKind::Trait => self.parse_trait_decl(false).map(Stmt::TraitDecl),
             TokenKind::Impl => self.parse_impl_block().map(Stmt::ImplBlock),
             TokenKind::Ident if self.is_compound_assignment() => {
-                self.parse_compound_assignment().map(Stmt::Let)
+                self.parse_compound_assignment().map(Stmt::ReAssign)
+            }
+            TokenKind::Ident if self.peek_token_is(TokenKind::Assign) => {
+                self.parse_assignment().map(Stmt::ReAssign)
             }
             _ => self.parse_expression_statement().map(Stmt::Expr),
         }
@@ -213,12 +216,10 @@ impl<'a> Parser<'a> {
         )
     }
 
-    /// Desugars `x += expr` into `let x = x + expr`.
+    /// Desugars `x op= expr` into `x = x op expr` as a [`ReAssignStmt`].
     ///
-    /// **NOTE**: Currently, the `mut` keyword is unsupported,
-    /// so this routine is for variable shadowing, not a mutation
-    /// in Maat-speak.
-    fn parse_compound_assignment(&mut self) -> Option<LetStmt> {
+    /// The compiler validates that the target variable was declared with `let mut`.
+    fn parse_compound_assignment(&mut self) -> Option<ReAssignStmt> {
         let start = self.current.span;
         let ident = self.current.literal.to_string();
         let ident_span = self.current.span;
@@ -252,10 +253,33 @@ impl<'a> Parser<'a> {
             self.next_token();
         }
 
-        Some(LetStmt {
+        Some(ReAssignStmt {
             ident,
             value,
-            type_annotation: None,
+            span: start.merge(end),
+        })
+    }
+
+    /// Parses a plain (re)assignment: `x = expr;`.
+    ///
+    /// The compiler validates that the target variable was declared with `let mut`.
+    fn parse_assignment(&mut self) -> Option<ReAssignStmt> {
+        let start = self.current.span;
+        let ident = self.current.literal.to_string();
+
+        self.next_token();
+        self.next_token();
+        let value = self.parse_expression(LOWEST)?;
+        let end = if self.peek_token_is(TokenKind::Semicolon) {
+            self.next_token();
+            self.current.span
+        } else {
+            value.span()
+        };
+
+        Some(ReAssignStmt {
+            ident,
+            value,
             span: start.merge(end),
         })
     }
@@ -403,6 +427,12 @@ impl<'a> Parser<'a> {
 
     fn parse_let_statement(&mut self) -> Option<LetStmt> {
         let start = self.current.span;
+
+        let mutable = self.peek_token_is(TokenKind::Mut);
+        if mutable {
+            self.next_token();
+        }
+
         if !self.expect_peek(TokenKind::Ident) {
             return None;
         }
@@ -429,6 +459,7 @@ impl<'a> Parser<'a> {
         };
         Some(LetStmt {
             ident,
+            mutable,
             type_annotation,
             value,
             span: start.merge(end),

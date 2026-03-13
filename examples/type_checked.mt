@@ -30,11 +30,11 @@ print(clamp(50, 0, 100));
 print(clamp(200, 0, 100));
 
 let apply_n = fn(f, n: i64, x: i64) -> i64 {
-    let result = x;
-    let i = 0;
+    let mut result = x;
+    let mut i = 0;
     while (i < n) {
-        let result = f(result);
-        let i = i + 1;
+        result = f(result);
+        i = i + 1;
     }
     result;
 };

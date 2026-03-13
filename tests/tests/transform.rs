@@ -233,6 +233,7 @@ fn transform_return_statement() {
 #[test]
 fn transform_let_statement() {
     let stmt = Stmt::Let(LetStmt {
+        mutable: false,
         ident: "x".to_string(),
         type_annotation: None,
         value: one(),
@@ -376,6 +377,7 @@ fn transform_hash_literal() {
 fn transform_nested_structures() {
     let program = Program {
         statements: vec![Stmt::Let(LetStmt {
+            mutable: false,
             ident: "x".to_string(),
             type_annotation: None,
             value: Expr::Infix(InfixExpr {

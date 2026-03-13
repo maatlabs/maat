@@ -26,6 +26,7 @@ pub struct Program {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Stmt {
     Let(LetStmt),
+    ReAssign(ReAssignStmt),
     Return(ReturnStmt),
     Expr(ExprStmt),
     Block(BlockStmt),
@@ -41,12 +42,29 @@ pub enum Stmt {
     Mod(ModStmt),
 }
 
-/// A `let` binding: `let <ident> = <value>;` or
-/// `let <ident>: <type> = <value>;`.
+/// A `let` binding: `let <ident>: <type> = <value>;` or
+/// `let mut <ident>: <type> = <value>;`.
+///
+/// When `mutable` is `true`, the binding can be reassigned via
+/// `ident = expr;` or compound assignment (`ident += expr;`).
+/// When `false`, rebinding the same name requires a new `let`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LetStmt {
     pub ident: String,
+    pub mutable: bool,
     pub type_annotation: Option<TypeExpr>,
+    pub value: Expr,
+    pub span: Span,
+}
+
+/// A reassignment to an existing mutable binding: `<ident> = <value>;`.
+///
+/// Produced by plain assignment (`x = expr;`) and compound assignment
+/// (`x += expr;`, desugared to `x = x + expr`). The compiler validates
+/// that the target variable exists and was declared with `let mut`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ReAssignStmt {
+    pub ident: String,
     pub value: Expr,
     pub span: Span,
 }

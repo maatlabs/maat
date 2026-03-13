@@ -74,6 +74,8 @@ pub enum TokenKind {
     Use,
     /// The `pub` keyword for visibility modifiers.
     Pub,
+    /// The `mut` keyword for mutable bindings.
+    Mut,
 
     /// A user-defined identifier (variable, function name, etc.).
     Ident,
@@ -249,6 +251,7 @@ impl TokenKind {
             "mod" => Self::Mod,
             "use" => Self::Use,
             "pub" => Self::Pub,
+            "mut" => Self::Mut,
             _ => Self::Ident,
         }
     }

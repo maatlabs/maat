@@ -25,6 +25,7 @@ impl fmt::Display for Stmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Let(let_stmt) => let_stmt.fmt(f)?,
+            Self::ReAssign(assign_stmt) => assign_stmt.fmt(f)?,
             Self::Return(ret_stmt) => ret_stmt.fmt(f)?,
             Self::Expr(expr_stmt) => expr_stmt.fmt(f)?,
             Self::Block(block_stmt) => block_stmt.fmt(f)?,
@@ -45,10 +46,17 @@ impl fmt::Display for Stmt {
 
 impl fmt::Display for LetStmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let m = if self.mutable { "mut " } else { "" };
         match &self.type_annotation {
-            Some(ty) => write!(f, "let {}: {} = {};", self.ident, ty, self.value),
-            None => write!(f, "let {} = {};", self.ident, self.value),
+            Some(ty) => write!(f, "let {m}{}: {} = {};", self.ident, ty, self.value),
+            None => write!(f, "let {m}{} = {};", self.ident, self.value),
         }
+    }
+}
+
+impl fmt::Display for ReAssignStmt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} = {};", self.ident, self.value)
     }
 }
 

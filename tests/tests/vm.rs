@@ -712,9 +712,9 @@ fn loop_control_flow() {
     // break exits loop
     run_vm_test(
         r#"
-        let x = 0;
+        let mut x = 0;
         loop {
-            let x = x + 1;
+            x = x + 1;
             if (x == 5) {
                 break;
             }
@@ -728,7 +728,7 @@ fn loop_control_flow() {
     run_vm_test(
         r#"
         let find_first = fn(arr, target) {
-            let i = 0;
+            let mut i = 0;
             loop {
                 if (i == arr.len() as i64) {
                     return -1;
@@ -736,7 +736,7 @@ fn loop_control_flow() {
                 if (arr[i] == target) {
                     return i;
                 }
-                let i = i + 1;
+                i = i + 1;
             }
         };
         find_first([10, 20, 30, 40], 30);
@@ -748,11 +748,11 @@ fn loop_control_flow() {
     run_vm_test(
         r#"
         let countdown = fn(n) {
-            let result = 0;
-            let i = n;
+            let mut result = 0;
+            let mut i = n;
             while (i > 0) {
-                let result = result + i;
-                let i = i - 1;
+                result = result + i;
+                i = i - 1;
             }
             result;
         };
@@ -767,11 +767,11 @@ fn while_loops() {
     // Basic while loop
     run_vm_test(
         r#"
-        let x = 0;
-        let sum = 0;
+        let mut x = 0;
+        let mut sum = 0;
         while (x < 5) {
-            let x = x + 1;
-            let sum = sum + x;
+            x = x + 1;
+            sum = sum + x;
         }
         sum;
         "#,
@@ -781,9 +781,9 @@ fn while_loops() {
     // False condition (body never executes)
     run_vm_test(
         r#"
-        let x = 10;
+        let mut x = 10;
         while (x < 5) {
-            let x = x + 1;
+            x = x + 1;
         }
         x;
         "#,
@@ -793,9 +793,9 @@ fn while_loops() {
     // While with break
     run_vm_test(
         r#"
-        let x = 0;
+        let mut x = 0;
         while (x < 100) {
-            let x = x + 1;
+            x = x + 1;
             if (x == 7) {
                 break;
             }
@@ -811,9 +811,9 @@ fn for_loops() {
     // Basic for loop
     run_vm_test(
         r#"
-        let sum = 0;
+        let mut sum = 0;
         for x in [1, 2, 3, 4, 5] {
-            let sum = sum + x;
+            sum = sum + x;
         }
         sum;
         "#,
@@ -823,9 +823,9 @@ fn for_loops() {
     // Empty array
     run_vm_test(
         r#"
-        let sum = 0;
+        let mut sum = 0;
         for x in [] {
-            let sum = sum + 1;
+            sum = sum + 1;
         }
         sum;
         "#,
@@ -835,15 +835,15 @@ fn for_loops() {
     // Nested while loops
     run_vm_test(
         r#"
-        let total = 0;
-        let i = 0;
+        let mut total = 0;
+        let mut i = 0;
         while (i < 3) {
-            let j = 0;
+            let mut j = 0;
             while (j < 3) {
-                let total = total + 1;
-                let j = j + 1;
+                total = total + 1;
+                j = j + 1;
             }
-            let i = i + 1;
+            i = i + 1;
         }
         total;
         "#,
@@ -853,12 +853,12 @@ fn for_loops() {
     // For with break
     run_vm_test(
         r#"
-        let result = 0;
+        let mut result = 0;
         for x in [10, 20, 30, 40, 50] {
             if (x == 30) {
                 break;
             }
-            let result = result + x;
+            result = result + x;
         }
         result;
         "#,
@@ -868,10 +868,10 @@ fn for_loops() {
     // Nested for loops
     run_vm_test(
         r#"
-        let sum = 0;
+        let mut sum = 0;
         for x in [1, 2, 3] {
             for y in [10, 20] {
-                let sum = sum + x + y;
+                sum = sum + x + y;
             }
         }
         sum;
@@ -883,12 +883,158 @@ fn for_loops() {
     run_vm_test(
         r#"
         let double = fn(x) { x * 2; };
-        let sum = 0;
+        let mut sum = 0;
         for x in [1, 2, 3] {
-            let sum = sum + double(x);
+            sum = sum + double(x);
         }
         sum;
         "#,
         TestValue::I64(12),
+    );
+}
+
+#[test]
+fn comments() {
+    run_vm_test("let x = 5; // this is a comment\nx", TestValue::I64(5));
+    run_vm_test("let x = /* inline */ 10; x", TestValue::I64(10));
+    run_vm_test(
+        "let x = /* outer /* inner */ still comment */ 42; x",
+        TestValue::I64(42),
+    );
+}
+
+#[test]
+fn modulo_ops() {
+    run_vm_test("10 % 3", TestValue::I64(1));
+    run_vm_test("-7 % 3", TestValue::I64(2));
+    run_vm_test("12 % 4", TestValue::I64(0));
+    run_vm_test("7 % -3", TestValue::I64(1));
+}
+
+#[test]
+fn bitwise_ops() {
+    run_vm_test("0xFF & 0x0F", TestValue::I64(15));
+    run_vm_test("0xF0 | 0x0F", TestValue::I64(255));
+    run_vm_test("0xFF ^ 0x0F", TestValue::I64(240));
+    run_vm_test("1 | 2 & 3", TestValue::I64(3));
+}
+
+#[test]
+fn shift_ops() {
+    run_vm_test("1 << 8", TestValue::I64(256));
+    run_vm_test("256 >> 4", TestValue::I64(16));
+}
+
+#[test]
+fn compound_assign() {
+    run_vm_test("let mut x = 10; x += 5; x", TestValue::I64(15));
+    run_vm_test("let mut x = 10; x -= 3; x", TestValue::I64(7));
+    run_vm_test("let mut x = 4; x *= 3; x", TestValue::I64(12));
+    run_vm_test("let mut x = 20; x /= 4; x", TestValue::I64(5));
+    run_vm_test("let mut x = 17; x %= 5; x", TestValue::I64(2));
+}
+
+#[test]
+fn plain_assignment() {
+    run_vm_test("let mut x = 10; x = 20; x", TestValue::I64(20));
+    run_vm_test(
+        r#"let mut x = 1; let mut y = 2; x = y; y = 10; x"#,
+        TestValue::I64(2),
+    );
+}
+
+#[test]
+fn immutable_assignment_error() {
+    let input = "let x = 10; x = 20; x";
+    let lexer = maat_lexer::Lexer::new(input);
+    let mut parser = maat_parser::Parser::new(lexer);
+    let mut program = parser.parse();
+    maat_ast::fold::fold_constants(&mut program);
+    let mut compiler = maat_codegen::Compiler::new();
+    let result = compiler.compile(&maat_ast::Node::Program(program));
+    assert!(
+        result.is_err(),
+        "expected compile error for immutable assignment"
+    );
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("cannot re-assign to immutable variable"),
+        "wrong error message: {err}"
+    );
+}
+
+#[test]
+fn forward_function_reference() {
+    run_vm_test(
+        r#"
+        fn foo() -> i64 { bar() }
+        fn bar() -> i64 { 42 }
+        foo()
+        "#,
+        TestValue::I64(42),
+    );
+
+    // mutual recursion
+    run_vm_test(
+        r#"
+        fn is_even(n: i64) -> bool {
+            if (n == 0) { true } else { is_odd(n - 1) }
+        }
+        fn is_odd(n: i64) -> bool {
+            if (n == 0) { false } else { is_even(n - 1) }
+        }
+        is_even(10)
+        "#,
+        TestValue::Bool(true),
+    );
+}
+
+#[test]
+fn block_scoping() {
+    run_vm_test(
+        r#"
+        fn test() -> i64 {
+            let x = 1;
+            if (true) {
+                let x = 2;
+            }
+            x
+        }
+        test()
+        "#,
+        TestValue::I64(1),
+    );
+
+    run_vm_test(
+        r#"
+        fn test() -> i64 {
+            let mut sum = 0;
+            let mut i = 0;
+            while (i < 5) {
+                sum = sum + i;
+                i = i + 1;
+            }
+            sum
+        }
+        test()
+        "#,
+        TestValue::I64(10),
+    );
+
+    run_vm_test(
+        r#"
+        fn test() -> i64 {
+            let mut x = 0;
+            let mut i = 0;
+            while (i < 3) {
+                let y = i * 10;
+                x = x + y;
+                i = i + 1;
+            }
+            x
+        }
+        test()
+        "#,
+        TestValue::I64(30),
     );
 }

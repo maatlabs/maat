@@ -1,20 +1,20 @@
-let sum = 0;
+let mut sum = 0;
 for x in [10, 20, 30, 40, 50] {
-    let sum = sum + x;
+    sum = sum + x;
 }
 print(sum);
 
-let n = 1;
-let total = 0;
+let mut n = 1;
+let mut total = 0;
 while (n < 101) {
-    let total = total + n;
-    let n = n + 1;
+    total = total + n;
+    n = n + 1;
 }
 print(total);
 
-let count = 0;
+let mut count = 0;
 loop {
-    let count = count + 1;
+    count = count + 1;
     if (count == 10) {
         break;
     }
@@ -25,12 +25,12 @@ let is_prime = fn(n: i64) {
     if (n < 2) {
         return false;
     }
-    let d = 2;
+    let mut d = 2;
     while (d * d < n + 1) {
         if (n / d * d == n) {
             return false;
         }
-        let d = d + 1;
+        d = d + 1;
     }
     true;
 };
@@ -51,10 +51,10 @@ let primes = sieve(2, 50, []);
 print(primes);
 
 let matrix = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
-let flat = [];
+let mut flat = [];
 for row in matrix {
     for val in row {
-        let flat = flat.push(val);
+        flat = flat.push(val);
     }
 }
 print(flat);

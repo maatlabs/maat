@@ -703,7 +703,7 @@ impl VM {
             Opcode::Sub => int_binop!(&left, &right, checked_sub),
             Opcode::Mul => int_binop!(&left, &right, checked_mul),
             Opcode::Div => int_binop!(&left, &right, checked_div),
-            Opcode::Mod => int_binop!(&left, &right, checked_rem),
+            Opcode::Mod => int_binop!(&left, &right, checked_rem_euclid),
             Opcode::Shl => int_shift!(&left, &right, checked_shl),
             Opcode::Shr => int_shift!(&left, &right, checked_shr),
             _ => None,

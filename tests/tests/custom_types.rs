@@ -215,12 +215,12 @@ fn enums() {
 
     run_i64(
         "let arr = [Option::Some(1), Option::Some(3), Option::Some(6)];
-         let total = 0;
-         let i = 0;
+         let mut total = 0;
+         let mut i = 0;
          while (i < arr.len() as i64) {
              let val = match arr[i] { Some(v) => v, _ => 0 };
-             let total = total + val;
-             let i = i + 1;
+             total = total + val;
+             i = i + 1;
          }
          total",
         10,

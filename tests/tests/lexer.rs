@@ -10,7 +10,7 @@ let add = fn(x, y) {
 };
 
 let result = add(five, ten);
-!-/*5;
+!- / *5;
 5 < 10 > 5;
 
 if (5 < 10) {
@@ -162,7 +162,7 @@ fn operator_and_delimiter_tokens() {
 #[test]
 fn keywords() {
     let source =
-        "let fn if else return true false struct enum match impl trait self Self mod use pub";
+        "let fn if else return true false struct enum match impl trait self Self mod use pub mut";
     let expected = [
         (TokenKind::Let, "let"),
         (TokenKind::Fn, "fn"),
@@ -181,6 +181,7 @@ fn keywords() {
         (TokenKind::Mod, "mod"),
         (TokenKind::Use, "use"),
         (TokenKind::Pub, "pub"),
+        (TokenKind::Mut, "mut"),
         (TokenKind::Eof, ""),
     ];
 
