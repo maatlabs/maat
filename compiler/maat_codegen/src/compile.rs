@@ -8,7 +8,7 @@ use maat_bytecode::{
     Bytecode, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, Opcode, TypeTag, encode,
 };
 use maat_errors::{CompileError, CompileErrorKind, Error, Result};
-use maat_runtime::{BUILTIN_TYPE_NAMES, BUILTINS, CompiledFunction, Object, TypeDef, VariantInfo};
+use maat_runtime::{BUILTINS, CompiledFunction, Object, TypeDef, VariantInfo};
 use maat_span::{SourceMap, Span};
 
 use crate::{Symbol, SymbolScope, SymbolsTable};
@@ -1171,34 +1171,12 @@ impl Compiler {
     fn compile_method_call(&mut self, mc: &MethodCallExpr) -> Result<()> {
         let span = mc.span;
 
-        // Search user-defined types in the type registry first.
-        let qualified_name = self
-            .type_registry
-            .iter()
-            .find_map(|td| {
-                let type_name = match td {
-                    TypeDef::Struct { name, .. } | TypeDef::Enum { name, .. } => name,
-                };
-                let candidate = format!("{type_name}::{}", mc.method);
-                self.symbols_table
-                    .resolve_symbol(&candidate)
-                    .map(|_| candidate)
-            })
-            .or_else(|| {
-                // Fall back to built-in type methods (Array, str).
-                BUILTIN_TYPE_NAMES.iter().find_map(|type_name| {
-                    let candidate = format!("{type_name}::{}", mc.method);
-                    self.symbols_table
-                        .resolve_symbol(&candidate)
-                        .map(|_| candidate)
-                })
-            })
-            .ok_or_else(|| {
-                CompileErrorKind::UndefinedVariable {
-                    name: format!("unknown method `{}`", mc.method),
-                }
-                .at(span)
-            })?;
+        let qualified_name = self.resolve_method_name(mc).ok_or_else(|| {
+            CompileErrorKind::UndefinedVariable {
+                name: format!("unknown method `{}`", mc.method),
+            }
+            .at(span)
+        })?;
 
         let symbol = self.symbols_table.resolve_symbol(&qualified_name).unwrap();
         self.load_symbol(&symbol, span);
@@ -1212,6 +1190,40 @@ impl Compiler {
         let total_args = 1 + mc.arguments.len();
         self.emit(Opcode::Call, &[total_args], span);
         Ok(())
+    }
+
+    /// Built-in type prefixes for method dispatch fallback.
+    ///
+    /// Used only when `receiver` is absent (e.g. REPL, tests that
+    /// skip type checking). With type-directed dispatch these are never consulted.
+    const BUILTIN_METHOD_PREFIXES: &[&str] = &["Array", "str", "Set"];
+
+    /// Resolves the fully-qualified builtin name for a method call.
+    ///
+    /// Uses the type-checker-annotated `receiver` for direct dispatch
+    /// when available. Falls back to a linear search through user-defined types
+    /// and built-in type prefixes for unannotated ASTs (e.g. from the REPL or
+    /// test paths that bypass type checking).
+    fn resolve_method_name(&mut self, mc: &MethodCallExpr) -> Option<String> {
+        if let Some(ref receiver) = mc.receiver {
+            let candidate = format!("{receiver}::{}", mc.method);
+            if self.symbols_table.resolve_symbol(&candidate).is_some() {
+                return Some(candidate);
+            }
+        }
+
+        self.type_registry
+            .iter()
+            .map(|td| match td {
+                TypeDef::Struct { name, .. } | TypeDef::Enum { name, .. } => name.as_str(),
+            })
+            .chain(Self::BUILTIN_METHOD_PREFIXES.iter().copied())
+            .find_map(|type_name| {
+                let candidate = format!("{type_name}::{}", mc.method);
+                self.symbols_table
+                    .resolve_symbol(&candidate)
+                    .map(|_| candidate)
+            })
     }
 
     /// Maps a source-level type annotation to a bytecode type tag.

@@ -1267,6 +1267,7 @@ impl<'a> Parser<'a> {
                 object: Box::new(object),
                 method: member,
                 arguments,
+                receiver: None,
                 span: start.merge(end),
             }))
         } else {

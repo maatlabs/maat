@@ -883,6 +883,7 @@ impl TypeChecker {
     fn check_method_call(&mut self, mc: &mut MethodCallExpr) -> Type {
         let obj_ty = self.infer_expression(&mut mc.object);
         let resolved = self.subst.apply(&obj_ty);
+        mc.receiver = Self::receiver_type_name(&resolved);
 
         let arg_types = mc
             .arguments
@@ -1538,6 +1539,21 @@ impl TypeChecker {
             && let Err(e) = self.subst.unify(resolved, &Type::Bool)
         {
             self.report_unify_error(e, span);
+        }
+    }
+
+    /// Maps a resolved type to the dispatch prefix used in builtin qualified names.
+    ///
+    /// Returns `Some("Array")` for array types, `Some("str")` for strings,
+    /// and `Some(name)` for user-defined structs/enums (including `Set`).
+    /// Returns `None` for unresolved type variables or primitive types
+    /// that have no inherent methods.
+    fn receiver_type_name(ty: &Type) -> Option<String> {
+        match ty {
+            Type::Array(_) => Some("Array".to_string()),
+            Type::String => Some("str".to_string()),
+            Type::Struct(name, _) | Type::Enum(name, _) => Some(name.clone()),
+            _ => None,
         }
     }
 

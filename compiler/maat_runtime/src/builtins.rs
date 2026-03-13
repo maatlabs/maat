@@ -15,13 +15,6 @@ pub const QUOTE: &str = "quote";
 /// This is a special form handled during quote evaluation, not a regular builtin.
 pub const UNQUOTE: &str = "unquote";
 
-/// Names of built-in types that expose inherent methods.
-///
-/// The compiler uses this list when resolving method calls: after checking
-/// user-defined types in the type registry, it falls back to these names
-/// and looks for `{type_name}::{method}` in the symbol table.
-pub const BUILTIN_TYPE_NAMES: &[&str] = &["Array", "str", "Set"];
-
 /// Declares the builtin function registry.
 ///
 /// Generates three items:
@@ -61,7 +54,8 @@ macro_rules! define_builtins {
 
 define_builtins! {
     "print" => print,
-    "Array::len" | "str::len" => builtin_len,
+    "Array::len" => array_len,
+    "str::len" => str_len,
     "Array::first" => array_first,
     "Array::last" => array_last,
     "Array::rest" => array_rest,
@@ -97,14 +91,21 @@ pub fn print(args: &[Object]) -> Result<Object> {
     Ok(NULL)
 }
 
-/// Returns the length of an array, string, or set. Receiver: `self` at `args[0]`.
-fn builtin_len(args: &[Object]) -> Result<Object> {
-    expect_arg_count("len", args, 1)?;
+/// Returns the number of elements in an array. Receiver: `self` at `args[0]`.
+fn array_len(args: &[Object]) -> Result<Object> {
+    expect_arg_count("Array::len", args, 1)?;
     match &args[0] {
         Object::Array(arr) => Ok(Object::Usize(arr.len())),
+        other => method_type_error(other, "len", "array"),
+    }
+}
+
+/// Returns the byte length of a string. Receiver: `self` at `args[0]`.
+fn str_len(args: &[Object]) -> Result<Object> {
+    expect_arg_count("str::len", args, 1)?;
+    match &args[0] {
         Object::Str(s) => Ok(Object::Usize(s.len())),
-        Object::Set(set) => Ok(Object::Usize(set.len())),
-        other => method_type_error(other, "len", "array, str, or Set"),
+        other => method_type_error(other, "len", "str"),
     }
 }
 
@@ -180,23 +181,19 @@ fn str_trim(args: &[Object]) -> Result<Object> {
     }
 }
 
-/// Returns `true` if the string or set contains the given value.
+/// Returns `true` if the string contains the given substring.
 fn str_contains(args: &[Object]) -> Result<Object> {
     expect_arg_count("str::contains", args, 2)?;
     match (&args[0], &args[1]) {
         (Object::Str(haystack), Object::Str(needle)) => {
             Ok(Object::Bool(haystack.contains(needle.as_str())))
         }
-        (Object::Set(set), value) => {
-            let key = Hashable::try_from(value.clone())?;
-            Ok(Object::Bool(set.contains(&key)))
-        }
         (Object::Str(_), other) => Err(EvalError::Builtin(format!(
             "str::contains: pattern must be a string, got {}",
             other.type_name()
         ))
         .into()),
-        (other, _) => method_type_error(other, "contains", "str or Set"),
+        (other, _) => method_type_error(other, "contains", "str"),
     }
 }
 

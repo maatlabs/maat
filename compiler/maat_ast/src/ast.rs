@@ -623,6 +623,8 @@ pub struct MethodCallExpr {
     pub method: String,
     /// Arguments passed to the method (excluding the receiver).
     pub arguments: Vec<Expr>,
+    /// Receiver type name resolved by the type checker (e.g. `"Array"`, `"str"`, `"Set"`).
+    pub receiver: Option<String>,
     pub span: Span,
 }
 
