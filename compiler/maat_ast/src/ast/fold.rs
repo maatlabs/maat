@@ -136,6 +136,10 @@ fn fold_expression(expr: &mut Expr, errors: &mut Vec<TypeError>) {
                 fold_expression(val, errors);
             }
         }
+        Expr::Range(range) => {
+            fold_expression(&mut range.start, errors);
+            fold_expression(&mut range.end, errors);
+        }
         _ => {}
     }
 }

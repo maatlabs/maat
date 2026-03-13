@@ -11,6 +11,8 @@ enum TestValue {
     Str(String),
     IntArray(Vec<i64>),
     Hash(Vec<(i64, i64)>),
+    Range(i64, i64),
+    RangeInclusive(i64, i64),
     Null,
 }
 
@@ -108,6 +110,22 @@ fn run_vm_test(input: &str, expected: TestValue) {
             }
             _ => panic!("expected hash object, got: {:?}", stack_elem),
         },
+        TestValue::Range(s, e) => {
+            assert_eq!(
+                stack_elem,
+                Object::Range(s, e),
+                "expected Range({s}..{e}) for input: {input}, got: {:?}",
+                stack_elem
+            );
+        }
+        TestValue::RangeInclusive(s, e) => {
+            assert_eq!(
+                stack_elem,
+                Object::RangeInclusive(s, e),
+                "expected RangeInclusive({s}..={e}) for input: {input}, got: {:?}",
+                stack_elem
+            );
+        }
         TestValue::Null => {
             assert_eq!(
                 stack_elem,
@@ -1037,4 +1055,111 @@ fn block_scoping() {
         "#,
         TestValue::I64(30),
     );
+}
+
+#[test]
+fn range_for_loop() {
+    // Half-open range: 0..5 sums to 0+1+2+3+4 = 10
+    run_vm_test(
+        r#"
+        fn sum_range() -> i64 {
+            let mut total = 0;
+            for i in 0..5 {
+                total = total + i;
+            }
+            total
+        }
+        sum_range()
+        "#,
+        TestValue::I64(10),
+    );
+
+    // Inclusive range: 1..=5 sums to 1+2+3+4+5 = 15
+    run_vm_test(
+        r#"
+        fn sum_inclusive() -> i64 {
+            let mut total = 0;
+            for i in 1..=5 {
+                total = total + i;
+            }
+            total
+        }
+        sum_inclusive()
+        "#,
+        TestValue::I64(15),
+    );
+
+    // Empty range: 5..5 should execute zero iterations
+    run_vm_test(
+        r#"
+        fn empty_range() -> i64 {
+            let mut total = 0;
+            for i in 5..5 {
+                total = total + i;
+            }
+            total
+        }
+        empty_range()
+        "#,
+        TestValue::I64(0),
+    );
+
+    // Range with break
+    run_vm_test(
+        r#"
+        fn range_break() -> i64 {
+            let mut total = 0;
+            for i in 0..100 {
+                if (i == 5) {
+                    break;
+                }
+                total = total + i;
+            }
+            total
+        }
+        range_break()
+        "#,
+        TestValue::I64(10),
+    );
+
+    // Range with continue
+    run_vm_test(
+        r#"
+        fn range_continue() -> i64 {
+            let mut total = 0;
+            for i in 0..10 {
+                if (i % 2 == 0) {
+                    continue;
+                }
+                total = total + i;
+            }
+            total
+        }
+        range_continue()
+        "#,
+        TestValue::I64(25),
+    );
+
+    // Nested range for-loops
+    run_vm_test(
+        r#"
+        fn nested_ranges() -> i64 {
+            let mut total = 0;
+            for i in 0..3 {
+                for j in 0..3 {
+                    total = total + 1;
+                }
+            }
+            total
+        }
+        nested_ranges()
+        "#,
+        TestValue::I64(9),
+    );
+}
+
+#[test]
+fn range_expression_standalone() {
+    run_vm_test("0..10", TestValue::Range(0, 10));
+    run_vm_test("1..=5", TestValue::RangeInclusive(1, 5));
 }

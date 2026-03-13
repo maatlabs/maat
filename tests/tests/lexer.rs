@@ -631,3 +631,33 @@ fn custom_type_tokens() {
         assert_eq!(token.literal, literal);
     }
 }
+
+#[test]
+fn range_tokens() {
+    let source = "0..10 0..=10 x.method()";
+    let expected = [
+        (TokenKind::I64, "0"),
+        (TokenKind::DotDot, ".."),
+        (TokenKind::I64, "10"),
+        (TokenKind::I64, "0"),
+        (TokenKind::DotDotEqual, "..="),
+        (TokenKind::I64, "10"),
+        (TokenKind::Ident, "x"),
+        (TokenKind::Dot, "."),
+        (TokenKind::Ident, "method"),
+        (TokenKind::LParen, "("),
+        (TokenKind::RParen, ")"),
+        (TokenKind::Eof, ""),
+    ];
+
+    let mut lexer = Lexer::new(source);
+    for (i, (kind, literal)) in expected.iter().enumerate() {
+        let token = lexer.next_token();
+        assert_eq!(
+            token.kind, *kind,
+            "tests[{i}]: expected {:?} {:?}, got {:?} {:?}",
+            kind, literal, token.kind, token.literal
+        );
+        assert_eq!(token.literal, *literal, "tests[{i}]: literal mismatch");
+    }
+}

@@ -561,6 +561,16 @@ impl VM {
                     })?;
                     self.push_stack(value)?;
                 }
+                Opcode::MakeRange => {
+                    let end = self.pop_i64("Range")?;
+                    let start = self.pop_i64("Range")?;
+                    self.push_stack(Object::Range(start, end))?;
+                }
+                Opcode::MakeRangeInclusive => {
+                    let end = self.pop_i64("RangeInclusive")?;
+                    let start = self.pop_i64("RangeInclusive")?;
+                    self.push_stack(Object::RangeInclusive(start, end))?;
+                }
             }
         }
 
@@ -687,6 +697,19 @@ impl VM {
 
         self.sp -= 1;
         Ok(self.stack[self.sp].clone())
+    }
+
+    /// Pops a value from the stack and extracts it as `i64`.
+    ///
+    /// Used by range construction opcodes where both bounds must be integers.
+    fn pop_i64(&mut self, context: &str) -> Result<i64> {
+        match self.pop_stack()? {
+            Object::I64(v) => Ok(v),
+            other => Err(self.vm_error(format!(
+                "{context} bounds must be i64, got {}",
+                other.type_name()
+            ))),
+        }
     }
 
     /// Executes a binary arithmetic, bitwise, or shift operation across all numeric types.

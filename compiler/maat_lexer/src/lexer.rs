@@ -220,7 +220,29 @@ impl<'a> Lexer<'a> {
                 }
             }
 
-            b'.' => self.yield_token(start, TokenKind::Dot),
+            b'.' => {
+                self.advance_pos();
+                if self.peek_pos() == Some(b'.') {
+                    self.advance_pos();
+                    if self.peek_pos() == Some(b'=') {
+                        self.yield_token(start, TokenKind::DotDotEqual)
+                    } else {
+                        let end = self.pos;
+                        Token::new(
+                            TokenKind::DotDot,
+                            &self.source[start..end],
+                            Span::new(start, end),
+                        )
+                    }
+                } else {
+                    let end = self.pos;
+                    Token::new(
+                        TokenKind::Dot,
+                        &self.source[start..end],
+                        Span::new(start, end),
+                    )
+                }
+            }
             b',' => self.yield_token(start, TokenKind::Comma),
             b';' => self.yield_token(start, TokenKind::Semicolon),
             b':' => {

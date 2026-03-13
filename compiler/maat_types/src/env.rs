@@ -614,7 +614,7 @@ fn collect_free_vars(ty: &Type, vars: &mut HashSet<TypeVarId>) {
         Type::Var(id) => {
             vars.insert(*id);
         }
-        Type::Array(elem) => collect_free_vars(elem, vars),
+        Type::Array(elem) | Type::Range(elem) => collect_free_vars(elem, vars),
         Type::Hash(k, v) => {
             collect_free_vars(k, vars);
             collect_free_vars(v, vars);

@@ -34,6 +34,8 @@ pub enum Type {
 
     Array(Box<Type>),
     Hash(Box<Type>, Box<Type>),
+    /// A range type parameterised by its element type (e.g., `Range<i64>`).
+    Range(Box<Type>),
     Function(FnType),
 
     /// A user-defined struct type, identified by name with instantiated type arguments.
@@ -300,6 +302,7 @@ impl fmt::Display for Type {
             Self::Null => f.write_str("null"),
             Self::Array(elem) => write!(f, "[{elem}]"),
             Self::Hash(k, v) => write!(f, "{{{k}: {v}}}"),
+            Self::Range(elem) => write!(f, "Range<{elem}>"),
             Self::Function(fn_ty) => {
                 let params = fn_ty
                     .params

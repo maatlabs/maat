@@ -117,6 +117,20 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
             }
             Expr::Continue(_) => Ok(Object::Continue),
             Expr::Cast(cast_expr) => eval_cast_expression(cast_expr, env),
+            Expr::Range(range) => {
+                let start = eval(Node::Expr(*range.start), env)?;
+                let end = eval(Node::Expr(*range.end), env)?;
+                match (start, end) {
+                    (Object::I64(s), Object::I64(e)) => {
+                        if range.inclusive {
+                            Ok(Object::RangeInclusive(s, e))
+                        } else {
+                            Ok(Object::Range(s, e))
+                        }
+                    }
+                    _ => Err(EvalError::Builtin("range bounds must be i64".to_string()).into()),
+                }
+            }
             Expr::Match(_)
             | Expr::FieldAccess(_)
             | Expr::MethodCall(_)

@@ -1,8 +1,9 @@
 use std::rc::Rc;
 
 use maat_ast::{
-    BlockStmt, EnumVariantKind, Expr, FieldAccessExpr, ImplBlock, MatchExpr, MethodCallExpr, Node,
-    PathExpr, Pattern, Program, Stmt, StructLitExpr, TypeAnnotation, TypeExpr,
+    BlockStmt, EnumVariantKind, Expr, FieldAccessExpr, ForStmt, ImplBlock, MatchExpr,
+    MethodCallExpr, Node, PathExpr, Pattern, Program, Stmt, StructLitExpr, TypeAnnotation,
+    TypeExpr,
 };
 use maat_bytecode::{
     Bytecode, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, Opcode, TypeTag, encode,
@@ -422,108 +423,205 @@ impl Compiler {
             Stmt::Use(_) | Stmt::Mod(_) => Ok(()),
 
             Stmt::For(for_stmt) => {
-                // Desugar: evaluate iterable, bind a hidden counter, iterate via index.
-                //
-                //   let __iter = <iterable>;
-                //   let __len  = len(__iter);
-                //   let __i    = 0;
-                //   loop_start:
-                //       if !(__i < __len) goto loop_exit
-                //       let <ident> = __iter[__i];
-                //       <body>
-                //   continue_target:
-                //       __i = __i + 1
-                //       goto loop_start
-                //   loop_exit:
-                //       null
-
-                let span = for_stmt.span;
-                let id = self.for_loop_counter;
-                self.for_loop_counter += 1;
-
-                let iter_name = format!("__iter_{id}");
-                let len_name = format!("__len_{id}");
-                let i_name = format!("__i_{id}");
-
-                // __iter_N
-                self.compile_expression(&for_stmt.iterable)?;
-                let iter_sym = self.define_and_set(&iter_name, false, span)?;
-
-                // __len_N = Array::len(__iter_N)
-                let len_builtin = self
-                    .symbols_table
-                    .resolve_symbol("Array::len")
-                    .ok_or_else(|| {
-                        CompileErrorKind::UndefinedVariable {
-                            name: "Array::len".to_string(),
-                        }
-                        .at(span)
-                    })?
-                    .clone();
-                self.load_symbol(&len_builtin, span);
-                self.load_symbol(&iter_sym, span);
-                self.emit(Opcode::Call, &[1], span);
-                let len_sym = self.define_and_set(&len_name, false, span)?;
-
-                // __i_N = 0
-                let zero_idx = self.add_constant(Object::I64(0))?;
-                self.emit(Opcode::Constant, &[zero_idx], span);
-                let i_sym = self.define_and_set(&i_name, false, span)?;
-
-                // loop_start: condition check (__i < __len)
-                let loop_start = self.current_instructions().len();
-
-                // continue_target is None — continue jumps are deferred and
-                // patched to point to the increment section after body compilation.
-                self.loop_contexts.push(LoopContext {
-                    continue_target: None,
-                    break_jumps: Vec::new(),
-                    continue_jumps: Vec::new(),
-                });
-
-                self.load_symbol(&i_sym, span);
-                self.load_symbol(&len_sym, span);
-                self.emit(Opcode::LessThan, &[], span);
-
-                let exit_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
-
-                // let <ident> = __iter[__i]
-                self.load_symbol(&iter_sym, span);
-                self.load_symbol(&i_sym, span);
-                self.emit(Opcode::Index, &[], span);
-                let elem_sym = self.define_and_set(&for_stmt.ident, false, span)?;
-                let _ = elem_sym; // used only for side effect of defining the binding
-
-                // body
-                self.compile_block_statement(&for_stmt.body)?;
-
-                // continue_target: __i = __i + 1
-                let continue_target = self.current_instructions().len();
-                self.load_symbol(&i_sym, span);
-                let one_idx = self.add_constant(Object::I64(1))?;
-                self.emit(Opcode::Constant, &[one_idx], span);
-                self.emit(Opcode::Add, &[], span);
-                self.emit_set_symbol(&i_sym, span);
-
-                self.emit(Opcode::Jump, &[loop_start], span);
-
-                let loop_exit = self.current_instructions().len();
-                self.replace_operand(exit_jump, loop_exit)?;
-
-                let ctx = self
-                    .loop_contexts
-                    .pop()
-                    .expect("loop context was just pushed");
-                for jump_pos in ctx.break_jumps {
-                    self.replace_operand(jump_pos, loop_exit)?;
+                if matches!(*for_stmt.iterable, Expr::Range(_)) {
+                    self.compile_for_range(for_stmt)?;
+                } else {
+                    self.compile_for_array(for_stmt)?;
                 }
-                for jump_pos in ctx.continue_jumps {
-                    self.replace_operand(jump_pos, continue_target)?;
-                }
-
                 Ok(())
             }
         }
+    }
+
+    /// Compiles a `for x in start..end` or `for x in start..=end` loop.
+    ///
+    /// Desugars to a counter-based loop without allocating an array:
+    ///
+    /// ```text
+    /// let __end = <end>;
+    /// let __i   = <start>;
+    /// loop_start:
+    ///     if !(__i < __end) goto loop_exit   // or __i <= __end for inclusive
+    ///     let <ident> = __i;
+    ///     <body>
+    /// continue_target:
+    ///     __i = __i + 1
+    ///     goto loop_start
+    /// loop_exit:
+    /// ```
+    fn compile_for_range(&mut self, for_stmt: &ForStmt) -> Result<()> {
+        let span = for_stmt.span;
+        let Expr::Range(ref range) = *for_stmt.iterable else {
+            unreachable!("compile_for_range called with non-range iterable");
+        };
+        let inclusive = range.inclusive;
+        let id = self.for_loop_counter;
+        self.for_loop_counter += 1;
+
+        let end_name = format!("__end_{id}");
+        let i_name = format!("__i_{id}");
+
+        // __end_N = <end>
+        self.compile_expression(&range.end)?;
+        let end_sym = self.define_and_set(&end_name, false, span)?;
+
+        // __i_N = <start>
+        self.compile_expression(&range.start)?;
+        let i_sym = self.define_and_set(&i_name, false, span)?;
+
+        // loop_start: condition check
+        let loop_start = self.current_instructions().len();
+
+        self.loop_contexts.push(LoopContext {
+            continue_target: None,
+            break_jumps: Vec::new(),
+            continue_jumps: Vec::new(),
+        });
+
+        self.load_symbol(&i_sym, span);
+        self.load_symbol(&end_sym, span);
+        if inclusive {
+            // __i <= __end ~= !(__i > __end)
+            self.emit(Opcode::GreaterThan, &[], span);
+            self.emit(Opcode::Bang, &[], span);
+        } else {
+            self.emit(Opcode::LessThan, &[], span);
+        }
+
+        let exit_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+
+        // let <ident> = __i
+        self.load_symbol(&i_sym, span);
+        let _elem_sym = self.define_and_set(&for_stmt.ident, false, span)?;
+
+        // body
+        self.compile_block_statement(&for_stmt.body)?;
+
+        // continue_target: __i = __i + 1
+        let continue_target = self.current_instructions().len();
+        self.load_symbol(&i_sym, span);
+        let one_idx = self.add_constant(Object::I64(1))?;
+        self.emit(Opcode::Constant, &[one_idx], span);
+        self.emit(Opcode::Add, &[], span);
+        self.emit_set_symbol(&i_sym, span);
+
+        self.emit(Opcode::Jump, &[loop_start], span);
+
+        let loop_exit = self.current_instructions().len();
+        self.replace_operand(exit_jump, loop_exit)?;
+
+        let ctx = self
+            .loop_contexts
+            .pop()
+            .expect("loop context was just pushed");
+        for jump_pos in ctx.break_jumps {
+            self.replace_operand(jump_pos, loop_exit)?;
+        }
+        for jump_pos in ctx.continue_jumps {
+            self.replace_operand(jump_pos, continue_target)?;
+        }
+
+        Ok(())
+    }
+
+    /// Compiles a `for x in array_expr` loop via index-based desugaring.
+    ///
+    /// ```text
+    /// let __iter = <iterable>;
+    /// let __len  = Array::len(__iter);
+    /// let __i    = 0;
+    /// loop_start:
+    ///     if !(__i < __len) goto loop_exit
+    ///     let <ident> = __iter[__i];
+    ///     <body>
+    /// continue_target:
+    ///     __i = __i + 1
+    ///     goto loop_start
+    /// loop_exit:
+    /// ```
+    fn compile_for_array(&mut self, for_stmt: &ForStmt) -> Result<()> {
+        let span = for_stmt.span;
+        let id = self.for_loop_counter;
+        self.for_loop_counter += 1;
+
+        let iter_name = format!("__iter_{id}");
+        let len_name = format!("__len_{id}");
+        let i_name = format!("__i_{id}");
+
+        // __iter_N
+        self.compile_expression(&for_stmt.iterable)?;
+        let iter_sym = self.define_and_set(&iter_name, false, span)?;
+
+        // __len_N = Array::len(__iter_N)
+        let len_builtin = self
+            .symbols_table
+            .resolve_symbol("Array::len")
+            .ok_or_else(|| {
+                CompileErrorKind::UndefinedVariable {
+                    name: "Array::len".to_string(),
+                }
+                .at(span)
+            })?
+            .clone();
+        self.load_symbol(&len_builtin, span);
+        self.load_symbol(&iter_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+        let len_sym = self.define_and_set(&len_name, false, span)?;
+
+        // __i_N = 0
+        let zero_idx = self.add_constant(Object::I64(0))?;
+        self.emit(Opcode::Constant, &[zero_idx], span);
+        let i_sym = self.define_and_set(&i_name, false, span)?;
+
+        // loop_start: condition check (__i < __len)
+        let loop_start = self.current_instructions().len();
+
+        self.loop_contexts.push(LoopContext {
+            continue_target: None,
+            break_jumps: Vec::new(),
+            continue_jumps: Vec::new(),
+        });
+
+        self.load_symbol(&i_sym, span);
+        self.load_symbol(&len_sym, span);
+        self.emit(Opcode::LessThan, &[], span);
+
+        let exit_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+
+        // let <ident> = __iter[__i]
+        self.load_symbol(&iter_sym, span);
+        self.load_symbol(&i_sym, span);
+        self.emit(Opcode::Index, &[], span);
+        let _elem_sym = self.define_and_set(&for_stmt.ident, false, span)?;
+
+        // body
+        self.compile_block_statement(&for_stmt.body)?;
+
+        // continue_target: __i = __i + 1
+        let continue_target = self.current_instructions().len();
+        self.load_symbol(&i_sym, span);
+        let one_idx = self.add_constant(Object::I64(1))?;
+        self.emit(Opcode::Constant, &[one_idx], span);
+        self.emit(Opcode::Add, &[], span);
+        self.emit_set_symbol(&i_sym, span);
+
+        self.emit(Opcode::Jump, &[loop_start], span);
+
+        let loop_exit = self.current_instructions().len();
+        self.replace_operand(exit_jump, loop_exit)?;
+
+        let ctx = self
+            .loop_contexts
+            .pop()
+            .expect("loop context was just pushed");
+        for jump_pos in ctx.break_jumps {
+            self.replace_operand(jump_pos, loop_exit)?;
+        }
+        for jump_pos in ctx.continue_jumps {
+            self.replace_operand(jump_pos, continue_target)?;
+        }
+
+        Ok(())
     }
 
     /// Compiles a sequence of statements within a lexical block scope.
@@ -832,6 +930,18 @@ impl Compiler {
             Expr::FieldAccess(field_access) => self.compile_field_access(field_access),
 
             Expr::MethodCall(method_call) => self.compile_method_call(method_call),
+
+            Expr::Range(range) => {
+                self.compile_expression(&range.start)?;
+                self.compile_expression(&range.end)?;
+                let opcode = if range.inclusive {
+                    Opcode::MakeRangeInclusive
+                } else {
+                    Opcode::MakeRange
+                };
+                self.emit(opcode, &[], span);
+                Ok(())
+            }
         }
     }
 

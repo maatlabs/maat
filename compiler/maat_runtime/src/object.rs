@@ -82,6 +82,10 @@ pub enum Object {
     EnumVariant(EnumVariantObject),
     /// An ordered set of unique hashable values, backed by `IndexSet`.
     Set(IndexSet<Hashable>),
+    /// A half-open range `start..end`.
+    Range(i64, i64),
+    /// An inclusive range `start..=end`.
+    RangeInclusive(i64, i64),
 }
 
 impl Object {
@@ -235,6 +239,8 @@ impl Object {
             Self::Struct(_) => "Struct",
             Self::EnumVariant(_) => "EnumVariant",
             Self::Set(_) => "Set",
+            Self::Range(..) => "Range",
+            Self::RangeInclusive(..) => "RangeInclusive",
         }
     }
 }
@@ -269,6 +275,8 @@ enum SerializableObject {
     Struct(StructObject),
     EnumVariant(EnumVariantObject),
     Set(IndexSet<Hashable>),
+    Range(i64, i64),
+    RangeInclusive(i64, i64),
 }
 
 impl Serialize for Object {
@@ -299,6 +307,8 @@ impl Serialize for Object {
             Self::Struct(v) => SerializableObject::Struct(v.clone()),
             Self::EnumVariant(v) => SerializableObject::EnumVariant(v.clone()),
             Self::Set(v) => SerializableObject::Set(v.clone()),
+            Self::Range(s, e) => SerializableObject::Range(*s, *e),
+            Self::RangeInclusive(s, e) => SerializableObject::RangeInclusive(*s, *e),
             other => {
                 return Err(serde::ser::Error::custom(format!(
                     "non-serializable object type: {}",
@@ -337,6 +347,8 @@ impl<'de> Deserialize<'de> for Object {
             SerializableObject::Struct(v) => Self::Struct(v),
             SerializableObject::EnumVariant(v) => Self::EnumVariant(v),
             SerializableObject::Set(v) => Self::Set(v),
+            SerializableObject::Range(s, e) => Self::Range(s, e),
+            SerializableObject::RangeInclusive(s, e) => Self::RangeInclusive(s, e),
         })
     }
 }
@@ -374,6 +386,8 @@ impl PartialEq for Object {
             (Struct(s1), Struct(s2)) => s1 == s2,
             (EnumVariant(e1), EnumVariant(e2)) => e1 == e2,
             (Set(s1), Set(s2)) => s1 == s2,
+            (Range(s1, e1), Range(s2, e2)) => s1 == s2 && e1 == e2,
+            (RangeInclusive(s1, e1), RangeInclusive(s2, e2)) => s1 == s2 && e1 == e2,
             _ => false,
         }
     }
@@ -622,6 +636,8 @@ impl fmt::Display for Object {
                         .join(", ")
                 )
             }
+            Self::Range(start, end) => write!(f, "{start}..{end}"),
+            Self::RangeInclusive(start, end) => write!(f, "{start}..={end}"),
         }
     }
 }

@@ -564,13 +564,17 @@ impl<'a> Parser<'a> {
                 | TokenKind::As
                 | TokenKind::LParen
                 | TokenKind::LBracket
-                | TokenKind::Dot => {
+                | TokenKind::Dot
+                | TokenKind::DotDot
+                | TokenKind::DotDotEqual => {
                     self.next_token();
                     expr = match kind {
                         TokenKind::LParen => self.parse_call_expression(expr)?,
                         TokenKind::LBracket => self.parse_index_expression(expr)?,
                         TokenKind::As => self.parse_cast_expression(expr)?,
                         TokenKind::Dot => self.parse_field_or_method_call(expr)?,
+                        TokenKind::DotDot => self.parse_range_expression(expr, false)?,
+                        TokenKind::DotDotEqual => self.parse_range_expression(expr, true)?,
                         _ => self.parse_infix_expression(expr)?,
                     };
                 }
@@ -606,6 +610,20 @@ impl<'a> Parser<'a> {
             lhs,
             operator,
             rhs,
+            span,
+        }))
+    }
+
+    fn parse_range_expression(&mut self, start: Expr, inclusive: bool) -> Option<Expr> {
+        let start_span = start.span();
+        let prec = self.current_prec();
+        self.next_token();
+        let end = self.parse_expression(prec)?;
+        let span = start_span.merge(end.span());
+        Some(Expr::Range(RangeExpr {
+            start: Box::new(start),
+            end: Box::new(end),
+            inclusive,
             span,
         }))
     }

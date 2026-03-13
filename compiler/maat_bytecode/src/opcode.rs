@@ -170,6 +170,16 @@ pub enum Opcode {
     /// Right shift of two values from the stack.
     /// Operands: none
     Shr = 40,
+
+    /// Construct a half-open `Range` from two i64 values on the stack.
+    /// Pops `end` then `start`, pushes `Object::Range(start, end)`.
+    /// Operands: none
+    MakeRange = 41,
+
+    /// Construct an inclusive `RangeInclusive` from two i64 values on the stack.
+    /// Pops `end` then `start`, pushes `Object::RangeInclusive(start, end)`.
+    /// Operands: none
+    MakeRangeInclusive = 42,
 }
 
 impl Opcode {
@@ -217,6 +227,8 @@ impl Opcode {
             Self::BitXor => "OpBitXor",
             Self::Shl => "OpShl",
             Self::Shr => "OpShr",
+            Self::MakeRange => "OpMakeRange",
+            Self::MakeRangeInclusive => "OpMakeRangeInclusive",
         }
     }
 
@@ -266,7 +278,9 @@ impl Opcode {
             | Self::BitOr
             | Self::BitXor
             | Self::Shl
-            | Self::Shr => &[],
+            | Self::Shr
+            | Self::MakeRange
+            | Self::MakeRangeInclusive => &[],
         }
     }
 
@@ -315,6 +329,8 @@ impl Opcode {
             38 => Some(Self::BitXor),
             39 => Some(Self::Shl),
             40 => Some(Self::Shr),
+            41 => Some(Self::MakeRange),
+            42 => Some(Self::MakeRangeInclusive),
             _ => None,
         }
     }
@@ -381,7 +397,7 @@ mod tests {
 
     #[test]
     fn opcode_roundtrip() {
-        for byte in 0..=40 {
+        for byte in 0..=42 {
             let opcode = Opcode::from_byte(byte).unwrap();
             assert_eq!(opcode.to_byte(), byte);
         }

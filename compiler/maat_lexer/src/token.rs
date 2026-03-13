@@ -191,6 +191,10 @@ pub enum TokenKind {
     PathSep,
     /// The dot `.` for field access and method calls.
     Dot,
+    /// The range operator `..` for half-open ranges.
+    DotDot,
+    /// The inclusive range operator `..=` for closed ranges.
+    DotDotEqual,
 
     /// An invalid or unrecognized token.
     Invalid,

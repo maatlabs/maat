@@ -414,6 +414,19 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                     Expr::StructLit(struct_lit)
                 }
 
+                Expr::Range(mut range) => {
+                    range.start =
+                        Box::new(match transform(Node::Expr(*range.start), transformer) {
+                            Node::Expr(e) => e,
+                            _ => unreachable!("Expr transformation returned non-expression"),
+                        });
+                    range.end = Box::new(match transform(Node::Expr(*range.end), transformer) {
+                        Node::Expr(e) => e,
+                        _ => unreachable!("Expr transformation returned non-expression"),
+                    });
+                    Expr::Range(range)
+                }
+
                 // Leaf nodes (literals, identifiers, continue, paths) don't need transformation
                 expr => expr,
             };

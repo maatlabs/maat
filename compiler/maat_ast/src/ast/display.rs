@@ -136,6 +136,7 @@ impl fmt::Display for Expr {
             Self::MethodCall(method_call) => method_call.fmt(f),
             Self::StructLit(struct_lit) => struct_lit.fmt(f),
             Self::PathExpr(path_expr) => path_expr.fmt(f),
+            Self::Range(range_expr) => range_expr.fmt(f),
         }
     }
 }
@@ -549,6 +550,13 @@ impl fmt::Display for StructLitExpr {
 impl fmt::Display for PathExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.segments.join("::"))
+    }
+}
+
+impl fmt::Display for RangeExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let op = if self.inclusive { "..=" } else { ".." };
+        write!(f, "{}{op}{}", self.start, self.end)
     }
 }
 

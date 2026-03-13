@@ -170,11 +170,13 @@ pub enum Expr {
     Cast(CastExpr),
     Break(BreakExpr),
     Continue(ContinueExpr),
+
     Match(MatchExpr),
     FieldAccess(FieldAccessExpr),
     MethodCall(MethodCallExpr),
     StructLit(StructLitExpr),
     PathExpr(PathExpr),
+    Range(RangeExpr),
 }
 
 impl Expr {
@@ -213,6 +215,7 @@ impl Expr {
             Self::MethodCall(v) => v.span,
             Self::StructLit(v) => v.span,
             Self::PathExpr(v) => v.span,
+            Self::Range(v) => v.span,
         }
     }
 
@@ -647,6 +650,16 @@ pub struct StructLitExpr {
 pub struct PathExpr {
     /// Path segments (e.g., `["Option", "Some"]`).
     pub segments: Vec<String>,
+    pub span: Span,
+}
+
+/// Range expression: `start..end` (exclusive) or `start..=end` (inclusive).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RangeExpr {
+    pub start: Box<Expr>,
+    pub end: Box<Expr>,
+    /// Whether this is an inclusive range (`..=`).
+    pub inclusive: bool,
     pub span: Span,
 }
 

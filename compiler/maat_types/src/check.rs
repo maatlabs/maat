@@ -251,11 +251,12 @@ impl TypeChecker {
                 let resolved = self.subst.apply(&iter_ty);
                 let elem_ty = match resolved {
                     Type::Array(elem) => *elem,
+                    Type::Range(elem) => *elem,
                     Type::Var(_) => self.env.fresh_var(),
                     _ => {
                         self.errors.push(
                             TypeErrorKind::Mismatch {
-                                expected: "[T]".to_string(),
+                                expected: "[T] or Range<T>".to_string(),
                                 found: resolved.to_string(),
                             }
                             .at(for_stmt.iterable.span()),
@@ -701,6 +702,26 @@ impl TypeChecker {
             Expr::StructLit(struct_lit) => self.check_struct_literal(struct_lit),
 
             Expr::PathExpr(path_expr) => self.check_path_expr(path_expr),
+
+            Expr::Range(range) => {
+                let start_ty = self.infer_expression(&mut range.start);
+                let end_ty = self.infer_expression(&mut range.end);
+                let start_resolved = self.subst.apply(&start_ty);
+                let end_resolved = self.subst.apply(&end_ty);
+                if let Err(e) = self.subst.unify(&start_resolved, &end_resolved) {
+                    self.report_unify_error(e, range.span);
+                }
+                if !start_resolved.is_integer() && !matches!(start_resolved, Type::Var(_)) {
+                    self.errors.push(
+                        TypeErrorKind::Mismatch {
+                            expected: "integer".to_string(),
+                            found: start_resolved.to_string(),
+                        }
+                        .at(range.span),
+                    );
+                }
+                Type::Range(Box::new(self.subst.apply(&start_resolved)))
+            }
         }
     }
 
@@ -1218,6 +1239,11 @@ impl TypeChecker {
                 .cloned()
                 .unwrap_or_else(|| ty.clone()),
             Type::Array(elem) => Type::Array(Box::new(self.instantiate_generic_type(
+                elem,
+                generic_params,
+                type_args,
+            ))),
+            Type::Range(elem) => Type::Range(Box::new(self.instantiate_generic_type(
                 elem,
                 generic_params,
                 type_args,
