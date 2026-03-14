@@ -2,7 +2,7 @@
 
 use indexmap::IndexMap;
 
-use crate::ty::{FnType, Type, TypeVarId};
+use crate::{FnType, Type, TypeVarId};
 
 /// Unification error details.
 #[derive(Debug, Clone)]
@@ -65,20 +65,15 @@ impl Substitution {
 
         match (&a, &b) {
             _ if a == b => Ok(()),
-
             (Type::Never, _) | (_, Type::Never) => Ok(()),
-
             (Type::Var(id), _) => self.bind_var(*id, &b),
             (_, Type::Var(id)) => self.bind_var(*id, &a),
-
             (Type::Array(ea), Type::Array(eb)) => self.unify(ea, eb),
             (Type::Range(ea), Type::Range(eb)) => self.unify(ea, eb),
-
             (Type::Hash(ka, va), Type::Hash(kb, vb)) => {
                 self.unify(ka, kb)?;
                 self.unify(va, vb)
             }
-
             (Type::Struct(na, args_a), Type::Struct(nb, args_b))
             | (Type::Enum(na, args_a), Type::Enum(nb, args_b)) => {
                 if na != nb || args_a.len() != args_b.len() {
@@ -89,7 +84,6 @@ impl Substitution {
                 }
                 Ok(())
             }
-
             (Type::Function(fa), Type::Function(fb)) => {
                 if fa.params.len() != fb.params.len() {
                     return Err(UnifyError::Mismatch(a, b));
@@ -99,7 +93,6 @@ impl Substitution {
                 }
                 self.unify(&fa.ret, &fb.ret)
             }
-
             _ => Err(UnifyError::Mismatch(a, b)),
         }
     }

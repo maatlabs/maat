@@ -99,12 +99,9 @@ if (5 < 10) {
         (TokenKind::Semicolon, ";"),
         (TokenKind::Eof, ""),
     ];
-
     let mut lexer = Lexer::new(source);
-
     for (i, (kind, literal)) in expected.iter().enumerate() {
         let token = lexer.next_token();
-
         assert_eq!(
             token.kind, *kind,
             "tests[{}]: token kind wrong. expected={:?}, got={:?}",
@@ -133,14 +130,12 @@ fn operator_and_delimiter_tokens() {
         (TokenKind::Semicolon, ";"),
         (TokenKind::Eof, ""),
     ];
-
     let mut lexer = Lexer::new(source);
     for (kind, literal) in expected {
         let token = lexer.next_token();
         assert_eq!(token.kind, kind);
         assert_eq!(token.literal, literal);
     }
-
     // Two-character tokens
     let source = "== != <= >=";
     let expected = [
@@ -150,7 +145,6 @@ fn operator_and_delimiter_tokens() {
         (TokenKind::GreaterEqual, ">="),
         (TokenKind::Eof, ""),
     ];
-
     let mut lexer = Lexer::new(source);
     for (kind, literal) in expected {
         let token = lexer.next_token();
@@ -184,7 +178,6 @@ fn keywords() {
         (TokenKind::Mut, "mut"),
         (TokenKind::Eof, ""),
     ];
-
     let mut lexer = Lexer::new(source);
     for (kind, literal) in expected {
         let token = lexer.next_token();
@@ -203,7 +196,6 @@ fn identifiers() {
         (TokenKind::Ident, "qux123"),
         (TokenKind::Eof, ""),
     ];
-
     let mut lexer = Lexer::new(source);
     for (kind, literal) in expected {
         let token = lexer.next_token();
@@ -222,7 +214,6 @@ fn int64() {
         (TokenKind::I64, "1234567890"),
         (TokenKind::Eof, ""),
     ];
-
     let mut lexer = Lexer::new(source);
     for (kind, literal) in expected {
         let token = lexer.next_token();
@@ -247,7 +238,6 @@ fn operators() {
         (TokenKind::NotEqual, "!="),
         (TokenKind::Eof, ""),
     ];
-
     let mut lexer = Lexer::new(source);
     for (kind, literal) in expected {
         let token = lexer.next_token();
@@ -266,7 +256,6 @@ fn whitespace() {
         (TokenKind::I64, "5"),
         (TokenKind::Eof, ""),
     ];
-
     let mut lexer = Lexer::new(source);
     for (kind, literal) in expected {
         let token = lexer.next_token();
@@ -293,7 +282,6 @@ fn invalid_characters() {
         (TokenKind::Invalid, "$"),
         (TokenKind::Eof, ""),
     ];
-
     let mut lexer = Lexer::new(source);
     for (kind, literal) in expected {
         let token = lexer.next_token();
@@ -313,14 +301,12 @@ fn string_tokens() {
         (TokenKind::String, "with\\nnewlines"),
         (TokenKind::Eof, ""),
     ];
-
     let mut lexer = Lexer::new(source);
     for (kind, literal) in expected {
         let token = lexer.next_token();
         assert_eq!(token.kind, kind);
         assert_eq!(token.literal, literal);
     }
-
     // Escape sequences
     let source = r#""hello \"world\"" "line1\nline2" "tab\there" "backslash\\" "quote\"" "null\0char" "mixed\t\n\r\\\"""#;
     let expected = [
@@ -333,7 +319,6 @@ fn string_tokens() {
         (TokenKind::String, r#"mixed\t\n\r\\\""#),
         (TokenKind::Eof, ""),
     ];
-
     let mut lexer = Lexer::new(source);
     for (kind, literal) in expected {
         let token = lexer.next_token();
@@ -353,7 +338,6 @@ fn float_literals_are_invalid() {
         (TokenKind::Invalid, "1.5e10"),
         (TokenKind::Eof, ""),
     ];
-
     let mut lexer = Lexer::new(source);
     for (kind, literal) in expected {
         let token = lexer.next_token();
@@ -372,14 +356,12 @@ fn non_decimal_literals() {
         (TokenKind::I64, "0b0"),
         (TokenKind::Eof, ""),
     ];
-
     let mut lexer = Lexer::new(source);
     for (kind, literal) in expected {
         let token = lexer.next_token();
         assert_eq!(token.kind, kind);
         assert_eq!(token.literal, literal);
     }
-
     // Octal
     let source = "0o755 0O644 0o0";
     let expected = [
@@ -388,14 +370,12 @@ fn non_decimal_literals() {
         (TokenKind::I64, "0o0"),
         (TokenKind::Eof, ""),
     ];
-
     let mut lexer = Lexer::new(source);
     for (kind, literal) in expected {
         let token = lexer.next_token();
         assert_eq!(token.kind, kind);
         assert_eq!(token.literal, literal);
     }
-
     // Hex
     let source = "0xff 0xFF 0x0 0xDEADBEEF 0X1a2B";
     let expected = [
@@ -406,7 +386,6 @@ fn non_decimal_literals() {
         (TokenKind::I64, "0X1a2B"),
         (TokenKind::Eof, ""),
     ];
-
     let mut lexer = Lexer::new(source);
     for (kind, literal) in expected {
         let token = lexer.next_token();
@@ -424,14 +403,12 @@ fn integer_suffixes() {
         (TokenKind::I64, "0"),
         (TokenKind::Eof, ""),
     ];
-
     let mut lexer = Lexer::new(source);
     for (kind, literal) in expected {
         let token = lexer.next_token();
         assert_eq!(token.kind, kind);
         assert_eq!(token.literal, literal);
     }
-
     // Rust-style direct suffix
     let source = "123i64 0i64";
     let expected = [
@@ -439,14 +416,12 @@ fn integer_suffixes() {
         (TokenKind::I64, "0"),
         (TokenKind::Eof, ""),
     ];
-
     let mut lexer = Lexer::new(source);
     for (kind, literal) in expected {
         let token = lexer.next_token();
         assert_eq!(token.kind, kind);
         assert_eq!(token.literal, literal);
     }
-
     // Mixed radix with suffix
     let source = "0b1010i64 0xFFi64";
     let expected = [
@@ -454,7 +429,6 @@ fn integer_suffixes() {
         (TokenKind::I64, "0xFF"),
         (TokenKind::Eof, ""),
     ];
-
     let mut lexer = Lexer::new(source);
     for (kind, literal) in expected {
         let token = lexer.next_token();
@@ -477,14 +451,12 @@ fn typed_integer_suffixes() {
         (TokenKind::Isize, "42"),
         (TokenKind::Eof, ""),
     ];
-
     let mut lexer = Lexer::new(source);
     for (kind, literal) in expected {
         let token = lexer.next_token();
         assert_eq!(token.kind, kind);
         assert_eq!(token.literal, literal);
     }
-
     // Unsigned suffixes
     let source = "42u8 42_u8 255u16 65535u32 4294967295u64 340282366920938463463374607431768211455u128 42usize";
     let expected = [
@@ -497,14 +469,12 @@ fn typed_integer_suffixes() {
         (TokenKind::Usize, "42"),
         (TokenKind::Eof, ""),
     ];
-
     let mut lexer = Lexer::new(source);
     for (kind, literal) in expected {
         let token = lexer.next_token();
         assert_eq!(token.kind, kind);
         assert_eq!(token.literal, literal);
     }
-
     // Suffix boundary checking (invalid suffixes become separate idents)
     let source = "42i641 42u641 42i12 42u12 42isizes";
     let expected = [
@@ -520,14 +490,12 @@ fn typed_integer_suffixes() {
         (TokenKind::Ident, "isizes"),
         (TokenKind::Eof, ""),
     ];
-
     let mut lexer = Lexer::new(source);
     for (kind, literal) in expected {
         let token = lexer.next_token();
         assert_eq!(token.kind, kind, "for literal: {}", literal);
         assert_eq!(token.literal, literal);
     }
-
     // Radix with typed suffix
     let source = "0b1010i8 0o755u16 0xFFi32 0b11111111u8 0xDEADBEEFu64 0o777isize";
     let expected = [
@@ -539,7 +507,6 @@ fn typed_integer_suffixes() {
         (TokenKind::Isize, "0o777"),
         (TokenKind::Eof, ""),
     ];
-
     let mut lexer = Lexer::new(source);
     for (kind, literal) in expected {
         let token = lexer.next_token();
@@ -559,7 +526,6 @@ fn integer_followed_by_dot_method() {
         (TokenKind::RParen, ")"),
         (TokenKind::Eof, ""),
     ];
-
     let mut lexer = Lexer::new(source);
     for (kind, literal) in expected {
         let token = lexer.next_token();
@@ -592,9 +558,7 @@ fn arrays_and_hashes() {
         (TokenKind::RBracket, "]"),
         (TokenKind::Eof, ""),
     ];
-
     let mut lexer = Lexer::new(source);
-
     for (i, (kind, literal)) in expected.iter().enumerate() {
         let token = lexer.next_token();
         assert_eq!(
@@ -623,7 +587,6 @@ fn custom_type_tokens() {
         (TokenKind::FatArrow, "=>"),
         (TokenKind::Eof, ""),
     ];
-
     let mut lexer = Lexer::new(source);
     for (kind, literal) in expected {
         let token = lexer.next_token();
@@ -649,7 +612,6 @@ fn range_tokens() {
         (TokenKind::RParen, ")"),
         (TokenKind::Eof, ""),
     ];
-
     let mut lexer = Lexer::new(source);
     for (i, (kind, literal)) in expected.iter().enumerate() {
         let token = lexer.next_token();

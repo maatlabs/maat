@@ -20,29 +20,24 @@ pub enum Type {
     I64,
     I128,
     Isize,
-
     U8,
     U16,
     U32,
     U64,
     U128,
     Usize,
-
     Bool,
     String,
     Null,
-
     Array(Box<Type>),
     Hash(Box<Type>, Box<Type>),
     /// A range type parameterised by its element type (e.g., `Range<i64>`).
     Range(Box<Type>),
     Function(FnType),
-
     /// A user-defined struct type, identified by name with instantiated type arguments.
     Struct(String, Vec<Type>),
     /// A user-defined enum type, identified by name with instantiated type arguments.
     Enum(String, Vec<Type>),
-
     /// A type variable introduced during inference (Algorithm W).
     Var(TypeVarId),
     /// A named generic type parameter with optional trait bounds.

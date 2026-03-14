@@ -407,24 +407,18 @@ mod tests {
     fn opcode_metadata() {
         assert_eq!(Opcode::Constant.name(), "OpConstant");
         assert_eq!(Opcode::Constant.operand_widths(), &[2]);
-
         assert_eq!(Opcode::Add.name(), "OpAdd");
         assert_eq!(Opcode::Add.operand_widths(), &[]);
-
         assert_eq!(Opcode::Pop.name(), "OpPop");
         assert_eq!(Opcode::Pop.operand_widths(), &[]);
-
         assert_eq!(Opcode::Sub.name(), "OpSub");
         assert_eq!(Opcode::Mul.name(), "OpMul");
         assert_eq!(Opcode::Div.name(), "OpDiv");
-
         assert_eq!(Opcode::True.name(), "OpTrue");
         assert_eq!(Opcode::False.name(), "OpFalse");
-
         assert_eq!(Opcode::Equal.name(), "OpEqual");
         assert_eq!(Opcode::NotEqual.name(), "OpNotEqual");
         assert_eq!(Opcode::GreaterThan.name(), "OpGreaterThan");
-
         assert_eq!(Opcode::Minus.name(), "OpMinus");
         assert_eq!(Opcode::Bang.name(), "OpBang");
     }

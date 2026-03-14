@@ -198,7 +198,6 @@ fn exports_only_pub_items() {
         .find(|(id, _)| **id != ModuleId::ROOT)
         .map(|(_, e)| e)
         .unwrap();
-
     assert_eq!(lib_exports.bindings.len(), 1);
     assert_eq!(lib_exports.bindings[0].0, "visible");
 }
@@ -214,13 +213,11 @@ fn impl_blocks_export_only_pub_methods() {
     ]);
     let mut graph = resolve_module_graph(&dir.path().join("main.mt")).unwrap();
     let exports = check_exports(&mut graph).unwrap();
-
     let shapes_exports = exports
         .iter()
         .find(|(id, _)| **id != ModuleId::ROOT)
         .map(|(_, e)| e)
         .unwrap();
-
     assert_eq!(shapes_exports.impls.len(), 1);
     let imp = &shapes_exports.impls[0];
     assert_eq!(imp.methods.len(), 1, "only pub methods should be exported");
@@ -247,10 +244,8 @@ fn linked_bytecode_serialization_roundtrip() {
         ("math.mt", "pub fn add(a: i64, b: i64) -> i64 { a + b }"),
     ])
     .expect("compilation failed");
-
     let serialized = bytecode.serialize().expect("serialization failed");
     let deserialized = Bytecode::deserialize(&serialized).expect("deserialization failed");
-
     let mut vm = VM::new(deserialized);
     vm.run().expect("vm error");
     assert_eq!(vm.last_popped_stack_elem(), Some(&Object::I64(42)));

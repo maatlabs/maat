@@ -41,20 +41,16 @@ pub fn start<R: BufRead, W: Write>(mut reader: R, writer: &mut W) -> io::Result<
     loop {
         write!(writer, "{PROMPT}")?;
         writer.flush()?;
-
         source.clear();
         if reader.read_line(&mut source)? == 0 {
             break;
         }
-
         let line = source.trim_end();
         if line == "exit" || line == "quit" {
             break;
         }
-
         let mut parser = Parser::new(Lexer::new(line));
         let program = parser.parse();
-
         if !parser.errors().is_empty() {
             for err in parser.errors() {
                 diagnostic::report_parse_error(REPL_SOURCE, line, err);
@@ -62,14 +58,12 @@ pub fn start<R: BufRead, W: Write>(mut reader: R, writer: &mut W) -> io::Result<
             writeln!(writer)?;
             continue;
         }
-
         let program = define_macros(program, &macro_env);
         let expanded = expand_macros(Node::Program(program), &macro_env);
         let mut program = match expanded {
             Node::Program(p) => p,
             _ => unreachable!("expand_macros preserves Program variant"),
         };
-
         let type_errors = TypeChecker::new().check_program(&mut program);
         if !type_errors.is_empty() {
             for err in &type_errors {
@@ -78,7 +72,6 @@ pub fn start<R: BufRead, W: Write>(mut reader: R, writer: &mut W) -> io::Result<
             writeln!(writer)?;
             continue;
         }
-
         let fold_errors = fold_constants(&mut program);
         if !fold_errors.is_empty() {
             for err in &fold_errors {
@@ -87,7 +80,6 @@ pub fn start<R: BufRead, W: Write>(mut reader: R, writer: &mut W) -> io::Result<
             writeln!(writer)?;
             continue;
         }
-
         let only_let_stmts = !program.statements.is_empty()
             && program.statements.iter().all(|s| matches!(s, Stmt::Let(_)));
 
@@ -102,7 +94,6 @@ pub fn start<R: BufRead, W: Write>(mut reader: R, writer: &mut W) -> io::Result<
             constants = prev_constants;
             continue;
         }
-
         let next_symbols = compiler.symbols_table().clone();
         let bytecode = match compiler.bytecode() {
             Ok(bc) => bc,
@@ -121,11 +112,9 @@ pub fn start<R: BufRead, W: Write>(mut reader: R, writer: &mut W) -> io::Result<
             report_error(line, &e);
             writeln!(writer)?;
         }
-
         globals = vm.globals().to_vec();
         symbols_table = next_symbols;
         constants = next_constants;
-
         match vm.last_popped_stack_elem() {
             Some(val) if !only_let_stmts && !matches!(val, Object::Null) => {
                 writeln!(writer, "{val}")?;

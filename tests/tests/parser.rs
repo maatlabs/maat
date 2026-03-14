@@ -318,7 +318,6 @@ fn parse_hashes() {
             .any(|(k, v)| k.to_string() == key && v.to_string() == value);
         assert!(found, "expected key-value pair: {} => {}", key, value);
     }
-
     // Empty hash
     let program = parse("{}");
     let Stmt::Expr(ExprStmt {
@@ -359,7 +358,6 @@ fn parse_non_decimal_literals() {
             assert_eq!(int64.radix, Radix::Bin);
             assert_eq!(int64.value, *expected, "input: {}", input);
         });
-
     // Octal
     [("0o755;", 493), ("0O644;", 420), ("0o0;", 0)]
         .iter()
@@ -375,7 +373,6 @@ fn parse_non_decimal_literals() {
             assert_eq!(int64.radix, Radix::Oct);
             assert_eq!(int64.value, *expected, "input: {}", input);
         });
-
     // Hex
     [("0xff;", 255), ("0xFF;", 255), ("0xDEAD;", 57005)]
         .iter()
@@ -520,7 +517,6 @@ fn parse_functions() {
         let names: Vec<&str> = func.param_names().collect();
         assert_eq!(names, *expected_params);
     });
-
     // Public function
     let program = parse("pub fn add(x: i64, y: i64) -> i64 { x + y }");
     let Stmt::FuncDef(func) = expect_single_stmt(&program) else {

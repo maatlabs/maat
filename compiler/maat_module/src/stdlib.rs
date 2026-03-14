@@ -52,7 +52,6 @@ pub(crate) fn inject_stdlib_modules(graph: &mut ModuleGraph) -> ModuleResult<()>
             needed.entry(name).or_default().push(module_id);
         }
     }
-
     for (module_name, importers) in &needed {
         let source = lookup_stdlib_source(module_name).ok_or_else(|| {
             ModuleErrorKind::FileNotFound {
@@ -61,9 +60,7 @@ pub(crate) fn inject_stdlib_modules(graph: &mut ModuleGraph) -> ModuleResult<()>
             }
             .at(Span::ZERO, PathBuf::from("<std>"))
         })?;
-
         let program = parse_stdlib_source(module_name, source)?;
-
         let synthetic_path = PathBuf::from(format!("<std>/{module_name}.mt"));
         let qualified_path = vec!["std".to_string(), module_name.clone()];
         let stdlib_id = graph.add_node(program, synthetic_path, qualified_path);
@@ -73,7 +70,6 @@ pub(crate) fn inject_stdlib_modules(graph: &mut ModuleGraph) -> ModuleResult<()>
             graph.add_edge(importer_id, stdlib_id);
         }
     }
-
     Ok(())
 }
 
@@ -84,7 +80,6 @@ fn collect_std_imports(program: &Program) -> Vec<String> {
         let Stmt::Use(use_stmt) = stmt else {
             continue;
         };
-
         if use_stmt.path.first().is_some_and(|seg| seg == "std") && use_stmt.path.len() >= 2 {
             let name = use_stmt.path[1].clone();
             if !names.contains(&name) {
@@ -99,7 +94,6 @@ fn collect_std_imports(program: &Program) -> Vec<String> {
 fn parse_stdlib_source(module_name: &str, source: &str) -> ModuleResult<Program> {
     let mut parser = Parser::new(Lexer::new(source));
     let program = parser.parse();
-
     if parser.errors().is_empty() {
         Ok(program)
     } else {

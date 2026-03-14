@@ -1,7 +1,7 @@
 use maat_span::Span;
 
 use crate::num::{self, Suffix};
-use crate::token::{Token, TokenKind};
+use crate::{Token, TokenKind};
 
 /// A lexical analyzer for the Maat programming language.
 ///

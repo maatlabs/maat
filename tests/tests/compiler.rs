@@ -15,7 +15,6 @@ fn assert_constants(bytecode: &Bytecode, expected: &[Constant], input: &str) {
         expected.len(),
         "wrong number of constants for input: {input}"
     );
-
     for (i, expected_const) in expected.iter().enumerate() {
         match (expected_const, &bytecode.constants[i]) {
             (Constant::Int(expected_val), Object::I64(actual_val)) => {
@@ -57,7 +56,6 @@ fn assert_integer_constants(bytecode: &Bytecode, expected: &[i64], input: &str) 
         expected.len(),
         "wrong number of constants for input: {input}"
     );
-
     for (i, expected_val) in expected.iter().enumerate() {
         match &bytecode.constants[i] {
             Object::I64(value) => {
@@ -148,7 +146,6 @@ fn compile_integer_arithmetic() {
             ],
         ),
     ];
-
     for (input, expected_constants, expected_instructions) in cases {
         let bytecode = maat_tests::compile_raw(input);
         assert_instructions(&bytecode, &expected_instructions, input);
@@ -230,7 +227,6 @@ fn compile_boolean_expressions() {
             ],
         ),
     ];
-
     for (input, expected_instructions) in tests {
         let bytecode = maat_tests::compile_raw(input);
         assert_instructions(&bytecode, &expected_instructions, input);
@@ -269,7 +265,6 @@ fn compile_conditionals() {
             ],
         ),
     ];
-
     for (input, expected_constants, expected_instructions) in tests {
         let bytecode = maat_tests::compile_raw(input);
         assert_instructions(&bytecode, &expected_instructions, input);
@@ -313,7 +308,6 @@ fn compile_global_let_statements() {
             ],
         ),
     ];
-
     for (input, expected_constants, expected_instructions) in tests {
         let bytecode = maat_tests::compile_raw(input);
         assert_instructions(&bytecode, &expected_instructions, input);
@@ -340,17 +334,14 @@ fn compile_strings() {
             ],
         ),
     ];
-
     for (input, expected_constants, expected_instructions) in cases {
         let bytecode = maat_tests::compile_raw(input);
         assert_instructions(&bytecode, &expected_instructions, input);
-
         assert_eq!(
             bytecode.constants.len(),
             expected_constants.len(),
             "wrong number of constants for input: {input}"
         );
-
         for (i, expected) in expected_constants.iter().enumerate() {
             match &bytecode.constants[i] {
                 Object::Str(value) => {
@@ -399,7 +390,6 @@ fn compile_arrays() {
             ],
         ),
     ];
-
     for (input, expected_constants, expected_instructions) in cases {
         let bytecode = maat_tests::compile_raw(input);
         assert_instructions(&bytecode, &expected_instructions, input);
@@ -446,7 +436,6 @@ fn compile_hashes() {
             ],
         ),
     ];
-
     for (input, expected_constants, expected_instructions) in cases {
         let bytecode = maat_tests::compile_raw(input);
         assert_instructions(&bytecode, &expected_instructions, input);
@@ -487,7 +476,6 @@ fn compile_index_expressions() {
             ],
         ),
     ];
-
     for (input, expected_constants, expected_instructions) in cases {
         let bytecode = maat_tests::compile_raw(input);
         assert_instructions(&bytecode, &expected_instructions, input);
@@ -541,7 +529,6 @@ fn compile_functions() {
             vec![encode(Opcode::Closure, &[2, 0]), encode(Opcode::Pop, &[])],
         ),
     ];
-
     for (input, expected_consts, expected_insts) in cases {
         let bytecode = maat_tests::compile_raw(input);
         assert_instructions(&bytecode, &expected_insts, input);
@@ -556,7 +543,6 @@ fn compile_functions_without_return_value() {
         vec![Constant::Fn(vec![encode(Opcode::Return, &[])])],
         vec![encode(Opcode::Closure, &[0, 0]), encode(Opcode::Pop, &[])],
     )];
-
     for (input, expected_consts, expected_insts) in cases {
         let bytecode = maat_tests::compile_raw(input);
         assert_instructions(&bytecode, &expected_insts, input);
@@ -644,7 +630,6 @@ fn compile_function_calls() {
             ],
         ),
     ];
-
     for (input, expected_consts, expected_insts) in cases {
         let bytecode = maat_tests::compile_raw(input);
         assert_instructions(&bytecode, &expected_insts, input);
@@ -703,7 +688,6 @@ fn compile_let_statement_scopes() {
             vec![encode(Opcode::Closure, &[2, 0]), encode(Opcode::Pop, &[])],
         ),
     ];
-
     for (input, expected_consts, expected_insts) in cases {
         let bytecode = maat_tests::compile_raw(input);
         assert_instructions(&bytecode, &expected_insts, input);
@@ -738,7 +722,6 @@ fn compile_builtins() {
             ],
         ),
     ];
-
     for (input, expected_consts, expected_insts) in cases {
         let bytecode = maat_tests::compile_raw(input);
         assert_instructions(&bytecode, &expected_insts, input);
@@ -846,7 +829,6 @@ fn compile_closures() {
             ],
         ),
     ];
-
     for (input, expected_consts, expected_insts) in cases {
         let bytecode = maat_tests::compile_raw(input);
         assert_instructions(&bytecode, &expected_insts, input);
@@ -917,7 +899,6 @@ fn compile_recursive_functions() {
             ],
         ),
     ];
-
     for (input, expected_consts, expected_insts) in cases {
         let bytecode = maat_tests::compile_raw(input);
         assert_instructions(&bytecode, &expected_insts, input);

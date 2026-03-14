@@ -87,7 +87,6 @@ impl Compiler {
     pub fn new() -> Self {
         let mut symbols_table = SymbolsTable::new();
         Self::register_builtins(&mut symbols_table);
-
         Self {
             constants: Vec::new(),
             symbols_table,
@@ -105,7 +104,6 @@ impl Compiler {
     /// persist across multiple compilation passes.
     pub fn with_state(mut symbols_table: SymbolsTable, constants: Vec<Object>) -> Self {
         Self::register_builtins(&mut symbols_table);
-
         Self {
             constants,
             symbols_table,
@@ -225,7 +223,6 @@ impl Compiler {
                 }
             }
         }
-
         for stmt in &program.statements {
             self.compile_statement(stmt)?;
         }
@@ -304,13 +301,11 @@ impl Compiler {
                 };
                 Ok(())
             }
-
             Stmt::Return(ret_stmt) => {
                 self.compile_expression(&ret_stmt.value)?;
                 self.emit(Opcode::ReturnValue, &[], ret_stmt.span);
                 Ok(())
             }
-
             Stmt::FuncDef(fn_item) => {
                 let span = fn_item.span;
                 self.compile_fn_body(
@@ -334,20 +329,15 @@ impl Compiler {
                 };
                 Ok(())
             }
-
             Stmt::Loop(loop_stmt) => {
                 let start = self.current_instructions().len();
-
                 self.loop_contexts.push(LoopContext {
                     continue_target: Some(start),
                     break_jumps: Vec::new(),
                     continue_jumps: Vec::new(),
                 });
-
                 self.compile_block_statement(&loop_stmt.body)?;
-
                 self.emit(Opcode::Jump, &[start], loop_stmt.span);
-
                 let exit = self.current_instructions().len();
                 let ctx = self
                     .loop_contexts
@@ -356,29 +346,22 @@ impl Compiler {
                 for jump_pos in ctx.break_jumps {
                     self.replace_operand(jump_pos, exit)?;
                 }
-
                 Ok(())
             }
 
             Stmt::While(while_stmt) => {
                 let start = self.current_instructions().len();
-
                 self.loop_contexts.push(LoopContext {
                     continue_target: Some(start),
                     break_jumps: Vec::new(),
                     continue_jumps: Vec::new(),
                 });
-
                 self.compile_expression(&while_stmt.condition)?;
                 let exit_jump = self.emit(Opcode::CondJump, &[Self::JUMP], while_stmt.span);
-
                 self.compile_block_statement(&while_stmt.body)?;
-
                 self.emit(Opcode::Jump, &[start], while_stmt.span);
-
                 let loop_exit = self.current_instructions().len();
                 self.replace_operand(exit_jump, loop_exit)?;
-
                 let ctx = self
                     .loop_contexts
                     .pop()
@@ -386,10 +369,8 @@ impl Compiler {
                 for jump_pos in ctx.break_jumps {
                     self.replace_operand(jump_pos, loop_exit)?;
                 }
-
                 Ok(())
             }
-
             Stmt::StructDecl(decl) => {
                 self.type_registry.push(TypeDef::Struct {
                     name: decl.name.clone(),
@@ -417,11 +398,9 @@ impl Compiler {
             }
             Stmt::TraitDecl(_) => Ok(()),
             Stmt::ImplBlock(impl_block) => self.compile_impl_block(impl_block),
-
             // Module declarations and import statements are resolved by the
             // module orchestrator before per-module compilation. No-op here.
             Stmt::Use(_) | Stmt::Mod(_) => Ok(()),
-
             Stmt::For(for_stmt) => {
                 if matches!(*for_stmt.iterable, Expr::Range(_)) {
                     self.compile_for_range(for_stmt)?;
@@ -471,13 +450,11 @@ impl Compiler {
 
         // loop_start: condition check
         let loop_start = self.current_instructions().len();
-
         self.loop_contexts.push(LoopContext {
             continue_target: None,
             break_jumps: Vec::new(),
             continue_jumps: Vec::new(),
         });
-
         self.load_symbol(&i_sym, span);
         self.load_symbol(&end_sym, span);
         if inclusive {
@@ -487,7 +464,6 @@ impl Compiler {
         } else {
             self.emit(Opcode::LessThan, &[], span);
         }
-
         let exit_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
 
         // let <ident> = __i
@@ -520,7 +496,6 @@ impl Compiler {
         for jump_pos in ctx.continue_jumps {
             self.replace_operand(jump_pos, continue_target)?;
         }
-
         Ok(())
     }
 
@@ -581,7 +556,6 @@ impl Compiler {
             break_jumps: Vec::new(),
             continue_jumps: Vec::new(),
         });
-
         self.load_symbol(&i_sym, span);
         self.load_symbol(&len_sym, span);
         self.emit(Opcode::LessThan, &[], span);
@@ -606,10 +580,8 @@ impl Compiler {
         self.emit_set_symbol(&i_sym, span);
 
         self.emit(Opcode::Jump, &[loop_start], span);
-
         let loop_exit = self.current_instructions().len();
         self.replace_operand(exit_jump, loop_exit)?;
-
         let ctx = self
             .loop_contexts
             .pop()
@@ -620,7 +592,6 @@ impl Compiler {
         for jump_pos in ctx.continue_jumps {
             self.replace_operand(jump_pos, continue_target)?;
         }
-
         Ok(())
     }
 
@@ -656,23 +627,19 @@ impl Compiler {
             Expr::I64(lit) => self.compile_numeric_constant(Object::I64(lit.value), span),
             Expr::I128(lit) => self.compile_numeric_constant(Object::I128(lit.value), span),
             Expr::Isize(lit) => self.compile_numeric_constant(Object::Isize(lit.value), span),
-
             Expr::U8(lit) => self.compile_numeric_constant(Object::U8(lit.value), span),
             Expr::U16(lit) => self.compile_numeric_constant(Object::U16(lit.value), span),
             Expr::U32(lit) => self.compile_numeric_constant(Object::U32(lit.value), span),
             Expr::U64(lit) => self.compile_numeric_constant(Object::U64(lit.value), span),
             Expr::U128(lit) => self.compile_numeric_constant(Object::U128(lit.value), span),
             Expr::Usize(lit) => self.compile_numeric_constant(Object::Usize(lit.value), span),
-
             Expr::Bool(b) => {
                 let opcode = if b.value { Opcode::True } else { Opcode::False };
                 self.emit(opcode, &[], span);
                 Ok(())
             }
-
             Expr::Prefix(prefix_expr) => {
                 self.compile_expression(&prefix_expr.operand)?;
-
                 let opcode = match prefix_expr.operator.as_str() {
                     "!" => Opcode::Bang,
                     "-" => Opcode::Minus,
@@ -685,11 +652,9 @@ impl Compiler {
                         .into());
                     }
                 };
-
                 self.emit(opcode, &[], span);
                 Ok(())
             }
-
             Expr::Infix(infix_expr) if infix_expr.operator == "&&" => {
                 self.compile_expression(&infix_expr.lhs)?;
                 let cond_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
@@ -704,7 +669,6 @@ impl Compiler {
                 self.replace_operand(end_jump, end_pos)?;
                 Ok(())
             }
-
             Expr::Infix(infix_expr) if infix_expr.operator == "||" => {
                 self.compile_expression(&infix_expr.lhs)?;
                 let cond_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
@@ -719,11 +683,9 @@ impl Compiler {
                 self.replace_operand(end_jump, end_pos)?;
                 Ok(())
             }
-
             Expr::Infix(infix_expr) => {
                 self.compile_expression(&infix_expr.lhs)?;
                 self.compile_expression(&infix_expr.rhs)?;
-
                 match infix_expr.operator.as_str() {
                     ">=" => {
                         self.emit(Opcode::LessThan, &[], span);
@@ -763,7 +725,6 @@ impl Compiler {
                 }
                 Ok(())
             }
-
             Expr::Cond(cond) => {
                 self.compile_expression(&cond.condition)?;
 
@@ -773,12 +734,9 @@ impl Compiler {
                 if self.last_instruction_is(Opcode::Pop) {
                     self.remove_last_pop();
                 }
-
                 let jump_pos = self.emit(Opcode::Jump, &[Self::JUMP], cond.span);
-
                 let cons_pos = self.current_instructions().len();
                 self.replace_operand(cond_jump_pos, cons_pos)?;
-
                 match &cond.alternative {
                     None => {
                         self.emit(Opcode::Null, &[], cond.span);
@@ -790,12 +748,10 @@ impl Compiler {
                         }
                     }
                 }
-
                 let alt_pos = self.current_instructions().len();
                 self.replace_operand(jump_pos, alt_pos)?;
                 Ok(())
             }
-
             Expr::Ident(ident) => {
                 let symbol = self
                     .symbols_table
@@ -809,14 +765,12 @@ impl Compiler {
                 self.load_symbol(&symbol, span);
                 Ok(())
             }
-
             Expr::Str(s) => {
                 let constant = Object::Str(maat_ast::unescape_string(&s.value));
                 let index = self.add_constant(constant)?;
                 self.emit(Opcode::Constant, &[index], span);
                 Ok(())
             }
-
             Expr::Array(array) => {
                 for element in &array.elements {
                     self.compile_expression(element)?;
@@ -824,7 +778,6 @@ impl Compiler {
                 self.emit(Opcode::Array, &[array.elements.len()], span);
                 Ok(())
             }
-
             Expr::Map(hash) => {
                 for (key, value) in &hash.pairs {
                     self.compile_expression(key)?;
@@ -833,14 +786,12 @@ impl Compiler {
                 self.emit(Opcode::Hash, &[hash.pairs.len() * 2], span);
                 Ok(())
             }
-
             Expr::Index(index_expr) => {
                 self.compile_expression(&index_expr.expr)?;
                 self.compile_expression(&index_expr.index)?;
                 self.emit(Opcode::Index, &[], span);
                 Ok(())
             }
-
             Expr::Lambda(lambda) => {
                 self.compile_fn_body(
                     None,
@@ -851,7 +802,6 @@ impl Compiler {
                 )?;
                 Ok(())
             }
-
             Expr::Call(call) => {
                 self.compile_expression(&call.function)?;
                 for arg in &call.arguments {
@@ -860,28 +810,24 @@ impl Compiler {
                 self.emit(Opcode::Call, &[call.arguments.len()], span);
                 Ok(())
             }
-
             Expr::Cast(cast) => {
                 self.compile_expression(&cast.expr)?;
                 let tag = Self::type_annotation_to_tag(cast.target);
                 self.emit(Opcode::Convert, &[tag.to_byte() as usize], span);
                 Ok(())
             }
-
             Expr::Break(break_expr) => {
                 if self.loop_contexts.is_empty() {
                     return Err(CompileErrorKind::BreakOutsideLoop
                         .at(break_expr.span)
                         .into());
                 }
-
                 match &break_expr.value {
                     Some(val) => self.compile_expression(val)?,
                     None => {
                         self.emit(Opcode::Null, &[], break_expr.span);
                     }
                 }
-
                 let jump_pos = self.emit(Opcode::Jump, &[Self::JUMP], break_expr.span);
                 self.loop_contexts
                     .last_mut()
@@ -891,13 +837,11 @@ impl Compiler {
 
                 Ok(())
             }
-
             Expr::Continue(cont_expr) => {
                 let ctx = self
                     .loop_contexts
                     .last()
                     .ok_or_else(|| CompileErrorKind::ContinueOutsideLoop.at(cont_expr.span))?;
-
                 match ctx.continue_target {
                     Some(target) => {
                         self.emit(Opcode::Jump, &[target], cont_expr.span);
@@ -911,26 +855,18 @@ impl Compiler {
                             .push(jump_pos);
                     }
                 }
-
                 Ok(())
             }
-
             Expr::Macro(_) => Err(CompileErrorKind::UnsupportedExpr {
                 expr_type: "macro literal".to_string(),
             }
             .at(span)
             .into()),
-
             Expr::StructLit(struct_lit) => self.compile_struct_literal(struct_lit),
-
             Expr::PathExpr(path_expr) => self.compile_path_expression(path_expr),
-
             Expr::Match(match_expr) => self.compile_match(match_expr),
-
             Expr::FieldAccess(field_access) => self.compile_field_access(field_access),
-
             Expr::MethodCall(method_call) => self.compile_method_call(method_call),
-
             Expr::Range(range) => {
                 self.compile_expression(&range.start)?;
                 self.compile_expression(&range.end)?;
@@ -968,7 +904,6 @@ impl Compiler {
                 }
                 .at(span)
             })?;
-
         for field_name in &field_names {
             let value_expr = lit
                 .fields
@@ -983,7 +918,6 @@ impl Compiler {
                 })?;
             self.compile_expression(value_expr)?;
         }
-
         let type_index = registry_index << 8;
         self.emit(Opcode::Construct, &[type_index, field_names.len()], span);
         Ok(())
@@ -997,11 +931,9 @@ impl Compiler {
     /// pushes a closure that wraps the `Construct` instruction.
     fn compile_path_expression(&mut self, path: &PathExpr) -> Result<()> {
         let span = path.span;
-
         if path.segments.len() == 2 {
             let type_name = &path.segments[0];
             let variant_name = &path.segments[1];
-
             // Check if it refers to an enum variant.
             if let Some((registry_index, variant_tag, field_count)) =
                 self.resolve_enum_variant(type_name, variant_name)
@@ -1022,13 +954,11 @@ impl Compiler {
                         }
                         param_names.push(name);
                     }
-
                     // Load each parameter onto the stack.
                     for name in &param_names {
                         let sym = self.symbols_table.resolve_symbol(name).unwrap();
                         self.load_symbol(&sym, span);
                     }
-
                     let type_index = (registry_index << 8) | (variant_tag & 0xFF);
                     self.emit(Opcode::Construct, &[type_index, field_count], span);
                     self.emit(Opcode::ReturnValue, &[], span);
@@ -1046,14 +976,12 @@ impl Compiler {
                 }
                 return Ok(());
             }
-
             let qualified_name = format!("{type_name}::{variant_name}");
             if let Some(symbol) = self.symbols_table.resolve_symbol(&qualified_name) {
                 self.load_symbol(&symbol, span);
                 return Ok(());
             }
         }
-
         let full_name = path.segments.join("::");
         let symbol = self
             .symbols_table
@@ -1092,11 +1020,9 @@ impl Compiler {
     /// At the end all forward jumps are patched to the exit point.
     fn compile_match(&mut self, match_expr: &MatchExpr) -> Result<()> {
         let span = match_expr.span;
-
         self.compile_expression(&match_expr.scrutinee)?;
 
         let mut end_jumps = Vec::new();
-
         for arm in &match_expr.arms {
             match &arm.pattern {
                 Pattern::TupleStruct { path, fields, .. } => {
@@ -1105,15 +1031,12 @@ impl Compiler {
                             self.emit(Opcode::MatchTag, &[variant_tag, Self::JUMP], span);
 
                         self.bind_variant_fields(fields, span)?;
-
                         self.compile_expression(&arm.body)?;
                         if self.last_instruction_is(Opcode::Pop) {
                             self.remove_last_pop();
                         }
-
                         let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
                         end_jumps.push(end_jump);
-
                         let next_arm = self.current_instructions().len();
                         self.replace_match_tag_target(match_tag_pos, next_arm)?;
                     }
@@ -1131,10 +1054,8 @@ impl Compiler {
                     if self.last_instruction_is(Opcode::Pop) {
                         self.remove_last_pop();
                     }
-
                     let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
                     end_jumps.push(end_jump);
-
                     let next_arm = self.current_instructions().len();
                     self.replace_match_tag_target(match_tag_pos, next_arm)?;
                 }
@@ -1167,7 +1088,6 @@ impl Compiler {
                     }
                     let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
                     end_jumps.push(end_jump);
-
                     let next_arm = self.current_instructions().len();
                     self.replace_operand(cond_jump, next_arm)?;
                 }
@@ -1181,12 +1101,10 @@ impl Compiler {
         }
 
         self.emit(Opcode::Null, &[], span);
-
         let exit = self.current_instructions().len();
         for jump_pos in end_jumps {
             self.replace_operand(jump_pos, exit)?;
         }
-
         Ok(())
     }
 
@@ -1219,7 +1137,6 @@ impl Compiler {
                     self.define_and_set(name, false, span)?;
                     continue;
                 }
-
                 let hidden = format!("__match_scrutinee_{}", self.for_loop_counter - 1);
                 let hidden_sym = self.symbols_table.resolve_symbol(&hidden).ok_or_else(|| {
                     CompileErrorKind::UndefinedVariable {
@@ -1253,7 +1170,6 @@ impl Compiler {
     fn compile_field_access(&mut self, fa: &FieldAccessExpr) -> Result<()> {
         let span = fa.span;
         self.compile_expression(&fa.object)?;
-
         let field_index = self
             .type_registry
             .iter()
@@ -1269,7 +1185,6 @@ impl Compiler {
                 }
                 .at(span)
             })?;
-
         self.emit(Opcode::GetField, &[field_index], span);
         Ok(())
     }
@@ -1280,23 +1195,18 @@ impl Compiler {
     /// pushes the receiver as the first argument, and emits a regular `Call`.
     fn compile_method_call(&mut self, mc: &MethodCallExpr) -> Result<()> {
         let span = mc.span;
-
         let qualified_name = self.resolve_method_name(mc).ok_or_else(|| {
             CompileErrorKind::UndefinedVariable {
                 name: format!("unknown method `{}`", mc.method),
             }
             .at(span)
         })?;
-
         let symbol = self.symbols_table.resolve_symbol(&qualified_name).unwrap();
         self.load_symbol(&symbol, span);
-
         self.compile_expression(&mc.object)?;
-
         for arg in &mc.arguments {
             self.compile_expression(arg)?;
         }
-
         let total_args = 1 + mc.arguments.len();
         self.emit(Opcode::Call, &[total_args], span);
         Ok(())
@@ -1321,7 +1231,6 @@ impl Compiler {
                 return Some(candidate);
             }
         }
-
         self.type_registry
             .iter()
             .map(|td| match td {
@@ -1375,7 +1284,6 @@ impl Compiler {
     fn add_constant(&mut self, obj: Object) -> Result<usize> {
         self.constants.push(obj);
         let index = self.constants.len() - 1;
-
         if index > MAX_CONSTANT_POOL_SIZE {
             return Err(CompileError::new(CompileErrorKind::ConstantPoolOverflow {
                 max: MAX_CONSTANT_POOL_SIZE,
@@ -1383,7 +1291,6 @@ impl Compiler {
             })
             .into());
         }
-
         Ok(index)
     }
 
@@ -1410,26 +1317,21 @@ impl Compiler {
         span: Span,
     ) -> Result<()> {
         self.enter_scope();
-
         if let Some(name) = name {
             self.symbols_table.define_function_name(name);
         }
-
         for param in param_names {
             if let Err(e) = self.symbols_table.define_symbol(param, false) {
                 return Err(self.attach_span(e, span));
             }
         }
-
         self.compile_block_statement(body)?;
-
         if self.last_instruction_is(Opcode::Pop) {
             self.replace_last_pop_with_return_value();
         }
         if !self.last_instruction_is(Opcode::ReturnValue) {
             self.emit(Opcode::Return, &[], span);
         }
-
         let free_vars = self.symbols_table.free_vars().to_vec();
         let num_free = free_vars.len();
         let num_locals = self.symbols_table.max_definitions();
@@ -1438,7 +1340,6 @@ impl Compiler {
         for sym in &free_vars {
             self.load_symbol(sym, span);
         }
-
         let compiled_fn = Object::CompiledFunction(CompiledFunction {
             instructions: Rc::from(instructions.as_bytes()),
             num_locals,
@@ -1459,11 +1360,9 @@ impl Compiler {
             TypeExpr::Generic(name, _, _) => name,
             _ => return Ok(()),
         };
-
         for method in &impl_block.methods {
             let span = method.span;
             let qualified_name = format!("{}::{}", type_name, method.name);
-
             self.compile_fn_body(
                 Some(&qualified_name),
                 method.param_names(),
@@ -1471,7 +1370,6 @@ impl Compiler {
                 &method.body,
                 span,
             )?;
-
             let symbol = match self.symbols_table.define_symbol(&qualified_name, false) {
                 Ok(s) => s,
                 Err(e) => return Err(self.attach_span(e, span)),
@@ -1491,7 +1389,6 @@ impl Compiler {
     fn enter_scope(&mut self) {
         self.scopes.push(CompilationScope::new());
         self.scope_index += 1;
-
         let outer = std::mem::take(&mut self.symbols_table);
         self.symbols_table = SymbolsTable::new_enclosed(outer);
     }
@@ -1514,12 +1411,10 @@ impl Compiler {
             .pop()
             .ok_or(CompileError::new(CompileErrorKind::ScopeUnderflow))?;
         self.scope_index -= 1;
-
         let current = std::mem::take(&mut self.symbols_table);
         self.symbols_table = current
             .take_outer()
             .ok_or(CompileError::new(CompileErrorKind::ScopeUnderflow))?;
-
         Ok((scope.instructions, scope.source_map))
     }
 
@@ -1652,18 +1547,15 @@ mod tests {
     #[test]
     fn constant_pool_overflow() {
         let mut compiler = Compiler::new();
-
         for i in 0..=MAX_CONSTANT_POOL_SIZE as i64 {
             let result = compiler.add_constant(Object::I64(i));
             assert!(result.is_ok(), "should succeed for index {i}");
         }
-
         let result = compiler.add_constant(Object::I64(999));
         assert!(
             result.is_err(),
             "should fail when exceeding MAX_CONSTANT_POOL_SIZE"
         );
-
         match result.unwrap_err() {
             Error::Compile(CompileError {
                 kind: CompileErrorKind::ConstantPoolOverflow { max, attempted },
@@ -1689,22 +1581,18 @@ mod tests {
             })),
             span: Span::ZERO,
         });
-
         let program = Program {
             statements: vec![Stmt::Expr(ExprStmt {
                 value: expr,
                 span: Span::ZERO,
             })],
         };
-
         let mut compiler = Compiler::new();
         let result = compiler.compile(&Node::Program(program));
-
         assert!(
             result.is_err(),
             "should fail on unsupported prefix operator"
         );
-
         match result.unwrap_err() {
             Error::Compile(CompileError {
                 kind: CompileErrorKind::UnsupportedOperator { operator, context },
@@ -1721,12 +1609,9 @@ mod tests {
     fn scopes() {
         let mut compiler = Compiler::new();
         assert_eq!(compiler.scope_index, 0);
-
         compiler.emit(Opcode::Mul, &[], Span::ZERO);
-
         compiler.enter_scope();
         assert_eq!(compiler.scope_index, 1);
-
         compiler.emit(Opcode::Sub, &[], Span::ZERO);
         assert_eq!(compiler.scopes[compiler.scope_index].instructions.len(), 1);
         assert_eq!(
@@ -1736,11 +1621,9 @@ mod tests {
                 .opcode,
             Opcode::Sub
         );
-
         let (instructions, _source_map) = compiler.leave_scope().expect("should leave scope");
         assert_eq!(compiler.scope_index, 0);
         assert_eq!(instructions.len(), 1);
-
         assert_eq!(
             compiler.scopes[compiler.scope_index]
                 .last_instruction

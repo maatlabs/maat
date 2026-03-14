@@ -573,29 +573,29 @@ impl fmt::Display for Object {
             Self::U64(v) => v.fmt(f),
             Self::U128(v) => v.fmt(f),
             Self::Usize(v) => v.fmt(f),
-            Self::Bool(boolean) => boolean.fmt(f),
-            Self::Str(string) => string.fmt(f),
+            Self::Bool(v) => v.fmt(f),
+            Self::Str(v) => v.fmt(f),
             Self::Array(array) => {
                 write!(
                     f,
                     "[{}]",
                     array
                         .iter()
-                        .map(|obj| format!("{obj}"))
+                        .map(|e| format!("{e}"))
                         .collect::<Vec<String>>()
                         .join(", ")
                 )
             }
-            Self::Hash(hash) => hash.fmt(f),
-            Self::Function(func) => func.fmt(f),
-            Self::Macro(macro_obj) => macro_obj.fmt(f),
-            Self::Quote(quote) => quote.fmt(f),
-            Self::ReturnValue(ret_val) => ret_val.fmt(f),
-            Self::Break(val) => write!(f, "break {val}"),
+            Self::Hash(v) => v.fmt(f),
+            Self::Function(v) => v.fmt(f),
+            Self::Macro(v) => v.fmt(f),
+            Self::Quote(v) => v.fmt(f),
+            Self::ReturnValue(v) => v.fmt(f),
+            Self::Break(v) => write!(f, "break {v}"),
             Self::Continue => write!(f, "continue"),
             Self::Builtin(_) => write!(f, "builtin function"),
-            Self::CompiledFunction(cf) => write!(f, "CompiledFunction[{:p}]", cf),
-            Self::Closure(cl) => write!(f, "Closure[{:p}]", &cl.func),
+            Self::CompiledFunction(v) => write!(f, "CompiledFunction[{v:p}]"),
+            Self::Closure(v) => write!(f, "Closure[{:p}]", &v.func),
             Self::Struct(s) => {
                 write!(f, "Struct({}", s.type_index)?;
                 if !s.fields.is_empty() {
@@ -611,15 +611,15 @@ impl fmt::Display for Object {
                 }
                 write!(f, ")")
             }
-            Self::EnumVariant(ev) => {
-                write!(f, "EnumVariant({}::{})", ev.type_index, ev.tag)?;
-                if !ev.fields.is_empty() {
+            Self::EnumVariant(v) => {
+                write!(f, "EnumVariant({}::{})", v.type_index, v.tag)?;
+                if !v.fields.is_empty() {
                     write!(
                         f,
                         "({})",
-                        ev.fields
+                        v.fields
                             .iter()
-                            .map(|v| format!("{v}"))
+                            .map(|e| format!("{e}"))
                             .collect::<Vec<_>>()
                             .join(", ")
                     )?;

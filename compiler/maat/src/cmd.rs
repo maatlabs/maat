@@ -19,7 +19,6 @@ pub fn build(source_path: &Path, output_path: Option<&Path>) {
     require_extension(source_path, "mt", "build");
 
     let bytecode = compile_source(source_path);
-
     let bytes = match bytecode.serialize() {
         Ok(b) => b,
         Err(e) => {
@@ -30,15 +29,12 @@ pub fn build(source_path: &Path, output_path: Option<&Path>) {
             process::exit(1);
         }
     };
-
     let default_output = source_path.with_extension("mtc");
     let out = output_path.unwrap_or(&default_output);
-
     if let Err(e) = std::fs::write(out, bytes) {
         eprintln!("error: cannot write '{}': {e}", out.display());
         process::exit(1);
     }
-
     eprintln!("compiled {} -> {}", source_path.display(), out.display());
 }
 
@@ -59,7 +55,6 @@ pub fn execute(path: &Path) {
             process::exit(1);
         }
     };
-
     let bytecode = match Bytecode::deserialize(&bytes) {
         Ok(bc) => bc,
         Err(e) => {
@@ -67,13 +62,11 @@ pub fn execute(path: &Path) {
             process::exit(1);
         }
     };
-
     let mut vm = VM::new(bytecode);
     if let Err(e) = vm.run() {
         eprintln!("{}: vm error: {e}", path.display());
         process::exit(1);
     }
-
     if let Some(result) = vm.last_popped_stack_elem()
         && !matches!(result, maat_runtime::Object::Null)
     {
@@ -91,13 +84,11 @@ pub fn run(path: &Path) {
     require_extension(path, "mt", "run");
 
     let bytecode = compile_source(path);
-
     let mut vm = VM::new(bytecode);
     if let Err(e) = vm.run() {
         eprintln!("{}: vm error: {}", path.display(), e);
         process::exit(1);
     }
-
     if let Some(result) = vm.last_popped_stack_elem()
         && !matches!(result, maat_runtime::Object::Null)
     {
@@ -135,7 +126,6 @@ fn compile_source(path: &Path) -> Bytecode {
             process::exit(1);
         }
     };
-
     match check_and_compile(&mut graph) {
         Ok(bc) => bc,
         Err(e) => {

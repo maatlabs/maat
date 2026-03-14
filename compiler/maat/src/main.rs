@@ -28,20 +28,16 @@ enum Command {
         /// Path to the `.mt` source file.
         file: PathBuf,
     },
-
     /// Start the interactive REPL.
     Repl,
-
     /// Compile a source file to bytecode.
     Build {
         /// Path to the `.mt` source file.
         file: PathBuf,
-
         /// Output path for the compiled `.mtc` bytecode file.
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
-
     /// Execute a pre-compiled bytecode file.
     Exec {
         /// Path to the `.mtc` bytecode file.
@@ -56,7 +52,6 @@ fn main() {
         Some(Command::Run { file }) => {
             cmd::run(&file);
         }
-
         Some(Command::Repl) | None => {
             println!(
                 "\nMaat {} ({} {})",
@@ -65,20 +60,16 @@ fn main() {
                 std::env::consts::ARCH,
             );
             println!("Type \"exit\", \"quit\" or press Ctrl+D to quit.\n");
-
             let reader = io::stdin().lock();
             let mut writer = io::stdout().lock();
-
             if let Err(e) = repl::start(reader, &mut writer) {
                 eprintln!("repl error: {e}");
                 std::process::exit(1);
             }
         }
-
         Some(Command::Build { file, output }) => {
             cmd::build(&file, output.as_deref());
         }
-
         Some(Command::Exec { file }) => {
             cmd::execute(&file);
         }

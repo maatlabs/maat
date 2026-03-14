@@ -68,18 +68,15 @@ impl Bytecode {
                 needed: HEADER_SIZE,
             });
         }
-
         if bytes[..4] != MAAT_MAGIC {
             return Err(SerializationError::InvalidMagic);
         }
-
         let mut version_bytes = [0u8; 4];
         version_bytes.copy_from_slice(&bytes[4..8]);
         let version = u32::from_be_bytes(version_bytes);
         if version != FORMAT_VERSION {
             return Err(SerializationError::UnsupportedVersion(version));
         }
-
         postcard::from_bytes(&bytes[HEADER_SIZE..])
             .map_err(|e| SerializationError::PostcardDecode(e.to_string()))
     }

@@ -25,41 +25,37 @@ fn run_vm_test(input: &str, expected: TestValue) {
         .last_popped_stack_elem()
         .expect("no value on stack")
         .clone();
-
     match expected {
-        TestValue::I64(expected_val) => match stack_elem {
+        TestValue::I64(exp) => match stack_elem {
             Object::I64(val) => {
-                assert_eq!(val, expected_val, "wrong integer value for input: {input}")
+                assert_eq!(val, exp, "wrong integer value for input: {input}")
             }
             Object::Usize(val) => {
-                assert_eq!(
-                    val as i64, expected_val,
-                    "wrong integer value for input: {input}"
-                )
+                assert_eq!(val as i64, exp, "wrong integer value for input: {input}")
             }
             _ => panic!("expected integer object, got: {:?}", stack_elem),
         },
-        TestValue::I32(expected_val) => match stack_elem {
+        TestValue::I32(exp) => match stack_elem {
             Object::I32(val) => {
-                assert_eq!(val, expected_val, "wrong I32 value for input: {input}")
+                assert_eq!(val, exp, "wrong I32 value for input: {input}")
             }
             _ => panic!("expected I32 object, got: {:?}", stack_elem),
         },
-        TestValue::Usize(expected_val) => match stack_elem {
+        TestValue::Usize(exp) => match stack_elem {
             Object::Usize(val) => {
-                assert_eq!(val, expected_val, "wrong Usize value for input: {input}")
+                assert_eq!(val, exp, "wrong Usize value for input: {input}")
             }
             _ => panic!("expected Usize object, got: {:?}", stack_elem),
         },
-        TestValue::Bool(expected_val) => match stack_elem {
+        TestValue::Bool(exp) => match stack_elem {
             Object::Bool(val) => {
-                assert_eq!(val, expected_val, "wrong boolean value for input: {input}")
+                assert_eq!(val, exp, "wrong boolean value for input: {input}")
             }
             _ => panic!("expected boolean object, got: {:?}", stack_elem),
         },
-        TestValue::Str(expected_val) => match stack_elem {
+        TestValue::Str(exp) => match stack_elem {
             Object::Str(val) => {
-                assert_eq!(val, expected_val, "wrong string value for input: {input}")
+                assert_eq!(val, exp, "wrong string value for input: {input}")
             }
             _ => panic!("expected string object, got: {:?}", stack_elem),
         },
@@ -143,7 +139,6 @@ fn run_vm_error_test(input: &str, expected_error: &str) {
     let result = vm.run();
 
     assert!(result.is_err(), "expected VM error for input: {input}");
-
     let err_msg = result.unwrap_err().to_string();
     assert!(
         err_msg.contains(expected_error),
@@ -172,7 +167,6 @@ fn integer_arithmetic() {
         ("-50 + 100 + -50", TestValue::I64(0)),
         ("(5 + 10 * 2 + 15 / 3) * 2 + -10", TestValue::I64(50)),
     ];
-
     for (input, expected) in cases {
         run_vm_test(input, expected);
     }
@@ -205,7 +199,6 @@ fn boolean_expressions() {
         ("!!true", TestValue::Bool(true)),
         ("!!false", TestValue::Bool(false)),
     ];
-
     for (input, expected) in cases {
         run_vm_test(input, expected);
     }
@@ -223,7 +216,6 @@ fn conditionals() {
         ("if (1 > 2) { 10 }", TestValue::Null),
         ("if (false) { 10 }", TestValue::Null),
     ];
-
     for (input, expected) in cases {
         run_vm_test(input, expected);
     }
@@ -239,7 +231,6 @@ fn global_let_statements() {
             TestValue::I64(3),
         ),
     ];
-
     for (input, expected) in cases {
         run_vm_test(input, expected);
     }
@@ -261,7 +252,6 @@ fn string_literals() {
             TestValue::Str("zero knowledge proofs".to_string()),
         ),
     ];
-
     for (input, expected) in cases {
         run_vm_test(input, expected);
     }
@@ -277,7 +267,6 @@ fn array_literals() {
             TestValue::IntArray(vec![3, 12, 11]),
         ),
     ];
-
     for (input, expected) in cases {
         run_vm_test(input, expected);
     }
@@ -293,7 +282,6 @@ fn hash_literals() {
             TestValue::Hash(vec![(2, 4), (6, 16)]),
         ),
     ];
-
     for (input, expected) in cases {
         run_vm_test(input, expected);
     }
@@ -313,7 +301,6 @@ fn index_expressions() {
         ("{1: 1}[0]", TestValue::Null),
         ("{}[0]", TestValue::Null),
     ];
-
     for (input, expected) in cases {
         run_vm_test(input, expected);
     }
@@ -335,7 +322,6 @@ fn calling_functions_without_arguments() {
             TestValue::I64(3),
         ),
     ];
-
     for (input, expected) in cases {
         run_vm_test(input, expected);
     }
@@ -353,7 +339,6 @@ fn functions_with_return_statement() {
             TestValue::I64(99),
         ),
     ];
-
     for (input, expected) in cases {
         run_vm_test(input, expected);
     }
@@ -368,7 +353,6 @@ fn functions_without_return_value() {
             TestValue::Null,
         ),
     ];
-
     for (input, expected) in cases {
         run_vm_test(input, expected);
     }
@@ -386,7 +370,6 @@ fn first_class_functions() {
             TestValue::I64(1),
         ),
     ];
-
     for (input, expected) in cases {
         run_vm_test(input, expected);
     }
@@ -416,7 +399,6 @@ fn calling_functions_with_bindings() {
             TestValue::I64(97),
         ),
     ];
-
     for (input, expected) in cases {
         run_vm_test(input, expected);
     }
@@ -450,7 +432,6 @@ fn calling_functions_with_arguments_and_bindings() {
             TestValue::I64(50),
         ),
     ];
-
     for (input, expected) in cases {
         run_vm_test(input, expected);
     }
@@ -472,7 +453,6 @@ fn calling_functions_with_wrong_arguments() {
             "wrong number of arguments: want=2, got=1",
         ),
     ];
-
     for (input, expected_error) in cases {
         run_vm_error_test(input, expected_error);
     }
@@ -500,7 +480,6 @@ fn builtin_methods() {
         // print remains a free function
         (r#"print("hello", "world!")"#, TestValue::Null),
     ];
-
     for (input, expected) in cases {
         run_vm_test(input, expected);
     }
@@ -510,25 +489,17 @@ fn builtin_methods() {
 fn builtin_method_chaining() {
     // `push` returns a new array, so chaining is possible
     run_vm_test("[1, 2].push(3).len()", TestValue::Usize(3));
-
     // `rest` returns a new array
     run_vm_test("[1, 2, 3].rest().first()", TestValue::I64(2));
-
     run_vm_test("[1, 2, 3].rest().last()", TestValue::I64(3));
-
     run_vm_test("let arr = [10, 20, 30]; arr.len()", TestValue::Usize(3));
-
     run_vm_test("let arr = [10, 20, 30]; arr.first()", TestValue::I64(10));
-
     run_vm_test("let arr = [10, 20, 30]; arr.last()", TestValue::I64(30));
-
     run_vm_test(r#"let s = "hello world"; s.len()"#, TestValue::Usize(11));
-
     run_vm_test(
         "let arr = [1, 2, 3]; arr.len() as i64 + 1",
         TestValue::I64(4),
     );
-
     run_vm_test("let arr = [1, 2, 3]; arr.rest().len()", TestValue::Usize(2));
 }
 
@@ -545,12 +516,9 @@ fn stack_underflow() {
         source_map: Default::default(),
         type_registry: vec![],
     };
-
     let mut vm = VM::new(bytecode);
     let result = vm.run();
-
     assert!(result.is_err(), "should fail on stack underflow");
-
     match result.unwrap_err() {
         Error::Vm(err) => {
             assert!(
@@ -591,7 +559,6 @@ fn closures() {
             TestValue::I64(99),
         ),
     ];
-
     for (input, expected) in cases {
         run_vm_test(input, expected);
     }
@@ -613,7 +580,6 @@ fn recursive_functions() {
             TestValue::I64(0),
         ),
     ];
-
     for (input, expected) in cases {
         run_vm_test(input, expected);
     }
@@ -674,7 +640,6 @@ fn typed_integer_arithmetic() {
         // Signed negation
         ("-5i32", TestValue::I32(-5)),
     ];
-
     for (input, expected) in cases {
         run_vm_test(input, expected);
     }
@@ -694,18 +659,15 @@ fn cast_expressions() {
         ("10 as usize", TestValue::Usize(10)),
         ("5usize as i64", TestValue::I64(5)),
     ];
-
     for (input, expected) in cases {
         run_vm_test(input, expected);
     }
-
     // Cast errors
     let error_cases = vec![
         ("256 as u8", "out of range for u8"),
         ("-1 as u8", "out of range for u8"),
         ("-1 as usize", "out of range for usize"),
     ];
-
     for (input, expected_error) in error_cases {
         run_vm_error_test(input, expected_error);
     }
@@ -719,7 +681,6 @@ fn cross_type_integer_comparison() {
         ("10 > [1, 2, 3].len()", TestValue::Bool(true)),
         ("1 < [1, 2, 3].len()", TestValue::Bool(true)),
     ];
-
     for (input, expected) in cases {
         run_vm_test(input, expected);
     }
@@ -795,7 +756,6 @@ fn while_loops() {
         "#,
         TestValue::I64(15),
     );
-
     // False condition (body never executes)
     run_vm_test(
         r#"
@@ -807,7 +767,6 @@ fn while_loops() {
         "#,
         TestValue::I64(10),
     );
-
     // While with break
     run_vm_test(
         r#"
@@ -837,7 +796,6 @@ fn for_loops() {
         "#,
         TestValue::I64(15),
     );
-
     // Empty array
     run_vm_test(
         r#"
@@ -849,7 +807,6 @@ fn for_loops() {
         "#,
         TestValue::I64(0),
     );
-
     // Nested while loops
     run_vm_test(
         r#"
@@ -867,7 +824,6 @@ fn for_loops() {
         "#,
         TestValue::I64(9),
     );
-
     // For with break
     run_vm_test(
         r#"
@@ -882,7 +838,6 @@ fn for_loops() {
         "#,
         TestValue::I64(30),
     );
-
     // Nested for loops
     run_vm_test(
         r#"
@@ -896,7 +851,6 @@ fn for_loops() {
         "#,
         TestValue::I64(102),
     );
-
     // For loop with function calls
     run_vm_test(
         r#"
@@ -991,7 +945,6 @@ fn forward_function_reference() {
         "#,
         TestValue::I64(42),
     );
-
     // mutual recursion
     run_vm_test(
         r#"
@@ -1022,7 +975,6 @@ fn block_scoping() {
         "#,
         TestValue::I64(1),
     );
-
     run_vm_test(
         r#"
         fn test() -> i64 {
@@ -1038,7 +990,6 @@ fn block_scoping() {
         "#,
         TestValue::I64(10),
     );
-
     run_vm_test(
         r#"
         fn test() -> i64 {
@@ -1073,7 +1024,6 @@ fn range_for_loop() {
         "#,
         TestValue::I64(10),
     );
-
     // Inclusive range: 1..=5 sums to 1+2+3+4+5 = 15
     run_vm_test(
         r#"
@@ -1088,7 +1038,6 @@ fn range_for_loop() {
         "#,
         TestValue::I64(15),
     );
-
     // Empty range: 5..5 should execute zero iterations
     run_vm_test(
         r#"
@@ -1103,7 +1052,6 @@ fn range_for_loop() {
         "#,
         TestValue::I64(0),
     );
-
     // Range with break
     run_vm_test(
         r#"
@@ -1121,7 +1069,6 @@ fn range_for_loop() {
         "#,
         TestValue::I64(10),
     );
-
     // Range with continue
     run_vm_test(
         r#"
@@ -1139,7 +1086,6 @@ fn range_for_loop() {
         "#,
         TestValue::I64(25),
     );
-
     // Nested range for-loops
     run_vm_test(
         r#"

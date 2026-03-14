@@ -2,7 +2,7 @@
 
 use maat_ast::TypeExpr;
 
-use crate::ty::{FnType, Type};
+use crate::{FnType, Type};
 
 /// Resolves a parsed type expression into an internal type.
 ///

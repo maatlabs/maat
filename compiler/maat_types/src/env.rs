@@ -97,7 +97,6 @@ impl TypeEnv {
         let elem = Type::Var(elem_id);
         let array_ty = Type::Array(Box::new(elem.clone()));
         let forall = vec![elem_id];
-
         // impl [T]
         let array_methods = [
             (
@@ -143,7 +142,6 @@ impl TypeEnv {
                 }),
             ),
         ];
-
         for (name, fn_type) in array_methods {
             self.builtin_method_schemes.insert(
                 name.to_string(),
@@ -154,7 +152,6 @@ impl TypeEnv {
                 },
             );
         }
-
         // impl str
         let str_methods = [
             (
@@ -207,7 +204,6 @@ impl TypeEnv {
                 }),
             ),
         ];
-
         for (name, fn_type) in str_methods {
             self.builtin_method_schemes.insert(
                 name.to_string(),
@@ -218,14 +214,12 @@ impl TypeEnv {
                 },
             );
         }
-
         // impl Set
         let set_ty = Type::Struct("Set".to_string(), vec![]);
         let set_elem_id = self.next_var;
         self.next_var += 1;
         let set_elem = Type::Var(set_elem_id);
         let set_forall = vec![set_elem_id];
-
         let set_methods = [
             (
                 "Set::insert",
@@ -268,7 +262,6 @@ impl TypeEnv {
                 }),
             ),
         ];
-
         for (name, forall, fn_type) in set_methods {
             self.builtin_method_schemes.insert(
                 name.to_string(),
@@ -297,7 +290,6 @@ impl TypeEnv {
                 },
             ],
         });
-
         self.register_enum(EnumDef {
             name: "Result".to_string(),
             generic_params: vec!["T".to_string(), "E".to_string()],
@@ -428,20 +420,16 @@ impl TypeEnv {
             Type::Struct(name, _) if name == "Set" => "Set",
             _ => return None,
         };
-
         let key = format!("{prefix}::{method_name}");
         let scheme = self.builtin_method_schemes.get(&key)?.clone();
-
         if scheme.forall.is_empty() {
             return Some((subst.apply(&scheme.self_type), subst.apply(&scheme.fn_type)));
         }
-
         let mut local_subst = subst.clone();
         for &var in &scheme.forall {
             let fresh = self.fresh_var();
             local_subst.bind(var, fresh);
         }
-
         Some((
             local_subst.apply(&scheme.self_type),
             local_subst.apply(&scheme.fn_type),
@@ -545,7 +533,6 @@ impl TypeEnv {
         if scheme.forall.is_empty() {
             return subst.apply(&scheme.ty);
         }
-
         let mut local_subst = subst.clone();
         for &var in &scheme.forall {
             let fresh = self.fresh_var();
@@ -564,7 +551,6 @@ impl TypeEnv {
             .difference(&env_vars)
             .copied()
             .collect::<Vec<TypeVarId>>();
-
         TypeScheme {
             forall,
             ty: resolved,
@@ -672,20 +658,16 @@ mod tests {
     fn generalize_and_instantiate() {
         let mut env = TypeEnv::new();
         let subst = Substitution::new();
-
         // Type: fn(?T0) -> ?T0  (identity function)
         let fn_ty = Type::Function(FnType {
             params: vec![Type::Var(0)],
             ret: Box::new(Type::Var(0)),
         });
         env.next_var = 1;
-
         let scheme = env.generalize(&fn_ty, &subst);
         assert_eq!(scheme.forall, vec![0]);
-
         let inst1 = env.instantiate_scheme(&scheme, &subst);
         let inst2 = env.instantiate_scheme(&scheme, &subst);
-
         match (&inst1, &inst2) {
             (Type::Function(f1), Type::Function(f2)) => {
                 assert_ne!(f1.params[0], f2.params[0]);
@@ -698,11 +680,9 @@ mod tests {
     fn monomorphic_not_generalized() {
         let mut env = TypeEnv::new();
         let subst = Substitution::new();
-
         // Define x: ?T0 in the environment (simulates a lambda parameter)
         env.define_var("x", Type::Var(0));
         env.next_var = 1;
-
         // ?T0 is free in the env, so `generalize` should NOT quantify it
         let scheme = env.generalize(&Type::Var(0), &subst);
         assert!(scheme.forall.is_empty());
@@ -713,7 +693,6 @@ mod tests {
         let mut env = TypeEnv::new();
         env.register_builtins();
         let subst = Substitution::new();
-
         let i64_array = Type::Array(Box::new(Type::I64));
         let str_array = Type::Array(Box::new(Type::String));
 
@@ -724,7 +703,6 @@ mod tests {
         let (self2, fn2) = env
             .instantiate_builtin_method(&str_array, "first", &subst)
             .expect("Array::first should exist");
-
         match (&self1, &self2) {
             (Type::Array(a), Type::Array(b)) => {
                 assert_ne!(
@@ -734,7 +712,6 @@ mod tests {
             }
             _ => panic!("expected Array types"),
         }
-
         match (&fn1, &fn2) {
             (Type::Function(f1), Type::Function(f2)) => {
                 assert_ne!(
@@ -751,18 +728,14 @@ mod tests {
         let mut env = TypeEnv::new();
         env.register_builtins();
         let mut subst = Substitution::new();
-
         let i64_array = Type::Array(Box::new(Type::I64));
-
         let (inst_self, inst_fn) = env
             .instantiate_builtin_method(&i64_array, "first", &subst)
             .expect("Array::first should exist");
-
         // Unify the instantiated self-type with the actual receiver.
         subst
             .unify(&inst_self, &i64_array)
             .expect("unification should succeed");
-
         match subst.apply(&inst_fn) {
             Type::Function(fn_ty) => {
                 assert_eq!(*fn_ty.ret, Type::I64, "return type should resolve to i64");

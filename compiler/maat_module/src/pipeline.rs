@@ -48,7 +48,6 @@ use crate::{ModuleExports, ModuleGraph, ModuleId, ModuleResult};
 pub fn check_and_compile(graph: &mut ModuleGraph) -> ModuleResult<Bytecode> {
     let mut exports: HashMap<ModuleId, ModuleExports> = HashMap::new();
     let topo_order = graph.topo_order().to_vec();
-
     // Phase 1: Type-check each module independently and extract exports.
     // Resolved imports are cached to avoid redundant work in phase 2.
     let mut cached_imports: HashMap<ModuleId, Vec<ResolvedImport>> = HashMap::new();
@@ -56,9 +55,7 @@ pub fn check_and_compile(graph: &mut ModuleGraph) -> ModuleResult<Bytecode> {
     for &module_id in &topo_order {
         let node = graph.node(module_id);
         let file_path = node.path.clone();
-
         let imports = resolve_imports(&node.program, &exports, graph)?;
-
         let program = &mut graph.node_mut(module_id).program;
         let mut checker = TypeChecker::new();
         for import in &imports {
@@ -75,7 +72,6 @@ pub fn check_and_compile(graph: &mut ModuleGraph) -> ModuleResult<Bytecode> {
             }
             .at(Span::ZERO, file_path));
         }
-
         let module_exports = extract_exports(program, checker.env());
         exports.insert(module_id, module_exports);
 
@@ -88,10 +84,8 @@ pub fn check_and_compile(graph: &mut ModuleGraph) -> ModuleResult<Bytecode> {
             }
             .at(Span::ZERO, file_path));
         }
-
         cached_imports.insert(module_id, imports);
     }
-
     // Phase 2: Compile all modules with a shared compiler. Because the
     // compiler's symbol table and constant pool persist across modules,
     // `define_symbol` reuses existing global indices for imported symbols,
@@ -102,18 +96,14 @@ pub fn check_and_compile(graph: &mut ModuleGraph) -> ModuleResult<Bytecode> {
     // symbol table, preventing private symbols from leaking into
     // subsequent modules.
     let mut compiler = Compiler::new();
-
     for &module_id in &topo_order {
         let file_path = graph.node(module_id).path.clone();
-
         if let Some(imports) = cached_imports.get(&module_id) {
             for import in imports {
                 inject_import_into_compiler(&mut compiler, import);
             }
         }
-
         let before = compiler.symbols_table_mut().global_symbol_names();
-
         let program = &graph.node(module_id).program;
         compiler.compile_program(program).map_err(|e| {
             ModuleErrorKind::CompileErrors {
@@ -139,7 +129,6 @@ pub fn check_and_compile(graph: &mut ModuleGraph) -> ModuleResult<Bytecode> {
             }
         }
     }
-
     let root_path = graph.root().path.clone();
     compiler.bytecode().map_err(|e| {
         ModuleErrorKind::CompileErrors {
@@ -158,20 +147,16 @@ pub fn check_and_compile(graph: &mut ModuleGraph) -> ModuleResult<Bytecode> {
 pub fn check_exports(graph: &mut ModuleGraph) -> ModuleResult<HashMap<ModuleId, ModuleExports>> {
     let mut exports: HashMap<ModuleId, ModuleExports> = HashMap::new();
     let topo_order = graph.topo_order().to_vec();
-
     for &module_id in &topo_order {
         let node = graph.node(module_id);
         let file_path = node.path.clone();
-
         let imports = resolve_imports(&node.program, &exports, graph)?;
-
         let program = &mut graph.node_mut(module_id).program;
         let mut checker = TypeChecker::new();
         for import in &imports {
             inject_import(checker.env_mut(), import);
         }
         checker.check_program_mut(program);
-
         let type_errors = checker.errors();
         if !type_errors.is_empty() {
             let messages = type_errors.iter().map(|e| e.kind.to_string()).collect();
@@ -181,11 +166,9 @@ pub fn check_exports(graph: &mut ModuleGraph) -> ModuleResult<HashMap<ModuleId, 
             }
             .at(Span::ZERO, file_path));
         }
-
         let module_exports = extract_exports(program, checker.env());
         exports.insert(module_id, module_exports);
     }
-
     Ok(exports)
 }
 
@@ -215,12 +198,10 @@ fn resolve_imports(
     graph: &ModuleGraph,
 ) -> ModuleResult<Vec<ResolvedImport>> {
     let mut result = Vec::new();
-
     for stmt in &program.statements {
         let Stmt::Use(use_stmt) = stmt else {
             continue;
         };
-
         // Determine the module path and items to import.
         //
         // For group imports (`use foo::{bar, baz};`), the full path
@@ -242,9 +223,7 @@ fn resolve_imports(
             // items will fail with an undefined variable error.
             continue;
         };
-
         let target_id = find_module_by_path(graph, module_path);
-
         let Some(target_id) = target_id else {
             // Module not in the graph; use of its items will fail
             // with an undefined variable error during compilation.
@@ -253,12 +232,10 @@ fn resolve_imports(
         let Some(target_exports) = exports.get(&target_id) else {
             continue;
         };
-
         for item_name in &items_to_import {
             find_exports(target_exports, item_name, &mut result);
         }
     }
-
     Ok(result)
 }
 
@@ -296,10 +273,8 @@ fn find_exports(exports: &ModuleExports, name: &str, result: &mut Vec<ResolvedIm
         });
         return;
     }
-
     // For struct/enum imports, also pull in associated impl blocks.
     let mut is_type_import = false;
-
     if let Some(def) = exports.structs.iter().find(|d| d.name == name) {
         result.push(ResolvedImport {
             local_name: name.to_string(),
@@ -314,7 +289,6 @@ fn find_exports(exports: &ModuleExports, name: &str, result: &mut Vec<ResolvedIm
         });
         is_type_import = true;
     }
-
     if is_type_import {
         for imp in &exports.impls {
             let matches = match &imp.self_type {
@@ -330,7 +304,6 @@ fn find_exports(exports: &ModuleExports, name: &str, result: &mut Vec<ResolvedIm
         }
         return;
     }
-
     if let Some(def) = exports.traits.iter().find(|d| d.name == name) {
         result.push(ResolvedImport {
             local_name: name.to_string(),
@@ -423,7 +396,6 @@ fn inject_import(env: &mut TypeEnv, import: &ResolvedImport) {
 /// from the type environment.
 fn extract_exports(program: &Program, env: &TypeEnv) -> ModuleExports {
     let mut exports = ModuleExports::default();
-
     for stmt in &program.statements {
         match stmt {
             Stmt::FuncDef(func) if func.is_public => {
@@ -452,18 +424,15 @@ fn extract_exports(program: &Program, env: &TypeEnv) -> ModuleExports {
                     TypeExpr::Generic(name, _, _) => name,
                     _ => continue,
                 };
-
                 let pub_methods = impl_block
                     .methods
                     .iter()
                     .filter(|m| m.is_public)
                     .map(|m| m.name.as_str())
                     .collect::<Vec<&str>>();
-
                 if pub_methods.is_empty() {
                     continue;
                 }
-
                 // Find the matching ImplDef and export only public methods.
                 for imp in env.all_impls() {
                     let matches = match &imp.self_type {
@@ -512,6 +481,5 @@ fn extract_exports(program: &Program, env: &TypeEnv) -> ModuleExports {
             _ => {}
         }
     }
-
     exports
 }

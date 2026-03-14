@@ -87,8 +87,8 @@ impl<'a> Parser<'a> {
         }
 
         let err = format!(
-            "expected peek token to be `{:?}`, got `{:?}` instead",
-            expected, self.peek.kind
+            "expected peek token to be `{expected:?}`, got `{:?}` instead",
+            self.peek.kind
         );
         self.push_error(err);
         false
@@ -534,7 +534,7 @@ impl<'a> Parser<'a> {
                 })
             }
             kind => {
-                let msg = format!("no prefix parse function for `{:?}` found", kind);
+                let msg = format!("no prefix parse function for `{kind:?}` found");
                 self.push_error(msg);
                 return None;
             }

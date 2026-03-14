@@ -156,7 +156,6 @@ impl SymbolsTable {
         } else {
             SymbolScope::Global
         };
-
         // Reuse the existing index when rebinding a name at the same scope level,
         // but only if the symbol was defined within the current block scope.
         // If the existing symbol predates the current block, this is a shadow
@@ -170,7 +169,6 @@ impl SymbolsTable {
                 .block_scopes
                 .last()
                 .is_some_and(|block| self.store[name].index < block.num_definitions_at_entry);
-
             if !is_shadow {
                 self.masked.remove(name);
                 // Update mutability on rebinding.
@@ -179,14 +177,12 @@ impl SymbolsTable {
                 }
                 return Ok(&self.store[name]);
             }
-
             // Save the original symbol so it can be restored when the
             // block scope exits.
             if let Some(block) = self.block_scopes.last_mut() {
                 block.shadowed.push(self.store[name].clone());
             }
         }
-
         match scope {
             SymbolScope::Global if self.num_definitions > MAX_GLOBALS => {
                 return Err(CompileError::new(CompileErrorKind::SymbolsTableOverflow {
@@ -204,7 +200,6 @@ impl SymbolsTable {
             }
             _ => {}
         }
-
         let symbol = Symbol {
             name: name.to_string(),
             scope,
@@ -265,10 +260,8 @@ impl SymbolsTable {
         {
             return Some(symbol.clone());
         }
-
         let outer = self.outer.as_mut()?;
         let outer_symbol = outer.resolve_symbol(name)?;
-
         match outer_symbol.scope {
             SymbolScope::Global | SymbolScope::Builtin => Some(outer_symbol),
             _ => Some(self.define_free(outer_symbol)),
@@ -390,7 +383,6 @@ mod tests {
             ("c", SymbolScope::Local, 0),
             ("d", SymbolScope::Local, 1),
         ];
-
         for (name, expected_scope, expected_index) in expected {
             let symbol = local
                 .resolve_symbol(name)
@@ -409,11 +401,9 @@ mod tests {
             ("e", SymbolScope::Builtin, 2),
             ("f", SymbolScope::Builtin, 3),
         ];
-
         for (i, &(name, _, _)) in expected.iter().enumerate() {
             global.define_builtin(i, name);
         }
-
         let first_local = SymbolsTable::new_enclosed(global);
         let mut second_local = SymbolsTable::new_enclosed(first_local);
 
@@ -439,7 +429,6 @@ mod tests {
         first_local
             .define_symbol("d", false)
             .expect("should define 'd'");
-
         let mut second_local = SymbolsTable::new_enclosed(first_local);
         second_local
             .define_symbol("e", false)
@@ -454,7 +443,6 @@ mod tests {
             ("e", SymbolScope::Local, 0),
             ("f", SymbolScope::Local, 1),
         ];
-
         for (name, expected_scope, expected_index) in expected {
             let symbol = second_local
                 .resolve_symbol(name)
@@ -477,7 +465,6 @@ mod tests {
         first_local
             .define_symbol("d", false)
             .expect("should define 'd'");
-
         let mut second_local = SymbolsTable::new_enclosed(first_local);
         second_local
             .define_symbol("e", false)
@@ -494,7 +481,6 @@ mod tests {
             ("e", SymbolScope::Local, 0),
             ("f", SymbolScope::Local, 1),
         ];
-
         for (name, expected_scope, expected_index) in expected {
             let symbol = second_local
                 .resolve_symbol(name)
@@ -502,7 +488,6 @@ mod tests {
             assert_eq!(symbol.scope, expected_scope, "wrong scope for '{name}'");
             assert_eq!(symbol.index, expected_index, "wrong index for '{name}'");
         }
-
         let expected_free = [
             Symbol {
                 name: "c".to_string(),
@@ -517,7 +502,6 @@ mod tests {
                 mutable: false,
             },
         ];
-
         assert_eq!(
             second_local.free_vars().len(),
             expected_free.len(),
@@ -537,7 +521,6 @@ mod tests {
         first_local
             .define_symbol("c", false)
             .expect("should define 'c'");
-
         let mut second_local = SymbolsTable::new_enclosed(first_local);
         second_local
             .define_symbol("e", false)
@@ -552,7 +535,6 @@ mod tests {
             ("e", SymbolScope::Local, 0),
             ("f", SymbolScope::Local, 1),
         ];
-
         for (name, expected_scope, expected_index) in expected {
             let symbol = second_local
                 .resolve_symbol(name)
@@ -560,7 +542,6 @@ mod tests {
             assert_eq!(symbol.scope, expected_scope, "wrong scope for '{name}'");
             assert_eq!(symbol.index, expected_index, "wrong index for '{name}'");
         }
-
         assert!(
             second_local.resolve_symbol("b").is_none(),
             "should not resolve undefined 'b'"

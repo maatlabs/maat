@@ -6,12 +6,10 @@ fn run_roundtrip_test(input: &str, expected: Object) {
     let bytecode = maat_tests::roundtrip(input);
     let mut vm = VM::new(bytecode);
     vm.run().expect("vm error");
-
     let result = vm
         .last_popped_stack_elem()
         .expect("no value on stack")
         .clone();
-
     assert_eq!(result, expected, "mismatch for input: {input}");
 }
 
@@ -117,7 +115,6 @@ fn bytecode_determinism() {
         "let a = fn(x) { let b = fn(y) { x + y }; b }; a(1)(2)",
         "{true: 1, false: 0}[true]",
     ];
-
     for source in sources {
         let bytes_a = compile(source)
             .serialize()
