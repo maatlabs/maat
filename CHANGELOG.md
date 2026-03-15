@@ -4,6 +4,78 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-03-15
+
+Standard library, methods, and iterators release. Maat now features Rust-native method syntax on built-in types, a standard library importable via the module system, full language surface completeness (comments, bitwise operators, compound assignment, mutable bindings, forward references), compile-time type-directed method dispatch, and first-class range syntax with `for..in` integration.
+
+### Added
+
+#### Method Syntax for Built-in Types
+
+- **`impl [T]`**: `arr.len()`, `arr.first()`, `arr.last()`, `arr.rest()`, `arr.push(x)`, `arr.join(sep)`
+- **`impl str`**: `s.len()`, `s.trim()`, `s.contains(sub)`, `s.starts_with(pre)`, `s.ends_with(suf)`, `s.split(delim)`, `s.parse_int()`
+- `print` remains a free function
+- Old free-function forms (`len(arr)`, `first(arr)`, etc.) removed
+
+#### Standard Library Modules
+
+- **`std::math`**: `abs`, `min`, `max`, `pow`, `gcd`, `lcm` -- implemented as Maat source files (`.mt`), importable via `use std::math::abs;`
+- **`std::string`**: `split`, `join`, `trim`, `contains`, `starts_with`, `ends_with`, `parse_int`
+- **`std::collections`**: `Set` backed by `IndexMap` with `insert`, `contains`, `remove`, `len`, `to_array` methods
+- Compiler resolves `std::` imports by searching a built-in stdlib path in addition to the project directory
+
+#### Language Surface Completeness
+
+- **Line comments (`//`) and block comments (`/* */`)** in the lexer
+- **Modulo operator (`%`)**: Lexer token, parser infix rule, `OpMod` opcode, VM execution with Euclidean semantics (`checked_rem_euclid`) for cryptographic correctness
+- **`else if` chains**: `else if (cond) { ... }` without requiring `else { if ... }` nesting
+- **Bitwise operators (`&`, `|`, `^`, `<<`, `>>`)**: Full pipeline from lexer to VM with `OpBitAnd`, `OpBitOr`, `OpBitXor`, `OpShl`, `OpShr` opcodes
+- **Compound assignment (`+=`, `-=`, `*=`, `/=`, `%=`)**: Desugared to `x = x op rhs` in the parser
+- **Mutable bindings (`let mut`)**: `let mut x = 0; x = x + 1;` with compile-time `ImmutableAssignment` error for non-`mut` bindings. Plain `let` rebinding inside loops is now block-scoped
+- **Forward function references**: Two-pass compilation collects all function signatures in pass 1, compiles bodies in pass 2 -- enables top-down code organization and mutual recursion
+- **Block scoping**: `let` bindings inside `if`/`while`/`for`/`loop` blocks are scoped to the block
+
+#### Range Syntax & `for..in` Integration
+
+- **Range expressions**: `start..end` (half-open) and `start..=end` (inclusive) as first-class `Range`/`RangeInclusive` runtime values
+- **`MakeRange` / `MakeRangeInclusive` opcodes**: Pop two i64 values from the stack, push a range object
+- **`Type::Range(Box<Type>)`**: Full type inference and unification support; type checker validates that range bounds are integer types
+- **`for i in 0..10 { ... }`**: Desugars to an efficient counter-based loop (no heap allocation), with `break`/`continue` support
+- **`for..in` on arrays**: Retained as index-based desugaring via `Array::len` + `Index`
+
+#### New Runtime Objects
+
+- **`Object::Range(i64, i64)`** and **`Object::RangeInclusive(i64, i64)`**: First-class range values with `Display`, `PartialEq`, `Serialize`/`Deserialize`
+
+#### New Error Types
+
+- `CompileErrorKind::ImmutableAssignment { name }` for assignment to non-`mut` bindings
+
+### Changed
+
+- **Opcode count**: 35 -> 43 (`Mod`, `BitAnd`, `BitOr`, `BitXor`, `Shl`, `Shr`, `MakeRange`, `MakeRangeInclusive`)
+- **Builtin functions**: Multi-dispatch `builtin_len` and `str_contains` split into single-type functions (`array_len`, `str_len`, `str_contains` str-only)
+- **For-loop compilation**: `Stmt::For` now branches on `Expr::Range` (counter-based) vs array (index-based) desugaring
+- **Block scoping**: All blocks (`if`, `while`, `for`, `loop`) use `push_block_scope()`/`pop_block_scope()` for proper lexical scoping
+- **AST**: Added `Expr::Range(RangeExpr)`, `LetStmt::mutable`, `Stmt::ReAssign(ReAssignStmt)`. `MethodCallExpr` gained `receiver: Option<String>` field
+- **Lexer**: Added `DotDot` (`..`), `DotDotEqual` (`..=`), `Mut` keyword; compound assignment operators (`+=`, `-=`, `*=`, `/=`, `%=`)
+- **Parser**: Added range expression parsing at `RANGE` precedence level; compound assignment desugaring; `else if` chain parsing; `let mut` binding parsing
+- **Type system**: Added `Type::Range(Box<Type>)` with unification, occurs-check, and free-var collection
+- **Evaluator**: Added `Expr::Range` evaluation producing `Object::Range`/`Object::RangeInclusive`
+
+### Removed
+
+- **`examples/macros.mt`**: Removed (macro expansion belongs in the eval pipeline, not the compile pipeline)
+
+### Security
+
+- Euclidean modulo (`checked_rem_euclid`) ensures correct results for negative operands -- critical for cryptographic algorithms
+- Mutable binding enforcement prevents accidental mutation of immutable variables
+- Block scoping prevents variable leakage across scope boundaries
+- No unsafe code
+
+---
+
 ## [0.8.0] - 2026-03-10
 
 Module system release. Maat now supports multi-file programs with `mod`, `use`, and `pub`. Modules are resolved from the filesystem, organized into a dependency graph, type-checked independently with cross-module visibility enforcement, and compiled into a single linked bytecode via a shared compiler. No separate linking pass is required.
@@ -632,6 +704,7 @@ When adding entries to this changelog for future releases:
 3. **Audience**: Write for users, not developers (focus on impact, not implementation)
 4. **Links**: Add comparison links at the bottom: `[0.2.0]: https://github.com/maatlabs/maat/compare/v0.1.0...v0.2.0`
 
+[0.9.0]: https://github.com/maatlabs/maat/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/maatlabs/maat/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/maatlabs/maat/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/maatlabs/maat/compare/v0.5.0...v0.6.0
