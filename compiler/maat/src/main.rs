@@ -25,14 +25,14 @@ struct Cli {
 enum Command {
     /// Compile and execute a Maat source file.
     Run {
-        /// Path to the `.mt` source file.
+        /// Path to the `.maat` source file.
         file: PathBuf,
     },
     /// Start the interactive REPL.
     Repl,
     /// Compile a source file to bytecode.
     Build {
-        /// Path to the `.mt` source file.
+        /// Path to the `.maat` source file.
         file: PathBuf,
         /// Output path for the compiled `.mtc` bytecode file.
         #[arg(short, long)]

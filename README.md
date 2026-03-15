@@ -12,7 +12,7 @@ _Maat_ is a Turing-complete programming language designed to encourage proof-dri
 
 Proof-Driven Development (PDD) is software development methodology that emphasizes formal verification and mathematical proofs to ensure the correctness and reliability of code. It is an extension of test-driven development (TDD), but instead of relying solely on tests, it uses formal methods to prove properties of the code.
 
-Source files written in Maat use the `.mt` extension. Compiled bytecode files use the `.mtc` extension.
+Source files written in Maat use the `.maat` extension. Compiled bytecode files use the `.mtc` extension.
 
 ## Getting Started
 
@@ -35,12 +35,12 @@ cargo build --release
 
 Maat provides a single binary with four subcommands:
 
-| Subcommand                             | Description                                 |
-| -------------------------------------- | ------------------------------------------- |
-| `maat run <file.mt>`                   | Compile and execute a `.mt` source file     |
-| `maat build <file.mt> -o <output.mtc>` | Compile a `.mt` file to `.mtc` bytecode     |
-| `maat exec <file.mtc>`                 | Execute a pre-compiled `.mtc` bytecode file |
-| `maat repl`                            | Start an interactive REPL session           |
+| Subcommand                               | Description                                 |
+| ---------------------------------------- | ------------------------------------------- |
+| `maat run <file.maat>`                   | Compile and execute a `.maat` source file   |
+| `maat build <file.maat> -o <output.mtc>` | Compile a `.maat` file to `.mtc` bytecode   |
+| `maat exec <file.mtc>`                   | Execute a pre-compiled `.mtc` bytecode file |
+| `maat repl`                              | Start an interactive REPL session           |
 
 To see version information:
 
@@ -53,13 +53,13 @@ cargo run --release -- --version
 Compile and execute a Maat source file in a single step:
 
 ```bash
-cargo run --release -- run examples/fibonacci.mt
+cargo run --release -- run examples/fibonacci.maat
 ```
 
 Or use the build-then-execute workflow for faster repeated execution:
 
 ```bash
-cargo run --release -- build examples/fibonacci.mt -o fibonacci.mtc
+cargo run --release -- build examples/fibonacci.maat -o fibonacci.mtc
 cargo run --release -- exec fibonacci.mtc
 ```
 
@@ -71,12 +71,12 @@ Given a project layout:
 
 ```txt
 my_project/
-  main.mt
-  geometry.mt
-  math.mt
+  main.maat
+  geometry.maat
+  math.maat
 ```
 
-**`main.mt`**:
+**`main.maat`**:
 
 ```rust
 mod geometry;
@@ -90,7 +90,7 @@ print(add(p.x, p.y));
 print(p.sum());
 ```
 
-**`geometry.mt`**:
+**`geometry.maat`**:
 
 ```rust
 pub struct Point {
@@ -103,7 +103,7 @@ impl Point {
 }
 ```
 
-**`math.mt`**:
+**`math.maat`**:
 
 ```rust
 pub fn add(a: i64, b: i64) -> i64 { a + b }
@@ -114,19 +114,19 @@ fn internal_helper() -> i64 { 0 }
 Run it:
 
 ```bash
-cargo run --release -- run my_project/main.mt
+cargo run --release -- run my_project/main.maat
 ```
 
 Build it to a single `.mtc`:
 
 ```bash
-cargo run --release -- build my_project/main.mt -o my_project.mtc
+cargo run --release -- build my_project/main.maat -o my_project.mtc
 cargo run --release -- exec my_project.mtc
 ```
 
 Key rules:
 
-- `mod foo;` declares a dependency on `foo.mt` (or `foo/mod.mt`) relative to the declaring file
+- `mod foo;` declares a dependency on `foo.maat` (or `foo/mod.maat`) relative to the declaring file
 - `use foo::bar;` or `use foo::{bar, baz};` imports specific public items -- no glob imports (`use foo::*`) for ZK auditability
 - Items without `pub` are module-private and inaccessible to importers
 - Circular module dependencies are detected and rejected at compile time

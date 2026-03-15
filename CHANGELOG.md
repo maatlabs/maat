@@ -19,7 +19,7 @@ Standard library, methods, and iterators release. Maat now features Rust-native 
 
 #### Standard Library Modules
 
-- **`std::math`**: `abs`, `min`, `max`, `pow`, `gcd`, `lcm` -- implemented as Maat source files (`.mt`), importable via `use std::math::abs;`
+- **`std::math`**: `abs`, `min`, `max`, `pow`, `gcd`, `lcm` -- implemented as Maat source files (`.maat`), importable via `use std::math::abs;`
 - **`std::string`**: `split`, `join`, `trim`, `contains`, `starts_with`, `ends_with`, `parse_int`
 - **`std::collections`**: `Set` backed by `IndexMap` with `insert`, `contains`, `remove`, `len`, `to_array` methods
 - Compiler resolves `std::` imports by searching a built-in stdlib path in addition to the project directory
@@ -53,6 +53,7 @@ Standard library, methods, and iterators release. Maat now features Rust-native 
 
 ### Changed
 
+- **Source file extension**: Changed from `.mt` to `maat` to avoid "conflict" with Wolfram Mathematica (`.mt`) and MT Library for C++ (`.mt`) data files
 - **Opcode count**: 35 -> 43 (`Mod`, `BitAnd`, `BitOr`, `BitXor`, `Shl`, `Shr`, `MakeRange`, `MakeRangeInclusive`)
 - **Builtin functions**: Multi-dispatch `builtin_len` and `str_contains` split into single-type functions (`array_len`, `str_len`, `str_contains` str-only)
 - **For-loop compilation**: `Stmt::For` now branches on `Expr::Range` (counter-based) vs array (index-based) desugaring

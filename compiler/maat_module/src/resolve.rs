@@ -238,9 +238,9 @@ fn collect_mod_declarations(
         }
         .at(Span::ZERO, parent_path.to_path_buf())
     })?;
-    // Root files and `mod.mt` files resolve submodules in their own directory.
+    // Root files and `mod.maat` files resolve submodules in their own directory.
     // Other files resolve submodules in a subdirectory named after the file stem
-    // (e.g., `foo.mt` with `mod bar;` looks for `foo/bar.mt`).
+    // (e.g., `foo.maat` with `mod bar;` looks for `foo/bar.maat`).
     let is_mod_file = parent_path.file_stem().is_some_and(|s| s == "mod");
     let base_dir = if is_root || is_mod_file {
         parent_dir.to_path_buf()
@@ -279,7 +279,7 @@ fn collect_mod_declarations(
 
 /// Resolves a `mod foo;` declaration to a canonical file path.
 ///
-/// Tries `<base_dir>/foo.mt` first, then `<base_dir>/foo/mod.mt`.
+/// Tries `<base_dir>/foo.maat` first, then `<base_dir>/foo/mod.maat`.
 /// If both exist, the resolution is ambiguous and an error is returned.
 fn resolve_mod_path(
     base_dir: &Path,
@@ -287,8 +287,8 @@ fn resolve_mod_path(
     span: Span,
     parent_path: &Path,
 ) -> ModuleResult<PathBuf> {
-    let file_path = base_dir.join(format!("{module_name}.mt"));
-    let dir_path = base_dir.join(module_name).join("mod.mt");
+    let file_path = base_dir.join(format!("{module_name}.maat"));
+    let dir_path = base_dir.join(module_name).join("mod.maat");
     let file_exists = file_path.is_file();
     let dir_exists = dir_path.is_file();
 
@@ -341,8 +341,8 @@ mod tests {
 
     #[test]
     fn single_file_no_modules() {
-        let dir = setup_temp_project(&[("main.mt", "let x = 42;")]);
-        let graph = resolve_module_graph(&dir.path().join("main.mt")).unwrap();
+        let dir = setup_temp_project(&[("main.maat", "let x = 42;")]);
+        let graph = resolve_module_graph(&dir.path().join("main.maat")).unwrap();
         assert_eq!(graph.len(), 1);
         assert_eq!(graph.topo_order().len(), 1);
         assert_eq!(graph.topo_order()[0], ModuleId::ROOT);
@@ -351,10 +351,10 @@ mod tests {
     #[test]
     fn single_submodule() {
         let dir = setup_temp_project(&[
-            ("main.mt", "mod math;"),
-            ("math.mt", "pub fn add(a: i64, b: i64) -> i64 { a + b }"),
+            ("main.maat", "mod math;"),
+            ("math.maat", "pub fn add(a: i64, b: i64) -> i64 { a + b }"),
         ]);
-        let graph = resolve_module_graph(&dir.path().join("main.mt")).unwrap();
+        let graph = resolve_module_graph(&dir.path().join("main.maat")).unwrap();
         assert_eq!(graph.len(), 2);
         let order = graph.topo_order();
         assert_eq!(order.len(), 2);
@@ -367,11 +367,14 @@ mod tests {
     #[test]
     fn nested_submodule_via_dir() {
         let dir = setup_temp_project(&[
-            ("main.mt", "mod math;"),
-            ("math/mod.mt", "mod ops;"),
-            ("math/ops.mt", "pub fn add(a: i64, b: i64) -> i64 { a + b }"),
+            ("main.maat", "mod math;"),
+            ("math/mod.maat", "mod ops;"),
+            (
+                "math/ops.maat",
+                "pub fn add(a: i64, b: i64) -> i64 { a + b }",
+            ),
         ]);
-        let graph = resolve_module_graph(&dir.path().join("main.mt")).unwrap();
+        let graph = resolve_module_graph(&dir.path().join("main.maat")).unwrap();
         assert_eq!(graph.len(), 3);
         let order = graph.topo_order();
         let names = order
@@ -385,8 +388,8 @@ mod tests {
 
     #[test]
     fn module_not_found() {
-        let dir = setup_temp_project(&[("main.mt", "mod nonexistent;")]);
-        let err = resolve_module_graph(&dir.path().join("main.mt")).unwrap_err();
+        let dir = setup_temp_project(&[("main.maat", "mod nonexistent;")]);
+        let err = resolve_module_graph(&dir.path().join("main.maat")).unwrap_err();
         assert!(
             matches!(&err.kind, ModuleErrorKind::FileNotFound { module_name, .. } if module_name == "nonexistent")
         );
@@ -394,9 +397,11 @@ mod tests {
 
     #[test]
     fn duplicate_module_declaration() {
-        let dir =
-            setup_temp_project(&[("main.mt", "mod foo;\nmod foo;"), ("foo.mt", "let x = 1;")]);
-        let err = resolve_module_graph(&dir.path().join("main.mt")).unwrap_err();
+        let dir = setup_temp_project(&[
+            ("main.maat", "mod foo;\nmod foo;"),
+            ("foo.maat", "let x = 1;"),
+        ]);
+        let err = resolve_module_graph(&dir.path().join("main.maat")).unwrap_err();
         assert!(
             matches!(&err.kind, ModuleErrorKind::DuplicateModule { module_name } if module_name == "foo")
         );
@@ -404,26 +409,27 @@ mod tests {
 
     #[test]
     fn inline_module_not_resolved_as_file() {
-        let dir = setup_temp_project(&[("main.mt", "mod utils { pub fn helper() -> i64 { 42 } }")]);
-        let graph = resolve_module_graph(&dir.path().join("main.mt")).unwrap();
+        let dir =
+            setup_temp_project(&[("main.maat", "mod utils { pub fn helper() -> i64 { 42 } }")]);
+        let graph = resolve_module_graph(&dir.path().join("main.maat")).unwrap();
         assert_eq!(graph.len(), 1);
     }
 
     #[test]
     fn parse_error_in_submodule() {
-        let dir = setup_temp_project(&[("main.mt", "mod bad;"), ("bad.mt", "let = ;")]);
-        let err = resolve_module_graph(&dir.path().join("main.mt")).unwrap_err();
+        let dir = setup_temp_project(&[("main.maat", "mod bad;"), ("bad.maat", "let = ;")]);
+        let err = resolve_module_graph(&dir.path().join("main.maat")).unwrap_err();
         assert!(matches!(&err.kind, ModuleErrorKind::ParseErrors { .. }));
     }
 
     #[test]
     fn multiple_submodules() {
         let dir = setup_temp_project(&[
-            ("main.mt", "mod alpha;\nmod beta;"),
-            ("alpha.mt", "pub fn a() -> i64 { 1 }"),
-            ("beta.mt", "pub fn b() -> i64 { 2 }"),
+            ("main.maat", "mod alpha;\nmod beta;"),
+            ("alpha.maat", "pub fn a() -> i64 { 1 }"),
+            ("beta.maat", "pub fn b() -> i64 { 2 }"),
         ]);
-        let graph = resolve_module_graph(&dir.path().join("main.mt")).unwrap();
+        let graph = resolve_module_graph(&dir.path().join("main.maat")).unwrap();
         assert_eq!(graph.len(), 3);
         let last = graph.topo_order().last().unwrap();
         assert!(graph.node(*last).qualified_path.is_empty());
@@ -432,20 +438,20 @@ mod tests {
     #[test]
     fn diamond_dependency() {
         let dir = setup_temp_project(&[
-            ("main.mt", "mod a;\nmod b;"),
-            ("a.mt", "mod shared;"),
-            ("b.mt", "mod shared;"),
-            ("a/shared.mt", "pub fn sa() -> i64 { 1 }"),
-            ("b/shared.mt", "pub fn sb() -> i64 { 2 }"),
+            ("main.maat", "mod a;\nmod b;"),
+            ("a.maat", "mod shared;"),
+            ("b.maat", "mod shared;"),
+            ("a/shared.maat", "pub fn sa() -> i64 { 1 }"),
+            ("b/shared.maat", "pub fn sb() -> i64 { 2 }"),
         ]);
-        let graph = resolve_module_graph(&dir.path().join("main.mt")).unwrap();
+        let graph = resolve_module_graph(&dir.path().join("main.maat")).unwrap();
         assert_eq!(graph.len(), 5);
     }
 
     #[test]
     fn file_not_utf8() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("bad.mt");
+        let path = dir.path().join("bad.maat");
         fs::write(&path, [0xFF, 0xFE, 0x00]).unwrap();
         let err = resolve_module_graph(&path).unwrap_err();
         assert!(matches!(&err.kind, ModuleErrorKind::Io { .. }));
@@ -454,11 +460,11 @@ mod tests {
     #[test]
     fn mod_mt_submodule_resolution() {
         let dir = setup_temp_project(&[
-            ("main.mt", "mod utils;"),
-            ("utils/mod.mt", "mod helpers;"),
-            ("utils/helpers.mt", "pub fn h() -> i64 { 99 }"),
+            ("main.maat", "mod utils;"),
+            ("utils/mod.maat", "mod helpers;"),
+            ("utils/helpers.maat", "pub fn h() -> i64 { 99 }"),
         ]);
-        let graph = resolve_module_graph(&dir.path().join("main.mt")).unwrap();
+        let graph = resolve_module_graph(&dir.path().join("main.maat")).unwrap();
         assert_eq!(graph.len(), 3);
         let order = graph.topo_order();
         let names = order
@@ -473,11 +479,11 @@ mod tests {
     #[test]
     fn ambiguous_module_both_file_and_dir() {
         let dir = setup_temp_project(&[
-            ("main.mt", "mod foo;"),
-            ("foo.mt", "let x = 1;"),
-            ("foo/mod.mt", "let y = 2;"),
+            ("main.maat", "mod foo;"),
+            ("foo.maat", "let x = 1;"),
+            ("foo/mod.maat", "let y = 2;"),
         ]);
-        let err = resolve_module_graph(&dir.path().join("main.mt")).unwrap_err();
+        let err = resolve_module_graph(&dir.path().join("main.maat")).unwrap_err();
         assert!(
             matches!(&err.kind, ModuleErrorKind::FileNotFound { module_name, candidates } if module_name == "foo" && candidates.len() == 2)
         );
@@ -486,12 +492,12 @@ mod tests {
     #[test]
     fn deeply_nested_modules() {
         let dir = setup_temp_project(&[
-            ("main.mt", "mod a;"),
-            ("a.mt", "mod b;"),
-            ("a/b.mt", "mod c;"),
-            ("a/b/c.mt", "pub fn deep() -> i64 { 42 }"),
+            ("main.maat", "mod a;"),
+            ("a.maat", "mod b;"),
+            ("a/b.maat", "mod c;"),
+            ("a/b/c.maat", "pub fn deep() -> i64 { 42 }"),
         ]);
-        let graph = resolve_module_graph(&dir.path().join("main.mt")).unwrap();
+        let graph = resolve_module_graph(&dir.path().join("main.maat")).unwrap();
         assert_eq!(graph.len(), 4);
         let order = graph.topo_order();
         let names = order
@@ -507,12 +513,12 @@ mod tests {
     #[test]
     fn topo_order_leaves_first() {
         let dir = setup_temp_project(&[
-            ("main.mt", "mod x;\nmod y;"),
-            ("x.mt", "mod z;"),
-            ("x/z.mt", "pub fn zz() -> i64 { 0 }"),
-            ("y.mt", "pub fn yy() -> i64 { 1 }"),
+            ("main.maat", "mod x;\nmod y;"),
+            ("x.maat", "mod z;"),
+            ("x/z.maat", "pub fn zz() -> i64 { 0 }"),
+            ("y.maat", "pub fn yy() -> i64 { 1 }"),
         ]);
-        let graph = resolve_module_graph(&dir.path().join("main.mt")).unwrap();
+        let graph = resolve_module_graph(&dir.path().join("main.maat")).unwrap();
         let order = graph.topo_order();
         assert!(graph.node(*order.last().unwrap()).qualified_path.is_empty());
         let z_pos = order

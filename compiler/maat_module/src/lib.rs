@@ -10,14 +10,14 @@
 //!
 //! Resolution follows Rust's module conventions:
 //!
-//! - **Root entry files** and **`mod.mt`** files resolve submodules in
-//!   their own directory: `mod foo;` in `dir/mod.mt` resolves to
-//!   `dir/foo.mt` or `dir/foo/mod.mt`.
+//! - **Root entry files** and **`mod.maat`** files resolve submodules in
+//!   their own directory: `mod foo;` in `dir/mod.maat` resolves to
+//!   `dir/foo.maat` or `dir/foo/mod.maat`.
 //! - **All other files** resolve submodules in a subdirectory named after
-//!   the file stem: `mod bar;` in `dir/foo.mt` resolves to
-//!   `dir/foo/bar.mt` or `dir/foo/bar/mod.mt`.
+//!   the file stem: `mod bar;` in `dir/foo.maat` resolves to
+//!   `dir/foo/bar.maat` or `dir/foo/bar/mod.maat`.
 //!
-//! If both `foo.mt` and `foo/mod.mt` exist, the resolution is ambiguous
+//! If both `foo.maat` and `foo/mod.maat` exist, the resolution is ambiguous
 //! and an error is produced. If neither exists, a resolution error is
 //! produced.
 

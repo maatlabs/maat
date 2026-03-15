@@ -1,6 +1,6 @@
 //! Embedded standard library sources.
 //!
-//! The stdlib ships alongside the compiler as embedded `.mt` source strings.
+//! The stdlib ships alongside the compiler as embedded `.maat` source strings.
 //! When a `use std::X::...` import is encountered, the module resolver
 //! fetches the corresponding source from this module rather than the
 //! file system.
@@ -17,13 +17,13 @@ use maat_span::Span;
 use crate::{ModuleGraph, ModuleId, ModuleResult};
 
 /// Embedded source for `std::math`.
-const STD_MATH: &str = include_str!("../../../library/std/math.mt");
+const STD_MATH: &str = include_str!("../../../library/std/math.maat");
 
 /// Embedded source for `std::string`.
-const STD_STRING: &str = include_str!("../../../library/std/string.mt");
+const STD_STRING: &str = include_str!("../../../library/std/string.maat");
 
 /// Embedded source for `std::collections`.
-const STD_COLLECTIONS: &str = include_str!("../../../library/std/collections.mt");
+const STD_COLLECTIONS: &str = include_str!("../../../library/std/collections.maat");
 
 /// Returns the embedded source for a standard library module, if it exists.
 fn lookup_stdlib_source(module_name: &str) -> Option<&'static str> {
@@ -38,7 +38,7 @@ fn lookup_stdlib_source(module_name: &str) -> Option<&'static str> {
 /// Scans all modules in the graph for `use std::X` imports and adds the
 /// corresponding standard library modules to the graph.
 ///
-/// Stdlib modules are added with a synthetic path (`<std>/X.mt`) and
+/// Stdlib modules are added with a synthetic path (`<std>/X.maat`) and
 /// qualified path `["std", "X"]`. They participate in the normal
 /// type-checking and compilation pipeline.
 pub(crate) fn inject_stdlib_modules(graph: &mut ModuleGraph) -> ModuleResult<()> {
@@ -61,7 +61,7 @@ pub(crate) fn inject_stdlib_modules(graph: &mut ModuleGraph) -> ModuleResult<()>
             .at(Span::ZERO, PathBuf::from("<std>"))
         })?;
         let program = parse_stdlib_source(module_name, source)?;
-        let synthetic_path = PathBuf::from(format!("<std>/{module_name}.mt"));
+        let synthetic_path = PathBuf::from(format!("<std>/{module_name}.maat"));
         let qualified_path = vec!["std".to_string(), module_name.clone()];
         let stdlib_id = graph.add_node(program, synthetic_path, qualified_path);
 
@@ -97,7 +97,7 @@ fn parse_stdlib_source(module_name: &str, source: &str) -> ModuleResult<Program>
     if parser.errors().is_empty() {
         Ok(program)
     } else {
-        let path = PathBuf::from(format!("<std>/{module_name}.mt"));
+        let path = PathBuf::from(format!("<std>/{module_name}.maat"));
         Err(ModuleErrorKind::ParseErrors {
             file: path.clone(),
             messages: parser.errors().iter().map(|e| e.to_string()).collect(),

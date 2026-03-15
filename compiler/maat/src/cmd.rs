@@ -16,7 +16,7 @@ use crate::diagnostic;
 /// If `output_path` is `None`, the output file is derived from the
 /// source path by replacing its extension with `.mtc`.
 pub fn build(source_path: &Path, output_path: Option<&Path>) {
-    require_extension(source_path, "mt", "build");
+    require_extension(source_path, "maat", "build");
 
     let bytecode = compile_source(source_path);
     let bytes = match bytecode.serialize() {
@@ -81,7 +81,7 @@ pub fn execute(path: &Path) {
 /// linked bytecode, then executes it on the VM. The result of the last
 /// expression (if non-null) is printed to stdout.
 pub fn run(path: &Path) {
-    require_extension(path, "mt", "run");
+    require_extension(path, "maat", "run");
 
     let bytecode = compile_source(path);
     let mut vm = VM::new(bytecode);
@@ -109,7 +109,7 @@ fn require_extension(path: &Path, expected: &str, command: &str) {
     }
 }
 
-/// Compiles a `.mt` source file (and all its module dependencies) to
+/// Compiles a `.maat` source file (and all its module dependencies) to
 /// linked [`Bytecode`].
 ///
 /// Runs the full multi-module pipeline:

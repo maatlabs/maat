@@ -21,7 +21,7 @@ fn setup_temp_project(pairs: &[(&str, &str)]) -> tempfile::TempDir {
 /// Resolves and compiles a multi-file project, returning linked bytecode.
 fn compile_project(pairs: &[(&str, &str)]) -> ModuleResult<Bytecode> {
     let dir = setup_temp_project(pairs);
-    let mut graph = resolve_module_graph(&dir.path().join("main.mt"))?;
+    let mut graph = resolve_module_graph(&dir.path().join("main.maat"))?;
     check_and_compile(&mut graph)
 }
 
@@ -35,7 +35,7 @@ fn run_project(pairs: &[(&str, &str)]) -> Object {
 
 #[test]
 fn single_module_compiles() {
-    let result = compile_project(&[("main.mt", "let x: i64 = 42;")]);
+    let result = compile_project(&[("main.maat", "let x: i64 = 42;")]);
     assert!(result.is_ok());
 }
 
@@ -43,10 +43,10 @@ fn single_module_compiles() {
 fn import_pub_function() {
     let result = compile_project(&[
         (
-            "main.mt",
+            "main.maat",
             "mod math;\nuse math::add;\nlet result: i64 = add(1, 2);",
         ),
-        ("math.mt", "pub fn add(a: i64, b: i64) -> i64 { a + b }"),
+        ("math.maat", "pub fn add(a: i64, b: i64) -> i64 { a + b }"),
     ]);
     assert!(result.is_ok(), "expected Ok, got: {:?}", result.err());
 }
@@ -54,8 +54,8 @@ fn import_pub_function() {
 #[test]
 fn import_pub_function_executes() {
     let result = run_project(&[
-        ("main.mt", "mod math;\nuse math::add;\nadd(10, 32)"),
-        ("math.mt", "pub fn add(a: i64, b: i64) -> i64 { a + b }"),
+        ("main.maat", "mod math;\nuse math::add;\nadd(10, 32)"),
+        ("math.maat", "pub fn add(a: i64, b: i64) -> i64 { a + b }"),
     ]);
     assert_eq!(result, Object::I64(42));
 }
@@ -64,10 +64,10 @@ fn import_pub_function_executes() {
 fn try_import_private_function() {
     let result = compile_project(&[
         (
-            "main.mt",
+            "main.maat",
             "mod math;\nuse math::secret;\nlet x: i64 = secret();",
         ),
-        ("math.mt", "fn secret() -> i64 { 42 }"),
+        ("math.maat", "fn secret() -> i64 { 42 }"),
     ]);
     assert!(result.is_err());
 }
@@ -76,11 +76,11 @@ fn try_import_private_function() {
 fn import_grouped_pub_items() {
     let result = run_project(&[
         (
-            "main.mt",
+            "main.maat",
             "mod math;\nuse math::{add, sub};\nadd(1, 2) + sub(5, 3)",
         ),
         (
-            "math.mt",
+            "math.maat",
             "pub fn add(a: i64, b: i64) -> i64 { a + b }\npub fn sub(a: i64, b: i64) -> i64 { a - b }",
         ),
     ]);
@@ -92,8 +92,8 @@ fn bare_use_module_is_noop() {
     // `use math;` without qualified path is silently ignored.
     // Items remain inaccessible without explicit import paths.
     let result = compile_project(&[
-        ("main.mt", "mod math;\nuse math;\nlet x: i64 = add(1, 2);"),
-        ("math.mt", "pub fn add(a: i64, b: i64) -> i64 { a + b }"),
+        ("main.maat", "mod math;\nuse math;\nlet x: i64 = add(1, 2);"),
+        ("math.maat", "pub fn add(a: i64, b: i64) -> i64 { a + b }"),
     ]);
     assert!(result.is_err());
 }
@@ -102,11 +102,11 @@ fn bare_use_module_is_noop() {
 fn import_specific_items_from_group() {
     let result = compile_project(&[
         (
-            "main.mt",
+            "main.maat",
             "mod math;\nuse math::{add, sub};\nlet x: i64 = add(1, 2);\nlet y: i64 = sub(5, 3);",
         ),
         (
-            "math.mt",
+            "math.maat",
             "pub fn add(a: i64, b: i64) -> i64 { a + b }\npub fn sub(a: i64, b: i64) -> i64 { a - b }\nfn internal() -> i64 { 0 }",
         ),
     ]);
@@ -117,11 +117,11 @@ fn import_specific_items_from_group() {
 fn import_pub_struct() {
     let result = run_project(&[
         (
-            "main.mt",
+            "main.maat",
             "mod types;\nuse types::Point;\nlet p = Point { x: 10, y: 20 };\np.x + p.y",
         ),
         (
-            "types.mt",
+            "types.maat",
             "pub struct Point {\n    pub x: i64,\n    pub y: i64,\n}",
         ),
     ]);
@@ -132,11 +132,11 @@ fn import_pub_struct() {
 fn import_pub_enum() {
     let result = compile_project(&[
         (
-            "main.mt",
+            "main.maat",
             "mod types;\nuse types::Color;\nlet c = Color::Red;",
         ),
         (
-            "types.mt",
+            "types.maat",
             "pub enum Color {\n    Red,\n    Green,\n    Blue,\n}",
         ),
     ]);
@@ -146,8 +146,8 @@ fn import_pub_enum() {
 #[test]
 fn type_error_in_dependency_module() {
     let result = compile_project(&[
-        ("main.mt", "mod bad;"),
-        ("bad.mt", "pub fn broken() -> i64 { true }"),
+        ("main.maat", "mod bad;"),
+        ("bad.maat", "pub fn broken() -> i64 { true }"),
     ]);
     assert!(result.is_err());
     let err = result.unwrap_err();
@@ -162,11 +162,11 @@ fn type_error_in_dependency_module() {
 fn diamond_dependency_compiles() {
     let result = run_project(&[
         (
-            "main.mt",
+            "main.maat",
             "mod a;\nmod b;\nuse a::from_a;\nuse b::from_b;\nfrom_a() + from_b()",
         ),
-        ("a.mt", "pub fn from_a() -> i64 { 1 }"),
-        ("b.mt", "pub fn from_b() -> i64 { 2 }"),
+        ("a.maat", "pub fn from_a() -> i64 { 1 }"),
+        ("b.maat", "pub fn from_b() -> i64 { 2 }"),
     ]);
     assert_eq!(result, Object::I64(3));
 }
@@ -174,9 +174,9 @@ fn diamond_dependency_compiles() {
 #[test]
 fn reexport_pub_use() {
     let result = run_project(&[
-        ("main.mt", "mod facade;\nuse facade::helper;\nhelper()"),
-        ("facade.mt", "mod utils;\npub use utils::helper;"),
-        ("facade/utils.mt", "pub fn helper() -> i64 { 42 }"),
+        ("main.maat", "mod facade;\nuse facade::helper;\nhelper()"),
+        ("facade.maat", "mod utils;\npub use utils::helper;"),
+        ("facade/utils.maat", "pub fn helper() -> i64 { 42 }"),
     ]);
     assert_eq!(result, Object::I64(42));
 }
@@ -184,13 +184,13 @@ fn reexport_pub_use() {
 #[test]
 fn exports_only_pub_items() {
     let dir = setup_temp_project(&[
-        ("main.mt", "mod lib;"),
+        ("main.maat", "mod lib;"),
         (
-            "lib.mt",
+            "lib.maat",
             "pub fn visible() -> i64 { 1 }\nfn hidden() -> i64 { 2 }",
         ),
     ]);
-    let mut graph = resolve_module_graph(&dir.path().join("main.mt")).unwrap();
+    let mut graph = resolve_module_graph(&dir.path().join("main.maat")).unwrap();
     let exports = check_exports(&mut graph).unwrap();
 
     let lib_exports = exports
@@ -205,13 +205,13 @@ fn exports_only_pub_items() {
 #[test]
 fn impl_blocks_export_only_pub_methods() {
     let dir = setup_temp_project(&[
-        ("main.mt", "mod shapes;"),
+        ("main.maat", "mod shapes;"),
         (
-            "shapes.mt",
+            "shapes.maat",
             "pub struct Circle {\n    pub radius: i64,\n}\n\nimpl Circle {\n    pub fn area(self) -> i64 { self.radius }\n    fn secret(self) -> i64 { self.radius }\n}",
         ),
     ]);
-    let mut graph = resolve_module_graph(&dir.path().join("main.mt")).unwrap();
+    let mut graph = resolve_module_graph(&dir.path().join("main.maat")).unwrap();
     let exports = check_exports(&mut graph).unwrap();
     let shapes_exports = exports
         .iter()
@@ -227,12 +227,12 @@ fn impl_blocks_export_only_pub_methods() {
 #[test]
 fn nested_module_import() {
     let result = run_project(&[
-        ("main.mt", "mod outer;\nuse outer::greet;\ngreet()"),
+        ("main.maat", "mod outer;\nuse outer::greet;\ngreet()"),
         (
-            "outer.mt",
+            "outer.maat",
             "mod inner;\nuse inner::value;\npub fn greet() -> i64 { value() }",
         ),
-        ("outer/inner.mt", "pub fn value() -> i64 { 99 }"),
+        ("outer/inner.maat", "pub fn value() -> i64 { 99 }"),
     ]);
     assert_eq!(result, Object::I64(99));
 }
@@ -240,8 +240,8 @@ fn nested_module_import() {
 #[test]
 fn linked_bytecode_serialization_roundtrip() {
     let bytecode = compile_project(&[
-        ("main.mt", "mod math;\nuse math::add;\nadd(10, 32)"),
-        ("math.mt", "pub fn add(a: i64, b: i64) -> i64 { a + b }"),
+        ("main.maat", "mod math;\nuse math::add;\nadd(10, 32)"),
+        ("math.maat", "pub fn add(a: i64, b: i64) -> i64 { a + b }"),
     ])
     .expect("compilation failed");
     let serialized = bytecode.serialize().expect("serialization failed");
@@ -255,11 +255,11 @@ fn linked_bytecode_serialization_roundtrip() {
 fn module_with_struct_method_call() {
     let result = run_project(&[
         (
-            "main.mt",
+            "main.maat",
             "mod geo;\nuse geo::Point;\nlet p = Point { x: 3, y: 4 };\np.sum()",
         ),
         (
-            "geo.mt",
+            "geo.maat",
             "pub struct Point {\n    pub x: i64,\n    pub y: i64,\n}\n\nimpl Point {\n    pub fn sum(self) -> i64 { self.x + self.y }\n}",
         ),
     ]);
@@ -270,11 +270,11 @@ fn module_with_struct_method_call() {
 fn multiple_modules_with_internal_state() {
     let result = run_project(&[
         (
-            "main.mt",
+            "main.maat",
             "mod counter;\nuse counter::make_value;\nmake_value()",
         ),
         (
-            "counter.mt",
+            "counter.maat",
             "let base: i64 = 100;\npub fn make_value() -> i64 { base + 42 }",
         ),
     ]);
@@ -284,68 +284,68 @@ fn multiple_modules_with_internal_state() {
 #[test]
 fn std_math() {
     // abs()
-    let result = run_project(&[("main.mt", "use std::math::abs;\nabs(7)")]);
+    let result = run_project(&[("main.maat", "use std::math::abs;\nabs(7)")]);
     assert_eq!(result, Object::I64(7));
-    let result = run_project(&[("main.mt", "use std::math::abs;\nabs(-42)")]);
+    let result = run_project(&[("main.maat", "use std::math::abs;\nabs(-42)")]);
     assert_eq!(result, Object::I64(42));
 
     // min()
-    let result = run_project(&[("main.mt", "use std::math::min;\nmin(3, 7)")]);
+    let result = run_project(&[("main.maat", "use std::math::min;\nmin(3, 7)")]);
     assert_eq!(result, Object::I64(3));
     // max()
-    let result = run_project(&[("main.mt", "use std::math::max;\nmax(3, 7)")]);
+    let result = run_project(&[("main.maat", "use std::math::max;\nmax(3, 7)")]);
     assert_eq!(result, Object::I64(7));
 
     // pow()
-    let result = run_project(&[("main.mt", "use std::math::pow;\npow(2, 10)")]);
+    let result = run_project(&[("main.maat", "use std::math::pow;\npow(2, 10)")]);
     assert_eq!(result, Object::I64(1024));
-    let result = run_project(&[("main.mt", "use std::math::pow;\npow(5, 0)")]);
+    let result = run_project(&[("main.maat", "use std::math::pow;\npow(5, 0)")]);
     assert_eq!(result, Object::I64(1));
 
     // gcd()
-    let result = run_project(&[("main.mt", "use std::math::gcd;\ngcd(12, 8)")]);
+    let result = run_project(&[("main.maat", "use std::math::gcd;\ngcd(12, 8)")]);
     assert_eq!(result, Object::I64(4));
 
     // lcm()
-    let result = run_project(&[("main.mt", "use std::math::lcm;\nlcm(4, 6)")]);
+    let result = run_project(&[("main.maat", "use std::math::lcm;\nlcm(4, 6)")]);
     assert_eq!(result, Object::I64(12));
 }
 
 #[test]
 fn std_string() {
     // trim()
-    let result = run_project(&[("main.mt", "use std::string::trim;\ntrim(\"  hello  \")")]);
+    let result = run_project(&[("main.maat", "use std::string::trim;\ntrim(\"  hello  \")")]);
     assert_eq!(result, Object::Str("hello".to_string()));
 
     // contains()
     let result = run_project(&[(
-        "main.mt",
+        "main.maat",
         "use std::string::contains;\ncontains(\"hello world\", \"world\")",
     )]);
     assert_eq!(result, Object::Bool(true));
     let result = run_project(&[(
-        "main.mt",
+        "main.maat",
         "use std::string::contains;\ncontains(\"hello\", \"xyz\")",
     )]);
     assert_eq!(result, Object::Bool(false));
 
     // starts_with()
     let result = run_project(&[(
-        "main.mt",
+        "main.maat",
         "use std::string::starts_with;\nstarts_with(\"hello world\", \"hello\")",
     )]);
     assert_eq!(result, Object::Bool(true));
 
     // ends_with()
     let result = run_project(&[(
-        "main.mt",
+        "main.maat",
         "use std::string::ends_with;\nends_with(\"hello world\", \"world\")",
     )]);
     assert_eq!(result, Object::Bool(true));
 
     // split()
     let result = run_project(&[(
-        "main.mt",
+        "main.maat",
         "use std::string::split;\nsplit(\"a,b,c\", \",\")",
     )]);
     assert_eq!(
@@ -359,13 +359,16 @@ fn std_string() {
 
     // join()
     let result = run_project(&[(
-        "main.mt",
+        "main.maat",
         "use std::string::join;\njoin([\"a\", \"b\", \"c\"], \"-\")",
     )]);
     assert_eq!(result, Object::Str("a-b-c".to_string()));
 
     // parse_int()
-    let result = run_project(&[("main.mt", "use std::string::parse_int;\nparse_int(\"42\")")]);
+    let result = run_project(&[(
+        "main.maat",
+        "use std::string::parse_int;\nparse_int(\"42\")",
+    )]);
     assert_eq!(result, Object::I64(42));
 }
 
@@ -373,28 +376,28 @@ fn std_string() {
 fn std_collections_set() {
     // new(), len()
     let result = run_project(&[(
-        "main.mt",
+        "main.maat",
         "use std::collections::{new_set, set_len};\nlet s = new_set();\nset_len(s)",
     )]);
     assert_eq!(result, Object::Usize(0));
 
     // insert(), contains()
     let result = run_project(&[(
-        "main.mt",
+        "main.maat",
         "use std::collections::{new_set, set_insert, set_contains};\nlet s = new_set();\nlet s = set_insert(s, 42);\nset_contains(s, 42)",
     )]);
     assert_eq!(result, Object::Bool(true));
 
     // remove()
     let result = run_project(&[(
-        "main.mt",
+        "main.maat",
         "use std::collections::{new_set, set_insert, set_remove, set_contains};\nlet s = new_set();\nlet s = set_insert(s, 1);\nlet s = set_remove(s, 1);\nset_contains(s, 1)",
     )]);
     assert_eq!(result, Object::Bool(false));
 
     // uniqueness
     let result = run_project(&[(
-        "main.mt",
+        "main.maat",
         "use std::collections::{new_set, set_insert, set_len};\nlet s = new_set();\nlet s = set_insert(s, 1);\nlet s = set_insert(s, 1);\nlet s = set_insert(s, 2);\nset_len(s)",
     )]);
     assert_eq!(result, Object::Usize(2));
@@ -403,32 +406,32 @@ fn std_collections_set() {
 #[test]
 fn str_methods() {
     // s.trim()
-    let result = run_project(&[("main.mt", "let s: str = \"  hello  \";\ns.trim()")]);
+    let result = run_project(&[("main.maat", "let s: str = \"  hello  \";\ns.trim()")]);
     assert_eq!(result, Object::Str("hello".to_string()));
 
     // s.contains()
     let result = run_project(&[(
-        "main.mt",
+        "main.maat",
         "let s: str = \"hello world\";\ns.contains(\"world\")",
     )]);
     assert_eq!(result, Object::Bool(true));
 
     // s.starts_with()
     let result = run_project(&[(
-        "main.mt",
+        "main.maat",
         "let s: str = \"hello world\";\ns.starts_with(\"hello\")",
     )]);
     assert_eq!(result, Object::Bool(true));
 
     // s.ends_with()
     let result = run_project(&[(
-        "main.mt",
+        "main.maat",
         "let s: str = \"hello world\";\ns.ends_with(\"world\")",
     )]);
     assert_eq!(result, Object::Bool(true));
 
     // s.split()
-    let result = run_project(&[("main.mt", "let s: str = \"a,b,c\";\ns.split(\",\")")]);
+    let result = run_project(&[("main.maat", "let s: str = \"a,b,c\";\ns.split(\",\")")]);
     assert_eq!(
         result,
         Object::Array(vec![
@@ -439,14 +442,14 @@ fn str_methods() {
     );
 
     // s.parse_int()
-    let result = run_project(&[("main.mt", "let s: str = \"123\";\ns.parse_int()")]);
+    let result = run_project(&[("main.maat", "let s: str = \"123\";\ns.parse_int()")]);
     assert_eq!(result, Object::I64(123));
 }
 
 #[test]
 fn array_join_method() {
     let result = run_project(&[(
-        "main.mt",
+        "main.maat",
         "let arr = [\"x\", \"y\", \"z\"];\narr.join(\", \")",
     )]);
     assert_eq!(result, Object::Str("x, y, z".to_string()));
@@ -456,10 +459,10 @@ fn array_join_method() {
 fn stdlib_combined_with_user_modules() {
     let result = run_project(&[
         (
-            "main.mt",
+            "main.maat",
             "mod helpers;\nuse helpers::double;\nuse std::math::abs;\nabs(double(-5))",
         ),
-        ("helpers.mt", "pub fn double(x: i64) -> i64 { x * 2 }"),
+        ("helpers.maat", "pub fn double(x: i64) -> i64 { x * 2 }"),
     ]);
     assert_eq!(result, Object::I64(10));
 }
