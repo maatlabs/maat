@@ -146,6 +146,40 @@ pub enum Opcode {
     /// otherwise jump to the target.
     /// Operands: [u16] - expected variant tag, [u16] - jump target on mismatch
     MatchTag = 34,
+
+    /// Compute the remainder of two values from the stack.
+    /// Operands: none
+    Mod = 35,
+
+    /// Bitwise AND of two values from the stack.
+    /// Operands: none
+    BitAnd = 36,
+
+    /// Bitwise OR of two values from the stack.
+    /// Operands: none
+    BitOr = 37,
+
+    /// Bitwise XOR of two values from the stack.
+    /// Operands: none
+    BitXor = 38,
+
+    /// Left shift of two values from the stack.
+    /// Operands: none
+    Shl = 39,
+
+    /// Right shift of two values from the stack.
+    /// Operands: none
+    Shr = 40,
+
+    /// Construct a half-open `Range` from two i64 values on the stack.
+    /// Pops `end` then `start`, pushes `Object::Range(start, end)`.
+    /// Operands: none
+    MakeRange = 41,
+
+    /// Construct an inclusive `RangeInclusive` from two i64 values on the stack.
+    /// Pops `end` then `start`, pushes `Object::RangeInclusive(start, end)`.
+    /// Operands: none
+    MakeRangeInclusive = 42,
 }
 
 impl Opcode {
@@ -187,6 +221,14 @@ impl Opcode {
             Self::Construct => "OpConstruct",
             Self::GetField => "OpGetField",
             Self::MatchTag => "OpMatchTag",
+            Self::Mod => "OpMod",
+            Self::BitAnd => "OpBitAnd",
+            Self::BitOr => "OpBitOr",
+            Self::BitXor => "OpBitXor",
+            Self::Shl => "OpShl",
+            Self::Shr => "OpShr",
+            Self::MakeRange => "OpMakeRange",
+            Self::MakeRangeInclusive => "OpMakeRangeInclusive",
         }
     }
 
@@ -230,7 +272,15 @@ impl Opcode {
             | Self::Index
             | Self::ReturnValue
             | Self::Return
-            | Self::CurrentClosure => &[],
+            | Self::CurrentClosure
+            | Self::Mod
+            | Self::BitAnd
+            | Self::BitOr
+            | Self::BitXor
+            | Self::Shl
+            | Self::Shr
+            | Self::MakeRange
+            | Self::MakeRangeInclusive => &[],
         }
     }
 
@@ -273,6 +323,14 @@ impl Opcode {
             32 => Some(Self::Construct),
             33 => Some(Self::GetField),
             34 => Some(Self::MatchTag),
+            35 => Some(Self::Mod),
+            36 => Some(Self::BitAnd),
+            37 => Some(Self::BitOr),
+            38 => Some(Self::BitXor),
+            39 => Some(Self::Shl),
+            40 => Some(Self::Shr),
+            41 => Some(Self::MakeRange),
+            42 => Some(Self::MakeRangeInclusive),
             _ => None,
         }
     }
@@ -339,7 +397,7 @@ mod tests {
 
     #[test]
     fn opcode_roundtrip() {
-        for byte in 0..=34 {
+        for byte in 0..=42 {
             let opcode = Opcode::from_byte(byte).unwrap();
             assert_eq!(opcode.to_byte(), byte);
         }
@@ -349,24 +407,18 @@ mod tests {
     fn opcode_metadata() {
         assert_eq!(Opcode::Constant.name(), "OpConstant");
         assert_eq!(Opcode::Constant.operand_widths(), &[2]);
-
         assert_eq!(Opcode::Add.name(), "OpAdd");
         assert_eq!(Opcode::Add.operand_widths(), &[]);
-
         assert_eq!(Opcode::Pop.name(), "OpPop");
         assert_eq!(Opcode::Pop.operand_widths(), &[]);
-
         assert_eq!(Opcode::Sub.name(), "OpSub");
         assert_eq!(Opcode::Mul.name(), "OpMul");
         assert_eq!(Opcode::Div.name(), "OpDiv");
-
         assert_eq!(Opcode::True.name(), "OpTrue");
         assert_eq!(Opcode::False.name(), "OpFalse");
-
         assert_eq!(Opcode::Equal.name(), "OpEqual");
         assert_eq!(Opcode::NotEqual.name(), "OpNotEqual");
         assert_eq!(Opcode::GreaterThan.name(), "OpGreaterThan");
-
         assert_eq!(Opcode::Minus.name(), "OpMinus");
         assert_eq!(Opcode::Bang.name(), "OpBang");
     }

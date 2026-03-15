@@ -6,12 +6,10 @@ fn run_roundtrip_test(input: &str, expected: Object) {
     let bytecode = maat_tests::roundtrip(input);
     let mut vm = VM::new(bytecode);
     vm.run().expect("vm error");
-
     let result = vm
         .last_popped_stack_elem()
         .expect("no value on stack")
         .clone();
-
     assert_eq!(result, expected, "mismatch for input: {input}");
 }
 
@@ -82,7 +80,7 @@ fn recursive_factorial() {
 #[test]
 fn arrays() {
     run_roundtrip_test("[1, 2, 3][1]", Object::I64(2));
-    run_roundtrip_test("len([1, 2, 3])", Object::Usize(3));
+    run_roundtrip_test("[1, 2, 3].len()", Object::Usize(3));
 }
 
 #[test]
@@ -93,7 +91,7 @@ fn hash_literals() {
 #[test]
 fn cast_expressions() {
     run_roundtrip_test("42 as i32", Object::I32(42));
-    run_roundtrip_test("len([1, 2]) as i64", Object::I64(2));
+    run_roundtrip_test("[1, 2].len() as i64", Object::I64(2));
 }
 
 #[test]
@@ -117,7 +115,6 @@ fn bytecode_determinism() {
         "let a = fn(x) { let b = fn(y) { x + y }; b }; a(1)(2)",
         "{true: 1, false: 0}[true]",
     ];
-
     for source in sources {
         let bytes_a = compile(source)
             .serialize()

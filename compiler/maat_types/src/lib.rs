@@ -17,5 +17,6 @@ pub use check::TypeChecker;
 pub use convert::resolve_type_expr;
 pub use env::TypeEnv;
 pub use ty::{
-    EnumDef, ImplDef, MethodSig, StructDef, TraitDef, Type, TypeScheme, VariantDef, VariantKind,
+    EnumDef, FnType, ImplDef, MethodSig, StructDef, TraitDef, Type, TypeScheme, TypeVarId,
+    VariantDef, VariantKind,
 };

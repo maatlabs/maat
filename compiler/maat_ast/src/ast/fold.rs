@@ -22,35 +22,36 @@ pub fn fold_constants(program: &mut Program) -> Vec<TypeError> {
 
 fn fold_statement(stmt: &mut Stmt, errors: &mut Vec<TypeError>) {
     match stmt {
-        Stmt::Let(let_stmt) => fold_expression(&mut let_stmt.value, errors),
-        Stmt::Return(ret_stmt) => fold_expression(&mut ret_stmt.value, errors),
-        Stmt::Expr(expr_stmt) => fold_expression(&mut expr_stmt.value, errors),
-        Stmt::Block(block) => fold_block(block, errors),
-        Stmt::FuncDef(fn_item) => fold_block(&mut fn_item.body, errors),
-        Stmt::Loop(loop_stmt) => fold_block(&mut loop_stmt.body, errors),
-        Stmt::While(while_stmt) => {
-            fold_expression(&mut while_stmt.condition, errors);
-            fold_block(&mut while_stmt.body, errors);
+        Stmt::Let(s) => fold_expression(&mut s.value, errors),
+        Stmt::ReAssign(s) => fold_expression(&mut s.value, errors),
+        Stmt::Return(s) => fold_expression(&mut s.value, errors),
+        Stmt::Expr(s) => fold_expression(&mut s.value, errors),
+        Stmt::Block(s) => fold_block(s, errors),
+        Stmt::FuncDef(s) => fold_block(&mut s.body, errors),
+        Stmt::Loop(s) => fold_block(&mut s.body, errors),
+        Stmt::While(s) => {
+            fold_expression(&mut s.condition, errors);
+            fold_block(&mut s.body, errors);
         }
-        Stmt::For(for_stmt) => {
-            fold_expression(&mut for_stmt.iterable, errors);
-            fold_block(&mut for_stmt.body, errors);
+        Stmt::For(s) => {
+            fold_expression(&mut s.iterable, errors);
+            fold_block(&mut s.body, errors);
         }
         Stmt::StructDecl(_) | Stmt::EnumDecl(_) | Stmt::Use(_) => {}
-        Stmt::TraitDecl(decl) => {
-            for method in &mut decl.methods {
+        Stmt::TraitDecl(s) => {
+            for method in &mut s.methods {
                 if let Some(body) = &mut method.default_body {
                     fold_block(body, errors);
                 }
             }
         }
-        Stmt::ImplBlock(impl_block) => {
-            for method in &mut impl_block.methods {
+        Stmt::ImplBlock(s) => {
+            for method in &mut s.methods {
                 fold_block(&mut method.body, errors);
             }
         }
-        Stmt::Mod(mod_stmt) => {
-            if let Some(body) = &mut mod_stmt.body {
+        Stmt::Mod(s) => {
+            if let Some(body) = &mut s.body {
                 for stmt in body {
                     fold_statement(stmt, errors);
                 }
@@ -68,72 +69,76 @@ fn fold_block(block: &mut BlockStmt, errors: &mut Vec<TypeError>) {
 fn fold_expression(expr: &mut Expr, errors: &mut Vec<TypeError>) {
     // Post-order: fold children first so `1 + 2 + 3` cascades.
     match expr {
-        Expr::Prefix(prefix) => {
-            fold_expression(&mut prefix.operand, errors);
-            if let Some(folded) = try_fold_prefix(prefix, errors) {
+        Expr::Prefix(e) => {
+            fold_expression(&mut e.operand, errors);
+            if let Some(folded) = try_fold_prefix(e, errors) {
                 *expr = folded;
             }
         }
-        Expr::Infix(infix) => {
-            fold_expression(&mut infix.lhs, errors);
-            fold_expression(&mut infix.rhs, errors);
-            if let Some(folded) = try_fold_infix(infix, errors) {
+        Expr::Infix(e) => {
+            fold_expression(&mut e.lhs, errors);
+            fold_expression(&mut e.rhs, errors);
+            if let Some(folded) = try_fold_infix(e, errors) {
                 *expr = folded;
             }
         }
-        Expr::Array(array) => {
-            for elem in &mut array.elements {
+        Expr::Array(e) => {
+            for elem in &mut e.elements {
                 fold_expression(elem, errors);
             }
         }
-        Expr::Map(map) => {
-            for (k, v) in &mut map.pairs {
+        Expr::Map(e) => {
+            for (k, v) in &mut e.pairs {
                 fold_expression(k, errors);
                 fold_expression(v, errors);
             }
         }
-        Expr::Index(idx) => {
-            fold_expression(&mut idx.expr, errors);
-            fold_expression(&mut idx.index, errors);
+        Expr::Index(e) => {
+            fold_expression(&mut e.expr, errors);
+            fold_expression(&mut e.index, errors);
         }
-        Expr::Cond(cond) => {
-            fold_expression(&mut cond.condition, errors);
-            fold_block(&mut cond.consequence, errors);
-            if let Some(alt) = &mut cond.alternative {
+        Expr::Cond(e) => {
+            fold_expression(&mut e.condition, errors);
+            fold_block(&mut e.consequence, errors);
+            if let Some(alt) = &mut e.alternative {
                 fold_block(alt, errors);
             }
         }
-        Expr::Lambda(lambda) => fold_block(&mut lambda.body, errors),
-        Expr::Macro(m) => fold_block(&mut m.body, errors),
-        Expr::Call(call) => {
-            fold_expression(&mut call.function, errors);
-            for arg in &mut call.arguments {
+        Expr::Lambda(e) => fold_block(&mut e.body, errors),
+        Expr::Macro(e) => fold_block(&mut e.body, errors),
+        Expr::Call(e) => {
+            fold_expression(&mut e.function, errors);
+            for arg in &mut e.arguments {
                 fold_expression(arg, errors);
             }
         }
-        Expr::Cast(cast) => fold_expression(&mut cast.expr, errors),
-        Expr::Break(break_expr) => {
-            if let Some(val) = &mut break_expr.value {
+        Expr::Cast(e) => fold_expression(&mut e.expr, errors),
+        Expr::Break(e) => {
+            if let Some(val) = &mut e.value {
                 fold_expression(val, errors);
             }
         }
-        Expr::Match(match_expr) => {
-            fold_expression(&mut match_expr.scrutinee, errors);
-            for arm in &mut match_expr.arms {
+        Expr::Match(e) => {
+            fold_expression(&mut e.scrutinee, errors);
+            for arm in &mut e.arms {
                 fold_expression(&mut arm.body, errors);
             }
         }
-        Expr::FieldAccess(fa) => fold_expression(&mut fa.object, errors),
-        Expr::MethodCall(mc) => {
-            fold_expression(&mut mc.object, errors);
-            for arg in &mut mc.arguments {
+        Expr::FieldAccess(e) => fold_expression(&mut e.object, errors),
+        Expr::MethodCall(e) => {
+            fold_expression(&mut e.object, errors);
+            for arg in &mut e.arguments {
                 fold_expression(arg, errors);
             }
         }
-        Expr::StructLit(sl) => {
-            for (_, val) in &mut sl.fields {
+        Expr::StructLit(e) => {
+            for (_, val) in &mut e.fields {
                 fold_expression(val, errors);
             }
+        }
+        Expr::Range(e) => {
+            fold_expression(&mut e.start, errors);
+            fold_expression(&mut e.end, errors);
         }
         _ => {}
     }
@@ -167,12 +172,12 @@ fn try_fold_prefix(prefix: &PrefixExpr, errors: &mut Vec<TypeError>) -> Option<E
             }
 
             match prefix.operand.as_ref() {
-                Expr::I8(lit) => negate_int!(lit, I8, "i8"),
-                Expr::I16(lit) => negate_int!(lit, I16, "i16"),
-                Expr::I32(lit) => negate_int!(lit, I32, "i32"),
-                Expr::I64(lit) => negate_int!(lit, I64, "i64"),
-                Expr::I128(lit) => negate_int!(lit, I128, "i128"),
-                Expr::Isize(lit) => negate_int!(lit, Isize, "isize"),
+                Expr::I8(v) => negate_int!(v, I8, "i8"),
+                Expr::I16(v) => negate_int!(v, I16, "i16"),
+                Expr::I32(v) => negate_int!(v, I32, "i32"),
+                Expr::I64(v) => negate_int!(v, I64, "i64"),
+                Expr::I128(v) => negate_int!(v, I128, "i128"),
+                Expr::Isize(v) => negate_int!(v, Isize, "isize"),
                 _ => None,
             }
         }
@@ -198,6 +203,7 @@ fn try_fold_infix(infix: &InfixExpr, errors: &mut Vec<TypeError>) -> Option<Expr
                 "-" => $lhs.value.checked_sub($rhs.value),
                 "*" => $lhs.value.checked_mul($rhs.value),
                 "/" => $lhs.value.checked_div($rhs.value),
+                "%" => $lhs.value.checked_rem_euclid($rhs.value),
                 _ => return try_fold_comparison(infix),
             };
             match result {
@@ -209,7 +215,7 @@ fn try_fold_infix(infix: &InfixExpr, errors: &mut Vec<TypeError>) -> Option<Expr
                 None => {
                     errors.push(
                         TypeErrorKind::NumericOverflow {
-                            value: format!("{} {} {}", $lhs.value, op, $rhs.value),
+                            value: format!("{} {op} {}", $lhs.value, $rhs.value),
                             target: $name.to_string(),
                         }
                         .at(span),

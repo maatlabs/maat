@@ -11,7 +11,6 @@ use maat_span::Span;
 /// Renders a parse error with a source snippet to stderr.
 pub fn report_parse_error(path: &str, source: &str, error: &ParseError) {
     let range = byte_range_to_char_range(source, error.span);
-
     Report::build(ReportKind::Error, (path, range.clone()))
         .with_message("parse error")
         .with_label(
@@ -31,7 +30,6 @@ pub fn report_compile_error(path: &str, source: &str, error: &CompileError) {
     match error.span {
         Some(span) => {
             let range = byte_range_to_char_range(source, span);
-
             Report::build(ReportKind::Error, (path, range.clone()))
                 .with_message("compile error")
                 .with_label(
@@ -54,7 +52,6 @@ pub fn report_vm_error(path: &str, source: &str, error: &VmError) {
     match error.span {
         Some(span) => {
             let range = byte_range_to_char_range(source, span);
-
             Report::build(ReportKind::Error, (path, range.clone()))
                 .with_message("runtime error")
                 .with_label(
@@ -73,7 +70,6 @@ pub fn report_vm_error(path: &str, source: &str, error: &VmError) {
 /// Renders a type error with a source snippet to stderr.
 pub fn report_type_error(path: &str, source: &str, error: &TypeError) {
     let range = byte_range_to_char_range(source, error.span);
-
     Report::build(ReportKind::Error, (path, range.clone()))
         .with_message("type error")
         .with_label(

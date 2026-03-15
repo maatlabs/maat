@@ -47,9 +47,9 @@ pub fn resolve_module_graph(entry: &Path) -> ModuleResult<ModuleGraph> {
         }
         .at(Span::ZERO, entry.to_path_buf())
     })?;
-
     let mut resolver = Resolver::new();
     resolver.resolve_file(&canonical, Vec::new())?;
+    crate::stdlib::inject_stdlib_modules(&mut resolver.graph)?;
     resolver.compute_topo_order()?;
     Ok(resolver.graph)
 }
@@ -75,10 +75,8 @@ impl Resolver {
         if let Some(&id) = self.file_to_id.get(path) {
             return Ok(id);
         }
-
         let source = read_source(path)?;
         let program = parse_source(path, &source)?;
-
         let id = self
             .graph
             .add_node(program, path.to_path_buf(), qualified_path.clone());
@@ -86,7 +84,6 @@ impl Resolver {
 
         let is_root = qualified_path.is_empty();
         let mod_decls = collect_mod_declarations(&self.graph.node(id).program, path, is_root)?;
-
         for (mod_name, mod_path, _span) in mod_decls {
             let mut child_qualified = qualified_path.clone();
             child_qualified.push(mod_name);
@@ -94,7 +91,6 @@ impl Resolver {
             let child_id = self.resolve_file(&mod_path, child_qualified)?;
             self.graph.add_edge(id, child_id);
         }
-
         Ok(id)
     }
 
@@ -111,7 +107,6 @@ impl Resolver {
                 self.dfs(id, &mut colors, &mut order, &mut path_stack)?;
             }
         }
-
         self.graph.set_topo_order(order);
         Ok(())
     }
@@ -127,7 +122,6 @@ impl Resolver {
         let idx = id.0 as usize;
         colors[idx] = Color::Gray;
         path_stack.push(id);
-
         for &dep in self.graph.dependencies(id) {
             let dep_idx = dep.0 as usize;
             match colors[dep_idx] {
@@ -145,7 +139,6 @@ impl Resolver {
                 Color::Black => {}
             }
         }
-
         path_stack.pop();
         colors[idx] = Color::Black;
         order.push(id);
@@ -163,12 +156,10 @@ impl Resolver {
         back_edge_target: ModuleId,
     ) -> Option<Vec<String>> {
         let start_pos = path_stack.iter().position(|&id| id == back_edge_target)?;
-
         let mut cycle = path_stack[start_pos..]
             .iter()
             .map(|&id| self.module_display_name(id))
             .collect::<Vec<String>>();
-
         // Close the cycle by repeating the first element.
         cycle.push(cycle[0].clone());
         Some(cycle)
@@ -197,7 +188,6 @@ fn read_source(path: &Path) -> ModuleResult<String> {
         }
         .at(Span::ZERO, path.to_path_buf())
     })?;
-
     if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
         return Err(ModuleErrorKind::Io {
             path: path.to_path_buf(),
@@ -207,7 +197,6 @@ fn read_source(path: &Path) -> ModuleResult<String> {
         }
         .at(Span::ZERO, path.to_path_buf()));
     }
-
     String::from_utf8(bytes).map_err(|_| {
         ModuleErrorKind::Io {
             path: path.to_path_buf(),
@@ -221,7 +210,6 @@ fn read_source(path: &Path) -> ModuleResult<String> {
 fn parse_source(path: &Path, source: &str) -> ModuleResult<Program> {
     let mut parser = Parser::new(Lexer::new(source));
     let program = parser.parse();
-
     if parser.errors().is_empty() {
         Ok(program)
     } else {
@@ -250,7 +238,6 @@ fn collect_mod_declarations(
         }
         .at(Span::ZERO, parent_path.to_path_buf())
     })?;
-
     // Root files and `mod.mt` files resolve submodules in their own directory.
     // Other files resolve submodules in a subdirectory named after the file stem
     // (e.g., `foo.mt` with `mod bar;` looks for `foo/bar.mt`).
@@ -267,20 +254,16 @@ fn collect_mod_declarations(
         })?;
         parent_dir.join(stem)
     };
-
     let mut seen = HashMap::new();
     let mut result = Vec::new();
-
     for stmt in &program.statements {
         let Stmt::Mod(mod_stmt) = stmt else {
             continue;
         };
-
         // Inline modules stay in the parent AST.
         if mod_stmt.body.is_some() {
             continue;
         }
-
         if seen.contains_key(&mod_stmt.name) {
             return Err(ModuleErrorKind::DuplicateModule {
                 module_name: mod_stmt.name.clone(),
@@ -288,11 +271,9 @@ fn collect_mod_declarations(
             .at(mod_stmt.span, parent_path.to_path_buf()));
         }
         seen.insert(mod_stmt.name.clone(), mod_stmt.span);
-
         let resolved = resolve_mod_path(&base_dir, &mod_stmt.name, mod_stmt.span, parent_path)?;
         result.push((mod_stmt.name.clone(), resolved, mod_stmt.span));
     }
-
     Ok(result)
 }
 
@@ -308,7 +289,6 @@ fn resolve_mod_path(
 ) -> ModuleResult<PathBuf> {
     let file_path = base_dir.join(format!("{module_name}.mt"));
     let dir_path = base_dir.join(module_name).join("mod.mt");
-
     let file_exists = file_path.is_file();
     let dir_exists = dir_path.is_file();
 
@@ -318,7 +298,6 @@ fn resolve_mod_path(
             candidates: vec![file_path, dir_path],
         }
         .at(span, parent_path.to_path_buf())),
-
         (true, false) => file_path.canonicalize().map_err(|e| {
             ModuleErrorKind::Io {
                 path: file_path,
@@ -326,7 +305,6 @@ fn resolve_mod_path(
             }
             .at(span, parent_path.to_path_buf())
         }),
-
         (false, true) => dir_path.canonicalize().map_err(|e| {
             ModuleErrorKind::Io {
                 path: dir_path,
@@ -334,7 +312,6 @@ fn resolve_mod_path(
             }
             .at(span, parent_path.to_path_buf())
         }),
-
         (false, false) => Err(ModuleErrorKind::FileNotFound {
             module_name: module_name.to_string(),
             candidates: vec![file_path, dir_path],
@@ -366,7 +343,6 @@ mod tests {
     fn single_file_no_modules() {
         let dir = setup_temp_project(&[("main.mt", "let x = 42;")]);
         let graph = resolve_module_graph(&dir.path().join("main.mt")).unwrap();
-
         assert_eq!(graph.len(), 1);
         assert_eq!(graph.topo_order().len(), 1);
         assert_eq!(graph.topo_order()[0], ModuleId::ROOT);
@@ -378,16 +354,12 @@ mod tests {
             ("main.mt", "mod math;"),
             ("math.mt", "pub fn add(a: i64, b: i64) -> i64 { a + b }"),
         ]);
-
         let graph = resolve_module_graph(&dir.path().join("main.mt")).unwrap();
         assert_eq!(graph.len(), 2);
-
         let order = graph.topo_order();
         assert_eq!(order.len(), 2);
-
         let first = &graph.node(order[0]).qualified_path;
         assert_eq!(first, &["math"]);
-
         let second = &graph.node(order[1]).qualified_path;
         assert!(second.is_empty());
     }
@@ -399,16 +371,13 @@ mod tests {
             ("math/mod.mt", "mod ops;"),
             ("math/ops.mt", "pub fn add(a: i64, b: i64) -> i64 { a + b }"),
         ]);
-
         let graph = resolve_module_graph(&dir.path().join("main.mt")).unwrap();
         assert_eq!(graph.len(), 3);
-
         let order = graph.topo_order();
         let names = order
             .iter()
             .map(|&id| graph.node(id).qualified_path.clone())
             .collect::<Vec<_>>();
-
         assert_eq!(names[0], vec!["math", "ops"]);
         assert_eq!(names[1], vec!["math"]);
         assert!(names[2].is_empty());
@@ -417,7 +386,6 @@ mod tests {
     #[test]
     fn module_not_found() {
         let dir = setup_temp_project(&[("main.mt", "mod nonexistent;")]);
-
         let err = resolve_module_graph(&dir.path().join("main.mt")).unwrap_err();
         assert!(
             matches!(&err.kind, ModuleErrorKind::FileNotFound { module_name, .. } if module_name == "nonexistent")
@@ -428,7 +396,6 @@ mod tests {
     fn duplicate_module_declaration() {
         let dir =
             setup_temp_project(&[("main.mt", "mod foo;\nmod foo;"), ("foo.mt", "let x = 1;")]);
-
         let err = resolve_module_graph(&dir.path().join("main.mt")).unwrap_err();
         assert!(
             matches!(&err.kind, ModuleErrorKind::DuplicateModule { module_name } if module_name == "foo")
@@ -438,7 +405,6 @@ mod tests {
     #[test]
     fn inline_module_not_resolved_as_file() {
         let dir = setup_temp_project(&[("main.mt", "mod utils { pub fn helper() -> i64 { 42 } }")]);
-
         let graph = resolve_module_graph(&dir.path().join("main.mt")).unwrap();
         assert_eq!(graph.len(), 1);
     }
@@ -446,7 +412,6 @@ mod tests {
     #[test]
     fn parse_error_in_submodule() {
         let dir = setup_temp_project(&[("main.mt", "mod bad;"), ("bad.mt", "let = ;")]);
-
         let err = resolve_module_graph(&dir.path().join("main.mt")).unwrap_err();
         assert!(matches!(&err.kind, ModuleErrorKind::ParseErrors { .. }));
     }
@@ -458,10 +423,8 @@ mod tests {
             ("alpha.mt", "pub fn a() -> i64 { 1 }"),
             ("beta.mt", "pub fn b() -> i64 { 2 }"),
         ]);
-
         let graph = resolve_module_graph(&dir.path().join("main.mt")).unwrap();
         assert_eq!(graph.len(), 3);
-
         let last = graph.topo_order().last().unwrap();
         assert!(graph.node(*last).qualified_path.is_empty());
     }
@@ -475,7 +438,6 @@ mod tests {
             ("a/shared.mt", "pub fn sa() -> i64 { 1 }"),
             ("b/shared.mt", "pub fn sb() -> i64 { 2 }"),
         ]);
-
         let graph = resolve_module_graph(&dir.path().join("main.mt")).unwrap();
         assert_eq!(graph.len(), 5);
     }
@@ -485,7 +447,6 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("bad.mt");
         fs::write(&path, [0xFF, 0xFE, 0x00]).unwrap();
-
         let err = resolve_module_graph(&path).unwrap_err();
         assert!(matches!(&err.kind, ModuleErrorKind::Io { .. }));
     }
@@ -497,16 +458,13 @@ mod tests {
             ("utils/mod.mt", "mod helpers;"),
             ("utils/helpers.mt", "pub fn h() -> i64 { 99 }"),
         ]);
-
         let graph = resolve_module_graph(&dir.path().join("main.mt")).unwrap();
         assert_eq!(graph.len(), 3);
-
         let order = graph.topo_order();
         let names = order
             .iter()
             .map(|&id| graph.node(id).qualified_path.clone())
             .collect::<Vec<_>>();
-
         assert_eq!(names[0], vec!["utils", "helpers"]);
         assert_eq!(names[1], vec!["utils"]);
         assert!(names[2].is_empty());
@@ -519,7 +477,6 @@ mod tests {
             ("foo.mt", "let x = 1;"),
             ("foo/mod.mt", "let y = 2;"),
         ]);
-
         let err = resolve_module_graph(&dir.path().join("main.mt")).unwrap_err();
         assert!(
             matches!(&err.kind, ModuleErrorKind::FileNotFound { module_name, candidates } if module_name == "foo" && candidates.len() == 2)
@@ -534,16 +491,13 @@ mod tests {
             ("a/b.mt", "mod c;"),
             ("a/b/c.mt", "pub fn deep() -> i64 { 42 }"),
         ]);
-
         let graph = resolve_module_graph(&dir.path().join("main.mt")).unwrap();
         assert_eq!(graph.len(), 4);
-
         let order = graph.topo_order();
         let names = order
             .iter()
             .map(|&id| graph.node(id).qualified_path.clone())
             .collect::<Vec<_>>();
-
         assert_eq!(names[0], vec!["a", "b", "c"]);
         assert_eq!(names[1], vec!["a", "b"]);
         assert_eq!(names[2], vec!["a"]);
@@ -558,12 +512,9 @@ mod tests {
             ("x/z.mt", "pub fn zz() -> i64 { 0 }"),
             ("y.mt", "pub fn yy() -> i64 { 1 }"),
         ]);
-
         let graph = resolve_module_graph(&dir.path().join("main.mt")).unwrap();
         let order = graph.topo_order();
-
         assert!(graph.node(*order.last().unwrap()).qualified_path.is_empty());
-
         let z_pos = order
             .iter()
             .position(|&id| graph.node(id).qualified_path == vec!["x", "z"])

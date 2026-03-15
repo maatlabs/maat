@@ -44,7 +44,6 @@ pub fn compile(input: &str) -> Bytecode {
         "constant folding errors: {:?}",
         fold_errors
     );
-
     let mut compiler = Compiler::new();
     compiler
         .compile(&Node::Program(program))

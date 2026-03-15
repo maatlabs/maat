@@ -27,11 +27,15 @@ use maat_runtime::{
 pub fn eval(node: Node, env: &Env) -> Result<Object> {
     match node {
         Node::Program(prog) => eval_program(prog, env),
-
         Node::Stmt(stmt) => match stmt {
             Stmt::Let(ls) => {
                 let obj = eval(Node::Expr(ls.value), env)?;
                 env.set(ls.ident, &obj);
+                Ok(obj)
+            }
+            Stmt::ReAssign(assign) => {
+                let obj = eval(Node::Expr(assign.value), env)?;
+                env.set(assign.ident, &obj);
                 Ok(obj)
             }
             Stmt::Return(rs) => {
@@ -59,7 +63,6 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
             | Stmt::Use(_)
             | Stmt::Mod(_) => Ok(NULL),
         },
-
         Node::Expr(expr) => match expr {
             Expr::I8(v) => Ok(Object::I8(v.value)),
             Expr::I16(v) => Ok(Object::I16(v.value)),
@@ -76,7 +79,7 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
             Expr::Usize(v) => Ok(Object::Usize(v.value)),
 
             Expr::Bool(b) => Ok(Object::Bool(b.value)),
-            Expr::Str(s) => Ok(Object::Str(unescape_string(&s.value))),
+            Expr::Str(s) => Ok(Object::Str(maat_ast::unescape_string(&s.value))),
             Expr::Array(array_lit) => {
                 let elements = eval_expressions(&array_lit.elements, env)?;
                 Ok(Object::Array(elements))
@@ -112,6 +115,20 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
             }
             Expr::Continue(_) => Ok(Object::Continue),
             Expr::Cast(cast_expr) => eval_cast_expression(cast_expr, env),
+            Expr::Range(range) => {
+                let start = eval(Node::Expr(*range.start), env)?;
+                let end = eval(Node::Expr(*range.end), env)?;
+                match (start, end) {
+                    (Object::I64(s), Object::I64(e)) => {
+                        if range.inclusive {
+                            Ok(Object::RangeInclusive(s, e))
+                        } else {
+                            Ok(Object::Range(s, e))
+                        }
+                    }
+                    _ => Err(EvalError::Builtin("range bounds must be i64".to_string()).into()),
+                }
+            }
             Expr::Match(_)
             | Expr::FieldAccess(_)
             | Expr::MethodCall(_)
@@ -144,7 +161,6 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
 
 fn eval_program(prog: Program, env: &Env) -> Result<Object> {
     let mut result = NULL;
-
     for stmt in &prog.statements {
         result = eval(Node::Stmt(stmt.clone()), env)?;
         match result {
@@ -164,7 +180,6 @@ fn eval_program(prog: Program, env: &Env) -> Result<Object> {
 
 pub(crate) fn eval_block_statement(block: &BlockStmt, env: &Env) -> Result<Object> {
     let mut result = NULL;
-
     for stmt in &block.statements {
         result = eval(Node::Stmt(stmt.clone()), env)?;
         // Propagate control flow signals up to the enclosing loop or function.
@@ -178,9 +193,9 @@ pub(crate) fn eval_block_statement(block: &BlockStmt, env: &Env) -> Result<Objec
     Ok(result)
 }
 
-fn eval_loop_statement(loop_stmt: LoopStmt, env: &Env) -> Result<Object> {
+fn eval_loop_statement(stmt: LoopStmt, env: &Env) -> Result<Object> {
     loop {
-        let result = eval_block_statement(&loop_stmt.body, env)?;
+        let result = eval_block_statement(&stmt.body, env)?;
         match result {
             Object::Break(val) => return Ok(*val),
             Object::ReturnValue(_) => return Ok(result),
@@ -190,13 +205,13 @@ fn eval_loop_statement(loop_stmt: LoopStmt, env: &Env) -> Result<Object> {
     }
 }
 
-fn eval_while_statement(while_stmt: WhileStmt, env: &Env) -> Result<Object> {
+fn eval_while_statement(stmt: WhileStmt, env: &Env) -> Result<Object> {
     loop {
-        let condition = eval(Node::Expr(*while_stmt.condition.clone()), env)?;
+        let condition = eval(Node::Expr(*stmt.condition.clone()), env)?;
         if !condition.is_truthy() {
             break;
         }
-        let result = eval_block_statement(&while_stmt.body, env)?;
+        let result = eval_block_statement(&stmt.body, env)?;
         match result {
             Object::Break(val) => return Ok(*val),
             Object::ReturnValue(_) => return Ok(result),
@@ -207,8 +222,8 @@ fn eval_while_statement(while_stmt: WhileStmt, env: &Env) -> Result<Object> {
     Ok(NULL)
 }
 
-fn eval_for_statement(for_stmt: ForStmt, env: &Env) -> Result<Object> {
-    let iterable = eval(Node::Expr(*for_stmt.iterable), env)?;
+fn eval_for_statement(stmt: ForStmt, env: &Env) -> Result<Object> {
+    let iterable = eval(Node::Expr(*stmt.iterable), env)?;
     let elements = match iterable {
         Object::Array(elems) => elems,
         other => {
@@ -219,10 +234,9 @@ fn eval_for_statement(for_stmt: ForStmt, env: &Env) -> Result<Object> {
             .into());
         }
     };
-
     for elem in elements {
-        env.set(for_stmt.ident.clone(), &elem);
-        let result = eval_block_statement(&for_stmt.body, env)?;
+        env.set(stmt.ident.clone(), &elem);
+        let result = eval_block_statement(&stmt.body, env)?;
         match result {
             Object::Break(val) => return Ok(*val),
             Object::ReturnValue(_) => return Ok(result),
@@ -242,7 +256,6 @@ pub(crate) fn eval_expression(expr: &Expr, env: &Env) -> Result<Object> {
 
 fn eval_expressions(exprs: &[Expr], env: &Env) -> Result<Vec<Object>> {
     let mut result = Vec::new();
-
     for expr in exprs {
         let evaluated = eval(Node::Expr(expr.to_owned()), env)?;
         result.push(evaluated);
@@ -282,22 +295,20 @@ fn eval_index_expression(idx_expr: IndexExpr, env: &Env) -> Result<Object> {
 
 fn eval_hash_map(expr: Map, env: &Env) -> Result<Object> {
     let mut pairs = IndexMap::new();
-
     for (key_expr, val_expr) in &expr.pairs {
         let key = eval(Node::Expr(key_expr.clone()), env)?;
         let key = Hashable::try_from(key)?;
         let value = eval(Node::Expr(val_expr.clone()), env)?;
         pairs.insert(key, value);
     }
-
     Ok(Object::Hash(HashObject { pairs }))
 }
 
 fn eval_prefix_expression(expr: PrefixExpr, env: &Env) -> Result<Object> {
     let operand = eval(Node::Expr(*expr.operand), env)?;
-    let operator = &expr.operator;
+    let op = &expr.operator;
 
-    match operator.as_str() {
+    match op.as_str() {
         "!" => match operand {
             obj if !obj.is_truthy() => Ok(TRUE),
             _ => Ok(FALSE),
@@ -340,10 +351,9 @@ fn eval_prefix_expression(expr: PrefixExpr, env: &Env) -> Result<Object> {
                 .into()),
             }
         }
-        _ => Err(EvalError::PrefixExpr(format!(
-            "invalid prefix expression: `{operator}{operand}`"
-        ))
-        .into()),
+        _ => {
+            Err(EvalError::PrefixExpr(format!("invalid prefix expression: `{op}{operand}`")).into())
+        }
     }
 }
 
@@ -360,7 +370,6 @@ fn eval_logical_expression(expr: InfixExpr, env: &Env) -> Result<Object> {
         ))
         .into());
     };
-
     match expr.operator.as_str() {
         "&&" => {
             if !left_val {
@@ -381,41 +390,37 @@ fn eval_logical_expression(expr: InfixExpr, env: &Env) -> Result<Object> {
 fn eval_infix_expression(expr: InfixExpr, env: &Env) -> Result<Object> {
     let lhs = eval(Node::Expr(*expr.lhs), env)?;
     let rhs = eval(Node::Expr(*expr.rhs), env)?;
-    let operator = &expr.operator;
+    let op = &expr.operator;
 
     match (&lhs, &rhs) {
-        (Object::I8(left), Object::I8(right)) => eval_infix_op(operator, *left, *right),
-        (Object::I16(left), Object::I16(right)) => eval_infix_op(operator, *left, *right),
-        (Object::I32(left), Object::I32(right)) => eval_infix_op(operator, *left, *right),
-        (Object::I64(left), Object::I64(right)) => eval_infix_op(operator, *left, *right),
-        (Object::I128(left), Object::I128(right)) => eval_infix_op(operator, *left, *right),
-        (Object::Isize(left), Object::Isize(right)) => eval_infix_op(operator, *left, *right),
-        (Object::U8(left), Object::U8(right)) => eval_infix_op(operator, *left, *right),
-        (Object::U16(left), Object::U16(right)) => eval_infix_op(operator, *left, *right),
-        (Object::U32(left), Object::U32(right)) => eval_infix_op(operator, *left, *right),
-        (Object::U64(left), Object::U64(right)) => eval_infix_op(operator, *left, *right),
-        (Object::U128(left), Object::U128(right)) => eval_infix_op(operator, *left, *right),
-        (Object::Usize(left), Object::Usize(right)) => eval_infix_op(operator, *left, *right),
-        (Object::Bool(left), Object::Bool(right)) => eval_infix_bool(operator, *left, *right),
-        (Object::Str(left), Object::Str(right)) => eval_infix_string(operator, left, right),
-
-        _ => Err(EvalError::InfixExpr(format!(
-            "invalid infix expression: `{lhs} {operator} {rhs}`"
-        ))
-        .into()),
+        (Object::I8(l), Object::I8(r)) => eval_infix_op(op, *l, *r),
+        (Object::I16(l), Object::I16(r)) => eval_infix_op(op, *l, *r),
+        (Object::I32(l), Object::I32(r)) => eval_infix_op(op, *l, *r),
+        (Object::I64(l), Object::I64(r)) => eval_infix_op(op, *l, *r),
+        (Object::I128(l), Object::I128(r)) => eval_infix_op(op, *l, *r),
+        (Object::Isize(l), Object::Isize(r)) => eval_infix_op(op, *l, *r),
+        (Object::U8(l), Object::U8(r)) => eval_infix_op(op, *l, *r),
+        (Object::U16(l), Object::U16(r)) => eval_infix_op(op, *l, *r),
+        (Object::U32(l), Object::U32(r)) => eval_infix_op(op, *l, *r),
+        (Object::U64(l), Object::U64(r)) => eval_infix_op(op, *l, *r),
+        (Object::U128(l), Object::U128(r)) => eval_infix_op(op, *l, *r),
+        (Object::Usize(l), Object::Usize(r)) => eval_infix_op(op, *l, *r),
+        (Object::Bool(l), Object::Bool(r)) => eval_infix_bool(op, *l, *r),
+        (Object::Str(l), Object::Str(r)) => eval_infix_string(op, l, r),
+        _ => Err(
+            EvalError::InfixExpr(format!("invalid infix expression: `{lhs} {op} {rhs}`")).into(),
+        ),
     }
 }
 
-fn eval_infix_op<T: InfixOp>(operator: &str, lhs: T, rhs: T) -> Result<Object> {
-    match operator {
+fn eval_infix_op<T: InfixOp>(op: &str, lhs: T, rhs: T) -> Result<Object> {
+    match op {
         "+" => lhs
             .checked_add(rhs)
             .map(|v| v.into_object())
             .ok_or_else(|| {
                 EvalError::Number(format!(
-                    "arithmetic overflow: {} + {} exceeds {} bounds",
-                    lhs,
-                    rhs,
+                    "arithmetic overflow: {lhs} + {rhs} exceeds {} bounds",
                     T::type_name()
                 ))
                 .into()
@@ -425,9 +430,7 @@ fn eval_infix_op<T: InfixOp>(operator: &str, lhs: T, rhs: T) -> Result<Object> {
             .map(|v| v.into_object())
             .ok_or_else(|| {
                 EvalError::Number(format!(
-                    "arithmetic overflow: {} - {} exceeds {} bounds",
-                    lhs,
-                    rhs,
+                    "arithmetic overflow: {lhs} - {rhs} exceeds {} bounds",
                     T::type_name()
                 ))
                 .into()
@@ -437,9 +440,7 @@ fn eval_infix_op<T: InfixOp>(operator: &str, lhs: T, rhs: T) -> Result<Object> {
             .map(|v| v.into_object())
             .ok_or_else(|| {
                 EvalError::Number(format!(
-                    "arithmetic overflow: {} * {} exceeds {} bounds",
-                    lhs,
-                    rhs,
+                    "arithmetic overflow: {lhs} * {rhs} exceeds {} bounds",
                     T::type_name()
                 ))
                 .into()
@@ -449,53 +450,56 @@ fn eval_infix_op<T: InfixOp>(operator: &str, lhs: T, rhs: T) -> Result<Object> {
             .map(|v| v.into_object())
             .ok_or_else(|| {
                 EvalError::Number(format!(
-                    "division error: {} / {} (division by zero or overflow)",
-                    lhs, rhs
+                    "division error: {lhs} / {rhs} (division by zero or overflow)"
                 ))
                 .into()
             }),
-
+        "%" => lhs
+            .checked_rem_euclid(rhs)
+            .map(|v| v.into_object())
+            .ok_or_else(|| {
+                EvalError::Number(format!(
+                    "modulo error: {lhs} % {rhs} (division by zero or overflow)"
+                ))
+                .into()
+            }),
         "<" => Ok(Object::Bool(lhs < rhs)),
         ">" => Ok(Object::Bool(lhs > rhs)),
         "<=" => Ok(Object::Bool(lhs <= rhs)),
         ">=" => Ok(Object::Bool(lhs >= rhs)),
         "==" => Ok(Object::Bool(lhs == rhs)),
         "!=" => Ok(Object::Bool(lhs != rhs)),
-
         _ => Err(EvalError::Number(format!(
-            "invalid {} operation: `{lhs} {operator} {rhs}`",
+            "invalid {} operation: `{lhs} {op} {rhs}`",
             T::type_name()
         ))
         .into()),
     }
 }
 
-fn eval_infix_bool(operator: &str, lhs: bool, rhs: bool) -> Result<Object> {
-    match operator {
+fn eval_infix_bool(op: &str, lhs: bool, rhs: bool) -> Result<Object> {
+    match op {
         "==" => Ok(Object::Bool(lhs == rhs)),
         "!=" => Ok(Object::Bool(lhs != rhs)),
         "&&" => Ok(Object::Bool(lhs && rhs)),
         "||" => Ok(Object::Bool(lhs || rhs)),
-        _ => Err(EvalError::Boolean(format!(
-            "invalid boolean operation: `{lhs} {operator} {rhs}`"
-        ))
-        .into()),
+        _ => {
+            Err(EvalError::Boolean(format!("invalid boolean operation: `{lhs} {op} {rhs}`")).into())
+        }
     }
 }
 
-fn eval_infix_string(operator: &str, lhs: &str, rhs: &str) -> Result<Object> {
-    if operator != "+" {
-        return Err(EvalError::InfixExpr(format!(
-            "invalid concat operation: `{lhs} {operator} {rhs}`"
-        ))
-        .into());
+fn eval_infix_string(op: &str, lhs: &str, rhs: &str) -> Result<Object> {
+    if op != "+" {
+        return Err(
+            EvalError::InfixExpr(format!("invalid concat operation: `{lhs} {op} {rhs}`")).into(),
+        );
     }
     Ok(Object::Str(format!("{lhs}{rhs}")))
 }
 
 fn eval_conditional_expression(expr: CondExpr, env: &Env) -> Result<Object> {
     let condition = eval(Node::Expr(*expr.condition), env)?;
-
     if condition.is_truthy() {
         eval(Node::Stmt(Stmt::Block(expr.consequence)), env)
     } else if let Some(alt) = expr.alternative {
@@ -525,7 +529,6 @@ fn eval_function_call(expr: CallExpr, env: &Env) -> Result<Object> {
             func.params.iter().enumerate().for_each(|(i, param)| {
                 env.set(param.to_owned(), &expressions[i]);
             });
-
             let evaluated = eval(Node::Stmt(Stmt::Block(func.body)), &env)?;
             match evaluated {
                 Object::ReturnValue(val) => Ok(*val),
@@ -549,17 +552,14 @@ fn eval_unquote_calls(quoted: Node, env: &Env) -> Node {
         if !is_unquote_call(&node) {
             return node;
         }
-
         if let Node::Expr(Expr::Call(call)) = &node {
             if call.arguments.len() != 1 {
                 return node;
             }
-
             let unquoted = match eval_expression(&call.arguments[0], env) {
                 Ok(obj) => obj,
                 Err(_) => return node,
             };
-
             match Object::to_ast_node(&unquoted) {
                 Some(ast_node) => ast_node,
                 None => node,
@@ -587,14 +587,12 @@ fn eval_cast_expression(expr: CastExpr, env: &Env) -> Result<Object> {
         Object::I64(v) => WideInt::Signed(*v as i128),
         Object::I128(v) => WideInt::Signed(*v),
         Object::Isize(v) => WideInt::Signed(*v as i128),
-
         Object::U8(v) => WideInt::Unsigned(*v as u128),
         Object::U16(v) => WideInt::Unsigned(*v as u128),
         Object::U32(v) => WideInt::Unsigned(*v as u128),
         Object::U64(v) => WideInt::Unsigned(*v as u128),
         Object::U128(v) => WideInt::Unsigned(*v),
         Object::Usize(v) => WideInt::Unsigned(*v as u128),
-
         _ => {
             return Err(EvalError::Number(format!(
                 "cannot cast {} to {}",
@@ -635,7 +633,6 @@ fn eval_cast_expression(expr: CastExpr, env: &Env) -> Result<Object> {
         TypeAnnotation::I64 => narrow!(i64, I64, "i64"),
         TypeAnnotation::I128 => narrow!(i128, I128, "i128"),
         TypeAnnotation::Isize => narrow!(isize, Isize, "isize"),
-
         TypeAnnotation::U8 => narrow!(u8, U8, "u8"),
         TypeAnnotation::U16 => narrow!(u16, U16, "u16"),
         TypeAnnotation::U32 => narrow!(u32, U32, "u32"),
@@ -657,6 +654,7 @@ trait InfixOp: Copy + PartialOrd + PartialEq + core::fmt::Display {
     fn checked_sub(self, rhs: Self) -> Option<Self>;
     fn checked_mul(self, rhs: Self) -> Option<Self>;
     fn checked_div(self, rhs: Self) -> Option<Self>;
+    fn checked_rem_euclid(self, rhs: Self) -> Option<Self>;
 }
 
 macro_rules! impl_infix_op_int {
@@ -692,6 +690,11 @@ macro_rules! impl_infix_op_int {
                 fn checked_div(self, rhs: Self) -> Option<Self> {
                     <$t>::checked_div(self, rhs)
                 }
+
+                #[inline]
+                fn checked_rem_euclid(self, rhs: Self) -> Option<Self> {
+                    <$t>::checked_rem_euclid(self, rhs)
+                }
             }
         )*
     };
@@ -710,43 +713,6 @@ impl_infix_op_int! {
     u64 => U64, "u64",
     u128 => U128, "u128",
     usize => Usize, "usize",
-}
-
-/// Unescapes a string literal by processing escape sequences.
-///
-/// Supports standard escape sequences:
-/// - `\\` → backslash
-/// - `\"` → double quote
-/// - `\n` → newline
-/// - `\r` → carriage return
-/// - `\t` → tab
-/// - `\0` → null character
-///
-/// Invalid escape sequences are preserved as-is.
-fn unescape_string(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars();
-
-    while let Some(ch) = chars.next() {
-        if ch == '\\' {
-            match chars.next() {
-                Some('\\') => result.push('\\'),
-                Some('"') => result.push('"'),
-                Some('n') => result.push('\n'),
-                Some('r') => result.push('\r'),
-                Some('t') => result.push('\t'),
-                Some('0') => result.push('\0'),
-                Some(c) => {
-                    result.push('\\');
-                    result.push(c);
-                }
-                None => result.push('\\'),
-            }
-        } else {
-            result.push(ch);
-        }
-    }
-    result
 }
 
 /// Checks if a node is a call to the `unquote` builtin.

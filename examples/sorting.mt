@@ -1,18 +1,18 @@
 let insert_sorted = fn(sorted, val) {
     let build = fn(remaining, acc, inserted) {
-        if (len(remaining) == 0) {
-            if (inserted) { acc } else { push(acc, val) }
+        if (remaining.len() == 0usize) {
+            if (inserted) { acc } else { acc.push(val) }
         } else {
-            let head = first(remaining);
-            let tail = rest(remaining);
+            let head = remaining.first();
+            let tail = remaining.rest();
             if (!inserted) {
                 if (val < head) {
-                    build(tail, push(push(acc, val), head), true)
+                    build(tail, acc.push(val).push(head), true)
                 } else {
-                    build(tail, push(acc, head), false)
+                    build(tail, acc.push(head), false)
                 }
             } else {
-                build(tail, push(acc, head), true)
+                build(tail, acc.push(head), true)
             }
         }
     };
@@ -21,10 +21,10 @@ let insert_sorted = fn(sorted, val) {
 
 let insertion_sort = fn(arr) {
     let iter = fn(arr, acc) {
-        if (len(arr) == 0) {
+        if (arr.len() == 0usize) {
             acc
         } else {
-            iter(rest(arr), insert_sorted(acc, first(arr)));
+            iter(arr.rest(), insert_sorted(acc, arr.first()));
         }
     };
     iter(arr, []);
@@ -38,10 +38,10 @@ let reverse = fn(arr) {
         if (i < 0) {
             acc
         } else {
-            build(i - 1, push(acc, arr[i]));
+            build(i - 1, acc.push(arr[i]));
         }
     };
-    build(len(arr) as i64 - 1, []);
+    build(arr.len() as i64 - 1, []);
 };
 
 print(reverse([1, 2, 3, 4, 5]));

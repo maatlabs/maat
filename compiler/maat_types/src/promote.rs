@@ -5,7 +5,7 @@
 //! - Cross-sign: unsigned promotes to next larger signed (`u8 + i8 -> i16`)
 //! - Float: implicit promotion is forbidden (requires explicit `as` cast)
 
-use crate::ty::Type;
+use crate::Type;
 
 /// Determines the common numeric type for a binary operation.
 ///
@@ -25,14 +25,12 @@ pub fn common_numeric_type(a: &Type, b: &Type) -> Result<Type, PromotionError> {
     if a == b {
         return Ok(a.clone());
     }
-
     let (a_signed, a_width) = a
         .int_sign_bit_width()
         .ok_or(PromotionError::NonNumeric(a.clone()))?;
     let (b_signed, b_width) = b
         .int_sign_bit_width()
         .ok_or(PromotionError::NonNumeric(b.clone()))?;
-
     match (a_signed, b_signed) {
         (true, true) => Ok(bit_width_to_signed_int(a_width.max(b_width))),
         (false, false) => Ok(bit_width_to_unsigned_int(a_width.max(b_width))),
@@ -47,12 +45,6 @@ pub enum PromotionError {
     /// A non-numeric type appeared in an arithmetic context.
     NonNumeric(Type),
 }
-
-// /// Returns `(is_signed, bit_width)` for an integer type.
-// fn classify(ty: &Type) -> Option<(bool, u32)> {
-//     let width = ty.int_bit_width()?;
-//     Some((ty.is_signed(), width))
-// }
 
 /// Returns the signed integer type with the given bit width.
 fn bit_width_to_signed_int(bits: u32) -> Type {

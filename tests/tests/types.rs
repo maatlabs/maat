@@ -19,7 +19,6 @@ fn run_vm_test(input: &str, expected: TestValue) {
         .last_popped_stack_elem()
         .expect("no value on stack")
         .clone();
-
     match expected {
         TestValue::I64(expected_val) => match stack_elem {
             Object::I64(val) => assert_eq!(
@@ -95,7 +94,6 @@ fn literal_overflow_errors() {
         errors.iter().any(|e| e.contains("overflow")),
         "expected overflow error, got: {errors:?}"
     );
-
     let errors = maat_tests::compile_type_errors("let x: i8 = 256;");
     assert!(
         errors.iter().any(|e| e.contains("overflow")),
@@ -128,7 +126,6 @@ fn constant_folding() {
         Object::I64(val) => assert_eq!(*val, 3),
         other => panic!("expected I64(3), got: {other:?}"),
     }
-
     // Nested addition
     let bytecode = maat_tests::compile("1 + 2 + 3");
     assert_eq!(bytecode.constants.len(), 1);
@@ -136,7 +133,6 @@ fn constant_folding() {
         Object::I64(val) => assert_eq!(*val, 6),
         other => panic!("expected I64(6), got: {other:?}"),
     }
-
     // Multiplication
     let bytecode = maat_tests::compile("3 * 7");
     assert_eq!(bytecode.constants.len(), 1);
@@ -144,7 +140,6 @@ fn constant_folding() {
         Object::I64(val) => assert_eq!(*val, 21),
         other => panic!("expected I64(21), got: {other:?}"),
     }
-
     // Boolean comparison
     let bytecode = maat_tests::compile("1 < 2");
     let mut vm = VM::new(bytecode);
@@ -180,7 +175,6 @@ fn typed_function_params_and_return() {
 fn generic_function() {
     let program = maat_tests::parse("let identity = fn<T>(x: T) -> T { x };");
     assert_eq!(program.statements.len(), 1);
-
     let bytecode = maat_tests::compile("let identity = fn<T>(x: T) -> T { x };");
     assert!(
         !bytecode.constants.is_empty(),
@@ -274,7 +268,6 @@ fn match_exhaustiveness() {
         "let x = 5;
          match x { 1 => true, _ => false }",
     );
-
     // All enum variants covered
     assert_no_type_errors(
         "enum Direction { North, South, East, West }
@@ -282,17 +275,14 @@ fn match_exhaustiveness() {
              match d { North => 0, South => 1, East => 2, West => 3 }
          }",
     );
-
     // Both bool values covered
     assert_no_type_errors("let x = true; match x { true => 1, false => 0 }");
-
     // Tuple struct pattern with wildcard (uses built-in Option<T>)
     assert_no_type_errors(
         "fn unwrap(opt: Option<i64>) -> i64 {
              match opt { Some(v) => v, None => 0 }
          }",
     );
-
     // Guard does not invalidate pattern binding
     assert_no_type_errors(
         "let x = 5;
@@ -309,9 +299,7 @@ fn match_non_exhaustive_errors() {
          }",
         "non-exhaustive",
     );
-
     assert_type_error_contains("let x = 5; match x { 1 => true }", "non-exhaustive");
-
     assert_type_error_contains("let x = true; match x { true => 1 }", "non-exhaustive");
 }
 
@@ -326,14 +314,49 @@ fn type_resolution_with_custom_types() {
         "struct Point { x: i64, y: i64 }
          fn make() -> Point { make() }",
     );
-
     assert_no_type_errors(
         "struct Foo { val: i64 }
          fn make() -> Foo { make() }",
     );
-
     assert_no_type_errors(
         "enum Color { Red, Green, Blue }
          fn show(c: Color) -> i64 { 0 }",
+    );
+}
+
+#[test]
+fn builtin_type_methods() {
+    assert_no_type_errors("[1, 2, 3].len();");
+    assert_no_type_errors("[1, 2, 3].first();");
+    assert_no_type_errors("[1, 2, 3].last();");
+    assert_no_type_errors("[1, 2, 3].rest();");
+    assert_no_type_errors("[1, 2, 3].push(4);");
+    assert_no_type_errors(r#""hello".len();"#);
+
+    // Method on variable
+    assert_no_type_errors("let arr = [1, 2, 3]; arr.len();");
+    assert_no_type_errors(r#"let s = "hello"; s.len();"#);
+    // Unknown method on array
+    assert_type_error_contains("[1, 2, 3].foobar();", "no method `foobar`");
+
+    // Polymorphic instantiation: different element types in the same scope
+    // must not pollute each other's type variables.
+    assert_no_type_errors(
+        r#"
+        let a = [1, 2, 3].first();
+        let b = ["x", "y"].first();
+        let c = [true, false].last();
+        "#,
+    );
+    // Method chaining
+    assert_no_type_errors("[1, 2, 3].rest().first();");
+    assert_no_type_errors("[1, 2].push(3).len();");
+    assert_no_type_errors(
+        r#"
+        let nums = [10, 20, 30];
+        let strs = ["a", "b", "c"];
+        let n = nums.rest().len();
+        let s = strs.rest().first();
+        "#,
     );
 }

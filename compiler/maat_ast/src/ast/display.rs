@@ -14,8 +14,8 @@ impl fmt::Display for Node {
 
 impl fmt::Display for Program {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for stmt in &self.statements {
-            stmt.fmt(f)?;
+        for s in &self.statements {
+            s.fmt(f)?;
         }
         Ok(())
     }
@@ -24,20 +24,21 @@ impl fmt::Display for Program {
 impl fmt::Display for Stmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Let(let_stmt) => let_stmt.fmt(f)?,
-            Self::Return(ret_stmt) => ret_stmt.fmt(f)?,
-            Self::Expr(expr_stmt) => expr_stmt.fmt(f)?,
-            Self::Block(block_stmt) => block_stmt.fmt(f)?,
-            Self::FuncDef(fn_item) => fn_item.fmt(f)?,
-            Self::Loop(loop_stmt) => loop_stmt.fmt(f)?,
-            Self::While(while_stmt) => while_stmt.fmt(f)?,
-            Self::For(for_stmt) => for_stmt.fmt(f)?,
+            Self::Let(s) => s.fmt(f)?,
+            Self::ReAssign(s) => s.fmt(f)?,
+            Self::Return(s) => s.fmt(f)?,
+            Self::Expr(s) => s.fmt(f)?,
+            Self::Block(s) => s.fmt(f)?,
+            Self::FuncDef(s) => s.fmt(f)?,
+            Self::Loop(s) => s.fmt(f)?,
+            Self::While(s) => s.fmt(f)?,
+            Self::For(s) => s.fmt(f)?,
             Self::StructDecl(s) => s.fmt(f)?,
-            Self::EnumDecl(e) => e.fmt(f)?,
-            Self::TraitDecl(t) => t.fmt(f)?,
-            Self::ImplBlock(i) => i.fmt(f)?,
-            Self::Use(u) => u.fmt(f)?,
-            Self::Mod(m) => m.fmt(f)?,
+            Self::EnumDecl(s) => s.fmt(f)?,
+            Self::TraitDecl(s) => s.fmt(f)?,
+            Self::ImplBlock(s) => s.fmt(f)?,
+            Self::Use(s) => s.fmt(f)?,
+            Self::Mod(s) => s.fmt(f)?,
         }
         Ok(())
     }
@@ -45,10 +46,17 @@ impl fmt::Display for Stmt {
 
 impl fmt::Display for LetStmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let m = if self.mutable { "mut " } else { "" };
         match &self.type_annotation {
-            Some(ty) => write!(f, "let {}: {} = {};", self.ident, ty, self.value),
-            None => write!(f, "let {} = {};", self.ident, self.value),
+            Some(ty) => write!(f, "let {m}{}: {} = {};", self.ident, ty, self.value),
+            None => write!(f, "let {m}{} = {};", self.ident, self.value),
         }
+    }
+}
+
+impl fmt::Display for ReAssignStmt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} = {};", self.ident, self.value)
     }
 }
 
@@ -70,8 +78,8 @@ impl fmt::Display for BlockStmt {
             write!(f, "{{}}")
         } else {
             writeln!(f, "{{")?;
-            for stmt in &self.statements {
-                stmt.fmt(f)?;
+            for s in &self.statements {
+                s.fmt(f)?;
                 writeln!(f)?;
             }
             write!(f, "}}")
@@ -93,41 +101,41 @@ impl fmt::Display for Expr {
         }
 
         match self {
-            Self::Ident(ident) => ident.value.fmt(f),
+            Self::Ident(e) => e.value.fmt(f),
 
-            // Integer types
-            Self::I8(v) => fmt_int!(v),
-            Self::I16(v) => fmt_int!(v),
-            Self::I32(v) => fmt_int!(v),
-            Self::I64(v) => fmt_int!(v),
-            Self::I128(v) => fmt_int!(v),
-            Self::Isize(v) => fmt_int!(v),
-            Self::U8(v) => fmt_int!(v),
-            Self::U16(v) => fmt_int!(v),
-            Self::U32(v) => fmt_int!(v),
-            Self::U64(v) => fmt_int!(v),
-            Self::U128(v) => fmt_int!(v),
-            Self::Usize(v) => fmt_int!(v),
+            Self::I8(e) => fmt_int!(e),
+            Self::I16(e) => fmt_int!(e),
+            Self::I32(e) => fmt_int!(e),
+            Self::I64(e) => fmt_int!(e),
+            Self::I128(e) => fmt_int!(e),
+            Self::Isize(e) => fmt_int!(e),
+            Self::U8(e) => fmt_int!(e),
+            Self::U16(e) => fmt_int!(e),
+            Self::U32(e) => fmt_int!(e),
+            Self::U64(e) => fmt_int!(e),
+            Self::U128(e) => fmt_int!(e),
+            Self::Usize(e) => fmt_int!(e),
 
-            Self::Bool(b) => b.value.fmt(f),
-            Self::Str(s) => s.value.fmt(f),
-            Self::Array(array_lit) => array_lit.fmt(f),
-            Self::Index(index_expr) => index_expr.fmt(f),
-            Self::Map(map) => map.fmt(f),
-            Self::Prefix(prefix_expr) => prefix_expr.fmt(f),
-            Self::Infix(infix_expr) => infix_expr.fmt(f),
-            Self::Cond(cond_expr) => cond_expr.fmt(f),
-            Self::Lambda(lambda) => lambda.fmt(f),
-            Self::Macro(macro_lit) => macro_lit.fmt(f),
-            Self::Call(call_expr) => call_expr.fmt(f),
-            Self::Cast(cast_expr) => cast_expr.fmt(f),
-            Self::Break(break_expr) => break_expr.fmt(f),
-            Self::Continue(cont_expr) => cont_expr.fmt(f),
-            Self::Match(match_expr) => match_expr.fmt(f),
-            Self::FieldAccess(field_access) => field_access.fmt(f),
-            Self::MethodCall(method_call) => method_call.fmt(f),
-            Self::StructLit(struct_lit) => struct_lit.fmt(f),
-            Self::PathExpr(path_expr) => path_expr.fmt(f),
+            Self::Bool(e) => e.value.fmt(f),
+            Self::Str(e) => e.value.fmt(f),
+            Self::Array(e) => e.fmt(f),
+            Self::Index(e) => e.fmt(f),
+            Self::Map(e) => e.fmt(f),
+            Self::Prefix(e) => e.fmt(f),
+            Self::Infix(e) => e.fmt(f),
+            Self::Cond(e) => e.fmt(f),
+            Self::Lambda(e) => e.fmt(f),
+            Self::Macro(e) => e.fmt(f),
+            Self::Call(e) => e.fmt(f),
+            Self::Cast(e) => e.fmt(f),
+            Self::Break(e) => e.fmt(f),
+            Self::Continue(e) => e.fmt(f),
+            Self::Match(e) => e.fmt(f),
+            Self::FieldAccess(e) => e.fmt(f),
+            Self::MethodCall(e) => e.fmt(f),
+            Self::StructLit(e) => e.fmt(f),
+            Self::PathExpr(e) => e.fmt(f),
+            Self::Range(e) => e.fmt(f),
         }
     }
 }
@@ -139,7 +147,7 @@ impl fmt::Display for Array {
             "[{}]",
             self.elements
                 .iter()
-                .map(|expr| format!("{expr}"))
+                .map(|arr| format!("{arr}"))
                 .collect::<Vec<String>>()
                 .join(", ")
         )
@@ -181,8 +189,8 @@ impl fmt::Display for InfixExpr {
 impl fmt::Display for CondExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "if {} {}", self.condition, self.consequence)?;
-        if let Some(alternative) = &self.alternative {
-            write!(f, " else {}", alternative)?;
+        if let Some(alt) = &self.alternative {
+            write!(f, " else {alt}")?;
         }
         Ok(())
     }
@@ -269,7 +277,7 @@ impl fmt::Display for CallExpr {
             self.function,
             self.arguments
                 .iter()
-                .map(|expr| format!("{expr}"))
+                .map(|call| format!("{call}"))
                 .collect::<Vec<String>>()
                 .join(", ")
         )
@@ -544,13 +552,20 @@ impl fmt::Display for PathExpr {
     }
 }
 
+impl fmt::Display for RangeExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let op = if self.inclusive { "..=" } else { ".." };
+        write!(f, "{}{op}{}", self.start, self.end)
+    }
+}
+
 impl fmt::Display for UseStmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let vis = visibility_modifier(self.is_public);
         let path = self.path.join("::");
         match &self.items {
-            Some(items) => write!(f, "{vis}use {}::{{{}}};", path, items.join(", ")),
-            None => write!(f, "{vis}use {};", path),
+            Some(items) => write!(f, "{vis}use {path}::{{{}}};", items.join(", ")),
+            None => write!(f, "{vis}use {path};"),
         }
     }
 }
@@ -568,22 +583,6 @@ impl fmt::Display for ModStmt {
             }
             None => write!(f, "{vis}mod {};", self.name),
         }
-    }
-}
-
-/// Formats a generic parameter list as `<T, U: Bound>`, or an empty string if empty.
-fn fmt_generic_params(params: &[GenericParam]) -> String {
-    if params.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "<{}>",
-            params
-                .iter()
-                .map(|g| g.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        )
     }
 }
 
@@ -661,4 +660,20 @@ impl fmt::Display for UnknownTypeAnnotation {
 #[inline]
 fn visibility_modifier(vis: bool) -> &'static str {
     if vis { "pub " } else { "" }
+}
+
+/// Formats a generic parameter list as `<T, U: Bound>`, or an empty string if empty.
+fn fmt_generic_params(params: &[GenericParam]) -> String {
+    if params.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "<{}>",
+            params
+                .iter()
+                .map(|g| g.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    }
 }

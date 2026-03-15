@@ -32,7 +32,6 @@ fn turn_one_into_two(node: Node) -> Node {
 fn transform_integers() {
     let input = one();
     let modified = transform(Node::Expr(input), &mut turn_one_into_two);
-
     match modified {
         Node::Expr(Expr::I64(i)) => assert_eq!(i.value, 2),
         _ => panic!("Expected I64 expression"),
@@ -53,13 +52,10 @@ fn transform_program() {
             }),
         ],
     };
-
     let modified = transform(Node::Program(program), &mut turn_one_into_two);
-
     match modified {
         Node::Program(prog) => {
             assert_eq!(prog.statements.len(), 2);
-
             match &prog.statements[0] {
                 Stmt::Expr(ExprStmt {
                     value: Expr::I64(i),
@@ -69,7 +65,6 @@ fn transform_program() {
                 }
                 _ => panic!("Expected I64 expression in first statement"),
             }
-
             match &prog.statements[1] {
                 Stmt::Expr(ExprStmt {
                     value: Expr::I64(i),
@@ -92,9 +87,7 @@ fn transform_infix_expression() {
         rhs: Box::new(two()),
         span: Span::ZERO,
     });
-
     let modified = transform(Node::Expr(input), &mut turn_one_into_two);
-
     match modified {
         Node::Expr(Expr::Infix(infix)) => {
             match *infix.lhs {
@@ -117,9 +110,7 @@ fn transform_prefix_expression() {
         operand: Box::new(one()),
         span: Span::ZERO,
     });
-
     let modified = transform(Node::Expr(input), &mut turn_one_into_two);
-
     match modified {
         Node::Expr(Expr::Prefix(prefix)) => match *prefix.operand {
             Expr::I64(i) => assert_eq!(i.value, 2),
@@ -136,9 +127,7 @@ fn transform_index_expression() {
         index: Box::new(one()),
         span: Span::ZERO,
     });
-
     let modified = transform(Node::Expr(input), &mut turn_one_into_two);
-
     match modified {
         Node::Expr(Expr::Index(index)) => {
             match *index.expr {
@@ -174,9 +163,7 @@ fn transform_conditional_expression() {
         }),
         span: Span::ZERO,
     });
-
     let modified = transform(Node::Expr(input), &mut turn_one_into_two);
-
     match modified {
         Node::Expr(Expr::Cond(cond)) => {
             match *cond.condition {
@@ -193,7 +180,6 @@ fn transform_conditional_expression() {
                 }
                 _ => panic!("Expected I64 in consequence"),
             }
-
             if let Some(alt) = cond.alternative {
                 match &alt.statements[0] {
                     Stmt::Expr(ExprStmt {
@@ -218,9 +204,7 @@ fn transform_return_statement() {
         value: one(),
         span: Span::ZERO,
     });
-
     let modified = transform(Node::Stmt(stmt), &mut turn_one_into_two);
-
     match modified {
         Node::Stmt(Stmt::Return(ret)) => match ret.value {
             Expr::I64(i) => assert_eq!(i.value, 2),
@@ -233,14 +217,13 @@ fn transform_return_statement() {
 #[test]
 fn transform_let_statement() {
     let stmt = Stmt::Let(LetStmt {
+        mutable: false,
         ident: "x".to_string(),
         type_annotation: None,
         value: one(),
         span: Span::ZERO,
     });
-
     let modified = transform(Node::Stmt(stmt), &mut turn_one_into_two);
-
     match modified {
         Node::Stmt(Stmt::Let(let_stmt)) => match let_stmt.value {
             Expr::I64(i) => assert_eq!(i.value, 2),
@@ -269,9 +252,7 @@ fn transform_function_literal() {
         },
         span: Span::ZERO,
     });
-
     let modified = transform(Node::Expr(func), &mut turn_one_into_two);
-
     match modified {
         Node::Expr(Expr::Lambda(f)) => match &f.body.statements[0] {
             Stmt::Expr(ExprStmt {
@@ -296,9 +277,7 @@ fn transform_function_call() {
         arguments: vec![one(), one()],
         span: Span::ZERO,
     });
-
     let modified = transform(Node::Expr(call), &mut turn_one_into_two);
-
     match modified {
         Node::Expr(Expr::Call(c)) => {
             assert_eq!(c.arguments.len(), 2);
@@ -323,9 +302,7 @@ fn transform_array_literal() {
         elements: vec![one(), one()],
         span: Span::ZERO,
     });
-
     let modified = transform(Node::Expr(array), &mut turn_one_into_two);
-
     match modified {
         Node::Expr(Expr::Array(arr)) => {
             assert_eq!(arr.elements.len(), 2);
@@ -350,9 +327,7 @@ fn transform_hash_literal() {
         pairs: vec![(one(), one()), (one(), one())],
         span: Span::ZERO,
     });
-
     let modified = transform(Node::Expr(hash), &mut turn_one_into_two);
-
     match modified {
         Node::Expr(Expr::Map(h)) => {
             assert_eq!(h.pairs.len(), 2);
@@ -376,6 +351,7 @@ fn transform_hash_literal() {
 fn transform_nested_structures() {
     let program = Program {
         statements: vec![Stmt::Let(LetStmt {
+            mutable: false,
             ident: "x".to_string(),
             type_annotation: None,
             value: Expr::Infix(InfixExpr {
@@ -393,9 +369,7 @@ fn transform_nested_structures() {
             span: Span::ZERO,
         })],
     };
-
     let modified = transform(Node::Program(program), &mut turn_one_into_two);
-
     match modified {
         Node::Program(prog) => match &prog.statements[0] {
             Stmt::Let(let_stmt) => match &let_stmt.value {
@@ -407,7 +381,6 @@ fn transform_nested_structures() {
                         },
                         _ => panic!("Expected Array"),
                     }
-
                     match &*infix.rhs {
                         Expr::Map(h) => {
                             let (key, _) = &h.pairs[0];

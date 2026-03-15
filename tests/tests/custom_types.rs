@@ -52,7 +52,6 @@ fn assert_type_error_contains(needle: &str, input: &str) {
         .iter()
         .map(|e| e.kind.to_string())
         .collect::<Vec<String>>();
-
     assert!(
         msgs.iter().any(|m| m.contains(needle)),
         "expected error containing `{needle}`, got: {msgs:?}"
@@ -66,34 +65,29 @@ fn structs() {
         "struct Point { x: i64, y: i64 }
          let p = Point { x: 1, z: 2 };",
     );
-
     assert_type_error_contains(
         "missing field",
         "struct Point { x: i64, y: i64 }
          let p = Point { x: 1 };",
     );
-
     run_i64(
         "struct Point { x: i64, y: i64 }
          let p = Point { x: 3, y: 4 };
          p.x",
         3,
     );
-
     run_i64(
         "struct Point { x: i64, y: i64 }
          let p = Point { x: 10, y: 20 };
          p.y",
         20,
     );
-
     run_i64(
         "struct Point { x: i64, y: i64 }
          let p = Point { x: 5, y: 7 };
          p.x + p.y",
         12,
     );
-
     run_i64(
         "struct Inner { val: i64 }
          struct Outer { inner: Inner }
@@ -101,29 +95,26 @@ fn structs() {
          o.inner.val",
         42,
     );
-
     run_i64(
         "struct Wrapper<T> { inner: T }
          let w = Wrapper { inner: 42 };
          w.inner",
         42,
     );
-
     run_bool(
         "struct Wrapper<T> { inner: T }
          let w = Wrapper { inner: true };
          w.inner",
         true,
     );
-
     run_i64(
         "struct Stack { items: [i64] }
          impl Stack {
              fn peek(self) -> Option<i64> {
-                 if (len(self.items) == 0usize) {
+                 if (self.items.len() == 0usize) {
                      Option::None
                  } else {
-                     Option::Some(first(self.items))
+                     Option::Some(self.items.first())
                  }
              }
          }
@@ -131,15 +122,14 @@ fn structs() {
          match s.peek() { Some(v) => v, None => -1 }",
         10,
     );
-
     run_i64(
         "struct Stack { items: [i64] }
          impl Stack {
              fn peek(self) -> Option<i64> {
-                 if (len(self.items) == 0usize) {
+                 if (self.items.len() == 0usize) {
                      Option::None
                  } else {
-                     Option::Some(first(self.items))
+                     Option::Some(self.items.first())
                  }
              }
          }
@@ -155,40 +145,34 @@ fn enums() {
         "duplicate type definition",
         "enum Option<T> { Some(T), None }",
     );
-
     assert_type_error_contains(
         "duplicate type definition",
         "enum Result<T, E> { Ok(T), Err(E) }",
     );
-
     run_i64(
         "enum Color { Red, Green, Blue }
          let c = Color::Red;
          match c { Red => 0, Green => 1, Blue => 2 }",
         0,
     );
-
     run_i64(
         "enum Color { Red, Green, Blue }
          let c = Color::Blue;
          match c { Red => 0, Green => 1, Blue => 2 }",
         2,
     );
-
     run_i64(
         "enum Shape { Circle(i64), Rect(i64, i64) }
          let s = Shape::Circle(5);
          match s { Circle(r) => r, Rect(w, h) => w * h }",
         5,
     );
-
     run_i64(
         "enum Shape { Circle(i64), Rect(i64, i64) }
          let s = Shape::Rect(3, 4);
          match s { Circle(r) => r, Rect(w, h) => w * h }",
         12,
     );
-
     run_bool(
         "enum Direction { North, South, East, West }
          impl Direction {
@@ -200,7 +184,6 @@ fn enums() {
          d.is_north()",
         true,
     );
-
     run_bool(
         "enum Direction { North, South, East, West }
          impl Direction {
@@ -212,15 +195,14 @@ fn enums() {
          d.is_north()",
         false,
     );
-
     run_i64(
         "let arr = [Option::Some(1), Option::Some(3), Option::Some(6)];
-         let total = 0;
-         let i = 0;
-         while (i < len(arr) as i64) {
+         let mut total = 0;
+         let mut i = 0;
+         while (i < arr.len() as i64) {
              let val = match arr[i] { Some(v) => v, _ => 0 };
-             let total = total + val;
-             let i = i + 1;
+             total = total + val;
+             i = i + 1;
          }
          total",
         10,
@@ -234,25 +216,21 @@ fn option_builtin_type() {
              match opt { Some(v) => v, None => 0 }
          }",
     );
-
     assert_no_type_errors(
         "fn map_opt(opt: Option<i64>) -> Option<i64> {
              match opt { Some(v) => Option::Some(v + 1), None => Option::None }
          }",
     );
-
     run_i64(
         "let x = Option::Some(42);
          match x { Some(v) => v, None => 0 }",
         42,
     );
-
     run_i64(
         "let x: Option<i64> = Option::None;
          match x { Some(v) => v, None => -1 }",
         -1,
     );
-
     run_i64(
         "fn safe_div(a: i64, b: i64) -> Option<i64> {
              if (b == 0) { Option::None } else { Option::Some(a / b) }
@@ -261,7 +239,6 @@ fn option_builtin_type() {
          match result { Some(v) => v, None => -1 }",
         5,
     );
-
     run_i64(
         "fn safe_div(a: i64, b: i64) -> Option<i64> {
              if (b == 0) { Option::None } else { Option::Some(a / b) }
@@ -270,7 +247,6 @@ fn option_builtin_type() {
          match result { Some(v) => v, None => -1 }",
         -1,
     );
-
     run_i64(
         "fn unwrap_or(opt: Option<i64>, default: i64) -> i64 {
              match opt { Some(v) => v, None => default }
@@ -278,7 +254,6 @@ fn option_builtin_type() {
          unwrap_or(Option::Some(7), 0)",
         7,
     );
-
     run_i64(
         "fn unwrap_or(opt: Option<i64>, default: i64) -> i64 {
              match opt { Some(v) => v, None => default }
@@ -295,19 +270,16 @@ fn result_builtin_type() {
              match r { Ok(v) => v, Err(e) => 0 }
          }",
     );
-
     run_i64(
         "let r = Result::Ok(100);
          match r { Ok(v) => v, Err(e) => e }",
         100,
     );
-
     run_i64(
         "let r: Result<i64, i64> = Result::Err(-1);
          match r { Ok(v) => v, Err(e) => e }",
         -1,
     );
-
     run_i64(
         "fn checked_div(a: i64, b: i64) -> Result<i64, i64> {
              if (b == 0) { Result::Err(-1) } else { Result::Ok(a / b) }
@@ -316,7 +288,6 @@ fn result_builtin_type() {
          match r { Ok(v) => v, Err(e) => e }",
         4,
     );
-
     run_i64(
         "fn checked_div(a: i64, b: i64) -> Result<i64, i64> {
              if (b == 0) { Result::Err(-1) } else { Result::Ok(a / b) }
@@ -325,7 +296,6 @@ fn result_builtin_type() {
          match r { Ok(v) => v, Err(e) => e }",
         -1,
     );
-
     run_str(
         r#"fn validate(x: i64) -> Result<i64, String> {
              if (x > 0) { Result::Ok(x) } else { Result::Err("negative") }
@@ -334,7 +304,6 @@ fn result_builtin_type() {
          match r { Ok(v) => "ok", Err(e) => e }"#,
         "negative",
     );
-
     run_i64(
         "fn map_result(r: Result<i64, i64>, f: fn(i64) -> i64) -> Result<i64, i64> {
              match r { Ok(v) => Result::Ok(f(v)), Err(e) => Result::Err(e) }
@@ -356,7 +325,6 @@ fn method_calls() {
          p.sum()",
         7,
     );
-
     run_i64(
         "struct Counter { val: i64 }
          impl Counter {
@@ -367,7 +335,6 @@ fn method_calls() {
          c.get()",
         99,
     );
-
     run_i64(
         "struct Calc { base: i64 }
          impl Calc {
@@ -377,7 +344,6 @@ fn method_calls() {
          c.add(5)",
         15,
     );
-
     run_i64(
         "trait Describable { fn describe(self) -> i64; }
          struct Box { size: i64 }
@@ -406,7 +372,6 @@ fn option_chained_matching() {
          match r { Some(v) => v, None => 0 }",
         7,
     );
-
     run_i64(
         "fn add_opt(a: Option<i64>, b: Option<i64>) -> Option<i64> {
              match a {

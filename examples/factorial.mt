@@ -7,11 +7,11 @@ let factorial = fn(n: i64) -> i64 {
 };
 
 let factorial_iter = fn(n: i64) -> i64 {
-    let result = 1;
-    let i = 1;
+    let mut result = 1;
+    let mut i = 1;
     while (i < n + 1) {
-        let result = result * i;
-        let i = i + 1;
+        result = result * i;
+        i = i + 1;
     }
     result;
 };

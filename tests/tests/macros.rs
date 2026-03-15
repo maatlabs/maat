@@ -9,14 +9,12 @@ fn test_macros(input: &str, expected: &str) {
     let expanded = expand_macros(Node::Program(program), &env);
 
     let expected_prog = maat_tests::parse(expected);
-
     if let Node::Program(expanded_prog) = expanded {
         assert_eq!(
             expanded_prog.statements.len(),
             expected_prog.statements.len(),
             "Statement count mismatch.\nExpanded: {expanded_prog}\nExpected: {expected_prog}"
         );
-
         for (i, (expanded_stmt, expected_stmt)) in expanded_prog
             .statements
             .iter()
@@ -41,11 +39,9 @@ fn test_define_macros() {
         let function = fn(x, y) { x + y; };
         let mymacro = macro(x, y) { x + y; };
     "#;
-
     let program = maat_tests::parse(input);
     let env = Env::default();
     let modified = define_macros(program, &env);
-
     assert_eq!(modified.statements.len(), 2);
     assert!(env.get("mymacro").is_some());
 
@@ -64,9 +60,7 @@ fn test_quote_builtin() {
     let input = "quote(5 + 5)";
     let program = maat_tests::parse(input);
     let env = Env::default();
-
     let result = eval(Node::Program(program), &env).unwrap();
-
     if let Object::Quote(quote_obj) = result {
         if let Node::Expr(Expr::Infix(infix)) = &quote_obj.node {
             assert_eq!(infix.operator, "+");
@@ -89,7 +83,6 @@ fn test_macro_expansion() {
         "#,
         "(1 + 2)",
     );
-
     // Expansion with unquote
     test_macros(
         r#"
@@ -98,7 +91,6 @@ fn test_macro_expansion() {
         "#,
         "(10 - 5) - (2 + 2)",
     );
-
     // Unless macro (conditional rewriting)
     test_macros(
         r#"
@@ -120,7 +112,6 @@ fn test_macro_expansion() {
         }
         "#,
     );
-
     // Double macro
     test_macros(
         r#"
@@ -129,7 +120,6 @@ fn test_macro_expansion() {
         "#,
         "(5 * 2)",
     );
-
     // Multiple arguments
     test_macros(
         r#"

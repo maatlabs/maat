@@ -32,7 +32,7 @@ add5(add10(1));
 const ARRAY_SOURCE: &str = "
 let sum = fn(arr) {
     let iter = fn(idx, acc) {
-        if (idx == len(arr)) {
+        if (idx == arr.len()) {
             acc
         } else {
             iter(idx + 1, acc + arr[idx]);

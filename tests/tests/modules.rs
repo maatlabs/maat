@@ -198,7 +198,6 @@ fn exports_only_pub_items() {
         .find(|(id, _)| **id != ModuleId::ROOT)
         .map(|(_, e)| e)
         .unwrap();
-
     assert_eq!(lib_exports.bindings.len(), 1);
     assert_eq!(lib_exports.bindings[0].0, "visible");
 }
@@ -214,13 +213,11 @@ fn impl_blocks_export_only_pub_methods() {
     ]);
     let mut graph = resolve_module_graph(&dir.path().join("main.mt")).unwrap();
     let exports = check_exports(&mut graph).unwrap();
-
     let shapes_exports = exports
         .iter()
         .find(|(id, _)| **id != ModuleId::ROOT)
         .map(|(_, e)| e)
         .unwrap();
-
     assert_eq!(shapes_exports.impls.len(), 1);
     let imp = &shapes_exports.impls[0];
     assert_eq!(imp.methods.len(), 1, "only pub methods should be exported");
@@ -247,10 +244,8 @@ fn linked_bytecode_serialization_roundtrip() {
         ("math.mt", "pub fn add(a: i64, b: i64) -> i64 { a + b }"),
     ])
     .expect("compilation failed");
-
     let serialized = bytecode.serialize().expect("serialization failed");
     let deserialized = Bytecode::deserialize(&serialized).expect("deserialization failed");
-
     let mut vm = VM::new(deserialized);
     vm.run().expect("vm error");
     assert_eq!(vm.last_popped_stack_elem(), Some(&Object::I64(42)));
@@ -284,4 +279,187 @@ fn multiple_modules_with_internal_state() {
         ),
     ]);
     assert_eq!(result, Object::I64(142));
+}
+
+#[test]
+fn std_math() {
+    // abs()
+    let result = run_project(&[("main.mt", "use std::math::abs;\nabs(7)")]);
+    assert_eq!(result, Object::I64(7));
+    let result = run_project(&[("main.mt", "use std::math::abs;\nabs(-42)")]);
+    assert_eq!(result, Object::I64(42));
+
+    // min()
+    let result = run_project(&[("main.mt", "use std::math::min;\nmin(3, 7)")]);
+    assert_eq!(result, Object::I64(3));
+    // max()
+    let result = run_project(&[("main.mt", "use std::math::max;\nmax(3, 7)")]);
+    assert_eq!(result, Object::I64(7));
+
+    // pow()
+    let result = run_project(&[("main.mt", "use std::math::pow;\npow(2, 10)")]);
+    assert_eq!(result, Object::I64(1024));
+    let result = run_project(&[("main.mt", "use std::math::pow;\npow(5, 0)")]);
+    assert_eq!(result, Object::I64(1));
+
+    // gcd()
+    let result = run_project(&[("main.mt", "use std::math::gcd;\ngcd(12, 8)")]);
+    assert_eq!(result, Object::I64(4));
+
+    // lcm()
+    let result = run_project(&[("main.mt", "use std::math::lcm;\nlcm(4, 6)")]);
+    assert_eq!(result, Object::I64(12));
+}
+
+#[test]
+fn std_string() {
+    // trim()
+    let result = run_project(&[("main.mt", "use std::string::trim;\ntrim(\"  hello  \")")]);
+    assert_eq!(result, Object::Str("hello".to_string()));
+
+    // contains()
+    let result = run_project(&[(
+        "main.mt",
+        "use std::string::contains;\ncontains(\"hello world\", \"world\")",
+    )]);
+    assert_eq!(result, Object::Bool(true));
+    let result = run_project(&[(
+        "main.mt",
+        "use std::string::contains;\ncontains(\"hello\", \"xyz\")",
+    )]);
+    assert_eq!(result, Object::Bool(false));
+
+    // starts_with()
+    let result = run_project(&[(
+        "main.mt",
+        "use std::string::starts_with;\nstarts_with(\"hello world\", \"hello\")",
+    )]);
+    assert_eq!(result, Object::Bool(true));
+
+    // ends_with()
+    let result = run_project(&[(
+        "main.mt",
+        "use std::string::ends_with;\nends_with(\"hello world\", \"world\")",
+    )]);
+    assert_eq!(result, Object::Bool(true));
+
+    // split()
+    let result = run_project(&[(
+        "main.mt",
+        "use std::string::split;\nsplit(\"a,b,c\", \",\")",
+    )]);
+    assert_eq!(
+        result,
+        Object::Array(vec![
+            Object::Str("a".to_string()),
+            Object::Str("b".to_string()),
+            Object::Str("c".to_string()),
+        ])
+    );
+
+    // join()
+    let result = run_project(&[(
+        "main.mt",
+        "use std::string::join;\njoin([\"a\", \"b\", \"c\"], \"-\")",
+    )]);
+    assert_eq!(result, Object::Str("a-b-c".to_string()));
+
+    // parse_int()
+    let result = run_project(&[("main.mt", "use std::string::parse_int;\nparse_int(\"42\")")]);
+    assert_eq!(result, Object::I64(42));
+}
+
+#[test]
+fn std_collections_set() {
+    // new(), len()
+    let result = run_project(&[(
+        "main.mt",
+        "use std::collections::{new_set, set_len};\nlet s = new_set();\nset_len(s)",
+    )]);
+    assert_eq!(result, Object::Usize(0));
+
+    // insert(), contains()
+    let result = run_project(&[(
+        "main.mt",
+        "use std::collections::{new_set, set_insert, set_contains};\nlet s = new_set();\nlet s = set_insert(s, 42);\nset_contains(s, 42)",
+    )]);
+    assert_eq!(result, Object::Bool(true));
+
+    // remove()
+    let result = run_project(&[(
+        "main.mt",
+        "use std::collections::{new_set, set_insert, set_remove, set_contains};\nlet s = new_set();\nlet s = set_insert(s, 1);\nlet s = set_remove(s, 1);\nset_contains(s, 1)",
+    )]);
+    assert_eq!(result, Object::Bool(false));
+
+    // uniqueness
+    let result = run_project(&[(
+        "main.mt",
+        "use std::collections::{new_set, set_insert, set_len};\nlet s = new_set();\nlet s = set_insert(s, 1);\nlet s = set_insert(s, 1);\nlet s = set_insert(s, 2);\nset_len(s)",
+    )]);
+    assert_eq!(result, Object::Usize(2));
+}
+
+#[test]
+fn str_methods() {
+    // s.trim()
+    let result = run_project(&[("main.mt", "let s: str = \"  hello  \";\ns.trim()")]);
+    assert_eq!(result, Object::Str("hello".to_string()));
+
+    // s.contains()
+    let result = run_project(&[(
+        "main.mt",
+        "let s: str = \"hello world\";\ns.contains(\"world\")",
+    )]);
+    assert_eq!(result, Object::Bool(true));
+
+    // s.starts_with()
+    let result = run_project(&[(
+        "main.mt",
+        "let s: str = \"hello world\";\ns.starts_with(\"hello\")",
+    )]);
+    assert_eq!(result, Object::Bool(true));
+
+    // s.ends_with()
+    let result = run_project(&[(
+        "main.mt",
+        "let s: str = \"hello world\";\ns.ends_with(\"world\")",
+    )]);
+    assert_eq!(result, Object::Bool(true));
+
+    // s.split()
+    let result = run_project(&[("main.mt", "let s: str = \"a,b,c\";\ns.split(\",\")")]);
+    assert_eq!(
+        result,
+        Object::Array(vec![
+            Object::Str("a".to_string()),
+            Object::Str("b".to_string()),
+            Object::Str("c".to_string()),
+        ])
+    );
+
+    // s.parse_int()
+    let result = run_project(&[("main.mt", "let s: str = \"123\";\ns.parse_int()")]);
+    assert_eq!(result, Object::I64(123));
+}
+
+#[test]
+fn array_join_method() {
+    let result = run_project(&[(
+        "main.mt",
+        "let arr = [\"x\", \"y\", \"z\"];\narr.join(\", \")",
+    )]);
+    assert_eq!(result, Object::Str("x, y, z".to_string()));
+}
+
+#[test]
+fn stdlib_combined_with_user_modules() {
+    let result = run_project(&[
+        (
+            "main.mt",
+            "mod helpers;\nuse helpers::double;\nuse std::math::abs;\nabs(double(-5))",
+        ),
+        ("helpers.mt", "pub fn double(x: i64) -> i64 { x * 2 }"),
+    ]);
+    assert_eq!(result, Object::I64(10));
 }

@@ -25,9 +25,24 @@ use maat_errors::{CompileError, CompileErrorKind, Result};
 pub struct SymbolsTable {
     store: IndexMap<String, Symbol>,
     num_definitions: usize,
+    max_definitions: usize,
     outer: Option<Box<SymbolsTable>>,
     free_vars: Vec<Symbol>,
     masked: HashSet<String>,
+    block_scopes: Vec<BlockScope>,
+}
+
+/// Tracks symbols defined within a single block scope.
+///
+/// When the block exits, all symbols recorded here are removed from the
+/// store and `num_definitions` is restored, enabling local slot reuse
+/// across non-overlapping blocks within the same function. Any symbols
+/// that were shadowed are restored to their original bindings.
+#[derive(Debug, Clone)]
+struct BlockScope {
+    num_definitions_at_entry: usize,
+    names: Vec<String>,
+    shadowed: Vec<Symbol>,
 }
 
 /// A resolved symbol with its scope and storage index.
@@ -42,6 +57,8 @@ pub struct Symbol {
     pub scope: SymbolScope,
     /// The storage index assigned to this symbol.
     pub index: usize,
+    /// Whether this binding was declared with `let mut`.
+    pub mutable: bool,
 }
 
 /// Scope classification for a symbol.
@@ -73,15 +90,50 @@ impl SymbolsTable {
         Self {
             store: IndexMap::new(),
             num_definitions: 0,
+            max_definitions: 0,
             outer: Some(Box::new(outer)),
             free_vars: Vec::new(),
             masked: HashSet::new(),
+            block_scopes: Vec::new(),
         }
     }
 
-    /// Returns the number of symbols defined in this scope.
-    pub fn num_definitions(&self) -> usize {
-        self.num_definitions
+    /// Returns the number of local slots the VM must allocate for this scope.
+    ///
+    /// This is the high-water mark of simultaneously live locals,
+    /// accounting for slot reuse across non-overlapping block scopes.
+    pub fn max_definitions(&self) -> usize {
+        self.max_definitions
+    }
+
+    /// Enters a new block scope, saving the current definition count.
+    ///
+    /// Variables defined after this call are tracked so they can be
+    /// removed when `pop_block_scope` is called, enabling lexical
+    /// block scoping within a single function.
+    pub fn push_block_scope(&mut self) {
+        self.block_scopes.push(BlockScope {
+            num_definitions_at_entry: self.num_definitions,
+            names: Vec::new(),
+            shadowed: Vec::new(),
+        });
+    }
+
+    /// Exits the current block scope, removing locally defined symbols.
+    ///
+    /// All symbols defined since the matching `push_block_scope` are
+    /// removed from the store and `num_definitions` is restored,
+    /// allowing the local slot indices to be reused by subsequent blocks.
+    pub fn pop_block_scope(&mut self) {
+        if let Some(block) = self.block_scopes.pop() {
+            for name in &block.names {
+                self.store.swap_remove(name);
+            }
+            for sym in block.shadowed {
+                self.store.insert(sym.name.clone(), sym);
+            }
+            self.num_definitions = block.num_definitions_at_entry;
+        }
     }
 
     /// Defines a symbol, assigning it the next available index.
@@ -98,24 +150,39 @@ impl SymbolsTable {
     ///
     /// Returns `CompileErrorKind::SymbolsTableOverflow` if the maximum number
     /// of global bindings has been reached (only checked for global scope).
-    pub fn define_symbol(&mut self, name: &str) -> Result<&Symbol> {
+    pub fn define_symbol(&mut self, name: &str, mutable: bool) -> Result<&Symbol> {
         let scope = if self.outer.is_some() {
             SymbolScope::Local
         } else {
             SymbolScope::Global
         };
-
-        // Reuse the existing index when rebinding a name at the same scope level.
-        // Unmasking ensures that imported symbols become resolvable again.
+        // Reuse the existing index when rebinding a name at the same scope level,
+        // but only if the symbol was defined within the current block scope.
+        // If the existing symbol predates the current block, this is a shadow
+        // and must receive a new slot so the outer binding is preserved on exit.
         if self
             .store
             .get(name)
             .is_some_and(|existing| existing.scope == scope)
         {
-            self.masked.remove(name);
-            return Ok(&self.store[name]);
+            let is_shadow = self
+                .block_scopes
+                .last()
+                .is_some_and(|block| self.store[name].index < block.num_definitions_at_entry);
+            if !is_shadow {
+                self.masked.remove(name);
+                // Update mutability on rebinding.
+                if let Some(sym) = self.store.get_mut(name) {
+                    sym.mutable = mutable;
+                }
+                return Ok(&self.store[name]);
+            }
+            // Save the original symbol so it can be restored when the
+            // block scope exits.
+            if let Some(block) = self.block_scopes.last_mut() {
+                block.shadowed.push(self.store[name].clone());
+            }
         }
-
         match scope {
             SymbolScope::Global if self.num_definitions > MAX_GLOBALS => {
                 return Err(CompileError::new(CompileErrorKind::SymbolsTableOverflow {
@@ -133,14 +200,20 @@ impl SymbolsTable {
             }
             _ => {}
         }
-
         let symbol = Symbol {
             name: name.to_string(),
             scope,
             index: self.num_definitions,
+            mutable,
         };
         self.store.insert(name.to_string(), symbol);
         self.num_definitions += 1;
+        if self.num_definitions > self.max_definitions {
+            self.max_definitions = self.num_definitions;
+        }
+        if let Some(block) = self.block_scopes.last_mut() {
+            block.names.push(name.to_string());
+        }
         Ok(&self.store[name])
     }
 
@@ -154,6 +227,7 @@ impl SymbolsTable {
             name: name.to_string(),
             scope: SymbolScope::Builtin,
             index,
+            mutable: false,
         };
         self.store.insert(name.to_string(), symbol);
         &self.store[name]
@@ -169,6 +243,7 @@ impl SymbolsTable {
             name: name.to_string(),
             scope: SymbolScope::Function,
             index: 0,
+            mutable: false,
         };
         self.store.insert(name.to_string(), symbol);
     }
@@ -185,10 +260,8 @@ impl SymbolsTable {
         {
             return Some(symbol.clone());
         }
-
         let outer = self.outer.as_mut()?;
         let outer_symbol = outer.resolve_symbol(name)?;
-
         match outer_symbol.scope {
             SymbolScope::Global | SymbolScope::Builtin => Some(outer_symbol),
             _ => Some(self.define_free(outer_symbol)),
@@ -241,12 +314,14 @@ impl SymbolsTable {
     /// current table. Returns the newly created free symbol.
     fn define_free(&mut self, original: Symbol) -> Symbol {
         let index = self.free_vars.len();
+        let mutable = original.mutable;
         self.free_vars.push(original);
 
         let symbol = Symbol {
             name: self.free_vars[index].name.clone(),
             scope: SymbolScope::Free,
             index,
+            mutable,
         };
         self.store.insert(symbol.name.clone(), symbol.clone());
         symbol
@@ -261,12 +336,12 @@ mod tests {
     fn symbol_table_define() {
         let mut table = SymbolsTable::new();
 
-        let a = table.define_symbol("a").expect("should define 'a'");
+        let a = table.define_symbol("a", false).expect("should define 'a'");
         assert_eq!(a.name, "a");
         assert_eq!(a.scope, SymbolScope::Global);
         assert_eq!(a.index, 0);
 
-        let b = table.define_symbol("b").expect("should define 'b'");
+        let b = table.define_symbol("b", false).expect("should define 'b'");
         assert_eq!(b.name, "b");
         assert_eq!(b.scope, SymbolScope::Global);
         assert_eq!(b.index, 1);
@@ -275,8 +350,8 @@ mod tests {
     #[test]
     fn symbol_table_resolve() {
         let mut table = SymbolsTable::new();
-        table.define_symbol("a").expect("should define 'a'");
-        table.define_symbol("b").expect("should define 'b'");
+        table.define_symbol("a", false).expect("should define 'a'");
+        table.define_symbol("b", false).expect("should define 'b'");
 
         let a = table.resolve_symbol("a").expect("'a' should be defined");
         assert_eq!(a.index, 0);
@@ -295,12 +370,12 @@ mod tests {
     #[test]
     fn define_resolve_local() {
         let mut global = SymbolsTable::new();
-        global.define_symbol("a").expect("should define 'a'");
-        global.define_symbol("b").expect("should define 'b'");
+        global.define_symbol("a", false).expect("should define 'a'");
+        global.define_symbol("b", false).expect("should define 'b'");
 
         let mut local = SymbolsTable::new_enclosed(global);
-        local.define_symbol("c").expect("should define 'c'");
-        local.define_symbol("d").expect("should define 'd'");
+        local.define_symbol("c", false).expect("should define 'c'");
+        local.define_symbol("d", false).expect("should define 'd'");
 
         let expected = [
             ("a", SymbolScope::Global, 0),
@@ -308,7 +383,6 @@ mod tests {
             ("c", SymbolScope::Local, 0),
             ("d", SymbolScope::Local, 1),
         ];
-
         for (name, expected_scope, expected_index) in expected {
             let symbol = local
                 .resolve_symbol(name)
@@ -327,11 +401,9 @@ mod tests {
             ("e", SymbolScope::Builtin, 2),
             ("f", SymbolScope::Builtin, 3),
         ];
-
         for (i, &(name, _, _)) in expected.iter().enumerate() {
             global.define_builtin(i, name);
         }
-
         let first_local = SymbolsTable::new_enclosed(global);
         let mut second_local = SymbolsTable::new_enclosed(first_local);
 
@@ -347,16 +419,23 @@ mod tests {
     #[test]
     fn resolve_nested_local() {
         let mut global = SymbolsTable::new();
-        global.define_symbol("a").expect("should define 'a'");
-        global.define_symbol("b").expect("should define 'b'");
+        global.define_symbol("a", false).expect("should define 'a'");
+        global.define_symbol("b", false).expect("should define 'b'");
 
         let mut first_local = SymbolsTable::new_enclosed(global);
-        first_local.define_symbol("c").expect("should define 'c'");
-        first_local.define_symbol("d").expect("should define 'd'");
-
+        first_local
+            .define_symbol("c", false)
+            .expect("should define 'c'");
+        first_local
+            .define_symbol("d", false)
+            .expect("should define 'd'");
         let mut second_local = SymbolsTable::new_enclosed(first_local);
-        second_local.define_symbol("e").expect("should define 'e'");
-        second_local.define_symbol("f").expect("should define 'f'");
+        second_local
+            .define_symbol("e", false)
+            .expect("should define 'e'");
+        second_local
+            .define_symbol("f", false)
+            .expect("should define 'f'");
 
         let expected = [
             ("a", SymbolScope::Global, 0),
@@ -364,7 +443,6 @@ mod tests {
             ("e", SymbolScope::Local, 0),
             ("f", SymbolScope::Local, 1),
         ];
-
         for (name, expected_scope, expected_index) in expected {
             let symbol = second_local
                 .resolve_symbol(name)
@@ -377,16 +455,23 @@ mod tests {
     #[test]
     fn resolve_free() {
         let mut global = SymbolsTable::new();
-        global.define_symbol("a").expect("should define 'a'");
-        global.define_symbol("b").expect("should define 'b'");
+        global.define_symbol("a", false).expect("should define 'a'");
+        global.define_symbol("b", false).expect("should define 'b'");
 
         let mut first_local = SymbolsTable::new_enclosed(global);
-        first_local.define_symbol("c").expect("should define 'c'");
-        first_local.define_symbol("d").expect("should define 'd'");
-
+        first_local
+            .define_symbol("c", false)
+            .expect("should define 'c'");
+        first_local
+            .define_symbol("d", false)
+            .expect("should define 'd'");
         let mut second_local = SymbolsTable::new_enclosed(first_local);
-        second_local.define_symbol("e").expect("should define 'e'");
-        second_local.define_symbol("f").expect("should define 'f'");
+        second_local
+            .define_symbol("e", false)
+            .expect("should define 'e'");
+        second_local
+            .define_symbol("f", false)
+            .expect("should define 'f'");
 
         let expected = [
             ("a", SymbolScope::Global, 0),
@@ -396,7 +481,6 @@ mod tests {
             ("e", SymbolScope::Local, 0),
             ("f", SymbolScope::Local, 1),
         ];
-
         for (name, expected_scope, expected_index) in expected {
             let symbol = second_local
                 .resolve_symbol(name)
@@ -404,20 +488,20 @@ mod tests {
             assert_eq!(symbol.scope, expected_scope, "wrong scope for '{name}'");
             assert_eq!(symbol.index, expected_index, "wrong index for '{name}'");
         }
-
         let expected_free = [
             Symbol {
                 name: "c".to_string(),
                 scope: SymbolScope::Local,
                 index: 0,
+                mutable: false,
             },
             Symbol {
                 name: "d".to_string(),
                 scope: SymbolScope::Local,
                 index: 1,
+                mutable: false,
             },
         ];
-
         assert_eq!(
             second_local.free_vars().len(),
             expected_free.len(),
@@ -431,14 +515,19 @@ mod tests {
     #[test]
     fn resolve_unresolvable_free() {
         let mut global = SymbolsTable::new();
-        global.define_symbol("a").expect("should define 'a'");
+        global.define_symbol("a", false).expect("should define 'a'");
 
         let mut first_local = SymbolsTable::new_enclosed(global);
-        first_local.define_symbol("c").expect("should define 'c'");
-
+        first_local
+            .define_symbol("c", false)
+            .expect("should define 'c'");
         let mut second_local = SymbolsTable::new_enclosed(first_local);
-        second_local.define_symbol("e").expect("should define 'e'");
-        second_local.define_symbol("f").expect("should define 'f'");
+        second_local
+            .define_symbol("e", false)
+            .expect("should define 'e'");
+        second_local
+            .define_symbol("f", false)
+            .expect("should define 'f'");
 
         let expected = [
             ("a", SymbolScope::Global, 0),
@@ -446,7 +535,6 @@ mod tests {
             ("e", SymbolScope::Local, 0),
             ("f", SymbolScope::Local, 1),
         ];
-
         for (name, expected_scope, expected_index) in expected {
             let symbol = second_local
                 .resolve_symbol(name)
@@ -454,7 +542,6 @@ mod tests {
             assert_eq!(symbol.scope, expected_scope, "wrong scope for '{name}'");
             assert_eq!(symbol.index, expected_index, "wrong index for '{name}'");
         }
-
         assert!(
             second_local.resolve_symbol("b").is_none(),
             "should not resolve undefined 'b'"
@@ -468,11 +555,11 @@ mod tests {
     #[test]
     fn define_and_resolve_function_name() {
         let mut global = SymbolsTable::new();
-        global.define_symbol("a").expect("should define 'a'");
+        global.define_symbol("a", false).expect("should define 'a'");
 
         let mut local = SymbolsTable::new_enclosed(global);
         local.define_function_name("my_fn");
-        local.define_symbol("b").expect("should define 'b'");
+        local.define_symbol("b", false).expect("should define 'b'");
 
         let fn_sym = local
             .resolve_symbol("my_fn")
@@ -485,7 +572,7 @@ mod tests {
         assert_eq!(b_sym.index, 0);
 
         assert_eq!(
-            local.num_definitions(),
+            local.max_definitions(),
             1,
             "function name should not increment num_definitions"
         );
@@ -494,7 +581,7 @@ mod tests {
     #[test]
     fn shadowing_function_name() {
         let mut global = SymbolsTable::new();
-        global.define_symbol("a").expect("should define 'a'");
+        global.define_symbol("a", false).expect("should define 'a'");
 
         let mut local = SymbolsTable::new_enclosed(global);
         local.define_function_name("a");

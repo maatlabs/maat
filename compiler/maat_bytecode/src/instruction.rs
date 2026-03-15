@@ -110,7 +110,6 @@ impl fmt::Display for Instructions {
                     continue;
                 }
             };
-
             let widths = opcode.operand_widths();
             let (operands, bytes_read) = match decode_operands(widths, &self.0[ip + 1..]) {
                 Ok(result) => result,
@@ -120,13 +119,11 @@ impl fmt::Display for Instructions {
                     continue;
                 }
             };
-
             write!(f, "{:04} {}", ip, opcode.name())?;
             for operand in operands {
                 write!(f, " {operand}")?;
             }
             writeln!(f)?;
-
             ip += 1 + bytes_read;
         }
 
@@ -162,14 +159,12 @@ impl fmt::Display for Instructions {
 /// ```
 pub fn encode(opcode: Opcode, operands: &[usize]) -> Vec<u8> {
     let widths = opcode.operand_widths();
-
     let mut instruction = vec![opcode.to_byte()];
     instruction.reserve(widths.iter().sum());
 
     for (&operand, &width) in operands.iter().zip(widths.iter()) {
         encode_operand_bytes(&mut instruction, operand, width);
     }
-
     instruction
 }
 
@@ -212,7 +207,6 @@ pub fn decode_operands(widths: &[usize], bytes: &[u8]) -> Result<(Vec<usize>, us
         operands.push(operand);
         offset += width;
     }
-
     Ok((operands, offset))
 }
 
@@ -295,7 +289,6 @@ mod tests {
             (Opcode::Call, vec![3], vec![22, 3]),
             (Opcode::Closure, vec![65534, 255], vec![28, 255, 254, 255]),
         ];
-
         for (opcode, operands, expected) in cases {
             let instruction = encode(opcode, &operands);
             assert_eq!(instruction, expected);
@@ -312,12 +305,10 @@ mod tests {
             encode(Opcode::GetLocal, &[1]),
             encode(Opcode::Call, &[2]),
         ];
-
         let mut bytecode = Instructions::new();
         for ins in instructions {
             bytecode.extend(&Instructions::from(ins));
         }
-
         let expected = "0000 OpAdd\n0001 OpConstant 2\n0004 OpConstant 65535\n0007 OpClosure 65535 255\n0011 OpGetLocal 1\n0013 OpCall 2\n";
         assert_eq!(bytecode.to_string(), expected);
     }
@@ -330,13 +321,11 @@ mod tests {
             (Opcode::Call, vec![5], 1),
             (Opcode::Closure, vec![65534, 255], 3),
         ];
-
         for (opcode, expected_operands, expected_bytes_read) in cases {
             let instruction = encode(opcode, &expected_operands);
             let widths = opcode.operand_widths();
             let (operands, bytes_read) = decode_operands(widths, &instruction[1..])
                 .expect("decode should succeed for valid bytecode");
-
             assert_eq!(operands, expected_operands);
             assert_eq!(bytes_read, expected_bytes_read);
         }
@@ -347,7 +336,6 @@ mod tests {
         // OpConstant requires 2 bytes for its operand, but we only provide 1
         let truncated = [Opcode::Constant.to_byte(), 0x00];
         let widths = Opcode::Constant.operand_widths();
-
         let result = decode_operands(widths, &truncated[1..]);
         assert!(result.is_err(), "should fail on truncated bytecode");
 
@@ -370,7 +358,6 @@ mod tests {
         // Try to decode operands from empty bytes
         let empty: &[u8] = &[];
         let widths = Opcode::Constant.operand_widths();
-
         let result = decode_operands(widths, empty);
         assert!(result.is_err(), "should fail on empty bytecode");
 

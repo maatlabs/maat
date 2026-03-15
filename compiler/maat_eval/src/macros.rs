@@ -27,24 +27,22 @@ pub fn define_macros(mut program: Program, env: &Env) -> Program {
     let mut defs = Vec::new();
 
     for (i, stmt) in program.statements.iter().enumerate() {
-        if let Stmt::Let(let_stmt) = stmt
-            && let Expr::Macro(macro_lit) = &let_stmt.value
+        if let Stmt::Let(l) = stmt
+            && let Expr::Macro(m) = &l.value
         {
-            let macro_obj = Object::Macro(Macro {
-                params: macro_lit.params.clone(),
-                body: macro_lit.body.clone(),
+            let obj = Object::Macro(Macro {
+                params: m.params.clone(),
+                body: m.body.clone(),
                 env: env.clone(),
             });
-            env.set(let_stmt.ident.clone(), &macro_obj);
+            env.set(l.ident.clone(), &obj);
             defs.push(i);
         }
     }
-
     // Remove macro definitions in reverse order to maintain correct indices
     for &i in defs.iter().rev() {
         program.statements.remove(i);
     }
-
     program
 }
 

@@ -74,6 +74,8 @@ pub enum TokenKind {
     Use,
     /// The `pub` keyword for visibility modifiers.
     Pub,
+    /// The `mut` keyword for mutable bindings.
+    Mut,
 
     /// A user-defined identifier (variable, function name, etc.).
     Ident,
@@ -118,6 +120,19 @@ pub enum TokenKind {
     Asterisk,
     /// The division operator `/`.
     Slash,
+    /// The modulo (remainder) operator `%`.
+    Percent,
+
+    /// The compound addition assignment operator `+=`.
+    AddAssign,
+    /// The compound subtraction assignment operator `-=`.
+    SubAssign,
+    /// The compound multiplication assignment operator `*=`.
+    MulAssign,
+    /// The compound division assignment operator `/=`.
+    DivAssign,
+    /// The compound modulo assignment operator `%=`.
+    RemAssign,
 
     /// The less-than comparison operator or
     /// left angle bracket `<`.
@@ -138,6 +153,17 @@ pub enum TokenKind {
     And,
     /// The logical OR operator `||`.
     Or,
+
+    /// The bitwise AND operator `&`.
+    Ampersand,
+    /// The bitwise OR operator `|`.
+    Pipe,
+    /// The bitwise XOR operator `^`.
+    Caret,
+    /// The left shift operator `<<`.
+    ShiftLeft,
+    /// The right shift operator `>>`.
+    ShiftRight,
 
     /// The comma delimiter `,`.
     Comma,
@@ -165,6 +191,10 @@ pub enum TokenKind {
     PathSep,
     /// The dot `.` for field access and method calls.
     Dot,
+    /// The range operator `..` for half-open ranges.
+    DotDot,
+    /// The inclusive range operator `..=` for closed ranges.
+    DotDotEqual,
 
     /// An invalid or unrecognized token.
     Invalid,
@@ -225,6 +255,7 @@ impl TokenKind {
             "mod" => Self::Mod,
             "use" => Self::Use,
             "pub" => Self::Pub,
+            "mut" => Self::Mut,
             _ => Self::Ident,
         }
     }

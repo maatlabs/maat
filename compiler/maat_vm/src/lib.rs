@@ -82,6 +82,56 @@ macro_rules! checked_neg {
     };
 }
 
+/// Dispatches a bitwise binary operation across all 12 integer variants.
+///
+/// Returns `Option<Object>`:
+/// - `None`: operands are not the same integer type
+/// - `Some(result)`: the result of the operation
+macro_rules! int_bitwise {
+    ($left:expr, $right:expr, $op:tt) => {
+        match ($left, $right) {
+            (Object::I8(l), Object::I8(r)) => Some(Object::I8(*l $op *r)),
+            (Object::I16(l), Object::I16(r)) => Some(Object::I16(*l $op *r)),
+            (Object::I32(l), Object::I32(r)) => Some(Object::I32(*l $op *r)),
+            (Object::I64(l), Object::I64(r)) => Some(Object::I64(*l $op *r)),
+            (Object::I128(l), Object::I128(r)) => Some(Object::I128(*l $op *r)),
+            (Object::Isize(l), Object::Isize(r)) => Some(Object::Isize(*l $op *r)),
+            (Object::U8(l), Object::U8(r)) => Some(Object::U8(*l $op *r)),
+            (Object::U16(l), Object::U16(r)) => Some(Object::U16(*l $op *r)),
+            (Object::U32(l), Object::U32(r)) => Some(Object::U32(*l $op *r)),
+            (Object::U64(l), Object::U64(r)) => Some(Object::U64(*l $op *r)),
+            (Object::U128(l), Object::U128(r)) => Some(Object::U128(*l $op *r)),
+            (Object::Usize(l), Object::Usize(r)) => Some(Object::Usize(*l $op *r)),
+            _ => None,
+        }
+    };
+}
+
+/// Dispatches a checked shift operation across all 12 integer variants.
+///
+/// Returns `Option<Option<Object>>`:
+/// - outer `None`: operands are not the same integer type
+/// - inner `None`: shift amount too large
+macro_rules! int_shift {
+    ($left:expr, $right:expr, $method:ident) => {
+        match ($left, $right) {
+            (Object::I8(l), Object::I8(r)) => Some(l.$method(*r as u32).map(Object::I8)),
+            (Object::I16(l), Object::I16(r)) => Some(l.$method(*r as u32).map(Object::I16)),
+            (Object::I32(l), Object::I32(r)) => Some(l.$method(*r as u32).map(Object::I32)),
+            (Object::I64(l), Object::I64(r)) => Some(l.$method(*r as u32).map(Object::I64)),
+            (Object::I128(l), Object::I128(r)) => Some(l.$method(*r as u32).map(Object::I128)),
+            (Object::Isize(l), Object::Isize(r)) => Some(l.$method(*r as u32).map(Object::Isize)),
+            (Object::U8(l), Object::U8(r)) => Some(l.$method(*r as u32).map(Object::U8)),
+            (Object::U16(l), Object::U16(r)) => Some(l.$method(*r as u32).map(Object::U16)),
+            (Object::U32(l), Object::U32(r)) => Some(l.$method(*r as u32).map(Object::U32)),
+            (Object::U64(l), Object::U64(r)) => Some(l.$method(*r as u32).map(Object::U64)),
+            (Object::U128(l), Object::U128(r)) => Some(l.$method(*r as u32).map(Object::U128)),
+            (Object::Usize(l), Object::Usize(r)) => Some(l.$method(*r as u32).map(Object::Usize)),
+            _ => None,
+        }
+    };
+}
+
 /// Intermediate representation for type conversion.
 ///
 /// All numeric source values are widened into one of these variants
@@ -154,7 +204,6 @@ impl VM {
             free_vars: vec![],
         };
         let main_frame = Frame::new(main_closure, 0);
-
         Self {
             constants: bytecode.constants,
             stack: Vec::with_capacity(MAX_STACK_SIZE),
@@ -183,7 +232,6 @@ impl VM {
             free_vars: vec![],
         };
         let main_frame = Frame::new(main_closure, 0);
-
         Self {
             constants: bytecode.constants,
             stack: Vec::with_capacity(MAX_STACK_SIZE),
@@ -301,7 +349,6 @@ impl VM {
             if frame.ip >= frame.instructions().len() as isize - 1 {
                 break;
             }
-
             self.current_frame_mut()?.ip += 1;
             let ip = self.current_frame()?.ip as usize;
             let op_byte = *self
@@ -326,7 +373,16 @@ impl VM {
                 Opcode::Pop => {
                     self.pop_stack()?;
                 }
-                Opcode::Add | Opcode::Sub | Opcode::Mul | Opcode::Div => {
+                Opcode::Add
+                | Opcode::Sub
+                | Opcode::Mul
+                | Opcode::Div
+                | Opcode::Mod
+                | Opcode::BitAnd
+                | Opcode::BitOr
+                | Opcode::BitXor
+                | Opcode::Shl
+                | Opcode::Shr => {
                     self.execute_binary_operation(op)?;
                 }
                 Opcode::True => self.push_stack(TRUE)?,
@@ -403,7 +459,6 @@ impl VM {
                     let const_index = self.read_u16_operand(ip + 1)?;
                     let num_free = self.read_u8_operand(ip + 3)?;
                     self.current_frame_mut()?.ip += 3;
-
                     let func = match self.constants.get(const_index) {
                         Some(Object::CompiledFunction(f)) => f.clone(),
                         _ => {
@@ -412,7 +467,6 @@ impl VM {
                             )));
                         }
                     };
-
                     let base = self
                         .sp
                         .checked_sub(num_free)
@@ -425,7 +479,6 @@ impl VM {
                         })
                         .collect::<Result<Vec<_>>>()?;
                     self.sp = base;
-
                     self.push_stack(Object::Closure(Closure { func, free_vars }))?;
                 }
                 Opcode::GetFree => {
@@ -502,6 +555,16 @@ impl VM {
                     })?;
                     self.push_stack(value)?;
                 }
+                Opcode::MakeRange => {
+                    let end = self.pop_i64("Range")?;
+                    let start = self.pop_i64("Range")?;
+                    self.push_stack(Object::Range(start, end))?;
+                }
+                Opcode::MakeRangeInclusive => {
+                    let end = self.pop_i64("RangeInclusive")?;
+                    let start = self.pop_i64("RangeInclusive")?;
+                    self.push_stack(Object::RangeInclusive(start, end))?;
+                }
             }
         }
 
@@ -550,7 +613,6 @@ impl VM {
             .get(fn_slot)
             .cloned()
             .ok_or_else(|| self.vm_error("stack underflow in function call"))?;
-
         match callee {
             Object::Closure(cl) => self.call_closure(cl, num_args),
             Object::Builtin(f) => self.call_builtin_fn(f, num_args),
@@ -566,7 +628,6 @@ impl VM {
                 closure.func.num_parameters
             )));
         }
-
         let base_pointer = self.sp - num_args;
         let num_locals = closure.func.num_locals;
         let frame = Frame::new(closure, base_pointer);
@@ -576,7 +637,6 @@ impl VM {
         if self.sp > self.stack.len() {
             self.stack.resize(self.sp, Object::Null);
         }
-
         Ok(())
     }
 
@@ -592,7 +652,6 @@ impl VM {
 
         self.sp = args_start - 1;
         self.push_stack(result)?;
-
         Ok(())
     }
 
@@ -605,13 +664,11 @@ impl VM {
         if self.sp >= MAX_STACK_SIZE {
             return Err(self.vm_error("stack overflow"));
         }
-
         if self.sp >= self.stack.len() {
             self.stack.push(obj);
         } else {
             self.stack[self.sp] = obj;
         }
-
         self.sp += 1;
         Ok(())
     }
@@ -625,32 +682,53 @@ impl VM {
         if self.sp == 0 {
             return Err(self.vm_error("stack underflow"));
         }
-
         self.sp -= 1;
         Ok(self.stack[self.sp].clone())
     }
 
-    /// Executes a binary arithmetic operation across all numeric types.
+    /// Pops a value from the stack and extracts it as `i64`.
+    ///
+    /// Used by range construction opcodes where both bounds must be integers.
+    fn pop_i64(&mut self, context: &str) -> Result<i64> {
+        match self.pop_stack()? {
+            Object::I64(v) => Ok(v),
+            other => Err(self.vm_error(format!(
+                "{context} bounds must be i64, got {}",
+                other.type_name()
+            ))),
+        }
+    }
+
+    /// Executes a binary arithmetic, bitwise, or shift operation across all numeric types.
     fn execute_binary_operation(&mut self, op: Opcode) -> Result<()> {
         let right = self.pop_stack()?;
         let left = self.pop_stack()?;
-
         if let (Object::Str(l), Object::Str(r)) = (&left, &right) {
             return self.execute_binary_string_operation(op, l, r);
         }
-
-        let int_result = match op {
+        let checked_result = match op {
             Opcode::Add => int_binop!(&left, &right, checked_add),
             Opcode::Sub => int_binop!(&left, &right, checked_sub),
             Opcode::Mul => int_binop!(&left, &right, checked_mul),
             Opcode::Div => int_binop!(&left, &right, checked_div),
+            Opcode::Mod => int_binop!(&left, &right, checked_rem_euclid),
+            Opcode::Shl => int_shift!(&left, &right, checked_shl),
+            Opcode::Shr => int_shift!(&left, &right, checked_shr),
             _ => None,
         };
-        if let Some(maybe_val) = int_result {
+        if let Some(maybe_val) = checked_result {
             let val = maybe_val.ok_or_else(|| self.vm_error("integer arithmetic overflow"))?;
             return self.push_stack(val);
         }
-
+        let bitwise_result = match op {
+            Opcode::BitAnd => int_bitwise!(&left, &right, &),
+            Opcode::BitOr => int_bitwise!(&left, &right, |),
+            Opcode::BitXor => int_bitwise!(&left, &right, ^),
+            _ => None,
+        };
+        if let Some(val) = bitwise_result {
+            return self.push_stack(val);
+        }
         Err(self.vm_error(format!(
             "unsupported types for binary operation: {} {}",
             left.type_name(),
@@ -662,12 +740,10 @@ impl VM {
     fn execute_comparison(&mut self, op: Opcode) -> Result<()> {
         let right = self.pop_stack()?;
         let left = self.pop_stack()?;
-
         // Same-type numeric comparison
         if let Some(result) = self.compare_numeric(op, &left, &right) {
             return self.push_stack(Object::Bool(result));
         }
-
         // Cross-type integer comparison via i128 widening
         if let (Some(l), Some(r)) = (left.to_i128(), right.to_i128()) {
             let result = match op {
@@ -679,7 +755,6 @@ impl VM {
             };
             return self.push_stack(Object::Bool(result));
         }
-
         // Non-numeric equality (booleans, strings, arrays, etc.)
         match op {
             Opcode::Equal => self.push_stack(Object::Bool(left == right)),
@@ -718,12 +793,10 @@ impl VM {
     /// Executes the unary minus operator for all signed integer types.
     fn execute_minus_operator(&mut self) -> Result<()> {
         let operand = self.pop_stack()?;
-
         if let Some(result) = checked_neg!(&operand) {
             let val = result.ok_or_else(|| self.vm_error("integer negation overflow"))?;
             return self.push_stack(val);
         }
-
         Err(self.vm_error(format!(
             "unsupported type for negation: {}",
             operand.type_name()
@@ -738,7 +811,6 @@ impl VM {
     fn execute_convert(&mut self, tag_byte: usize) -> Result<()> {
         let tag = TypeTag::from_byte(tag_byte as u8)
             .ok_or_else(|| self.vm_error(format!("unknown type tag: {tag_byte}")))?;
-
         let value = self.pop_stack()?;
         let converted = self.convert_value(&value, tag)?;
         self.push_stack(converted)
@@ -750,7 +822,6 @@ impl VM {
     /// lose data produce a runtime error.
     fn convert_value(&self, value: &Object, target: TypeTag) -> Result<Object> {
         let wide = self.to_wide_value(value)?;
-
         match target {
             TypeTag::I8 => self.narrow_int::<i8>(wide, "i8").map(Object::I8),
             TypeTag::I16 => self.narrow_int::<i16>(wide, "i16").map(Object::I16),
@@ -847,14 +918,12 @@ impl VM {
         }
         let start = self.sp - num_elements;
         let mut pairs = IndexMap::with_capacity(num_elements / 2);
-
         for i in (start..self.sp).step_by(2) {
             let key = self.stack[i].clone();
             let value = self.stack[i + 1].clone();
             let key = Hashable::try_from(key).map_err(|e| self.vm_error(e.to_string()))?;
             pairs.insert(key, value);
         }
-
         self.sp = start;
         Ok(Object::Hash(HashObject { pairs }))
     }
@@ -879,7 +948,6 @@ impl VM {
                 index.type_name()
             )));
         }
-
         match index.to_array_index() {
             Some(idx) if idx < elements.len() => self.push_stack(elements[idx].clone()),
             _ => self.push_stack(NULL),
@@ -889,7 +957,6 @@ impl VM {
     /// Indexes into a hash by key.
     fn execute_hash_index(&mut self, hash: &HashObject, index: Object) -> Result<()> {
         let key = Hashable::try_from(index).map_err(|e| self.vm_error(e.to_string()))?;
-
         match hash.pairs.get(&key) {
             Some(value) => self.push_stack(value.clone()),
             None => self.push_stack(NULL),
@@ -904,7 +971,6 @@ impl VM {
     fn execute_construct(&mut self, type_index: usize, num_fields: usize) -> Result<()> {
         let registry_index = type_index >> 8;
         let variant_tag = (type_index & 0xFF) as u16;
-
         if num_fields > self.sp {
             return Err(self.vm_error(format!(
                 "stack underflow in construct: need {num_fields} fields, stack has {}",
@@ -914,13 +980,11 @@ impl VM {
         let start = self.sp - num_fields;
         let fields = self.stack[start..self.sp].to_vec();
         self.sp = start;
-
         let type_def = self.type_registry.get(registry_index).ok_or_else(|| {
             self.vm_error(format!(
                 "type registry index out of bounds: {registry_index}"
             ))
         })?;
-
         let obj = match type_def {
             TypeDef::Struct { .. } => Object::Struct(StructObject {
                 type_index: registry_index as u16,
@@ -932,7 +996,6 @@ impl VM {
                 fields,
             }),
         };
-
         self.push_stack(obj)
     }
 
@@ -946,14 +1009,12 @@ impl VM {
                 return Err(self.vm_error(format!("cannot access field on {}", obj.type_name())));
             }
         };
-
         let value = fields.get(field_index).cloned().ok_or_else(|| {
             self.vm_error(format!(
                 "field index {field_index} out of bounds (object has {} fields)",
                 fields.len()
             ))
         })?;
-
         self.push_stack(value)
     }
 
@@ -967,7 +1028,6 @@ impl VM {
             .stack
             .get(self.sp - 1)
             .ok_or_else(|| self.vm_error("stack underflow in match_tag"))?;
-
         let actual_tag = match obj {
             Object::EnumVariant(v) => v.tag as usize,
             _ => {
@@ -977,7 +1037,6 @@ impl VM {
                 )));
             }
         };
-
         if actual_tag != expected_tag {
             self.current_frame_mut()?.ip = jump_target as isize - 1;
         }

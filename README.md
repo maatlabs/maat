@@ -4,9 +4,11 @@
   <img src="./assets/maat-lang-transparent-logo.png" alt="Logo" width="200">
 </p>
 
-## Overview
-
 _Maat_ is a Turing-complete programming language designed to encourage proof-driven development.
+
+**WARNING:** This is a research project. It has not been audited and may contain bugs and security flaws. This implementation is NOT ready for production use.
+
+## Overview
 
 Proof-Driven Development (PDD) is software development methodology that emphasizes formal verification and mathematical proofs to ensure the correctness and reliability of code. It is an extension of test-driven development (TDD), but instead of relying solely on tests, it uses formal methods to prove properties of the code.
 
@@ -142,25 +144,56 @@ cargo run --release -- repl
 
 Example session:
 
-```txt
+```rust
 >> 5 + 10;
 15
+
 >> let add = fn(x, y) { x + y };
 >> add(2, 3);
 5
->> let newAdder = fn(x) { fn(y) { x + y } };
->> let addFive = newAdder(5);
->> addFive(10);
+
+>> let new_adder = fn(x) { fn(y) { x + y } };
+>> let add_five = new_adder(5);
+>> add_five(10);
 15
->> let fibonacci = fn(x) { if (x == 0) { 0 } else { if (x == 1) { return 1; } else { fibonacci(x - 1) + fibonacci(x - 2); } } };
+
+>> let fibonacci = fn(x) {
+..     if (x == 0) {
+..         0
+..     } else if (x == 1) {
+..         return 1;
+..     } else {
+..         fibonacci(x - 1) + fibonacci(x - 2)
+..     }
+.. };
 >> fibonacci(15);
 610
->> let map = fn(arr, f) { let iter = fn(arr, acc) { if (len(arr) == 0) { acc } else { iter(rest(arr), push(acc, f(first(arr)))); } }; iter(arr, []); };
+
+>> let map = fn(arr, f) {
+..     let iter = fn(arr, acc) {
+..         if (arr.len() == 0) {
+..             acc
+..         } else {
+..             iter(arr.rest(), acc.push(f(arr.first())))
+..         }
+..     };
+..     iter(arr, [])
+.. };
 >> map([1, 2, 3, 4], fn(x) { x * x });
 [1, 4, 9, 16]
->> let unless = macro(cond, cons, alt) { quote(if (!(unquote(cond))) { unquote(cons); } else { unquote(alt); }); };
+
+>> let unless = macro(cond, cons, alt) {
+..     quote(
+..         if (!(unquote(cond))) {
+..             unquote(cons);
+..         } else {
+..             unquote(alt);
+..         }
+..     )
+.. };
 >> unless(10 > 5, "not greater", "greater");
 greater
+
 >> let double = macro(x) { quote(unquote(x) * 2) };
 >> double(21);
 42
@@ -225,7 +258,7 @@ Maat uses a multi-module compilation pipeline. Source files are parsed into per-
 
 The type checker infers types for each module using Hindley-Milner inference (Algorithm W), with imported bindings injected from dependency modules' public exports. Type annotations are optional--the inference engine deduces types from usage--but can be provided on `let` bindings, function parameters, and return types for documentation or to constrain polymorphism. Generic functions with parametric polymorphism are supported (`fn identity<T>(x: T) -> T { x }`).
 
-Custom types follow Rust syntax: `struct`, `enum` (with unit, tuple, and struct variants), `trait`, and `impl` blocks (both inherent and trait impls). Pattern matching via `match` supports literal, identifier, tuple-struct, wildcard, and or-patterns. Methods are statically dispatched. `Option<T>` and `Result<T, E>` are pre-registered as language-level enums.
+Custom types follow Rust syntax: `struct`, `enum` (with unit, tuple, and struct variants), `trait`, and `impl` blocks (both inherent and trait impls). Pattern matching via `match` supports literal, identifier, tuple-struct, wildcard, and or-patterns. Methods are statically dispatched via compile-time type-directed dispatch. `Option<T>` and `Result<T, E>` are pre-registered as language-level enums. Range syntax (`0..10` and `0..=10`) produces first-class `Range`/`RangeInclusive` values and integrates with `for..in` loops.
 
 Errors are reported with precise `file:line:col` locations using source maps and [`ariadne`](https://docs.rs/ariadne) diagnostics. Compiled bytecode can be serialized to `.mtc` files and deserialized for later execution, enabling the `build`/`exec` workflow.
 
@@ -241,7 +274,7 @@ Errors are reported with precise `file:line:col` locations using source maps and
 | `maat_eval`     | Macro expansion engine (`quote`/`unquote`)                       |
 | `maat_runtime`  | Object system, built-in functions, and compiled types            |
 | `maat_types`    | Hindley-Milner type inference (Algorithm W)                      |
-| `maat_bytecode` | Instruction set encoding/decoding and serialization (35 opcodes) |
+| `maat_bytecode` | Instruction set encoding/decoding and serialization (43 opcodes) |
 | `maat_codegen`  | AST-to-bytecode compiler with scope analysis                     |
 | `maat_module`   | Module resolution, dependency graph, and multi-module pipeline   |
 | `maat_vm`       | Stack-based virtual machine                                      |
@@ -258,11 +291,11 @@ Unless you explicitly state otherwise, any contribution intentionally submitted 
 
 ## Status
 
-Maat is currently at version 0.8 and is still going through several improvements in order to deliver the best-in-class experience as a fully-fledged Turing-complete ZK programming language.
+Maat is currently at version 0.9 and is still going through several improvements in order to deliver the best-in-class experience as a fully-fledged Turing-complete ZK programming language.
 
 ## Disclaimer
 
-Early adopters should be aware that Maat 0.8 is a transient accomplishment towards Maat 1.0, for which a formal audit process is expected. In the meantime, we invite you to know and experiment with Maat, but we don't recommend using it to build mission-critical systems.
+Early adopters should be aware that Maat 0.9 is a transient accomplishment towards Maat 1.0, for which a formal audit process is expected. In the meantime, we invite you to know and experiment with Maat, but we don't recommend using it to build mission-critical systems.
 
 ## Acknowledgments
 

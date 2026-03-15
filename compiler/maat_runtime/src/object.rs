@@ -1,7 +1,7 @@
 use std::fmt;
 use std::rc::Rc;
 
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 use maat_ast::{BlockStmt, Node};
 use maat_errors::{Error, EvalError, Result};
 use maat_span::SourceMap;
@@ -80,6 +80,12 @@ pub enum Object {
     Struct(StructObject),
     /// A user-defined enum variant instance.
     EnumVariant(EnumVariantObject),
+    /// An ordered set of unique hashable values, backed by `IndexSet`.
+    Set(IndexSet<Hashable>),
+    /// A half-open range `start..end`.
+    Range(i64, i64),
+    /// An inclusive range `start..=end`.
+    RangeInclusive(i64, i64),
 }
 
 impl Object {
@@ -232,6 +238,9 @@ impl Object {
             Self::Closure(_) => "Closure",
             Self::Struct(_) => "Struct",
             Self::EnumVariant(_) => "EnumVariant",
+            Self::Set(_) => "Set",
+            Self::Range(..) => "Range",
+            Self::RangeInclusive(..) => "RangeInclusive",
         }
     }
 }
@@ -265,6 +274,9 @@ enum SerializableObject {
     Closure(Closure),
     Struct(StructObject),
     EnumVariant(EnumVariantObject),
+    Set(IndexSet<Hashable>),
+    Range(i64, i64),
+    RangeInclusive(i64, i64),
 }
 
 impl Serialize for Object {
@@ -294,6 +306,9 @@ impl Serialize for Object {
             Self::Closure(v) => SerializableObject::Closure(v.clone()),
             Self::Struct(v) => SerializableObject::Struct(v.clone()),
             Self::EnumVariant(v) => SerializableObject::EnumVariant(v.clone()),
+            Self::Set(v) => SerializableObject::Set(v.clone()),
+            Self::Range(s, e) => SerializableObject::Range(*s, *e),
+            Self::RangeInclusive(s, e) => SerializableObject::RangeInclusive(*s, *e),
             other => {
                 return Err(serde::ser::Error::custom(format!(
                     "non-serializable object type: {}",
@@ -331,6 +346,9 @@ impl<'de> Deserialize<'de> for Object {
             SerializableObject::Closure(v) => Self::Closure(v),
             SerializableObject::Struct(v) => Self::Struct(v),
             SerializableObject::EnumVariant(v) => Self::EnumVariant(v),
+            SerializableObject::Set(v) => Self::Set(v),
+            SerializableObject::Range(s, e) => Self::Range(s, e),
+            SerializableObject::RangeInclusive(s, e) => Self::RangeInclusive(s, e),
         })
     }
 }
@@ -367,6 +385,9 @@ impl PartialEq for Object {
             (Closure(c1), Closure(c2)) => c1 == c2,
             (Struct(s1), Struct(s2)) => s1 == s2,
             (EnumVariant(e1), EnumVariant(e2)) => e1 == e2,
+            (Set(s1), Set(s2)) => s1 == s2,
+            (Range(s1, e1), Range(s2, e2)) => s1 == s2 && e1 == e2,
+            (RangeInclusive(s1, e1), RangeInclusive(s2, e2)) => s1 == s2 && e1 == e2,
             _ => false,
         }
     }
@@ -552,29 +573,29 @@ impl fmt::Display for Object {
             Self::U64(v) => v.fmt(f),
             Self::U128(v) => v.fmt(f),
             Self::Usize(v) => v.fmt(f),
-            Self::Bool(boolean) => boolean.fmt(f),
-            Self::Str(string) => string.fmt(f),
+            Self::Bool(v) => v.fmt(f),
+            Self::Str(v) => v.fmt(f),
             Self::Array(array) => {
                 write!(
                     f,
                     "[{}]",
                     array
                         .iter()
-                        .map(|obj| format!("{obj}"))
+                        .map(|e| format!("{e}"))
                         .collect::<Vec<String>>()
                         .join(", ")
                 )
             }
-            Self::Hash(hash) => hash.fmt(f),
-            Self::Function(func) => func.fmt(f),
-            Self::Macro(macro_obj) => macro_obj.fmt(f),
-            Self::Quote(quote) => quote.fmt(f),
-            Self::ReturnValue(ret_val) => ret_val.fmt(f),
-            Self::Break(val) => write!(f, "break {val}"),
+            Self::Hash(v) => v.fmt(f),
+            Self::Function(v) => v.fmt(f),
+            Self::Macro(v) => v.fmt(f),
+            Self::Quote(v) => v.fmt(f),
+            Self::ReturnValue(v) => v.fmt(f),
+            Self::Break(v) => write!(f, "break {v}"),
             Self::Continue => write!(f, "continue"),
             Self::Builtin(_) => write!(f, "builtin function"),
-            Self::CompiledFunction(cf) => write!(f, "CompiledFunction[{:p}]", cf),
-            Self::Closure(cl) => write!(f, "Closure[{:p}]", &cl.func),
+            Self::CompiledFunction(v) => write!(f, "CompiledFunction[{v:p}]"),
+            Self::Closure(v) => write!(f, "Closure[{:p}]", &v.func),
             Self::Struct(s) => {
                 write!(f, "Struct({}", s.type_index)?;
                 if !s.fields.is_empty() {
@@ -590,21 +611,33 @@ impl fmt::Display for Object {
                 }
                 write!(f, ")")
             }
-            Self::EnumVariant(ev) => {
-                write!(f, "EnumVariant({}::{})", ev.type_index, ev.tag)?;
-                if !ev.fields.is_empty() {
+            Self::EnumVariant(v) => {
+                write!(f, "EnumVariant({}::{})", v.type_index, v.tag)?;
+                if !v.fields.is_empty() {
                     write!(
                         f,
                         "({})",
-                        ev.fields
+                        v.fields
                             .iter()
-                            .map(|v| format!("{v}"))
+                            .map(|e| format!("{e}"))
                             .collect::<Vec<_>>()
                             .join(", ")
                     )?;
                 }
                 Ok(())
             }
+            Self::Set(set) => {
+                write!(
+                    f,
+                    "Set({{{}}})",
+                    set.iter()
+                        .map(|v| format!("{v}"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            }
+            Self::Range(start, end) => write!(f, "{start}..{end}"),
+            Self::RangeInclusive(start, end) => write!(f, "{start}..={end}"),
         }
     }
 }

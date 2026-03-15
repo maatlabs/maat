@@ -87,8 +87,8 @@ impl<'a> Parser<'a> {
         }
 
         let err = format!(
-            "expected peek token to be `{:?}`, got `{:?}` instead",
-            expected, self.peek.kind
+            "expected peek token to be `{expected:?}`, got `{:?}` instead",
+            self.peek.kind
         );
         self.push_error(err);
         false
@@ -100,7 +100,7 @@ impl<'a> Parser<'a> {
         self.current = std::mem::replace(&mut self.peek, self.lexer.next_token());
     }
 
-    /// Determine if an item being parsed is marked `pub`lic by checking for the keyword.
+    /// Determine if an item being parsed is marked `pub` by checking for the keyword.
     ///
     /// If the current token is `TokenKind::Pub`, consume it and return true,
     /// else false.
@@ -194,8 +194,94 @@ impl<'a> Parser<'a> {
             TokenKind::Enum => self.parse_enum_decl(false).map(Stmt::EnumDecl),
             TokenKind::Trait => self.parse_trait_decl(false).map(Stmt::TraitDecl),
             TokenKind::Impl => self.parse_impl_block().map(Stmt::ImplBlock),
+            TokenKind::Ident if self.is_compound_assignment() => {
+                self.parse_compound_assignment().map(Stmt::ReAssign)
+            }
+            TokenKind::Ident if self.peek_token_is(TokenKind::Assign) => {
+                self.parse_assignment().map(Stmt::ReAssign)
+            }
             _ => self.parse_expression_statement().map(Stmt::Expr),
         }
+    }
+
+    /// Returns `true` if the peek token is a compound assignment operator.
+    fn is_compound_assignment(&self) -> bool {
+        matches!(
+            self.peek.kind,
+            TokenKind::AddAssign
+                | TokenKind::SubAssign
+                | TokenKind::MulAssign
+                | TokenKind::DivAssign
+                | TokenKind::RemAssign
+        )
+    }
+
+    /// Desugars `x op= expr` into `x = x op expr` as a [`ReAssignStmt`].
+    ///
+    /// The compiler validates that the target variable was declared with `let mut`.
+    fn parse_compound_assignment(&mut self) -> Option<ReAssignStmt> {
+        let start = self.current.span;
+        let ident = self.current.literal.to_string();
+        let ident_span = self.current.span;
+
+        self.next_token();
+        let operator = match self.current.kind {
+            TokenKind::AddAssign => "+",
+            TokenKind::SubAssign => "-",
+            TokenKind::MulAssign => "*",
+            TokenKind::DivAssign => "/",
+            TokenKind::RemAssign => "%",
+            _ => unreachable!(),
+        };
+
+        self.next_token();
+        let rhs = self.parse_expression(LOWEST)?;
+        let end = rhs.span();
+
+        let lhs = Box::new(Expr::Ident(Ident {
+            value: ident.clone(),
+            span: ident_span,
+        }));
+        let value = Expr::Infix(InfixExpr {
+            lhs,
+            operator: operator.to_string(),
+            rhs: Box::new(rhs),
+            span: start.merge(end),
+        });
+
+        if self.peek_token_is(TokenKind::Semicolon) {
+            self.next_token();
+        }
+
+        Some(ReAssignStmt {
+            ident,
+            value,
+            span: start.merge(end),
+        })
+    }
+
+    /// Parses a plain (re)assignment: `x = expr;`.
+    ///
+    /// The compiler validates that the target variable was declared with `let mut`.
+    fn parse_assignment(&mut self) -> Option<ReAssignStmt> {
+        let start = self.current.span;
+        let ident = self.current.literal.to_string();
+
+        self.next_token();
+        self.next_token();
+        let value = self.parse_expression(LOWEST)?;
+        let end = if self.peek_token_is(TokenKind::Semicolon) {
+            self.next_token();
+            self.current.span
+        } else {
+            value.span()
+        };
+
+        Some(ReAssignStmt {
+            ident,
+            value,
+            span: start.merge(end),
+        })
     }
 
     /// Parses a `pub`-prefixed item by consuming the `pub` keyword
@@ -341,6 +427,12 @@ impl<'a> Parser<'a> {
 
     fn parse_let_statement(&mut self) -> Option<LetStmt> {
         let start = self.current.span;
+
+        let mutable = self.peek_token_is(TokenKind::Mut);
+        if mutable {
+            self.next_token();
+        }
+
         if !self.expect_peek(TokenKind::Ident) {
             return None;
         }
@@ -367,6 +459,7 @@ impl<'a> Parser<'a> {
         };
         Some(LetStmt {
             ident,
+            mutable,
             type_annotation,
             value,
             span: start.merge(end),
@@ -441,7 +534,7 @@ impl<'a> Parser<'a> {
                 })
             }
             kind => {
-                let msg = format!("no prefix parse function for `{:?}` found", kind);
+                let msg = format!("no prefix parse function for `{kind:?}` found");
                 self.push_error(msg);
                 return None;
             }
@@ -454,6 +547,7 @@ impl<'a> Parser<'a> {
                 | TokenKind::Minus
                 | TokenKind::Slash
                 | TokenKind::Asterisk
+                | TokenKind::Percent
                 | TokenKind::Equal
                 | TokenKind::NotEqual
                 | TokenKind::Less
@@ -462,16 +556,25 @@ impl<'a> Parser<'a> {
                 | TokenKind::GreaterEqual
                 | TokenKind::And
                 | TokenKind::Or
+                | TokenKind::Ampersand
+                | TokenKind::Pipe
+                | TokenKind::Caret
+                | TokenKind::ShiftLeft
+                | TokenKind::ShiftRight
                 | TokenKind::As
                 | TokenKind::LParen
                 | TokenKind::LBracket
-                | TokenKind::Dot => {
+                | TokenKind::Dot
+                | TokenKind::DotDot
+                | TokenKind::DotDotEqual => {
                     self.next_token();
                     expr = match kind {
                         TokenKind::LParen => self.parse_call_expression(expr)?,
                         TokenKind::LBracket => self.parse_index_expression(expr)?,
                         TokenKind::As => self.parse_cast_expression(expr)?,
                         TokenKind::Dot => self.parse_field_or_method_call(expr)?,
+                        TokenKind::DotDot => self.parse_range_expression(expr, false)?,
+                        TokenKind::DotDotEqual => self.parse_range_expression(expr, true)?,
                         _ => self.parse_infix_expression(expr)?,
                     };
                 }
@@ -507,6 +610,20 @@ impl<'a> Parser<'a> {
             lhs,
             operator,
             rhs,
+            span,
+        }))
+    }
+
+    fn parse_range_expression(&mut self, start: Expr, inclusive: bool) -> Option<Expr> {
+        let start_span = start.span();
+        let prec = self.current_prec();
+        self.next_token();
+        let end = self.parse_expression(prec)?;
+        let span = start_span.merge(end.span());
+        Some(Expr::Range(RangeExpr {
+            start: Box::new(start),
+            end: Box::new(end),
+            inclusive,
             span,
         }))
     }
@@ -768,10 +885,23 @@ impl<'a> Parser<'a> {
         let consequence = self.parse_block_statement()?;
         let alternative = if self.peek_token_is(TokenKind::Else) {
             self.next_token();
-            if !self.expect_peek(TokenKind::LBrace) {
+            // ...else if
+            if self.peek_token_is(TokenKind::If) {
+                self.next_token();
+                let nested_cond = self.parse_conditional_expression()?;
+                let nested_span = nested_cond.span();
+                Some(BlockStmt {
+                    statements: vec![Stmt::Expr(ExprStmt {
+                        value: nested_cond,
+                        span: nested_span,
+                    })],
+                    span: nested_span,
+                })
+            } else if self.expect_peek(TokenKind::LBrace) {
+                Some(self.parse_block_statement()?)
+            } else {
                 return None;
             }
-            Some(self.parse_block_statement()?)
         } else {
             None
         };
@@ -1155,6 +1285,7 @@ impl<'a> Parser<'a> {
                 object: Box::new(object),
                 method: member,
                 arguments,
+                receiver: None,
                 span: start.merge(end),
             }))
         } else {

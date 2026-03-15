@@ -13,6 +13,7 @@ fn program() {
 
     // Program with a single let statement
     let stmt = Stmt::Let(LetStmt {
+        mutable: false,
         ident: "x".to_string(),
         type_annotation: None,
         value: Expr::I32(I32 {
@@ -52,6 +53,7 @@ fn program() {
 fn let_statement() {
     // Without type annotation
     let let_stmt = LetStmt {
+        mutable: false,
         ident: "x".to_string(),
         type_annotation: None,
         value: Expr::I64(I64 {
@@ -69,6 +71,7 @@ fn let_statement() {
         span: span(),
     });
     let let_stmt = LetStmt {
+        mutable: false,
         ident: "y".to_string(),
         type_annotation: Some(type_ann),
         value: Expr::U8(U8 {
@@ -131,6 +134,7 @@ fn block_statement() {
 
     // Block with one statement
     let stmt = Stmt::Let(LetStmt {
+        mutable: false,
         ident: "a".to_string(),
         type_annotation: None,
         value: Expr::Bool(Bool {
@@ -345,6 +349,7 @@ fn conditional_expression() {
     });
     let consequence = BlockStmt {
         statements: vec![Stmt::Let(LetStmt {
+            mutable: false,
             ident: "x".to_string(),
             type_annotation: None,
             value: Expr::I32(I32 {
@@ -358,6 +363,7 @@ fn conditional_expression() {
     };
     let alternative = BlockStmt {
         statements: vec![Stmt::Let(LetStmt {
+            mutable: false,
             ident: "x".to_string(),
             type_annotation: None,
             value: Expr::I32(I32 {

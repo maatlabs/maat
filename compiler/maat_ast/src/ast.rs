@@ -26,6 +26,7 @@ pub struct Program {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Stmt {
     Let(LetStmt),
+    ReAssign(ReAssignStmt),
     Return(ReturnStmt),
     Expr(ExprStmt),
     Block(BlockStmt),
@@ -41,12 +42,29 @@ pub enum Stmt {
     Mod(ModStmt),
 }
 
-/// A `let` binding: `let <ident> = <value>;` or
-/// `let <ident>: <type> = <value>;`.
+/// A `let` binding: `let <ident>: <type> = <value>;` or
+/// `let mut <ident>: <type> = <value>;`.
+///
+/// When `mutable` is `true`, the binding can be reassigned via
+/// `ident = expr;` or compound assignment (`ident += expr;`).
+/// When `false`, rebinding the same name requires a new `let`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LetStmt {
     pub ident: String,
+    pub mutable: bool,
     pub type_annotation: Option<TypeExpr>,
+    pub value: Expr,
+    pub span: Span,
+}
+
+/// A reassignment to an existing mutable binding: `<ident> = <value>;`.
+///
+/// Produced by plain assignment (`x = expr;`) and compound assignment
+/// (`x += expr;`, desugared to `x = x + expr`). The compiler validates
+/// that the target variable exists and was declared with `let mut`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ReAssignStmt {
+    pub ident: String,
     pub value: Expr,
     pub span: Span,
 }
@@ -152,11 +170,13 @@ pub enum Expr {
     Cast(CastExpr),
     Break(BreakExpr),
     Continue(ContinueExpr),
+
     Match(MatchExpr),
     FieldAccess(FieldAccessExpr),
     MethodCall(MethodCallExpr),
     StructLit(StructLitExpr),
     PathExpr(PathExpr),
+    Range(RangeExpr),
 }
 
 impl Expr {
@@ -195,6 +215,7 @@ impl Expr {
             Self::MethodCall(v) => v.span,
             Self::StructLit(v) => v.span,
             Self::PathExpr(v) => v.span,
+            Self::Range(v) => v.span,
         }
     }
 
@@ -605,6 +626,8 @@ pub struct MethodCallExpr {
     pub method: String,
     /// Arguments passed to the method (excluding the receiver).
     pub arguments: Vec<Expr>,
+    /// Receiver type name resolved by the type checker (e.g. `"Array"`, `"str"`, `"Set"`).
+    pub receiver: Option<String>,
     pub span: Span,
 }
 
@@ -627,6 +650,16 @@ pub struct StructLitExpr {
 pub struct PathExpr {
     /// Path segments (e.g., `["Option", "Some"]`).
     pub segments: Vec<String>,
+    pub span: Span,
+}
+
+/// Range expression: `start..end` (exclusive) or `start..=end` (inclusive).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RangeExpr {
+    pub start: Box<Expr>,
+    pub end: Box<Expr>,
+    /// Whether this is an inclusive range (`..=`).
+    pub inclusive: bool,
     pub span: Span,
 }
 
@@ -771,4 +804,41 @@ impl std::str::FromStr for TypeAnnotation {
             _ => Err(UnknownTypeAnnotation),
         }
     }
+}
+
+/// Unescapes a string literal by processing escape sequences.
+///
+/// Supports standard escape sequences:
+/// - `\\` -> backslash
+/// - `\"` -> double quote
+/// - `\n` -> newline
+/// - `\r` -> carriage return
+/// - `\t` -> tab
+/// - `\0` -> null character
+///
+/// Invalid escape sequences are preserved as-is.
+pub fn unescape_string(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            match chars.next() {
+                Some('\\') => result.push('\\'),
+                Some('"') => result.push('"'),
+                Some('n') => result.push('\n'),
+                Some('r') => result.push('\r'),
+                Some('t') => result.push('\t'),
+                Some('0') => result.push('\0'),
+                Some(c) => {
+                    result.push('\\');
+                    result.push(c);
+                }
+                None => result.push('\\'),
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+    result
 }

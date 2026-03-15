@@ -6,12 +6,12 @@ use maat_errors::{
 };
 use maat_span::Span;
 
-use crate::env::TypeEnv;
 use crate::promote::{self, PromotionError};
-use crate::ty::{
-    EnumDef, FnType, ImplDef, MethodSig, StructDef, TraitDef, Type, VariantDef, VariantKind,
-};
 use crate::unify::{Substitution, UnifyError};
+use crate::{
+    EnumDef, FnType, ImplDef, MethodSig, StructDef, TraitDef, Type, TypeEnv, VariantDef,
+    VariantKind,
+};
 
 /// The type checker.
 ///
@@ -228,6 +228,9 @@ impl TypeChecker {
     fn check_statement(&mut self, stmt: &mut Stmt) {
         match stmt {
             Stmt::Let(let_stmt) => self.check_let(let_stmt),
+            Stmt::ReAssign(assign_stmt) => {
+                self.infer_expression(&mut assign_stmt.value);
+            }
             Stmt::Return(ret_stmt) => {
                 self.infer_expression(&mut ret_stmt.value);
             }
@@ -248,11 +251,12 @@ impl TypeChecker {
                 let resolved = self.subst.apply(&iter_ty);
                 let elem_ty = match resolved {
                     Type::Array(elem) => *elem,
+                    Type::Range(elem) => *elem,
                     Type::Var(_) => self.env.fresh_var(),
                     _ => {
                         self.errors.push(
                             TypeErrorKind::Mismatch {
-                                expected: "[T]".to_string(),
+                                expected: "[T] or Range<T>".to_string(),
                                 found: resolved.to_string(),
                             }
                             .at(for_stmt.iterable.span()),
@@ -265,12 +269,9 @@ impl TypeChecker {
                 self.check_block(&mut for_stmt.body);
                 self.env.pop_scope();
             }
-
             // Struct/Enum/Trait declarations were registered in [self.check_program] (pass 1); nothing to do here.
             Stmt::StructDecl(_) | Stmt::EnumDecl(_) | Stmt::TraitDecl(_) => {}
-
             Stmt::ImplBlock(impl_block) => self.check_impl_block(impl_block),
-
             // Module declarations (`mod foo;` / `mod foo { ... }`) and import
             // statements (`use foo::bar;`) are resolved by the module orchestrator
             // before per-module type checking runs. No action needed here.
@@ -280,7 +281,6 @@ impl TypeChecker {
 
     fn check_let(&mut self, let_stmt: &mut LetStmt) {
         let inferred = self.infer_expression(&mut let_stmt.value);
-
         let ty = if let Some(ann) = &let_stmt.type_annotation {
             let expected = self.env.resolve_type(ann);
             self.check_literal_range(&let_stmt.value, &expected, let_stmt.span);
@@ -288,7 +288,6 @@ impl TypeChecker {
             let is_coercible_literal = expected.is_integer()
                 && inferred.is_integer()
                 && let_stmt.value.is_integer_literal();
-
             if is_coercible_literal {
                 expected.coerce_literal(&mut let_stmt.value);
             } else if let Err(e) = self.subst.unify(&expected, &inferred) {
@@ -298,7 +297,6 @@ impl TypeChecker {
         } else {
             inferred
         };
-
         let scheme = self.env.generalize(&ty, &self.subst);
         self.env.define_scheme(&let_stmt.ident, scheme);
     }
@@ -334,12 +332,10 @@ impl TypeChecker {
         span: Span,
     ) -> Type {
         self.env.push_scope();
-
         for gp in generic_params {
             let var = self.env.fresh_var();
             self.env.define_var(&gp.name, var);
         }
-
         let param_types: Vec<Type> = params
             .iter()
             .map(|p| {
@@ -354,20 +350,16 @@ impl TypeChecker {
             .collect();
 
         let body_ty = self.infer_block(body);
-
         let ret_ty = return_type
             .as_ref()
             .map(|te| self.env.resolve_type(te))
             .unwrap_or_else(|| body_ty.clone());
-
         if return_type.is_some()
             && let Err(e) = self.subst.unify(&ret_ty, &body_ty)
         {
             self.report_unify_error(e, span);
         }
-
         self.env.pop_scope();
-
         Type::Function(FnType {
             params: param_types,
             ret: Box::new(self.subst.apply(&ret_ty)),
@@ -376,36 +368,30 @@ impl TypeChecker {
 
     fn check_impl_block(&mut self, impl_block: &mut ImplBlock) {
         let self_type = self.env.resolve_type(&impl_block.self_type);
-
         let trait_name = impl_block.trait_name.as_ref().and_then(|te| match te {
             TypeExpr::Named(n) => Some(n.name.clone()),
             TypeExpr::Generic(name, _, _) => Some(name.clone()),
             _ => None,
         });
-
         if let Some(ref name) = trait_name
             && self.env.lookup_trait(name).is_none()
         {
             self.errors
                 .push(TypeErrorKind::UnknownTrait(name.clone()).at(impl_block.span));
         }
-
         let mut method_types = Vec::new();
         for method in &mut impl_block.methods {
             let has_self = method.params.first().is_some_and(|p| p.name == "self");
-
             let non_self_params = method
                 .params
                 .iter()
                 .filter(|p| p.name != "self")
                 .cloned()
                 .collect::<Vec<TypedParam>>();
-
             self.env.push_scope();
             if has_self {
                 self.env.define_var("self", self_type.clone());
             }
-
             let fn_ty = self.infer_fn_body(
                 &method.generic_params,
                 &non_self_params,
@@ -414,14 +400,11 @@ impl TypeChecker {
                 method.span,
             );
             self.env.pop_scope();
-
             method_types.push((method.name.clone(), fn_ty));
         }
-
         if let Some(ref name) = trait_name {
             self.verify_trait_satisfaction(name, &self_type, &method_types, impl_block.span);
         }
-
         self.env.register_impl(ImplDef {
             self_type,
             trait_name,
@@ -444,7 +427,6 @@ impl TypeChecker {
             .into_iter()
             .cloned()
             .collect::<Vec<MethodSig>>();
-
         for sig in &required {
             match methods.iter().find(|(name, _)| name == &sig.name) {
                 None => {
@@ -499,12 +481,10 @@ impl TypeChecker {
             Expr::Usize(_) => Type::Usize,
             Expr::Bool(_) => Type::Bool,
             Expr::Str(_) => Type::String,
-
             Expr::Ident(ident) => self
                 .env
                 .instantiate(&ident.value, &self.subst)
                 .unwrap_or_else(|| self.env.fresh_var()),
-
             Expr::Array(array) => {
                 if array.elements.is_empty() {
                     let elem = self.env.fresh_var();
@@ -520,7 +500,6 @@ impl TypeChecker {
                     Type::Array(Box::new(self.subst.apply(&first)))
                 }
             }
-
             Expr::Map(hash) => {
                 if hash.pairs.is_empty() {
                     let k = self.env.fresh_var();
@@ -548,7 +527,6 @@ impl TypeChecker {
                     )
                 }
             }
-
             Expr::Index(idx) => {
                 let collection = self.infer_expression(&mut idx.expr);
                 let _index_ty = self.infer_expression(&mut idx.index);
@@ -559,7 +537,6 @@ impl TypeChecker {
                     _ => self.env.fresh_var(),
                 }
             }
-
             Expr::Prefix(prefix) => {
                 let operand_ty = self.infer_expression(&mut prefix.operand);
                 let resolved = self.subst.apply(&operand_ty);
@@ -583,9 +560,7 @@ impl TypeChecker {
                     _ => self.env.fresh_var(),
                 }
             }
-
             Expr::Infix(infix) => self.check_infix(infix),
-
             Expr::Cond(cond) => {
                 let cond_ty = self.infer_expression(&mut cond.condition);
                 let cond_resolved = self.subst.apply(&cond_ty);
@@ -607,7 +582,6 @@ impl TypeChecker {
                     cons_ty
                 }
             }
-
             Expr::Lambda(lambda) => self.infer_fn_body(
                 &lambda.generic_params,
                 &lambda.params,
@@ -615,17 +589,14 @@ impl TypeChecker {
                 &mut lambda.body,
                 lambda.span,
             ),
-
             Expr::Call(call) => {
                 let func_ty = self.infer_expression(&mut call.function);
                 let resolved = self.subst.apply(&func_ty);
-
-                let arg_types: Vec<Type> = call
+                let arg_types = call
                     .arguments
                     .iter_mut()
                     .map(|a| self.infer_expression(a))
-                    .collect();
-
+                    .collect::<Vec<Type>>();
                 match resolved {
                     Type::Function(fn_ty) => {
                         if fn_ty.params.len() != arg_types.len() {
@@ -672,32 +643,42 @@ impl TypeChecker {
                     }
                 }
             }
-
             Expr::Cast(cast) => {
                 self.infer_expression(&mut cast.expr);
                 Type::from_type_annotation(&cast.target)
             }
-
             Expr::Break(break_expr) => {
                 if let Some(val) = &mut break_expr.value {
                     self.infer_expression(val);
                 }
                 Type::Never
             }
-
             Expr::Continue(_) => Type::Never,
-
             Expr::Macro(_) => self.env.fresh_var(),
-
             Expr::Match(match_expr) => self.check_match_expr(match_expr),
-
             Expr::FieldAccess(field_access) => self.check_field_access(field_access),
-
             Expr::MethodCall(method_call) => self.check_method_call(method_call),
-
             Expr::StructLit(struct_lit) => self.check_struct_literal(struct_lit),
-
             Expr::PathExpr(path_expr) => self.check_path_expr(path_expr),
+            Expr::Range(range) => {
+                let start_ty = self.infer_expression(&mut range.start);
+                let end_ty = self.infer_expression(&mut range.end);
+                let start_resolved = self.subst.apply(&start_ty);
+                let end_resolved = self.subst.apply(&end_ty);
+                if let Err(e) = self.subst.unify(&start_resolved, &end_resolved) {
+                    self.report_unify_error(e, range.span);
+                }
+                if !start_resolved.is_integer() && !matches!(start_resolved, Type::Var(_)) {
+                    self.errors.push(
+                        TypeErrorKind::Mismatch {
+                            expected: "integer".to_string(),
+                            found: start_resolved.to_string(),
+                        }
+                        .at(range.span),
+                    );
+                }
+                Type::Range(Box::new(self.subst.apply(&start_resolved)))
+            }
         }
     }
 
@@ -709,13 +690,11 @@ impl TypeChecker {
                 .push(TypeErrorKind::UnknownType(lit.name.clone()).at(lit.span));
             return self.env.fresh_var();
         };
-
         let type_args = def
             .generic_params
             .iter()
             .map(|_| self.env.fresh_var())
             .collect::<Vec<Type>>();
-
         for (field_name, field_expr) in &mut lit.fields {
             let field_ty = self.infer_expression(field_expr);
             if let Some((_, expected_ty)) = def.fields.iter().find(|(n, _)| n == field_name) {
@@ -734,7 +713,6 @@ impl TypeChecker {
                 );
             }
         }
-
         for (def_field_name, _) in &def.fields {
             if !lit.fields.iter().any(|(n, _)| n == def_field_name) {
                 self.errors.push(
@@ -746,7 +724,6 @@ impl TypeChecker {
                 );
             }
         }
-
         Type::Struct(
             lit.name.clone(),
             type_args.iter().map(|t| self.subst.apply(t)).collect(),
@@ -758,14 +735,12 @@ impl TypeChecker {
         if path.segments.len() == 2 {
             let type_name = &path.segments[0];
             let variant_name = &path.segments[1];
-
             if let Some(enum_def) = self.env.lookup_enum(type_name).cloned() {
                 let type_args = enum_def
                     .generic_params
                     .iter()
                     .map(|_| self.env.fresh_var())
                     .collect::<Vec<Type>>();
-
                 if let Some(variant) = enum_def.variants.iter().find(|v| v.name == *variant_name) {
                     match &variant.kind {
                         VariantKind::Unit => {
@@ -812,7 +787,6 @@ impl TypeChecker {
                 }
             }
         }
-
         // Try as a qualified method lookup (e.g., `Counter::new`).
         if path.segments.len() == 2 {
             let type_name = &path.segments[0];
@@ -821,7 +795,6 @@ impl TypeChecker {
                 return method_ty.clone();
             }
         }
-
         // Fallback: try as a variable lookup.
         let full_name = path.segments.join("::");
         self.env
@@ -836,7 +809,6 @@ impl TypeChecker {
     fn check_field_access(&mut self, fa: &mut FieldAccessExpr) -> Type {
         let obj_ty = self.infer_expression(&mut fa.object);
         let resolved = self.subst.apply(&obj_ty);
-
         match &resolved {
             Type::Struct(name, type_args) => {
                 let struct_def = self.env.lookup_struct(name).cloned();
@@ -880,29 +852,36 @@ impl TypeChecker {
     fn check_method_call(&mut self, mc: &mut MethodCallExpr) -> Type {
         let obj_ty = self.infer_expression(&mut mc.object);
         let resolved = self.subst.apply(&obj_ty);
+        mc.receiver = Self::receiver_type_name(&resolved);
 
         let arg_types = mc
             .arguments
             .iter_mut()
             .map(|a| self.infer_expression(a))
             .collect::<Vec<Type>>();
-
-        let type_name = match &resolved {
-            Type::Struct(name, _) | Type::Enum(name, _) => Some(name.clone()),
-            _ => None,
-        };
-
-        let method_ty = type_name.as_ref().and_then(|name| {
-            self.env
-                .lookup_method(&resolved, &mc.method)
-                .or_else(|| self.env.lookup_method_by_name(name, &mc.method))
-                .cloned()
-        });
-
+        let method_ty = self
+            .env
+            .instantiate_builtin_method(&resolved, &mc.method, &self.subst)
+            .map(|(inst_self, inst_fn)| {
+                if let Err(e) = self.subst.unify(&inst_self, &resolved) {
+                    self.report_unify_error(e, mc.span);
+                }
+                self.subst.apply(&inst_fn)
+            })
+            .or_else(|| {
+                self.env
+                    .lookup_method(&resolved, &mc.method)
+                    .or_else(|| match &resolved {
+                        Type::Struct(name, _) | Type::Enum(name, _) => {
+                            self.env.lookup_method_by_name(name, &mc.method)
+                        }
+                        _ => None,
+                    })
+                    .cloned()
+                    .map(|ty| self.subst.apply(&ty))
+            });
         match method_ty {
             Some(Type::Function(fn_ty)) => {
-                // Method params exclude `self`, but the compiler
-                // passes `self` implicitly. So here we check non-self params.
                 if fn_ty.params.len() != arg_types.len() {
                     self.errors.push(
                         TypeErrorKind::WrongArity {
@@ -954,10 +933,8 @@ impl TypeChecker {
                 let guard_resolved = self.subst.apply(&guard_ty);
                 self.require_bool(&guard_resolved, guard.span());
             }
-
             let body_ty = self.infer_expression(&mut arm.body);
             self.env.pop_scope();
-
             match &arm_result_ty {
                 Some(prev) => {
                     if let Err(e) = self.subst.unify(prev, &body_ty) {
@@ -967,9 +944,7 @@ impl TypeChecker {
                 None => arm_result_ty = Some(body_ty),
             }
         }
-
         self.check_exhaustiveness(&scrutinee_resolved, expr);
-
         arm_result_ty
             .map(|ty| self.subst.apply(&ty))
             .unwrap_or(Type::Never)
@@ -1046,7 +1021,6 @@ impl TypeChecker {
                 .map(|def| (def, type_args.clone())),
             _ => self.find_enum_for_variant(variant_name),
         };
-
         let Some((enum_def, type_args)) = enum_info else {
             // Not a known variant; skip checking but still bind identifiers.
             for field in fields {
@@ -1057,7 +1031,6 @@ impl TypeChecker {
             }
             return;
         };
-
         let Some(variant) = enum_def.variants.iter().find(|v| v.name == variant_name) else {
             self.errors.push(
                 TypeErrorKind::UnknownField {
@@ -1068,7 +1041,6 @@ impl TypeChecker {
             );
             return;
         };
-
         match &variant.kind {
             VariantKind::Tuple(payload_types) => {
                 if payload_types.len() != fields.len() {
@@ -1129,7 +1101,6 @@ impl TypeChecker {
                 .map(|def| (def, type_args.clone())),
             _ => None,
         };
-
         let Some((struct_def, type_args)) = struct_info else {
             for field in fields {
                 let name = field
@@ -1145,7 +1116,6 @@ impl TypeChecker {
             }
             return;
         };
-
         for pf in fields {
             match struct_def
                 .fields
@@ -1210,6 +1180,11 @@ impl TypeChecker {
                 generic_params,
                 type_args,
             ))),
+            Type::Range(elem) => Type::Range(Box::new(self.instantiate_generic_type(
+                elem,
+                generic_params,
+                type_args,
+            ))),
             Type::Hash(k, v) => Type::Hash(
                 Box::new(self.instantiate_generic_type(k, generic_params, type_args)),
                 Box::new(self.instantiate_generic_type(v, generic_params, type_args)),
@@ -1248,16 +1223,13 @@ impl TypeChecker {
             Type::Enum(name, _) => self.env.lookup_enum(name).cloned(),
             _ => None,
         };
-
         let has_wildcard = match_expr
             .arms
             .iter()
             .any(|arm| arm.guard.is_none() && self.pattern_is_catch_all(&arm.pattern, &enum_def));
-
         if has_wildcard {
             return;
         }
-
         match scrutinee_ty {
             Type::Enum(_, _) => {
                 if let Some(def) = &enum_def {
@@ -1266,14 +1238,12 @@ impl TypeChecker {
                         .iter()
                         .filter_map(|arm| self.extract_variant_name(&arm.pattern, def))
                         .collect::<std::collections::HashSet<&str>>();
-
                     let missing = def
                         .variants
                         .iter()
                         .map(|v| v.name.as_str())
                         .filter(|name| !covered.contains(name))
                         .collect::<Vec<&str>>();
-
                     if !missing.is_empty() {
                         self.errors.push(
                             TypeErrorKind::NonExhaustiveMatch {
@@ -1362,7 +1332,6 @@ impl TypeChecker {
 
         let lhs_ty = self.infer_expression(&mut infix.lhs);
         let rhs_ty = self.infer_expression(&mut infix.rhs);
-
         let lhs_resolved = self.subst.apply(&lhs_ty);
         let rhs_resolved = self.subst.apply(&rhs_ty);
 
@@ -1370,12 +1339,10 @@ impl TypeChecker {
             infix.operator.as_str(),
             "<" | ">" | "<=" | ">=" | "==" | "!="
         );
-
         // String concatenation
         if infix.operator == "+" && lhs_resolved == Type::String && rhs_resolved == Type::String {
             return Type::String;
         }
-
         // Boolean equality
         if (infix.operator == "==" || infix.operator == "!=")
             && lhs_resolved == Type::Bool
@@ -1383,7 +1350,6 @@ impl TypeChecker {
         {
             return Type::Bool;
         }
-
         // Numeric operations
         if lhs_resolved.is_integer() && rhs_resolved.is_integer() {
             if lhs_resolved == rhs_resolved {
@@ -1393,7 +1359,6 @@ impl TypeChecker {
                     lhs_resolved
                 };
             }
-
             match promote::common_numeric_type(&lhs_resolved, &rhs_resolved) {
                 Ok(promoted) => {
                     self.maybe_insert_cast(&mut infix.lhs, &lhs_resolved, &promoted);
@@ -1527,6 +1492,21 @@ impl TypeChecker {
             && let Err(e) = self.subst.unify(resolved, &Type::Bool)
         {
             self.report_unify_error(e, span);
+        }
+    }
+
+    /// Maps a resolved type to the dispatch prefix used in builtin qualified names.
+    ///
+    /// Returns `Some("Array")` for array types, `Some("str")` for strings,
+    /// and `Some(name)` for user-defined structs/enums (including `Set`).
+    /// Returns `None` for unresolved type variables or primitive types
+    /// that have no inherent methods.
+    fn receiver_type_name(ty: &Type) -> Option<String> {
+        match ty {
+            Type::Array(_) => Some("Array".to_string()),
+            Type::String => Some("str".to_string()),
+            Type::Struct(name, _) | Type::Enum(name, _) => Some(name.clone()),
+            _ => None,
         }
     }
 
