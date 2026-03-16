@@ -53,14 +53,14 @@ cargo run --release -- --version
 Compile and execute a Maat source file in a single step:
 
 ```bash
-cargo run --release -- run examples/fibonacci.maat
+cargo run --release -- run examples/hello_world.maat
 ```
 
 Or use the build-then-execute workflow for faster repeated execution:
 
 ```bash
-cargo run --release -- build examples/fibonacci.maat -o fibonacci.mtc
-cargo run --release -- exec fibonacci.mtc
+cargo run --release -- build examples/hello_world.maat -o hello_world.mtc
+cargo run --release -- exec hello_world.mtc
 ```
 
 ### Multi-Module Projects
@@ -216,7 +216,7 @@ Maat includes a Criterion-based benchmark suite for the bytecode VM:
 cargo bench -p maat_tests --bench benchmarks
 
 # Run specific benchmarks
-cargo bench -p maat_tests --bench benchmarks -- fibonacci
+cargo bench -p maat_tests --bench benchmarks -- hello_world
 
 # Save a baseline and compare after changes
 cargo bench -p maat_tests --bench benchmarks -- --save-baseline before

@@ -1,8 +1,35 @@
+// Public struct with public fields
 pub struct Point {
     pub x: i64,
     pub y: i64,
 }
 
 impl Point {
-    pub fn sum(self) -> i64 { self.x + self.y }
+    pub fn sum(self) -> i64 {
+        self.x + self.y
+    }
+
+    pub fn scale(self, factor: i64) -> Point {
+        Point {
+            x: self.x * factor,
+            y: self.y * factor,
+        }
+    }
+}
+
+// Public struct: rectangle defined by two points
+pub struct Rect {
+    pub origin: Point,
+    pub width: i64,
+    pub height: i64,
+}
+
+impl Rect {
+    pub fn area(self) -> i64 {
+        self.width * self.height
+    }
+
+    pub fn perimeter(self) -> i64 {
+        2 * (self.width + self.height)
+    }
 }

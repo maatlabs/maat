@@ -371,6 +371,9 @@ impl<'a> Parser<'a> {
 
         while self.peek_token_is(TokenKind::Comma) {
             self.next_token();
+            if self.peek_token_is(TokenKind::RBrace) {
+                break;
+            }
             if !self.expect_peek(TokenKind::Ident) {
                 return None;
             }
@@ -1712,6 +1715,9 @@ impl<'a> Parser<'a> {
 
         while self.peek_token_is(TokenKind::Comma) {
             self.next_token();
+            if self.peek_token_is(TokenKind::RParen) {
+                break;
+            }
             self.next_token();
             params.push(self.parse_method_param()?);
         }
@@ -1897,6 +1903,9 @@ impl<'a> Parser<'a> {
 
         while self.peek_token_is(TokenKind::Comma) {
             self.next_token();
+            if self.peek_token_is(TokenKind::RParen) {
+                break;
+            }
             self.next_token();
             identifiers.push(self.current.literal.to_string());
         }
@@ -1921,6 +1930,9 @@ impl<'a> Parser<'a> {
 
         while self.peek_token_is(TokenKind::Comma) {
             self.next_token();
+            if self.peek_token_is(TokenKind::RParen) {
+                break;
+            }
             self.next_token();
             params.push(self.parse_typed_param()?);
         }
@@ -2000,6 +2012,9 @@ impl<'a> Parser<'a> {
                     param_types.push(self.parse_type_expr()?);
                     while self.peek_token_is(TokenKind::Comma) {
                         self.next_token();
+                        if self.peek_token_is(TokenKind::RParen) {
+                            break;
+                        }
                         self.next_token();
                         param_types.push(self.parse_type_expr()?);
                     }
@@ -2025,6 +2040,9 @@ impl<'a> Parser<'a> {
                     let mut args = vec![self.parse_type_expr()?];
                     while self.peek_token_is(TokenKind::Comma) {
                         self.next_token();
+                        if self.peek_token_is(TokenKind::Greater) {
+                            break;
+                        }
                         self.next_token();
                         args.push(self.parse_type_expr()?);
                     }
@@ -2063,6 +2081,9 @@ impl<'a> Parser<'a> {
 
         while self.peek_token_is(TokenKind::Comma) {
             self.next_token();
+            if self.peek_token_is(TokenKind::Greater) {
+                break;
+            }
             self.next_token();
             params.push(self.parse_generic_param()?);
         }
@@ -2131,6 +2152,9 @@ impl<'a> Parser<'a> {
 
         while self.peek_token_is(TokenKind::Comma) {
             self.next_token();
+            if self.peek_token_is(end) {
+                break;
+            }
             self.next_token();
             list.push(self.parse_expression(LOWEST)?);
         }

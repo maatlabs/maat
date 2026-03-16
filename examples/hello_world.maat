@@ -1,0 +1,16 @@
+// Minimal program demonstrating let bindings, string literals, and print.
+
+let greeting = "Hello, Maat!";
+print(greeting);
+
+let language = "Maat";
+let version = "0.10.0";
+print("Welcome to " + language + " v" + version);
+
+// Numeric bindings and basic expressions
+let answer = 42;
+print(answer);
+
+// Boolean literals
+let is_zk = true;
+print(is_zk);
