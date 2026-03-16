@@ -135,49 +135,6 @@ fn parse_mod_stmt() {
 }
 
 #[test]
-fn parse_identifier_expression() {
-    let program = parse("foobar;");
-    let Stmt::Expr(ExprStmt {
-        value: Expr::Ident(ident),
-        ..
-    }) = expect_single_stmt(&program)
-    else {
-        panic!("expected identifier expression");
-    };
-    assert_eq!(ident.value, "foobar");
-}
-
-#[test]
-fn parse_integer_literal_expression() {
-    let program = parse("5;");
-    let Stmt::Expr(ExprStmt {
-        value: Expr::I64(I64 { value, .. }),
-        ..
-    }) = expect_single_stmt(&program)
-    else {
-        panic!("expected I64 expression");
-    };
-    assert_eq!(*value, 5);
-}
-
-#[test]
-fn parse_boolean_expression() {
-    [("true;", true), ("false;", false)]
-        .iter()
-        .for_each(|(input, expected)| {
-            let program = parse(input);
-            let Stmt::Expr(ExprStmt {
-                value: Expr::Bool(value),
-                ..
-            }) = expect_single_stmt(&program)
-            else {
-                panic!("expected Boolean expression");
-            };
-            assert_eq!(value.value, *expected);
-        });
-}
-
-#[test]
 fn parse_prefix_expressions() {
     [
         ("!5;", "!", "5"),

@@ -744,6 +744,11 @@ impl Compiler {
                 self.compile_block_statement(&cond.consequence)?;
                 if self.last_instruction_is(Opcode::Pop) {
                     self.remove_last_pop();
+                } else {
+                    // Block ended with a non-expression statement (e.g. reassignment)
+                    // that left no value on the stack. Emit Null so the conditional
+                    // expression always produces exactly one value.
+                    self.emit(Opcode::Null, &[], cond.span);
                 }
                 let jump_pos = self.emit(Opcode::Jump, &[Self::JUMP], cond.span);
                 let cons_pos = self.current_instructions().len();
@@ -756,6 +761,8 @@ impl Compiler {
                         self.compile_block_statement(alt_block)?;
                         if self.last_instruction_is(Opcode::Pop) {
                             self.remove_last_pop();
+                        } else {
+                            self.emit(Opcode::Null, &[], cond.span);
                         }
                     }
                 }

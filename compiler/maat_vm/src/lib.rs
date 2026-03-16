@@ -765,7 +765,15 @@ impl VM {
             _ => None,
         };
         if let Some(maybe_val) = checked_result {
-            let val = maybe_val.ok_or_else(|| self.vm_error("integer arithmetic overflow"))?;
+            let val = maybe_val.ok_or_else(|| {
+                let msg = match op {
+                    Opcode::Div => "integer division by zero or overflow",
+                    Opcode::Mod => "integer modulo by zero or overflow",
+                    Opcode::Shl | Opcode::Shr => "shift amount exceeds type bit width",
+                    _ => "integer arithmetic overflow",
+                };
+                self.vm_error(msg)
+            })?;
             return self.push_stack(val);
         }
         let bitwise_result = match op {

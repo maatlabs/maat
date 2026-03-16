@@ -1109,3 +1109,273 @@ fn range_expression_standalone() {
     run_vm_test("0..10", TestValue::Range(0, 10));
     run_vm_test("1..=5", TestValue::RangeInclusive(1, 5));
 }
+
+#[test]
+fn arithmetic_overflow() {
+    // i64::MAX + 1 should produce an overflow error
+    run_vm_error_test("9223372036854775807 + 1", "arithmetic overflow");
+    // i64::MIN - 1 should produce an overflow error
+    run_vm_error_test("-9223372036854775807 - 1 - 1", "arithmetic overflow");
+    // i64::MIN * -1 overflows
+    run_vm_error_test(
+        "let x = -9223372036854775807 - 1; x * -1",
+        "arithmetic overflow",
+    );
+    // i8 overflow
+    run_vm_error_test("127i8 + 1i8", "arithmetic overflow");
+    // u8 overflow
+    run_vm_error_test("255u8 + 1u8", "arithmetic overflow");
+    // Negation overflow: i64::MIN cannot be negated
+    run_vm_error_test("let x = -9223372036854775807 - 1; -x", "negation overflow");
+}
+
+#[test]
+fn division_by_zero() {
+    run_vm_error_test("1 / 0", "division by zero");
+    run_vm_error_test("10 % 0", "modulo by zero");
+    run_vm_error_test("1i32 / 0i32", "division by zero");
+}
+
+#[test]
+fn euclidean_modulo_edge_case() {
+    // i64::MIN % -1 is a known edge case (would overflow in C)
+    // Rust's checked_rem_euclid returns None for this case.
+    run_vm_error_test(
+        "let x = -9223372036854775807 - 1; x % -1",
+        "modulo by zero or overflow",
+    );
+}
+
+#[test]
+fn shift_overflow() {
+    // Shifting by more bits than the type width should produce an error
+    run_vm_error_test("1 << 64", "shift amount exceeds type bit width");
+    run_vm_error_test("1 >> 64", "shift amount exceeds type bit width");
+    // Negative shift amount
+    run_vm_error_test("1 << -1", "shift amount exceeds type bit width");
+}
+
+#[test]
+fn deeply_nested_expressions() {
+    // 50 levels of nested addition: ((((1 + 1) + 1) + 1) ... + 1) = 50
+    let mut expr = "1".to_string();
+    for _ in 1..50 {
+        expr = format!("({expr} + 1)");
+    }
+    run_vm_test(&expr, TestValue::I64(50));
+}
+
+#[test]
+fn empty_range_iterations() {
+    // Negative range: start > end for half-open should execute zero iterations
+    run_vm_test(
+        r#"
+        fn test() -> i64 {
+            let mut total = 0;
+            for i in 10..5 {
+                total += i;
+            }
+            total
+        }
+        test()
+        "#,
+        TestValue::I64(0),
+    );
+    // Inclusive range where start > end
+    run_vm_test(
+        r#"
+        fn test() -> i64 {
+            let mut total = 0;
+            for i in 1..=0 {
+                total += i;
+            }
+            total
+        }
+        test()
+        "#,
+        TestValue::I64(0),
+    );
+}
+
+#[test]
+fn string_operations() {
+    // Empty string length
+    run_vm_test(r#""".len()"#, TestValue::Usize(0));
+    // String concatenation of empties
+    run_vm_test(r#""" + "" + "hello""#, TestValue::Str("hello".to_string()));
+    // Escape sequences
+    run_vm_test(r#"let s = "line1\nline2"; s.len()"#, TestValue::Usize(11));
+}
+
+#[test]
+fn nested_option_matching() {
+    run_vm_test(
+        r#"
+        fn unwrap_nested(opt: Option<i64>) -> i64 {
+            match opt {
+                Some(x) => x,
+                None => -1,
+            }
+        }
+        let a = Option::Some(42);
+        let b: Option<i64> = Option::None;
+        unwrap_nested(a) + unwrap_nested(b)
+        "#,
+        TestValue::I64(41),
+    );
+}
+
+#[test]
+fn result_error_propagation() {
+    run_vm_test(
+        r#"
+        fn try_divide(a: i64, b: i64) -> Result<i64, i64> {
+            if (b == 0) {
+                Result::Err(-1)
+            } else {
+                Result::Ok(a / b)
+            }
+        }
+        let r = try_divide(10, 2);
+        match r {
+            Ok(v) => v,
+            Err(e) => e,
+        }
+        "#,
+        TestValue::I64(5),
+    );
+    run_vm_test(
+        r#"
+        fn try_divide(a: i64, b: i64) -> Result<i64, i64> {
+            if (b == 0) {
+                Result::Err(-1)
+            } else {
+                Result::Ok(a / b)
+            }
+        }
+        let r = try_divide(10, 0);
+        match r {
+            Ok(v) => v,
+            Err(e) => e,
+        }
+        "#,
+        TestValue::I64(-1),
+    );
+}
+
+#[test]
+fn break_with_value() {
+    run_vm_test(
+        r#"
+        fn find_first_even(arr: [i64]) -> i64 {
+            let mut result = -1;
+            for x in arr {
+                if (x % 2 == 0) {
+                    result = x;
+                    break;
+                }
+            }
+            result
+        }
+        find_first_even([1, 3, 5, 8, 10])
+        "#,
+        TestValue::I64(8),
+    );
+}
+
+#[test]
+fn continue_in_loops() {
+    // Skip even numbers, sum odd numbers 1..10
+    run_vm_test(
+        r#"
+        fn sum_odd() -> i64 {
+            let mut total = 0;
+            let mut i = 0;
+            while (i < 10) {
+                i += 1;
+                if (i % 2 == 0) {
+                    continue;
+                }
+                total += i;
+            }
+            total
+        }
+        sum_odd()
+        "#,
+        TestValue::I64(25),
+    );
+}
+
+#[test]
+fn variable_shadowing_across_blocks() {
+    run_vm_test(
+        r#"
+        fn test() -> i64 {
+            let x = 1;
+            let result = if (true) {
+                let x = 100;
+                x
+            } else {
+                0
+            };
+            x + result
+        }
+        test()
+        "#,
+        TestValue::I64(101),
+    );
+}
+
+#[test]
+fn deeply_nested_function_calls() {
+    run_vm_test(
+        r#"
+        fn a(x: i64) -> i64 { b(x + 1) }
+        fn b(x: i64) -> i64 { c(x + 1) }
+        fn c(x: i64) -> i64 { d(x + 1) }
+        fn d(x: i64) -> i64 { e(x + 1) }
+        fn e(x: i64) -> i64 { x + 1 }
+        a(0)
+        "#,
+        TestValue::I64(5),
+    );
+}
+
+#[test]
+fn conditional_reassignment_in_loop() {
+    run_vm_test(
+        r#"
+        fn test() -> i64 {
+            let arr = [10, 20, 30];
+            let target: i64 = 1;
+            let mut result: i64 = 0;
+            for i in 0..3 {
+                if (i == target) {
+                    result = arr[i];
+                } else {
+                    result += 1;
+                }
+            }
+            result
+        }
+        test()
+        "#,
+        TestValue::I64(21),
+    );
+
+    run_vm_test(
+        r#"
+        fn test() -> i64 {
+            let mut sum: i64 = 0;
+            for i in 0..5 {
+                if (i % 2 == 0) {
+                    sum += i;
+                }
+            }
+            sum
+        }
+        test()
+        "#,
+        TestValue::I64(6),
+    );
+}
