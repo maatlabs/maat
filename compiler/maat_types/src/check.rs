@@ -484,6 +484,7 @@ impl TypeChecker {
             Expr::Ident(ident) => self
                 .env
                 .instantiate(&ident.value, &self.subst)
+                .or_else(|| self.resolve_bare_variant(&ident.value))
                 .unwrap_or_else(|| self.env.fresh_var()),
             Expr::Array(array) => {
                 if array.elements.is_empty() {
@@ -1143,6 +1144,39 @@ impl TypeChecker {
                     );
                 }
             }
+        }
+    }
+
+    /// Resolves a bare identifier as an enum variant constructor.
+    ///
+    /// Enables prelude-style usage: `Some(x)`, `None`, `Ok(v)`, `Err(e)`
+    /// without requiring qualified paths like `Option::Some(x)`.
+    fn resolve_bare_variant(&mut self, name: &str) -> Option<Type> {
+        let (enum_def, type_args) = self.find_enum_for_variant(name)?;
+        let variant = enum_def.variants.iter().find(|v| v.name == name)?;
+        match &variant.kind {
+            VariantKind::Unit => Some(Type::Enum(
+                enum_def.name.clone(),
+                type_args.iter().map(|t| self.subst.apply(t)).collect(),
+            )),
+            VariantKind::Tuple(field_types) => {
+                let params = field_types
+                    .iter()
+                    .map(|t| self.instantiate_generic_type(t, &enum_def.generic_params, &type_args))
+                    .collect();
+                let ret = Type::Enum(
+                    enum_def.name.clone(),
+                    type_args.iter().map(|t| self.subst.apply(t)).collect(),
+                );
+                Some(Type::Function(FnType {
+                    params,
+                    ret: Box::new(ret),
+                }))
+            }
+            VariantKind::Struct(_) => Some(Type::Enum(
+                enum_def.name.clone(),
+                type_args.iter().map(|t| self.subst.apply(t)).collect(),
+            )),
         }
     }
 

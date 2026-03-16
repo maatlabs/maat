@@ -771,17 +771,20 @@ impl Compiler {
                 Ok(())
             }
             Expr::Ident(ident) => {
-                let symbol = self
-                    .symbols_table
-                    .resolve_symbol(&ident.value)
-                    .ok_or_else(|| {
-                        CompileErrorKind::UndefinedVariable {
-                            name: ident.value.clone(),
-                        }
-                        .at(ident.span)
-                    })?;
-                self.load_symbol(&symbol, span);
-                Ok(())
+                if let Some(symbol) = self.symbols_table.resolve_symbol(&ident.value) {
+                    self.load_symbol(&symbol, span);
+                    Ok(())
+                } else if let Some((registry_index, variant_tag, field_count)) =
+                    self.find_variant_in_registry(&ident.value)
+                {
+                    self.emit_variant_constructor(registry_index, variant_tag, field_count, span)
+                } else {
+                    Err(CompileErrorKind::UndefinedVariable {
+                        name: ident.value.clone(),
+                    }
+                    .at(ident.span)
+                    .into())
+                }
             }
             Expr::Str(s) => {
                 let constant = Object::Str(maat_ast::unescape_string(&s.value));
@@ -952,49 +955,15 @@ impl Compiler {
         if path.segments.len() == 2 {
             let type_name = &path.segments[0];
             let variant_name = &path.segments[1];
-            // Check if it refers to an enum variant.
             if let Some((registry_index, variant_tag, field_count)) =
                 self.resolve_enum_variant(type_name, variant_name)
             {
-                if field_count == 0 {
-                    // Unit variant: construct immediately.
-                    let type_index = (registry_index << 8) | (variant_tag & 0xFF);
-                    self.emit(Opcode::Construct, &[type_index, 0], span);
-                } else {
-                    // Tuple/struct variant: emit a closure that takes `field_count` params
-                    // and constructs the variant.
-                    self.enter_scope();
-                    let mut param_names = Vec::with_capacity(field_count);
-                    for i in 0..field_count {
-                        let name = format!("__field_{i}");
-                        if let Err(e) = self.symbols_table.define_symbol(&name, false) {
-                            return Err(self.attach_span(e, span));
-                        }
-                        param_names.push(name);
-                    }
-                    // Load each parameter onto the stack.
-                    for name in &param_names {
-                        let sym = self.symbols_table.resolve_symbol(name).ok_or_else(|| {
-                            CompileErrorKind::UndefinedVariable { name: name.clone() }.at(span)
-                        })?;
-                        self.load_symbol(&sym, span);
-                    }
-                    let type_index = (registry_index << 8) | (variant_tag & 0xFF);
-                    self.emit(Opcode::Construct, &[type_index, field_count], span);
-                    self.emit(Opcode::ReturnValue, &[], span);
-
-                    let num_locals = self.symbols_table.max_definitions();
-                    let (instructions, inner_source_map) = self.leave_scope()?;
-                    let compiled_fn = Object::CompiledFunction(CompiledFunction {
-                        instructions: Rc::from(instructions.as_bytes()),
-                        num_locals,
-                        num_parameters: field_count,
-                        source_map: inner_source_map,
-                    });
-                    let index = self.add_constant(compiled_fn)?;
-                    self.emit(Opcode::Closure, &[index, 0], span);
-                }
-                return Ok(());
+                return self.emit_variant_constructor(
+                    registry_index,
+                    variant_tag,
+                    field_count,
+                    span,
+                );
             }
             let qualified_name = format!("{type_name}::{variant_name}");
             if let Some(symbol) = self.symbols_table.resolve_symbol(&qualified_name) {
@@ -1008,6 +977,55 @@ impl Compiler {
             .resolve_symbol(&full_name)
             .ok_or_else(|| CompileErrorKind::UndefinedVariable { name: full_name }.at(span))?;
         self.load_symbol(&symbol, span);
+        Ok(())
+    }
+
+    /// Emits bytecode to construct an enum variant.
+    ///
+    /// Unit variants (field_count == 0) emit a direct `Construct` instruction.
+    /// Tuple/struct variants emit a closure that accepts `field_count` parameters
+    /// and wraps the `Construct` opcode, allowing the variant to be used as a
+    /// first-class constructor function (e.g. `Some(42)`, `Ok(value)`).
+    fn emit_variant_constructor(
+        &mut self,
+        registry_index: usize,
+        variant_tag: usize,
+        field_count: usize,
+        span: Span,
+    ) -> Result<()> {
+        let type_index = (registry_index << 8) | (variant_tag & 0xFF);
+        if field_count == 0 {
+            self.emit(Opcode::Construct, &[type_index, 0], span);
+        } else {
+            self.enter_scope();
+            let mut param_names = Vec::with_capacity(field_count);
+            for i in 0..field_count {
+                let name = format!("__field_{i}");
+                if let Err(e) = self.symbols_table.define_symbol(&name, false) {
+                    return Err(self.attach_span(e, span));
+                }
+                param_names.push(name);
+            }
+            for name in &param_names {
+                let sym = self.symbols_table.resolve_symbol(name).ok_or_else(|| {
+                    CompileErrorKind::UndefinedVariable { name: name.clone() }.at(span)
+                })?;
+                self.load_symbol(&sym, span);
+            }
+            self.emit(Opcode::Construct, &[type_index, field_count], span);
+            self.emit(Opcode::ReturnValue, &[], span);
+
+            let num_locals = self.symbols_table.max_definitions();
+            let (instructions, inner_source_map) = self.leave_scope()?;
+            let compiled_fn = Object::CompiledFunction(CompiledFunction {
+                instructions: Rc::from(instructions.as_bytes()),
+                num_locals,
+                num_parameters: field_count,
+                source_map: inner_source_map,
+            });
+            let index = self.add_constant(compiled_fn)?;
+            self.emit(Opcode::Closure, &[index, 0], span);
+        }
         Ok(())
     }
 

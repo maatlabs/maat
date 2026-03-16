@@ -67,7 +67,7 @@ match s { Circle(r) => r, Rect(w, h) => w * h }
 
 const OPTION_SOURCE: &str = "
 fn safe_div(a: i64, b: i64) -> Option<i64> {
-    if (b == 0) { Option::None } else { Option::Some(a / b) }
+    if (b == 0) { None } else { Some(a / b) }
 }
 let r = safe_div(10, 2);
 match r { Some(v) => v, None => -1 }

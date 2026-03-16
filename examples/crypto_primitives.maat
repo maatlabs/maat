@@ -90,14 +90,14 @@ print(35 * eg.x + 15 * eg.y);
 fn mod_inverse(a: i64, m: i64) -> Option<i64> {
     let r = extended_gcd(a, m);
     if (r.gcd != 1) {
-        Option::None
+        None
     } else {
         // Normalize to positive
         let inv = r.x % m;
         if (inv < 0) {
-            Option::Some(inv + m)
+            Some(inv + m)
         } else {
-            Option::Some(inv)
+            Some(inv)
         }
     }
 }

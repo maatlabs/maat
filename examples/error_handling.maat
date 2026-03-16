@@ -3,19 +3,19 @@
 // Fallible parsing: validate and convert a "numeric" string
 fn validate_positive(n: i64) -> Result<i64, str> {
     if (n <= 0) {
-        Result::Err("must be positive")
+        Err("must be positive")
     } else {
-        Result::Ok(n)
+        Ok(n)
     }
 }
 
 fn validate_in_range(n: i64, lo: i64, hi: i64) -> Result<i64, str> {
     if (n < lo) {
-        Result::Err("below minimum")
+        Err("below minimum")
     } else if (n > hi) {
-        Result::Err("above maximum")
+        Err("above maximum")
     } else {
-        Result::Ok(n)
+        Ok(n)
     }
 }
 
@@ -23,7 +23,7 @@ fn validate_in_range(n: i64, lo: i64, hi: i64) -> Result<i64, str> {
 fn validate(n: i64) -> Result<i64, str> {
     match validate_positive(n) {
         Ok(v) => validate_in_range(v, 1, 100),
-        Err(e) => Result::Err(e),
+        Err(e) => Err(e),
     }
 }
 
@@ -34,17 +34,17 @@ print(match validate(200) { Ok(v) => v, Err(e) => -1 });
 // Deeply nested Result chaining: safe arithmetic pipeline
 fn safe_div(a: i64, b: i64) -> Result<i64, str> {
     if (b == 0) {
-        Result::Err("division by zero")
+        Err("division by zero")
     } else {
-        Result::Ok(a / b)
+        Ok(a / b)
     }
 }
 
 fn safe_sub(a: i64, b: i64) -> Result<i64, str> {
     if (a < b) {
-        Result::Err("would underflow")
+        Err("would underflow")
     } else {
-        Result::Ok(a - b)
+        Ok(a - b)
     }
 }
 
@@ -53,9 +53,9 @@ fn pipeline(a: i64, b: i64, c: i64, d: i64) -> Result<i64, str> {
     match safe_div(a, b) {
         Ok(v1) => match safe_sub(v1, c) {
             Ok(v2) => safe_div(v2, d),
-            Err(e) => Result::Err(e),
+            Err(e) => Err(e),
         },
-        Err(e) => Result::Err(e),
+        Err(e) => Err(e),
     }
 }
 
@@ -75,12 +75,12 @@ struct Config {
 
 fn validate_config(c: Config) -> Result<i64, str> {
     match validate_positive(c.width) {
-        Err(e) => Result::Err("invalid width"),
+        Err(e) => Err("invalid width"),
         Ok(w) => match validate_positive(c.height) {
-            Err(e) => Result::Err("invalid height"),
+            Err(e) => Err("invalid height"),
             Ok(h) => match validate_positive(c.depth) {
-                Err(e) => Result::Err("invalid depth"),
-                Ok(d) => Result::Ok(w * h * d),
+                Err(e) => Err("invalid depth"),
+                Ok(d) => Ok(w * h * d),
             },
         },
     }
@@ -95,18 +95,18 @@ print(match validate_config(invalid) { Ok(v) => v, Err(e) => -1 });
 // Option-to-Result conversion pattern
 fn lookup(arr, idx: i64) -> Option<i64> {
     if (idx < 0) {
-        Option::None
+        None
     } else if (idx as usize >= arr.len()) {
-        Option::None
+        None
     } else {
-        Option::Some(arr[idx])
+        Some(arr[idx])
     }
 }
 
 fn require(opt: Option<i64>, msg: str) -> Result<i64, str> {
     match opt {
-        Some(v) => Result::Ok(v),
-        None => Result::Err(msg),
+        Some(v) => Ok(v),
+        None => Err(msg),
     }
 }
 

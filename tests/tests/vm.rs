@@ -1217,8 +1217,8 @@ fn nested_option_matching() {
                 None => -1,
             }
         }
-        let a = Option::Some(42);
-        let b: Option<i64> = Option::None;
+        let a = Some(42);
+        let b: Option<i64> = None;
         unwrap_nested(a) + unwrap_nested(b)
         "#,
         TestValue::I64(41),
@@ -1231,9 +1231,9 @@ fn result_error_propagation() {
         r#"
         fn try_divide(a: i64, b: i64) -> Result<i64, i64> {
             if (b == 0) {
-                Result::Err(-1)
+                Err(-1)
             } else {
-                Result::Ok(a / b)
+                Ok(a / b)
             }
         }
         let r = try_divide(10, 2);
@@ -1248,9 +1248,9 @@ fn result_error_propagation() {
         r#"
         fn try_divide(a: i64, b: i64) -> Result<i64, i64> {
             if (b == 0) {
-                Result::Err(-1)
+                Err(-1)
             } else {
-                Result::Ok(a / b)
+                Ok(a / b)
             }
         }
         let r = try_divide(10, 0);

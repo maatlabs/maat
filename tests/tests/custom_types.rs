@@ -112,9 +112,9 @@ fn structs() {
          impl Stack {
              fn peek(self) -> Option<i64> {
                  if (self.items.len() == 0usize) {
-                     Option::None
+                     None
                  } else {
-                     Option::Some(self.items.first())
+                     Some(self.items.first())
                  }
              }
          }
@@ -127,9 +127,9 @@ fn structs() {
          impl Stack {
              fn peek(self) -> Option<i64> {
                  if (self.items.len() == 0usize) {
-                     Option::None
+                     None
                  } else {
-                     Option::Some(self.items.first())
+                     Some(self.items.first())
                  }
              }
          }
@@ -196,7 +196,7 @@ fn enums() {
         false,
     );
     run_i64(
-        "let arr = [Option::Some(1), Option::Some(3), Option::Some(6)];
+        "let arr = [Some(1), Some(3), Some(6)];
          let mut total = 0;
          let mut i = 0;
          while (i < arr.len() as i64) {
@@ -218,22 +218,22 @@ fn option_builtin_type() {
     );
     assert_no_type_errors(
         "fn map_opt(opt: Option<i64>) -> Option<i64> {
-             match opt { Some(v) => Option::Some(v + 1), None => Option::None }
+             match opt { Some(v) => Some(v + 1), None => None }
          }",
     );
     run_i64(
-        "let x = Option::Some(42);
+        "let x = Some(42);
          match x { Some(v) => v, None => 0 }",
         42,
     );
     run_i64(
-        "let x: Option<i64> = Option::None;
+        "let x: Option<i64> = None;
          match x { Some(v) => v, None => -1 }",
         -1,
     );
     run_i64(
         "fn safe_div(a: i64, b: i64) -> Option<i64> {
-             if (b == 0) { Option::None } else { Option::Some(a / b) }
+             if (b == 0) { None } else { Some(a / b) }
          }
          let result = safe_div(10, 2);
          match result { Some(v) => v, None => -1 }",
@@ -241,7 +241,7 @@ fn option_builtin_type() {
     );
     run_i64(
         "fn safe_div(a: i64, b: i64) -> Option<i64> {
-             if (b == 0) { Option::None } else { Option::Some(a / b) }
+             if (b == 0) { None } else { Some(a / b) }
          }
          let result = safe_div(10, 0);
          match result { Some(v) => v, None => -1 }",
@@ -251,14 +251,14 @@ fn option_builtin_type() {
         "fn unwrap_or(opt: Option<i64>, default: i64) -> i64 {
              match opt { Some(v) => v, None => default }
          }
-         unwrap_or(Option::Some(7), 0)",
+         unwrap_or(Some(7), 0)",
         7,
     );
     run_i64(
         "fn unwrap_or(opt: Option<i64>, default: i64) -> i64 {
              match opt { Some(v) => v, None => default }
          }
-         unwrap_or(Option::None, 42)",
+         unwrap_or(None, 42)",
         42,
     );
 }
@@ -271,18 +271,18 @@ fn result_builtin_type() {
          }",
     );
     run_i64(
-        "let r = Result::Ok(100);
+        "let r = Ok(100);
          match r { Ok(v) => v, Err(e) => e }",
         100,
     );
     run_i64(
-        "let r: Result<i64, i64> = Result::Err(-1);
+        "let r: Result<i64, i64> = Err(-1);
          match r { Ok(v) => v, Err(e) => e }",
         -1,
     );
     run_i64(
         "fn checked_div(a: i64, b: i64) -> Result<i64, i64> {
-             if (b == 0) { Result::Err(-1) } else { Result::Ok(a / b) }
+             if (b == 0) { Err(-1) } else { Ok(a / b) }
          }
          let r = checked_div(20, 5);
          match r { Ok(v) => v, Err(e) => e }",
@@ -290,7 +290,7 @@ fn result_builtin_type() {
     );
     run_i64(
         "fn checked_div(a: i64, b: i64) -> Result<i64, i64> {
-             if (b == 0) { Result::Err(-1) } else { Result::Ok(a / b) }
+             if (b == 0) { Err(-1) } else { Ok(a / b) }
          }
          let r = checked_div(20, 0);
          match r { Ok(v) => v, Err(e) => e }",
@@ -298,7 +298,7 @@ fn result_builtin_type() {
     );
     run_str(
         r#"fn validate(x: i64) -> Result<i64, String> {
-             if (x > 0) { Result::Ok(x) } else { Result::Err("negative") }
+             if (x > 0) { Ok(x) } else { Err("negative") }
          }
          let r = validate(-5);
          match r { Ok(v) => "ok", Err(e) => e }"#,
@@ -306,9 +306,9 @@ fn result_builtin_type() {
     );
     run_i64(
         "fn map_result(r: Result<i64, i64>, f: fn(i64) -> i64) -> Result<i64, i64> {
-             match r { Ok(v) => Result::Ok(f(v)), Err(e) => Result::Err(e) }
+             match r { Ok(v) => Ok(f(v)), Err(e) => Err(e) }
          }
-         let r = map_result(Result::Ok(5), fn(x) { x * 2 });
+         let r = map_result(Ok(5), fn(x) { x * 2 });
          match r { Ok(v) => v, Err(e) => e }",
         10,
     );
@@ -362,13 +362,13 @@ fn option_chained_matching() {
         "fn add_opt(a: Option<i64>, b: Option<i64>) -> Option<i64> {
              match a {
                  Some(va) => match b {
-                     Some(vb) => Option::Some(va + vb),
-                     None => Option::None
+                     Some(vb) => Some(va + vb),
+                     None => None
                  },
-                 None => Option::None
+                 None => None
              }
          }
-         let r = add_opt(Option::Some(3), Option::Some(4));
+         let r = add_opt(Some(3), Some(4));
          match r { Some(v) => v, None => 0 }",
         7,
     );
@@ -376,13 +376,13 @@ fn option_chained_matching() {
         "fn add_opt(a: Option<i64>, b: Option<i64>) -> Option<i64> {
              match a {
                  Some(va) => match b {
-                     Some(vb) => Option::Some(va + vb),
-                     None => Option::None
+                     Some(vb) => Some(va + vb),
+                     None => None
                  },
-                 None => Option::None
+                 None => None
              }
          }
-         let r = add_opt(Option::Some(3), Option::None);
+         let r = add_opt(Some(3), None);
          match r { Some(v) => v, None => 0 }",
         0,
     );
@@ -406,7 +406,7 @@ fn roundtrip_struct() {
 #[test]
 fn roundtrip_option() {
     let bytecode = maat_tests::roundtrip(
-        "let x = Option::Some(42);
+        "let x = Some(42);
          match x { Some(v) => v, None => 0 }",
     );
     let mut vm = VM::new(bytecode);
@@ -420,7 +420,7 @@ fn roundtrip_option() {
 #[test]
 fn roundtrip_result() {
     let bytecode = maat_tests::roundtrip(
-        "let r = Result::Ok(99);
+        "let r = Ok(99);
          match r { Ok(v) => v, Err(e) => e }",
     );
     let mut vm = VM::new(bytecode);
