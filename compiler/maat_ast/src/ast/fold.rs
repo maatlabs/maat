@@ -148,39 +148,27 @@ fn try_fold_prefix(prefix: &PrefixExpr, errors: &mut Vec<TypeError>) -> Option<E
     let span = prefix.span;
 
     match prefix.operator.as_str() {
-        "-" => {
-            macro_rules! negate_int {
-                ($lit:expr, $variant:ident, $name:expr) => {{
-                    match $lit.value.checked_neg() {
-                        Some(v) => Some(Expr::$variant($variant {
-                            radix: $lit.radix,
-                            value: v,
-                            span,
-                        })),
-                        None => {
-                            errors.push(
-                                TypeErrorKind::NumericOverflow {
-                                    value: format!("-{}", $lit.value),
-                                    target: $name.to_string(),
-                                }
-                                .at(span),
-                            );
-                            None
+        "-" => match prefix.operand.as_ref() {
+            Expr::Number(lit) if lit.kind.is_signed() => match lit.value.checked_neg() {
+                Some(value) if lit.kind.fits(value) => Some(Expr::Number(Number {
+                    kind: lit.kind,
+                    value,
+                    radix: lit.radix,
+                    span,
+                })),
+                _ => {
+                    errors.push(
+                        TypeErrorKind::NumericOverflow {
+                            value: format!("-{}", lit.value),
+                            target: lit.kind.as_str().to_string(),
                         }
-                    }
-                }};
-            }
-
-            match prefix.operand.as_ref() {
-                Expr::I8(v) => negate_int!(v, I8, "i8"),
-                Expr::I16(v) => negate_int!(v, I16, "i16"),
-                Expr::I32(v) => negate_int!(v, I32, "i32"),
-                Expr::I64(v) => negate_int!(v, I64, "i64"),
-                Expr::I128(v) => negate_int!(v, I128, "i128"),
-                Expr::Isize(v) => negate_int!(v, Isize, "isize"),
-                _ => None,
-            }
-        }
+                        .at(span),
+                    );
+                    None
+                }
+            },
+            _ => None,
+        },
         "!" => match prefix.operand.as_ref() {
             Expr::Bool(b) => Some(Expr::Bool(Bool {
                 value: !b.value,
@@ -196,49 +184,35 @@ fn try_fold_infix(infix: &InfixExpr, errors: &mut Vec<TypeError>) -> Option<Expr
     let span = infix.span;
     let op = infix.operator.as_str();
 
-    macro_rules! fold_int_op {
-        ($lhs:expr, $rhs:expr, $variant:ident, $name:expr) => {{
+    match (infix.lhs.as_ref(), infix.rhs.as_ref()) {
+        (Expr::Number(l), Expr::Number(r)) if l.kind == r.kind => {
             let result = match op {
-                "+" => $lhs.value.checked_add($rhs.value),
-                "-" => $lhs.value.checked_sub($rhs.value),
-                "*" => $lhs.value.checked_mul($rhs.value),
-                "/" => $lhs.value.checked_div($rhs.value),
-                "%" => $lhs.value.checked_rem_euclid($rhs.value),
+                "+" => l.value.checked_add(r.value),
+                "-" => l.value.checked_sub(r.value),
+                "*" => l.value.checked_mul(r.value),
+                "/" => l.value.checked_div(r.value),
+                "%" => l.value.checked_rem_euclid(r.value),
                 _ => return try_fold_comparison(infix),
             };
             match result {
-                Some(v) => Some(Expr::$variant($variant {
+                Some(value) if l.kind.fits(value) => Some(Expr::Number(Number {
+                    kind: l.kind,
+                    value,
                     radix: Radix::Dec,
-                    value: v,
                     span,
                 })),
-                None => {
+                _ => {
                     errors.push(
                         TypeErrorKind::NumericOverflow {
-                            value: format!("{} {op} {}", $lhs.value, $rhs.value),
-                            target: $name.to_string(),
+                            value: format!("{} {op} {}", l.value, r.value),
+                            target: l.kind.as_str().to_string(),
                         }
                         .at(span),
                     );
                     None
                 }
             }
-        }};
-    }
-
-    match (infix.lhs.as_ref(), infix.rhs.as_ref()) {
-        (Expr::I8(l), Expr::I8(r)) => fold_int_op!(l, r, I8, "i8"),
-        (Expr::I16(l), Expr::I16(r)) => fold_int_op!(l, r, I16, "i16"),
-        (Expr::I32(l), Expr::I32(r)) => fold_int_op!(l, r, I32, "i32"),
-        (Expr::I64(l), Expr::I64(r)) => fold_int_op!(l, r, I64, "i64"),
-        (Expr::I128(l), Expr::I128(r)) => fold_int_op!(l, r, I128, "i128"),
-        (Expr::Isize(l), Expr::Isize(r)) => fold_int_op!(l, r, Isize, "isize"),
-        (Expr::U8(l), Expr::U8(r)) => fold_int_op!(l, r, U8, "u8"),
-        (Expr::U16(l), Expr::U16(r)) => fold_int_op!(l, r, U16, "u16"),
-        (Expr::U32(l), Expr::U32(r)) => fold_int_op!(l, r, U32, "u32"),
-        (Expr::U64(l), Expr::U64(r)) => fold_int_op!(l, r, U64, "u64"),
-        (Expr::U128(l), Expr::U128(r)) => fold_int_op!(l, r, U128, "u128"),
-        (Expr::Usize(l), Expr::Usize(r)) => fold_int_op!(l, r, Usize, "usize"),
+        }
 
         (Expr::Bool(l), Expr::Bool(r)) => match op {
             "==" => Some(Expr::Bool(Bool {
@@ -260,51 +234,19 @@ fn try_fold_comparison(infix: &InfixExpr) -> Option<Expr> {
     let span = infix.span;
     let op = infix.operator.as_str();
 
-    macro_rules! fold_cmp {
-        ($lhs:expr, $rhs:expr) => {
-            match op {
-                "==" => Some(Expr::Bool(Bool {
-                    value: $lhs.value == $rhs.value,
-                    span,
-                })),
-                "!=" => Some(Expr::Bool(Bool {
-                    value: $lhs.value != $rhs.value,
-                    span,
-                })),
-                "<" => Some(Expr::Bool(Bool {
-                    value: $lhs.value < $rhs.value,
-                    span,
-                })),
-                ">" => Some(Expr::Bool(Bool {
-                    value: $lhs.value > $rhs.value,
-                    span,
-                })),
-                "<=" => Some(Expr::Bool(Bool {
-                    value: $lhs.value <= $rhs.value,
-                    span,
-                })),
-                ">=" => Some(Expr::Bool(Bool {
-                    value: $lhs.value >= $rhs.value,
-                    span,
-                })),
-                _ => None,
-            }
-        };
-    }
-
     match (infix.lhs.as_ref(), infix.rhs.as_ref()) {
-        (Expr::I8(l), Expr::I8(r)) => fold_cmp!(l, r),
-        (Expr::I16(l), Expr::I16(r)) => fold_cmp!(l, r),
-        (Expr::I32(l), Expr::I32(r)) => fold_cmp!(l, r),
-        (Expr::I64(l), Expr::I64(r)) => fold_cmp!(l, r),
-        (Expr::I128(l), Expr::I128(r)) => fold_cmp!(l, r),
-        (Expr::Isize(l), Expr::Isize(r)) => fold_cmp!(l, r),
-        (Expr::U8(l), Expr::U8(r)) => fold_cmp!(l, r),
-        (Expr::U16(l), Expr::U16(r)) => fold_cmp!(l, r),
-        (Expr::U32(l), Expr::U32(r)) => fold_cmp!(l, r),
-        (Expr::U64(l), Expr::U64(r)) => fold_cmp!(l, r),
-        (Expr::U128(l), Expr::U128(r)) => fold_cmp!(l, r),
-        (Expr::Usize(l), Expr::Usize(r)) => fold_cmp!(l, r),
+        (Expr::Number(l), Expr::Number(r)) if l.kind == r.kind => {
+            let value = match op {
+                "==" => l.value == r.value,
+                "!=" => l.value != r.value,
+                "<" => l.value < r.value,
+                ">" => l.value > r.value,
+                "<=" => l.value <= r.value,
+                ">=" => l.value >= r.value,
+                _ => return None,
+            };
+            Some(Expr::Bool(Bool { value, span }))
+        }
         _ => None,
     }
 }

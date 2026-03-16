@@ -19,12 +19,13 @@ pub type TransformFn<'a> = &'a mut dyn FnMut(Node) -> Node;
 /// use maat_ast::{ast::*, transform};
 /// use maat_span::Span;
 ///
-/// // Double all integer values
-/// let mut program = Program {
+/// // Double all i64 integer values
+/// let program = Program {
 ///     statements: vec![Stmt::Expr(ExprStmt {
-///         value: Expr::I64(I64 {
-///             radix: Radix::Dec,
+///         value: Expr::Number(Number {
+///             kind: NumberKind::I64,
 ///             value: 5,
+///             radix: Radix::Dec,
 ///             span: Span::ZERO,
 ///         }),
 ///         span: Span::ZERO,
@@ -33,9 +34,9 @@ pub type TransformFn<'a> = &'a mut dyn FnMut(Node) -> Node;
 ///
 /// let result = transform(Node::Program(program), &mut |node| {
 ///     match node {
-///         Node::Expr(Expr::I64(mut i)) => {
-///             i.value *= 2;
-///             Node::Expr(Expr::I64(i))
+///         Node::Expr(Expr::Number(mut n)) if n.kind == NumberKind::I64 => {
+///             n.value *= 2;
+///             Node::Expr(Expr::Number(n))
 ///         }
 ///         n => n,
 ///     }

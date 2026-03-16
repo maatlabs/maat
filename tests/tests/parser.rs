@@ -306,14 +306,14 @@ fn parse_non_decimal_literals() {
         .for_each(|(input, expected)| {
             let program = parse(input);
             let Stmt::Expr(ExprStmt {
-                value: Expr::I64(int64),
+                value: Expr::Number(num),
                 ..
             }) = expect_single_stmt(&program)
             else {
-                panic!("expected I64 expression");
+                panic!("expected Number expression");
             };
-            assert_eq!(int64.radix, Radix::Bin);
-            assert_eq!(int64.value, *expected, "input: {}", input);
+            assert_eq!(num.radix, Radix::Bin);
+            assert_eq!(num.value, *expected, "input: {input}");
         });
     // Octal
     [("0o755;", 493), ("0O644;", 420), ("0o0;", 0)]
@@ -321,14 +321,14 @@ fn parse_non_decimal_literals() {
         .for_each(|(input, expected)| {
             let program = parse(input);
             let Stmt::Expr(ExprStmt {
-                value: Expr::I64(int64),
+                value: Expr::Number(num),
                 ..
             }) = expect_single_stmt(&program)
             else {
-                panic!("expected I64 expression");
+                panic!("expected Number expression");
             };
-            assert_eq!(int64.radix, Radix::Oct);
-            assert_eq!(int64.value, *expected, "input: {}", input);
+            assert_eq!(num.radix, Radix::Oct);
+            assert_eq!(num.value, *expected, "input: {input}");
         });
     // Hex
     [("0xff;", 255), ("0xFF;", 255), ("0xDEAD;", 57005)]
@@ -336,14 +336,14 @@ fn parse_non_decimal_literals() {
         .for_each(|(input, expected)| {
             let program = parse(input);
             let Stmt::Expr(ExprStmt {
-                value: Expr::I64(int64),
+                value: Expr::Number(num),
                 ..
             }) = expect_single_stmt(&program)
             else {
-                panic!("expected I64 expression");
+                panic!("expected Number expression");
             };
-            assert_eq!(int64.radix, Radix::Hex);
-            assert_eq!(int64.value, *expected, "input: {}", input);
+            assert_eq!(num.radix, Radix::Hex);
+            assert_eq!(num.value, *expected, "input: {input}");
         });
 }
 
@@ -351,13 +351,13 @@ fn parse_non_decimal_literals() {
 fn parse_rust_style_suffixes() {
     let program = parse("123i64;");
     let Stmt::Expr(ExprStmt {
-        value: Expr::I64(i64_lit),
+        value: Expr::Number(num),
         ..
     }) = expect_single_stmt(&program)
     else {
-        panic!("expected I64 expression");
+        panic!("expected Number expression");
     };
-    assert_eq!(i64_lit.value, 123);
+    assert_eq!(num.value, 123);
 }
 
 #[test]

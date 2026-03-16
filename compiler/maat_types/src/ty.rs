@@ -83,36 +83,33 @@ impl Type {
     /// Called after the `TypeChecker`'s range checking has confirmed the value fits. For negated
     /// literals, the prefix is collapsed into a single signed literal node.
     pub fn coerce_literal(&self, expr: &mut Expr) {
-        let Some(val) = expr.extract_integer_value() else {
+        let Some(value) = expr.extract_integer_value() else {
             return;
         };
         let span = expr.span();
 
-        macro_rules! rewrite {
-            ($variant:ident, $ty:ty) => {
-                *expr = Expr::$variant($variant {
-                    radix: Radix::Dec,
-                    value: val as $ty,
-                    span,
-                })
-            };
-        }
+        let kind = match *self {
+            Self::I8 => NumberKind::I8,
+            Self::I16 => NumberKind::I16,
+            Self::I32 => NumberKind::I32,
+            Self::I64 => NumberKind::I64,
+            Self::I128 => NumberKind::I128,
+            Self::Isize => NumberKind::Isize,
+            Self::U8 => NumberKind::U8,
+            Self::U16 => NumberKind::U16,
+            Self::U32 => NumberKind::U32,
+            Self::U64 => NumberKind::U64,
+            Self::U128 => NumberKind::U128,
+            Self::Usize => NumberKind::Usize,
+            _ => return,
+        };
 
-        match *self {
-            Self::I8 => rewrite!(I8, i8),
-            Self::I16 => rewrite!(I16, i16),
-            Self::I32 => rewrite!(I32, i32),
-            Self::I64 => rewrite!(I64, i64),
-            Self::I128 => rewrite!(I128, i128),
-            Self::Isize => rewrite!(Isize, isize),
-            Self::U8 => rewrite!(U8, u8),
-            Self::U16 => rewrite!(U16, u16),
-            Self::U32 => rewrite!(U32, u32),
-            Self::U64 => rewrite!(U64, u64),
-            Self::U128 => rewrite!(U128, u128),
-            Self::Usize => rewrite!(Usize, usize),
-            _ => {}
-        }
+        *expr = Expr::Number(Number {
+            kind,
+            value,
+            radix: Radix::Dec,
+            span,
+        });
     }
 
     /// Returns `true` if this is any integer type (signed or unsigned).

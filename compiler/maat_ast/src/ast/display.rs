@@ -89,32 +89,27 @@ impl fmt::Display for BlockStmt {
 
 impl fmt::Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        macro_rules! fmt_int {
-            ($v:expr) => {
-                match $v.radix {
-                    Radix::Bin => write!(f, "0b{:b}", $v.value),
-                    Radix::Oct => write!(f, "0o{:o}", $v.value),
-                    Radix::Dec => write!(f, "{}", $v.value),
-                    Radix::Hex => write!(f, "0x{:x}", $v.value),
-                }
-            };
-        }
-
         match self {
             Self::Ident(e) => e.value.fmt(f),
 
-            Self::I8(e) => fmt_int!(e),
-            Self::I16(e) => fmt_int!(e),
-            Self::I32(e) => fmt_int!(e),
-            Self::I64(e) => fmt_int!(e),
-            Self::I128(e) => fmt_int!(e),
-            Self::Isize(e) => fmt_int!(e),
-            Self::U8(e) => fmt_int!(e),
-            Self::U16(e) => fmt_int!(e),
-            Self::U32(e) => fmt_int!(e),
-            Self::U64(e) => fmt_int!(e),
-            Self::U128(e) => fmt_int!(e),
-            Self::Usize(e) => fmt_int!(e),
+            Self::Number(e) => {
+                if e.kind.is_signed() {
+                    match e.radix {
+                        Radix::Bin => write!(f, "0b{:b}", e.value),
+                        Radix::Oct => write!(f, "0o{:o}", e.value),
+                        Radix::Dec => write!(f, "{}", e.value),
+                        Radix::Hex => write!(f, "0x{:x}", e.value),
+                    }
+                } else {
+                    let uval = e.value as u128;
+                    match e.radix {
+                        Radix::Bin => write!(f, "0b{:b}", uval),
+                        Radix::Oct => write!(f, "0o{:o}", uval),
+                        Radix::Dec => write!(f, "{}", uval),
+                        Radix::Hex => write!(f, "0x{:x}", uval),
+                    }
+                }
+            }
 
             Self::Bool(e) => e.value.fmt(f),
             Self::Str(e) => e.value.fmt(f),

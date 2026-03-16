@@ -11,9 +11,10 @@ fn statements_display() {
         mutable: false,
         ident: "x".to_string(),
         type_annotation: None,
-        value: Expr::I64(I64 {
-            radix: Radix::Dec,
+        value: Expr::Number(Number {
+            kind: NumberKind::I64,
             value: 100,
+            radix: Radix::Dec,
             span: span(),
         }),
         span: span(),
@@ -28,9 +29,10 @@ fn statements_display() {
         mutable: false,
         ident: "y".to_string(),
         type_annotation: Some(type_ann),
-        value: Expr::U8(U8 {
-            radix: Radix::Hex,
+        value: Expr::Number(Number {
+            kind: NumberKind::U8,
             value: 0xff,
+            radix: Radix::Hex,
             span: span(),
         }),
         span: span(),
@@ -49,9 +51,10 @@ fn statements_display() {
     let block = BlockStmt {
         statements: vec![
             Stmt::Return(ReturnStmt {
-                value: Expr::I32(I32 {
-                    radix: Radix::Dec,
+                value: Expr::Number(Number {
+                    kind: NumberKind::I32,
                     value: 10,
+                    radix: Radix::Dec,
                     span: span(),
                 }),
                 span: span(),
@@ -73,9 +76,10 @@ fn statements_display() {
             mutable: false,
             ident: "x".to_string(),
             type_annotation: None,
-            value: Expr::I32(I32 {
-                radix: Radix::Dec,
+            value: Expr::Number(Number {
+                kind: NumberKind::I32,
                 value: 42,
+                radix: Radix::Dec,
                 span: span(),
             }),
             span: span(),
@@ -88,9 +92,10 @@ fn statements_display() {
 fn expressions_display() {
     let neg = PrefixExpr {
         operator: "-".to_string(),
-        operand: Box::new(Expr::I32(I32 {
-            radix: Radix::Dec,
+        operand: Box::new(Expr::Number(Number {
+            kind: NumberKind::I32,
             value: 42,
+            radix: Radix::Dec,
             span: span(),
         })),
         span: span(),
@@ -98,15 +103,17 @@ fn expressions_display() {
     assert_eq!(neg.to_string(), "(-42)");
 
     let add = InfixExpr {
-        lhs: Box::new(Expr::I32(I32 {
-            radix: Radix::Dec,
+        lhs: Box::new(Expr::Number(Number {
+            kind: NumberKind::I32,
             value: 1,
+            radix: Radix::Dec,
             span: span(),
         })),
         operator: "+".to_string(),
-        rhs: Box::new(Expr::I32(I32 {
-            radix: Radix::Dec,
+        rhs: Box::new(Expr::Number(Number {
+            kind: NumberKind::I32,
             value: 2,
+            radix: Radix::Dec,
             span: span(),
         })),
         span: span(),
@@ -114,9 +121,10 @@ fn expressions_display() {
     assert_eq!(add.to_string(), "(1 + 2)");
 
     let cast = CastExpr {
-        expr: Box::new(Expr::I32(I32 {
-            radix: Radix::Dec,
+        expr: Box::new(Expr::Number(Number {
+            kind: NumberKind::I32,
             value: 42,
+            radix: Radix::Dec,
             span: span(),
         })),
         target: TypeAnnotation::I64,
@@ -129,9 +137,10 @@ fn expressions_display() {
             value: "arr".to_string(),
             span: span(),
         })),
-        index: Box::new(Expr::I32(I32 {
-            radix: Radix::Dec,
+        index: Box::new(Expr::Number(Number {
+            kind: NumberKind::I32,
             value: 5,
+            radix: Radix::Dec,
             span: span(),
         })),
         span: span(),
@@ -149,14 +158,16 @@ fn collections_display() {
 
     let arr = Array {
         elements: vec![
-            Expr::I32(I32 {
-                radix: Radix::Dec,
+            Expr::Number(Number {
+                kind: NumberKind::I32,
                 value: 1,
+                radix: Radix::Dec,
                 span: span(),
             }),
-            Expr::I32(I32 {
-                radix: Radix::Dec,
+            Expr::Number(Number {
+                kind: NumberKind::I32,
                 value: 2,
+                radix: Radix::Dec,
                 span: span(),
             }),
         ],
@@ -170,9 +181,10 @@ fn collections_display() {
                 value: "x".to_string(),
                 span: span(),
             }),
-            Expr::I32(I32 {
-                radix: Radix::Dec,
+            Expr::Number(Number {
+                kind: NumberKind::I32,
                 value: 10,
+                radix: Radix::Dec,
                 span: span(),
             }),
         )],
@@ -193,9 +205,10 @@ fn control_flow_display() {
                 mutable: false,
                 ident: "x".to_string(),
                 type_annotation: None,
-                value: Expr::I32(I32 {
-                    radix: Radix::Dec,
+                value: Expr::Number(Number {
+                    kind: NumberKind::I32,
                     value: 1,
+                    radix: Radix::Dec,
                     span: span(),
                 }),
                 span: span(),
@@ -207,9 +220,10 @@ fn control_flow_display() {
                 mutable: false,
                 ident: "x".to_string(),
                 type_annotation: None,
-                value: Expr::I32(I32 {
-                    radix: Radix::Dec,
+                value: Expr::Number(Number {
+                    kind: NumberKind::I32,
                     value: 2,
+                    radix: Radix::Dec,
                     span: span(),
                 }),
                 span: span(),
@@ -266,9 +280,10 @@ fn control_flow_display() {
     assert_eq!(loop_stmt.to_string(), "loop {\nbreak\n}");
 
     let break_val = BreakExpr {
-        value: Some(Box::new(Expr::I32(I32 {
-            radix: Radix::Dec,
+        value: Some(Box::new(Expr::Number(Number {
+            kind: NumberKind::I32,
             value: 42,
+            radix: Radix::Dec,
             span: span(),
         }))),
         span: span(),
@@ -347,14 +362,16 @@ fn function_display() {
             span: span(),
         })),
         arguments: vec![
-            Expr::I32(I32 {
-                radix: Radix::Dec,
+            Expr::Number(Number {
+                kind: NumberKind::I32,
                 value: 1,
+                radix: Radix::Dec,
                 span: span(),
             }),
-            Expr::I32(I32 {
-                radix: Radix::Dec,
+            Expr::Number(Number {
+                kind: NumberKind::I32,
                 value: 2,
+                radix: Radix::Dec,
                 span: span(),
             }),
         ],

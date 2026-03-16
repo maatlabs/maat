@@ -1,9 +1,9 @@
 use std::rc::Rc;
 
 use maat_ast::{
-    BlockStmt, EnumVariantKind, Expr, FieldAccessExpr, ForStmt, ImplBlock, MatchExpr,
-    MethodCallExpr, Node, PathExpr, Pattern, Program, Stmt, StructLitExpr, TypeAnnotation,
-    TypeExpr,
+    BlockStmt, CondExpr, EnumVariantKind, Expr, FieldAccessExpr, ForStmt, ImplBlock, InfixExpr,
+    MatchExpr, MethodCallExpr, Node, PathExpr, Pattern, Program, Stmt, StructLitExpr,
+    TypeAnnotation, TypeExpr,
 };
 use maat_bytecode::{
     Bytecode, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, MAX_ENUM_VARIANTS, Opcode,
@@ -484,30 +484,7 @@ impl Compiler {
         // body
         self.compile_block_statement(&for_stmt.body)?;
 
-        // continue_target: __i = __i + 1
-        let continue_target = self.current_instructions().len();
-        self.load_symbol(&i_sym, span);
-        let one_idx = self.add_constant(Object::I64(1))?;
-        self.emit(Opcode::Constant, &[one_idx], span);
-        self.emit(Opcode::Add, &[], span);
-        self.emit_set_symbol(&i_sym, span);
-
-        self.emit(Opcode::Jump, &[loop_start], span);
-
-        let loop_exit = self.current_instructions().len();
-        self.replace_operand(exit_jump, loop_exit)?;
-
-        let ctx = self
-            .loop_contexts
-            .pop()
-            .expect("loop context was just pushed");
-        for jump_pos in ctx.break_jumps {
-            self.replace_operand(jump_pos, loop_exit)?;
-        }
-        for jump_pos in ctx.continue_jumps {
-            self.replace_operand(jump_pos, continue_target)?;
-        }
-        Ok(())
+        self.finalize_counting_loop(&i_sym, loop_start, exit_jump, span)
     }
 
     /// Compiles a `for x in array_expr` loop via index-based desugaring.
@@ -582,13 +559,24 @@ impl Compiler {
         // body
         self.compile_block_statement(&for_stmt.body)?;
 
-        // continue_target: __i = __i + 1
+        self.finalize_counting_loop(&i_sym, loop_start, exit_jump, span)
+    }
+
+    /// Emits the shared tail of a counting for-loop: increment, jump back,
+    /// and patch break/continue targets.
+    fn finalize_counting_loop(
+        &mut self,
+        i_sym: &Symbol,
+        loop_start: usize,
+        exit_jump: usize,
+        span: Span,
+    ) -> Result<()> {
         let continue_target = self.current_instructions().len();
-        self.load_symbol(&i_sym, span);
+        self.load_symbol(i_sym, span);
         let one_idx = self.add_constant(Object::I64(1))?;
         self.emit(Opcode::Constant, &[one_idx], span);
         self.emit(Opcode::Add, &[], span);
-        self.emit_set_symbol(&i_sym, span);
+        self.emit_set_symbol(i_sym, span);
 
         self.emit(Opcode::Jump, &[loop_start], span);
         let loop_exit = self.current_instructions().len();
@@ -632,18 +620,10 @@ impl Compiler {
     fn compile_expression(&mut self, expr: &Expr) -> Result<()> {
         let span = expr.span();
         match expr {
-            Expr::I8(lit) => self.compile_numeric_constant(Object::I8(lit.value), span),
-            Expr::I16(lit) => self.compile_numeric_constant(Object::I16(lit.value), span),
-            Expr::I32(lit) => self.compile_numeric_constant(Object::I32(lit.value), span),
-            Expr::I64(lit) => self.compile_numeric_constant(Object::I64(lit.value), span),
-            Expr::I128(lit) => self.compile_numeric_constant(Object::I128(lit.value), span),
-            Expr::Isize(lit) => self.compile_numeric_constant(Object::Isize(lit.value), span),
-            Expr::U8(lit) => self.compile_numeric_constant(Object::U8(lit.value), span),
-            Expr::U16(lit) => self.compile_numeric_constant(Object::U16(lit.value), span),
-            Expr::U32(lit) => self.compile_numeric_constant(Object::U32(lit.value), span),
-            Expr::U64(lit) => self.compile_numeric_constant(Object::U64(lit.value), span),
-            Expr::U128(lit) => self.compile_numeric_constant(Object::U128(lit.value), span),
-            Expr::Usize(lit) => self.compile_numeric_constant(Object::Usize(lit.value), span),
+            Expr::Number(lit) => {
+                let obj = Object::from_number_literal(lit);
+                self.compile_numeric_constant(obj, span)
+            }
             Expr::Bool(b) => {
                 let opcode = if b.value { Opcode::True } else { Opcode::False };
                 self.emit(opcode, &[], span);
@@ -666,110 +646,8 @@ impl Compiler {
                 self.emit(opcode, &[], span);
                 Ok(())
             }
-            Expr::Infix(infix_expr) if infix_expr.operator == "&&" => {
-                self.compile_expression(&infix_expr.lhs)?;
-                let cond_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
-                self.compile_expression(&infix_expr.rhs)?;
-                let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
-
-                let false_pos = self.current_instructions().len();
-                self.replace_operand(cond_jump, false_pos)?;
-                self.emit(Opcode::False, &[], span);
-                let end_pos = self.current_instructions().len();
-
-                self.replace_operand(end_jump, end_pos)?;
-                Ok(())
-            }
-            Expr::Infix(infix_expr) if infix_expr.operator == "||" => {
-                self.compile_expression(&infix_expr.lhs)?;
-                let cond_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
-                self.emit(Opcode::True, &[], span);
-                let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
-
-                let rhs_pos = self.current_instructions().len();
-                self.replace_operand(cond_jump, rhs_pos)?;
-                self.compile_expression(&infix_expr.rhs)?;
-                let end_pos = self.current_instructions().len();
-
-                self.replace_operand(end_jump, end_pos)?;
-                Ok(())
-            }
-            Expr::Infix(infix_expr) => {
-                self.compile_expression(&infix_expr.lhs)?;
-                self.compile_expression(&infix_expr.rhs)?;
-                match infix_expr.operator.as_str() {
-                    ">=" => {
-                        self.emit(Opcode::LessThan, &[], span);
-                        self.emit(Opcode::Bang, &[], span);
-                    }
-                    "<=" => {
-                        self.emit(Opcode::GreaterThan, &[], span);
-                        self.emit(Opcode::Bang, &[], span);
-                    }
-                    op => {
-                        let opcode = match op {
-                            "+" => Opcode::Add,
-                            "-" => Opcode::Sub,
-                            "*" => Opcode::Mul,
-                            "/" => Opcode::Div,
-                            "%" => Opcode::Mod,
-                            ">" => Opcode::GreaterThan,
-                            "<" => Opcode::LessThan,
-                            "==" => Opcode::Equal,
-                            "!=" => Opcode::NotEqual,
-                            "&" => Opcode::BitAnd,
-                            "|" => Opcode::BitOr,
-                            "^" => Opcode::BitXor,
-                            "<<" => Opcode::Shl,
-                            ">>" => Opcode::Shr,
-                            _ => {
-                                return Err(CompileErrorKind::UnsupportedOperator {
-                                    operator: op.to_string(),
-                                    context: "infix expression".to_string(),
-                                }
-                                .at(span)
-                                .into());
-                            }
-                        };
-                        self.emit(opcode, &[], span);
-                    }
-                }
-                Ok(())
-            }
-            Expr::Cond(cond) => {
-                self.compile_expression(&cond.condition)?;
-
-                let cond_jump_pos = self.emit(Opcode::CondJump, &[Self::JUMP], cond.span);
-
-                self.compile_block_statement(&cond.consequence)?;
-                if self.last_instruction_is(Opcode::Pop) {
-                    self.remove_last_pop();
-                } else {
-                    // Block ended with a non-expression statement (e.g. reassignment)
-                    // that left no value on the stack. Emit Null so the conditional
-                    // expression always produces exactly one value.
-                    self.emit(Opcode::Null, &[], cond.span);
-                }
-                let jump_pos = self.emit(Opcode::Jump, &[Self::JUMP], cond.span);
-                let cons_pos = self.current_instructions().len();
-                self.replace_operand(cond_jump_pos, cons_pos)?;
-                match &cond.alternative {
-                    None => {
-                        self.emit(Opcode::Null, &[], cond.span);
-                    }
-                    Some(alt_block) => {
-                        self.compile_block_statement(alt_block)?;
-                        if self.last_instruction_is(Opcode::Pop) {
-                            self.remove_last_pop();
-                        } else {
-                            self.emit(Opcode::Null, &[], cond.span);
-                        }
-                    }
-                }
-                let alt_pos = self.current_instructions().len();
-                self.replace_operand(jump_pos, alt_pos)?;
-                Ok(())
-            }
+            Expr::Infix(infix_expr) => self.compile_infix(infix_expr, span),
+            Expr::Cond(cond) => self.compile_conditional(cond),
             Expr::Ident(ident) => {
                 if let Some(symbol) = self.symbols_table.resolve_symbol(&ident.value) {
                     self.load_symbol(&symbol, span);
@@ -900,6 +778,123 @@ impl Compiler {
                 Ok(())
             }
         }
+    }
+
+    /// Compiles an infix (binary) expression, including short-circuit `&&`/`||`.
+    ///
+    /// Short-circuit operators emit conditional jumps that skip the right-hand
+    /// side when the result is already determined. Standard arithmetic and
+    /// comparison operators compile both operands then emit a single opcode.
+    fn compile_infix(&mut self, infix_expr: &InfixExpr, span: Span) -> Result<()> {
+        match infix_expr.operator.as_str() {
+            "&&" => {
+                self.compile_expression(&infix_expr.lhs)?;
+                let cond_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+                self.compile_expression(&infix_expr.rhs)?;
+                let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
+
+                let false_pos = self.current_instructions().len();
+                self.replace_operand(cond_jump, false_pos)?;
+                self.emit(Opcode::False, &[], span);
+                let end_pos = self.current_instructions().len();
+
+                self.replace_operand(end_jump, end_pos)?;
+                Ok(())
+            }
+            "||" => {
+                self.compile_expression(&infix_expr.lhs)?;
+                let cond_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+                self.emit(Opcode::True, &[], span);
+                let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
+
+                let rhs_pos = self.current_instructions().len();
+                self.replace_operand(cond_jump, rhs_pos)?;
+                self.compile_expression(&infix_expr.rhs)?;
+                let end_pos = self.current_instructions().len();
+
+                self.replace_operand(end_jump, end_pos)?;
+                Ok(())
+            }
+            _ => {
+                self.compile_expression(&infix_expr.lhs)?;
+                self.compile_expression(&infix_expr.rhs)?;
+                match infix_expr.operator.as_str() {
+                    ">=" => {
+                        self.emit(Opcode::LessThan, &[], span);
+                        self.emit(Opcode::Bang, &[], span);
+                    }
+                    "<=" => {
+                        self.emit(Opcode::GreaterThan, &[], span);
+                        self.emit(Opcode::Bang, &[], span);
+                    }
+                    op => {
+                        let opcode = match op {
+                            "+" => Opcode::Add,
+                            "-" => Opcode::Sub,
+                            "*" => Opcode::Mul,
+                            "/" => Opcode::Div,
+                            "%" => Opcode::Mod,
+                            ">" => Opcode::GreaterThan,
+                            "<" => Opcode::LessThan,
+                            "==" => Opcode::Equal,
+                            "!=" => Opcode::NotEqual,
+                            "&" => Opcode::BitAnd,
+                            "|" => Opcode::BitOr,
+                            "^" => Opcode::BitXor,
+                            "<<" => Opcode::Shl,
+                            ">>" => Opcode::Shr,
+                            _ => {
+                                return Err(CompileErrorKind::UnsupportedOperator {
+                                    operator: op.to_string(),
+                                    context: "infix expression".to_string(),
+                                }
+                                .at(span)
+                                .into());
+                            }
+                        };
+                        self.emit(opcode, &[], span);
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// Compiles an `if`/`else` conditional expression.
+    ///
+    /// Both branches are required to leave exactly one value on the stack.
+    /// When a branch ends with a non-expression statement or is absent,
+    /// `Null` is emitted as the branch result.
+    fn compile_conditional(&mut self, cond: &CondExpr) -> Result<()> {
+        self.compile_expression(&cond.condition)?;
+
+        let cond_jump_pos = self.emit(Opcode::CondJump, &[Self::JUMP], cond.span);
+
+        self.compile_block_statement(&cond.consequence)?;
+        if self.last_instruction_is(Opcode::Pop) {
+            self.remove_last_pop();
+        } else {
+            self.emit(Opcode::Null, &[], cond.span);
+        }
+        let jump_pos = self.emit(Opcode::Jump, &[Self::JUMP], cond.span);
+        let cons_pos = self.current_instructions().len();
+        self.replace_operand(cond_jump_pos, cons_pos)?;
+        match &cond.alternative {
+            None => {
+                self.emit(Opcode::Null, &[], cond.span);
+            }
+            Some(alt_block) => {
+                self.compile_block_statement(alt_block)?;
+                if self.last_instruction_is(Opcode::Pop) {
+                    self.remove_last_pop();
+                } else {
+                    self.emit(Opcode::Null, &[], cond.span);
+                }
+            }
+        }
+        let alt_pos = self.current_instructions().len();
+        self.replace_operand(jump_pos, alt_pos)?;
+        Ok(())
     }
 
     /// Compiles a struct literal expression (e.g., `Point { x: 1, y: 2 }`).
@@ -1614,11 +1609,12 @@ mod tests {
 
     #[test]
     fn unsupported_prefix_operator() {
-        use maat_ast::{ExprStmt, I64, PrefixExpr, Radix};
+        use maat_ast::{ExprStmt, Number, NumberKind, PrefixExpr, Radix};
 
         let expr = Expr::Prefix(PrefixExpr {
             operator: "~".to_string(),
-            operand: Box::new(Expr::I64(I64 {
+            operand: Box::new(Expr::Number(Number {
+                kind: NumberKind::I64,
                 value: 5,
                 radix: Radix::Dec,
                 span: Span::ZERO,

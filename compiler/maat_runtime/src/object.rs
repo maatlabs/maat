@@ -2,7 +2,7 @@ use std::fmt;
 use std::rc::Rc;
 
 use indexmap::{IndexMap, IndexSet};
-use maat_ast::{BlockStmt, Node};
+use maat_ast::{BlockStmt, Node, Number, NumberKind};
 use maat_errors::{Error, EvalError, Result};
 use maat_span::SourceMap;
 use serde::{Deserialize, Serialize};
@@ -89,46 +89,64 @@ pub enum Object {
 }
 
 impl Object {
+    /// Converts a `Number` AST node into its corresponding runtime `Object`.
+    pub fn from_number_literal(lit: &Number) -> Self {
+        match lit.kind {
+            NumberKind::I8 => Self::I8(lit.value as i8),
+            NumberKind::I16 => Self::I16(lit.value as i16),
+            NumberKind::I32 => Self::I32(lit.value as i32),
+            NumberKind::I64 => Self::I64(lit.value as i64),
+            NumberKind::I128 => Self::I128(lit.value),
+            NumberKind::Isize => Self::Isize(lit.value as isize),
+            NumberKind::U8 => Self::U8(lit.value as u8),
+            NumberKind::U16 => Self::U16(lit.value as u16),
+            NumberKind::U32 => Self::U32(lit.value as u32),
+            NumberKind::U64 => Self::U64(lit.value as u64),
+            NumberKind::U128 => Self::U128(lit.value as u128),
+            NumberKind::Usize => Self::Usize(lit.value as usize),
+        }
+    }
     /// Converts a runtime object back to an AST node.
     ///
     /// Used to splice evaluated values back into quoted code.
     pub fn to_ast_node(obj: &Self) -> Option<Node> {
-        use maat_ast::{self as ast, *};
+        use maat_ast::*;
         use maat_span::Span;
 
         macro_rules! convert_int {
-        ($($obj:ident => $ast_name:ident($ast_type:ident)),* $(,)?) => {
-            match obj {
-                $(
-                    Self::$obj(v) => Some(Node::Expr(Expr::$ast_name(ast::$ast_type {
-                        radix: Radix::Dec,
-                        value: *v,
+            ($($obj_variant:ident => $kind:ident),* $(,)?) => {
+                match obj {
+                    $(
+                        Self::$obj_variant(v) => Some(Node::Expr(Expr::Number(Number {
+                            kind: NumberKind::$kind,
+                            value: *v as i128,
+                            radix: Radix::Dec,
+                            span: Span::ZERO,
+                        }))),
+                    )*
+                    Self::Bool(b) => Some(Node::Expr(Expr::Bool(Bool {
+                        value: *b,
                         span: Span::ZERO,
                     }))),
-                )*
-                Self::Bool(b) => Some(Node::Expr(Expr::Bool(Bool {
-                    value: *b,
-                    span: Span::ZERO,
-                }))),
-                Self::Quote(q) => Some(q.node.clone()),
-                _ => None,
-            }
-        };
-    }
+                    Self::Quote(q) => Some(q.node.clone()),
+                    _ => None,
+                }
+            };
+        }
 
         convert_int!(
-            I8 => I8(I8),
-            I16 => I16(I16),
-            I32 => I32(I32),
-            I64 => I64(I64),
-            I128 => I128(I128),
-            Isize => Isize(Isize),
-            U8 => U8(U8),
-            U16 => U16(U16),
-            U32 => U32(U32),
-            U64 => U64(U64),
-            U128 => U128(U128),
-            Usize => Usize(Usize),
+            I8 => I8,
+            I16 => I16,
+            I32 => I32,
+            I64 => I64,
+            I128 => I128,
+            Isize => Isize,
+            U8 => U8,
+            U16 => U16,
+            U32 => U32,
+            U64 => U64,
+            U128 => U128,
+            Usize => Usize,
         )
     }
 

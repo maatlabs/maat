@@ -740,30 +740,33 @@ impl<'a> Parser<'a> {
         let span = self.current.span;
 
         macro_rules! parse_int_type {
-            ($rust_ty:ty, $variant:ident) => {{
+            ($rust_ty:ty, $kind:expr) => {{
                 let (radix, value) = if let Some(bin) = literal
                     .strip_prefix("0b")
                     .or_else(|| literal.strip_prefix("0B"))
                 {
                     <$rust_ty>::from_str_radix(bin, 2)
                         .ok()
-                        .map(|v| (Radix::Bin, v))
+                        .map(|v| (Radix::Bin, v as i128))
                 } else if let Some(oct) = literal
                     .strip_prefix("0o")
                     .or_else(|| literal.strip_prefix("0O"))
                 {
                     <$rust_ty>::from_str_radix(oct, 8)
                         .ok()
-                        .map(|v| (Radix::Oct, v))
+                        .map(|v| (Radix::Oct, v as i128))
                 } else if let Some(hex) = literal
                     .strip_prefix("0x")
                     .or_else(|| literal.strip_prefix("0X"))
                 {
                     <$rust_ty>::from_str_radix(hex, 16)
                         .ok()
-                        .map(|v| (Radix::Hex, v))
+                        .map(|v| (Radix::Hex, v as i128))
                 } else {
-                    literal.parse::<$rust_ty>().ok().map(|v| (Radix::Dec, v))
+                    literal
+                        .parse::<$rust_ty>()
+                        .ok()
+                        .map(|v| (Radix::Dec, v as i128))
                 }
                 .or_else(|| {
                     self.push_error(format!(
@@ -774,23 +777,28 @@ impl<'a> Parser<'a> {
                     None
                 })?;
 
-                Expr::$variant($variant { radix, value, span })
+                Expr::Number(Number {
+                    kind: $kind,
+                    value,
+                    radix,
+                    span,
+                })
             }};
         }
 
         let expr = match token_kind {
-            TokenKind::I8 => parse_int_type!(i8, I8),
-            TokenKind::I16 => parse_int_type!(i16, I16),
-            TokenKind::I32 => parse_int_type!(i32, I32),
-            TokenKind::I64 => parse_int_type!(i64, I64),
-            TokenKind::I128 => parse_int_type!(i128, I128),
-            TokenKind::Isize => parse_int_type!(isize, Isize),
-            TokenKind::U8 => parse_int_type!(u8, U8),
-            TokenKind::U16 => parse_int_type!(u16, U16),
-            TokenKind::U32 => parse_int_type!(u32, U32),
-            TokenKind::U64 => parse_int_type!(u64, U64),
-            TokenKind::U128 => parse_int_type!(u128, U128),
-            TokenKind::Usize => parse_int_type!(usize, Usize),
+            TokenKind::I8 => parse_int_type!(i8, NumberKind::I8),
+            TokenKind::I16 => parse_int_type!(i16, NumberKind::I16),
+            TokenKind::I32 => parse_int_type!(i32, NumberKind::I32),
+            TokenKind::I64 => parse_int_type!(i64, NumberKind::I64),
+            TokenKind::I128 => parse_int_type!(i128, NumberKind::I128),
+            TokenKind::Isize => parse_int_type!(isize, NumberKind::Isize),
+            TokenKind::U8 => parse_int_type!(u8, NumberKind::U8),
+            TokenKind::U16 => parse_int_type!(u16, NumberKind::U16),
+            TokenKind::U32 => parse_int_type!(u32, NumberKind::U32),
+            TokenKind::U64 => parse_int_type!(u64, NumberKind::U64),
+            TokenKind::U128 => parse_int_type!(u128, NumberKind::U128),
+            TokenKind::Usize => parse_int_type!(usize, NumberKind::Usize),
             _ => unreachable!(),
         };
 

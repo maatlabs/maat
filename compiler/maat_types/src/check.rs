@@ -467,18 +467,20 @@ impl TypeChecker {
     /// (e.g., inserting promotion casts on infix operands).
     fn infer_expression(&mut self, expr: &mut Expr) -> Type {
         match expr {
-            Expr::I8(_) => Type::I8,
-            Expr::I16(_) => Type::I16,
-            Expr::I32(_) => Type::I32,
-            Expr::I64(_) => Type::I64,
-            Expr::I128(_) => Type::I128,
-            Expr::Isize(_) => Type::Isize,
-            Expr::U8(_) => Type::U8,
-            Expr::U16(_) => Type::U16,
-            Expr::U32(_) => Type::U32,
-            Expr::U64(_) => Type::U64,
-            Expr::U128(_) => Type::U128,
-            Expr::Usize(_) => Type::Usize,
+            Expr::Number(lit) => match lit.kind {
+                NumberKind::I8 => Type::I8,
+                NumberKind::I16 => Type::I16,
+                NumberKind::I32 => Type::I32,
+                NumberKind::I64 => Type::I64,
+                NumberKind::I128 => Type::I128,
+                NumberKind::Isize => Type::Isize,
+                NumberKind::U8 => Type::U8,
+                NumberKind::U16 => Type::U16,
+                NumberKind::U32 => Type::U32,
+                NumberKind::U64 => Type::U64,
+                NumberKind::U128 => Type::U128,
+                NumberKind::Usize => Type::Usize,
+            },
             Expr::Bool(_) => Type::Bool,
             Expr::Str(_) => Type::String,
             Expr::Ident(ident) => self
@@ -590,60 +592,7 @@ impl TypeChecker {
                 &mut lambda.body,
                 lambda.span,
             ),
-            Expr::Call(call) => {
-                let func_ty = self.infer_expression(&mut call.function);
-                let resolved = self.subst.apply(&func_ty);
-                let arg_types = call
-                    .arguments
-                    .iter_mut()
-                    .map(|a| self.infer_expression(a))
-                    .collect::<Vec<Type>>();
-                match resolved {
-                    Type::Function(fn_ty) => {
-                        if fn_ty.params.len() != arg_types.len() {
-                            self.errors.push(
-                                TypeErrorKind::WrongArity {
-                                    expected: fn_ty.params.len(),
-                                    found: arg_types.len(),
-                                }
-                                .at(call.span),
-                            );
-                        } else {
-                            for (param, arg) in fn_ty.params.iter().zip(arg_types.iter()) {
-                                let p = self.subst.apply(param);
-                                let a = self.subst.apply(arg);
-                                if p.is_integer()
-                                    && a.is_integer()
-                                    && p != a
-                                    && promote::common_numeric_type(&p, &a).is_ok()
-                                {
-                                    continue;
-                                }
-                                if let Err(e) = self.subst.unify(&p, &a) {
-                                    self.report_unify_error(e, call.span);
-                                }
-                            }
-                        }
-                        self.subst.apply(&fn_ty.ret)
-                    }
-                    Type::Var(_) => {
-                        let ret = self.env.fresh_var();
-                        let expected_fn = Type::Function(FnType {
-                            params: arg_types,
-                            ret: Box::new(ret.clone()),
-                        });
-                        if let Err(e) = self.subst.unify(&resolved, &expected_fn) {
-                            self.report_unify_error(e, call.span);
-                        }
-                        self.subst.apply(&ret)
-                    }
-                    _ => {
-                        self.errors
-                            .push(TypeErrorKind::NotCallable(resolved.to_string()).at(call.span));
-                        self.env.fresh_var()
-                    }
-                }
-            }
+            Expr::Call(call) => self.check_call_expr(call),
             Expr::Cast(cast) => {
                 self.infer_expression(&mut cast.expr);
                 Type::from_type_annotation(&cast.target)
@@ -679,6 +628,66 @@ impl TypeChecker {
                     );
                 }
                 Type::Range(Box::new(self.subst.apply(&start_resolved)))
+            }
+        }
+    }
+
+    /// Type-checks a function call expression.
+    ///
+    /// Infers the callee type, checks arity, and unifies parameter types
+    /// with argument types. Numeric promotion is allowed when both sides
+    /// are integer types with a valid widening path.
+    fn check_call_expr(&mut self, call: &mut CallExpr) -> Type {
+        let func_ty = self.infer_expression(&mut call.function);
+        let resolved = self.subst.apply(&func_ty);
+        let arg_types = call
+            .arguments
+            .iter_mut()
+            .map(|a| self.infer_expression(a))
+            .collect::<Vec<Type>>();
+        match resolved {
+            Type::Function(fn_ty) => {
+                if fn_ty.params.len() != arg_types.len() {
+                    self.errors.push(
+                        TypeErrorKind::WrongArity {
+                            expected: fn_ty.params.len(),
+                            found: arg_types.len(),
+                        }
+                        .at(call.span),
+                    );
+                } else {
+                    for (param, arg) in fn_ty.params.iter().zip(arg_types.iter()) {
+                        let p = self.subst.apply(param);
+                        let a = self.subst.apply(arg);
+                        if p.is_integer()
+                            && a.is_integer()
+                            && p != a
+                            && promote::common_numeric_type(&p, &a).is_ok()
+                        {
+                            continue;
+                        }
+                        if let Err(e) = self.subst.unify(&p, &a) {
+                            self.report_unify_error(e, call.span);
+                        }
+                    }
+                }
+                self.subst.apply(&fn_ty.ret)
+            }
+            Type::Var(_) => {
+                let ret = self.env.fresh_var();
+                let expected_fn = Type::Function(FnType {
+                    params: arg_types,
+                    ret: Box::new(ret.clone()),
+                });
+                if let Err(e) = self.subst.unify(&resolved, &expected_fn) {
+                    self.report_unify_error(e, call.span);
+                }
+                self.subst.apply(&ret)
+            }
+            _ => {
+                self.errors
+                    .push(TypeErrorKind::NotCallable(resolved.to_string()).at(call.span));
+                self.env.fresh_var()
             }
         }
     }
@@ -988,18 +997,20 @@ impl TypeChecker {
     /// Infers the type of a literal expression used in a pattern context.
     fn infer_literal_pattern_type(&self, expr: &Expr) -> Type {
         match expr {
-            Expr::I8(_) => Type::I8,
-            Expr::I16(_) => Type::I16,
-            Expr::I32(_) => Type::I32,
-            Expr::I64(_) => Type::I64,
-            Expr::I128(_) => Type::I128,
-            Expr::Isize(_) => Type::Isize,
-            Expr::U8(_) => Type::U8,
-            Expr::U16(_) => Type::U16,
-            Expr::U32(_) => Type::U32,
-            Expr::U64(_) => Type::U64,
-            Expr::U128(_) => Type::U128,
-            Expr::Usize(_) => Type::Usize,
+            Expr::Number(lit) => match lit.kind {
+                NumberKind::I8 => Type::I8,
+                NumberKind::I16 => Type::I16,
+                NumberKind::I32 => Type::I32,
+                NumberKind::I64 => Type::I64,
+                NumberKind::I128 => Type::I128,
+                NumberKind::Isize => Type::Isize,
+                NumberKind::U8 => Type::U8,
+                NumberKind::U16 => Type::U16,
+                NumberKind::U32 => Type::U32,
+                NumberKind::U64 => Type::U64,
+                NumberKind::U128 => Type::U128,
+                NumberKind::Usize => Type::Usize,
+            },
             Expr::Bool(_) => Type::Bool,
             Expr::Str(_) => Type::String,
             _ => Type::Null,

@@ -2,28 +2,33 @@ use maat_ast::*;
 use maat_span::Span;
 
 fn one() -> Expr {
-    Expr::I64(I64 {
-        radix: Radix::Dec,
+    Expr::Number(Number {
+        kind: NumberKind::I64,
         value: 1,
+        radix: Radix::Dec,
         span: Span::ZERO,
     })
 }
 
 fn two() -> Expr {
-    Expr::I64(I64 {
-        radix: Radix::Dec,
+    Expr::Number(Number {
+        kind: NumberKind::I64,
         value: 2,
+        radix: Radix::Dec,
         span: Span::ZERO,
     })
 }
 
 fn turn_one_into_two(node: Node) -> Node {
     match node {
-        Node::Expr(Expr::I64(i)) if i.value == 1 => Node::Expr(Expr::I64(I64 {
-            radix: i.radix,
-            value: 2,
-            span: i.span,
-        })),
+        Node::Expr(Expr::Number(n)) if n.kind == NumberKind::I64 && n.value == 1 => {
+            Node::Expr(Expr::Number(Number {
+                kind: n.kind,
+                value: 2,
+                radix: n.radix,
+                span: n.span,
+            }))
+        }
         n => n,
     }
 }
@@ -32,8 +37,8 @@ fn turn_one_into_two(node: Node) -> Node {
 fn transform_leaf_nodes() {
     let modified = transform(Node::Expr(one()), &mut turn_one_into_two);
     match modified {
-        Node::Expr(Expr::I64(i)) => assert_eq!(i.value, 2),
-        _ => panic!("expected I64 expression"),
+        Node::Expr(Expr::Number(n)) => assert_eq!(n.value, 2),
+        _ => panic!("expected Number expression"),
     }
 }
 
@@ -64,15 +69,15 @@ fn transform_statements() {
     let Stmt::Let(ref ls) = prog.statements[0] else {
         panic!("expected Let");
     };
-    assert!(matches!(&ls.value, Expr::I64(i) if i.value == 2));
+    assert!(matches!(&ls.value, Expr::Number(n) if n.value == 2));
     let Stmt::Return(ref rs) = prog.statements[1] else {
         panic!("expected Return");
     };
-    assert!(matches!(&rs.value, Expr::I64(i) if i.value == 2));
+    assert!(matches!(&rs.value, Expr::Number(n) if n.value == 2));
     let Stmt::Expr(ref es) = prog.statements[2] else {
         panic!("expected Expr");
     };
-    assert!(matches!(&es.value, Expr::I64(i) if i.value == 2));
+    assert!(matches!(&es.value, Expr::Number(n) if n.value == 2));
 }
 
 #[test]
@@ -91,11 +96,11 @@ fn transform_compound_expressions() {
     else {
         panic!("expected Infix");
     };
-    assert!(matches!(*infix.lhs, Expr::I64(i) if i.value == 2));
+    assert!(matches!(*infix.lhs, Expr::Number(n) if n.value == 2));
     let Expr::Prefix(prefix) = *infix.rhs else {
         panic!("expected Prefix");
     };
-    assert!(matches!(*prefix.operand, Expr::I64(i) if i.value == 2));
+    assert!(matches!(*prefix.operand, Expr::Number(n) if n.value == 2));
 }
 
 #[test]
@@ -110,7 +115,7 @@ fn transform_collections() {
     assert!(
         arr.elements
             .iter()
-            .all(|e| matches!(e, Expr::I64(i) if i.value == 2))
+            .all(|e| matches!(e, Expr::Number(n) if n.value == 2))
     );
     let hash = Expr::Map(Map {
         pairs: vec![(one(), one())],
@@ -120,8 +125,8 @@ fn transform_collections() {
         panic!("expected Map");
     };
     let (ref k, ref v) = h.pairs[0];
-    assert!(matches!(k, Expr::I64(i) if i.value == 2));
-    assert!(matches!(v, Expr::I64(i) if i.value == 2));
+    assert!(matches!(k, Expr::Number(n) if n.value == 2));
+    assert!(matches!(v, Expr::Number(n) if n.value == 2));
 }
 
 #[test]
