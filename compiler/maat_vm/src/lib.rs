@@ -115,18 +115,66 @@ macro_rules! int_bitwise {
 macro_rules! int_shift {
     ($left:expr, $right:expr, $method:ident) => {
         match ($left, $right) {
-            (Object::I8(l), Object::I8(r)) => Some(l.$method(*r as u32).map(Object::I8)),
-            (Object::I16(l), Object::I16(r)) => Some(l.$method(*r as u32).map(Object::I16)),
-            (Object::I32(l), Object::I32(r)) => Some(l.$method(*r as u32).map(Object::I32)),
-            (Object::I64(l), Object::I64(r)) => Some(l.$method(*r as u32).map(Object::I64)),
-            (Object::I128(l), Object::I128(r)) => Some(l.$method(*r as u32).map(Object::I128)),
-            (Object::Isize(l), Object::Isize(r)) => Some(l.$method(*r as u32).map(Object::Isize)),
-            (Object::U8(l), Object::U8(r)) => Some(l.$method(*r as u32).map(Object::U8)),
-            (Object::U16(l), Object::U16(r)) => Some(l.$method(*r as u32).map(Object::U16)),
-            (Object::U32(l), Object::U32(r)) => Some(l.$method(*r as u32).map(Object::U32)),
-            (Object::U64(l), Object::U64(r)) => Some(l.$method(*r as u32).map(Object::U64)),
-            (Object::U128(l), Object::U128(r)) => Some(l.$method(*r as u32).map(Object::U128)),
-            (Object::Usize(l), Object::Usize(r)) => Some(l.$method(*r as u32).map(Object::Usize)),
+            (Object::I8(l), Object::I8(r)) => Some(
+                u32::try_from(*r)
+                    .ok()
+                    .and_then(|s| l.$method(s).map(Object::I8)),
+            ),
+            (Object::I16(l), Object::I16(r)) => Some(
+                u32::try_from(*r)
+                    .ok()
+                    .and_then(|s| l.$method(s).map(Object::I16)),
+            ),
+            (Object::I32(l), Object::I32(r)) => Some(
+                u32::try_from(*r)
+                    .ok()
+                    .and_then(|s| l.$method(s).map(Object::I32)),
+            ),
+            (Object::I64(l), Object::I64(r)) => Some(
+                u32::try_from(*r)
+                    .ok()
+                    .and_then(|s| l.$method(s).map(Object::I64)),
+            ),
+            (Object::I128(l), Object::I128(r)) => Some(
+                u32::try_from(*r)
+                    .ok()
+                    .and_then(|s| l.$method(s).map(Object::I128)),
+            ),
+            (Object::Isize(l), Object::Isize(r)) => Some(
+                u32::try_from(*r)
+                    .ok()
+                    .and_then(|s| l.$method(s).map(Object::Isize)),
+            ),
+            (Object::U8(l), Object::U8(r)) => Some(
+                u32::try_from(*r)
+                    .ok()
+                    .and_then(|s| l.$method(s).map(Object::U8)),
+            ),
+            (Object::U16(l), Object::U16(r)) => Some(
+                u32::try_from(*r)
+                    .ok()
+                    .and_then(|s| l.$method(s).map(Object::U16)),
+            ),
+            (Object::U32(l), Object::U32(r)) => Some(
+                u32::try_from(*r)
+                    .ok()
+                    .and_then(|s| l.$method(s).map(Object::U32)),
+            ),
+            (Object::U64(l), Object::U64(r)) => Some(
+                u32::try_from(*r)
+                    .ok()
+                    .and_then(|s| l.$method(s).map(Object::U64)),
+            ),
+            (Object::U128(l), Object::U128(r)) => Some(
+                u32::try_from(*r)
+                    .ok()
+                    .and_then(|s| l.$method(s).map(Object::U128)),
+            ),
+            (Object::Usize(l), Object::Usize(r)) => Some(
+                u32::try_from(*r)
+                    .ok()
+                    .and_then(|s| l.$method(s).map(Object::Usize)),
+            ),
             _ => None,
         }
     };

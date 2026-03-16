@@ -35,7 +35,7 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
             }
             Stmt::ReAssign(assign) => {
                 let obj = eval(Node::Expr(assign.value), env)?;
-                env.set(assign.ident, &obj);
+                env.update(assign.ident, &obj);
                 Ok(obj)
             }
             Stmt::Return(rs) => {
@@ -179,9 +179,10 @@ fn eval_program(prog: Program, env: &Env) -> Result<Object> {
 }
 
 pub(crate) fn eval_block_statement(block: &BlockStmt, env: &Env) -> Result<Object> {
+    let block_env = Env::new_enclosed(env);
     let mut result = NULL;
     for stmt in &block.statements {
-        result = eval(Node::Stmt(stmt.clone()), env)?;
+        result = eval(Node::Stmt(stmt.clone()), &block_env)?;
         // Propagate control flow signals up to the enclosing loop or function.
         if matches!(
             result,
@@ -234,9 +235,10 @@ fn eval_for_statement(stmt: ForStmt, env: &Env) -> Result<Object> {
             .into());
         }
     };
+    let loop_env = Env::new_enclosed(env);
     for elem in elements {
-        env.set(stmt.ident.clone(), &elem);
-        let result = eval_block_statement(&stmt.body, env)?;
+        loop_env.set(stmt.ident.clone(), &elem);
+        let result = eval_block_statement(&stmt.body, &loop_env)?;
         match result {
             Object::Break(val) => return Ok(*val),
             Object::ReturnValue(_) => return Ok(result),

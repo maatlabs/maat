@@ -6,7 +6,8 @@ use maat_ast::{
     TypeExpr,
 };
 use maat_bytecode::{
-    Bytecode, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, Opcode, TypeTag, encode,
+    Bytecode, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, MAX_ENUM_VARIANTS, Opcode,
+    TypeTag, encode,
 };
 use maat_errors::{CompileError, CompileErrorKind, Error, Result};
 use maat_runtime::{BUILTINS, CompiledFunction, Object, TypeDef, VariantInfo};
@@ -379,6 +380,16 @@ impl Compiler {
                 Ok(())
             }
             Stmt::EnumDecl(decl) => {
+                let span = decl.span;
+                if decl.variants.len() > MAX_ENUM_VARIANTS {
+                    return Err(CompileErrorKind::VariantTagOverflow {
+                        name: decl.name.clone(),
+                        count: decl.variants.len(),
+                        max: MAX_ENUM_VARIANTS,
+                    }
+                    .at(span)
+                    .into());
+                }
                 self.type_registry.push(TypeDef::Enum {
                     name: decl.name.clone(),
                     variants: decl
@@ -956,7 +967,9 @@ impl Compiler {
                     }
                     // Load each parameter onto the stack.
                     for name in &param_names {
-                        let sym = self.symbols_table.resolve_symbol(name).unwrap();
+                        let sym = self.symbols_table.resolve_symbol(name).ok_or_else(|| {
+                            CompileErrorKind::UndefinedVariable { name: name.clone() }.at(span)
+                        })?;
                         self.load_symbol(&sym, span);
                     }
                     let type_index = (registry_index << 8) | (variant_tag & 0xFF);
@@ -1041,32 +1054,30 @@ impl Compiler {
                         self.replace_match_tag_target(match_tag_pos, next_arm)?;
                     }
                 }
-                Pattern::Ident(name, _)
-                    if name != "_" && self.find_variant_in_registry(name).is_some() =>
-                {
-                    let (_, variant_tag, _) = self.find_variant_in_registry(name).unwrap();
-                    let match_tag_pos =
-                        self.emit(Opcode::MatchTag, &[variant_tag, Self::JUMP], span);
-
-                    self.emit(Opcode::Pop, &[], span);
-
-                    self.compile_expression(&arm.body)?;
-                    if self.last_instruction_is(Opcode::Pop) {
-                        self.remove_last_pop();
-                    }
-                    let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
-                    end_jumps.push(end_jump);
-                    let next_arm = self.current_instructions().len();
-                    self.replace_match_tag_target(match_tag_pos, next_arm)?;
-                }
                 Pattern::Ident(name, _) if name != "_" => {
-                    self.define_and_set(name, false, span)?;
-                    self.compile_expression(&arm.body)?;
-                    if self.last_instruction_is(Opcode::Pop) {
-                        self.remove_last_pop();
+                    if let Some((_, variant_tag, _)) = self.find_variant_in_registry(name) {
+                        let match_tag_pos =
+                            self.emit(Opcode::MatchTag, &[variant_tag, Self::JUMP], span);
+
+                        self.emit(Opcode::Pop, &[], span);
+
+                        self.compile_expression(&arm.body)?;
+                        if self.last_instruction_is(Opcode::Pop) {
+                            self.remove_last_pop();
+                        }
+                        let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
+                        end_jumps.push(end_jump);
+                        let next_arm = self.current_instructions().len();
+                        self.replace_match_tag_target(match_tag_pos, next_arm)?;
+                    } else {
+                        self.define_and_set(name, false, span)?;
+                        self.compile_expression(&arm.body)?;
+                        if self.last_instruction_is(Opcode::Pop) {
+                            self.remove_last_pop();
+                        }
+                        let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
+                        end_jumps.push(end_jump);
                     }
-                    let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
-                    end_jumps.push(end_jump);
                 }
                 Pattern::Wildcard(_) | Pattern::Ident(_, _) => {
                     self.emit(Opcode::Pop, &[], span);
@@ -1201,7 +1212,15 @@ impl Compiler {
             }
             .at(span)
         })?;
-        let symbol = self.symbols_table.resolve_symbol(&qualified_name).unwrap();
+        let symbol = self
+            .symbols_table
+            .resolve_symbol(&qualified_name)
+            .ok_or_else(|| {
+                CompileErrorKind::UndefinedVariable {
+                    name: qualified_name,
+                }
+                .at(span)
+            })?;
         self.load_symbol(&symbol, span);
         self.compile_expression(&mc.object)?;
         for arg in &mc.arguments {
@@ -1282,8 +1301,7 @@ impl Compiler {
     /// Returns `CompileError::ConstantPoolOverflow` if adding this constant
     /// would exceed the maximum constant pool size.
     fn add_constant(&mut self, obj: Object) -> Result<usize> {
-        self.constants.push(obj);
-        let index = self.constants.len() - 1;
+        let index = self.constants.len();
         if index > MAX_CONSTANT_POOL_SIZE {
             return Err(CompileError::new(CompileErrorKind::ConstantPoolOverflow {
                 max: MAX_CONSTANT_POOL_SIZE,
@@ -1291,6 +1309,7 @@ impl Compiler {
             })
             .into());
         }
+        self.constants.push(obj);
         Ok(index)
     }
 

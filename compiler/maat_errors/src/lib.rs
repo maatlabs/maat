@@ -223,6 +223,15 @@ pub enum CompileErrorKind {
 
     #[error("cannot re-assign to immutable variable `{name}`")]
     ImmutableAssignment { name: String },
+
+    #[error(
+        "enum `{name}` has {count} variants, exceeding the maximum of {max} (variant tags must fit in 8 bits)"
+    )]
+    VariantTagOverflow {
+        name: String,
+        count: usize,
+        max: usize,
+    },
 }
 
 impl CompileErrorKind {
