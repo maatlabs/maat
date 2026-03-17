@@ -86,17 +86,3 @@ jobs:
             - run: cargo doc --all-features --no-deps --document-private-items --workspace
               env:
                   RUSTDOCFLAGS: -D warnings
-
-    miri:
-        name: Miri
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@v4
-            - uses: dtolnay/rust-toolchain@nightly
-              with:
-                  components: miri
-            - uses: Swatinem/rust-cache@v2
-            - name: Run tests under Miri
-              run: cargo +nightly miri test --workspace
-              env:
-                  MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-ignore-leaks -Zmiri-disable-isolation

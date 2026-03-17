@@ -45,7 +45,6 @@ Security hardening and fuzz testing release. Maat's compiler and VM have been ha
 
 - **Fuzz testing CI** (`fuzz.yml`): 60s per target on PRs, 300s per target overnight on `main`
 - **Coverage reporting** (`coverage.yml`): `cargo-llvm-cov` generates LCOV reports per PR
-- **Miri integration**: Full test suite runs under Miri with strict provenance checking
 - **Windows tests**: CI matrix expanded to run tests (not just builds) on Windows with stable + nightly Rust
 
 #### Prelude
