@@ -4,6 +4,80 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-03-17
+
+Security hardening and fuzz testing release. Maat's compiler and VM have been hardened against adversarial input. All arithmetic uses checked operations, all resource limits are enforced, and zero `unsafe` code exists. Five fuzz targets and nine property-based tests verify crash-freedom across millions of inputs. A comprehensive threat model documents trust boundaries and mitigations. The CI pipeline now gates fuzz testing, Miri, and code coverage.
+
+### Added
+
+#### Fuzz Testing
+
+- **Five `cargo-fuzz` targets** covering the full compiler pipeline: `fuzz_lexer` (arbitrary bytes), `fuzz_parser` (arbitrary UTF-8), `fuzz_typechecker` (syntactically valid programs), `fuzz_compiler` (well-typed programs), `fuzz_deserializer` (arbitrary bytes as `.mtc`)
+- **Seed corpus** derived from example programs, stdlib sources, and adversarial edge cases (deeply nested parentheses, huge integers, unterminated strings, malformed bytecode)
+- Zero crashes across ~7.3M total fuzz runs
+
+#### Property-Based Testing
+
+- **Nine `proptest` tests** verifying invariants over thousands of randomly generated programs:
+  - Lexer, parser, type checker, compiler, and deserializer never panic on arbitrary input
+  - AST `Display` round-trip is idempotent (`parse -> Display -> parse` produces identical AST)
+  - Bytecode serialization round-trips perfectly
+  - Execution is deterministic (same program produces same result)
+  - Well-typed programs never produce runtime type errors (type soundness)
+
+#### Security Hardening
+
+- **Parser nesting depth cap** (`MAX_NESTING_DEPTH = 256`): prevents stack overflow from deeply nested expressions
+- **Bytecode deserialization limits**: `MAX_PAYLOAD_SIZE` (16 MiB), `MAX_CONSTANT_POOL_SIZE` (65535), `MAX_INSTRUCTION_COUNT` (1M) -- malicious `.mtc` files rejected before allocation
+- **`#![forbid(unsafe_code)]`** enforced in all 13 workspace crates -- zero `unsafe` blocks
+- **Safe numeric conversions**: `Object::from_number_literal()` returns `Result` via `TryFrom` instead of panicking. Enum variant field count uses `u8::try_from()` with error propagation
+- **Module visibility enforcement**: `pub use` verified to enforce transitivity -- private items cannot leak through re-export chains
+
+#### Threat Model
+
+- **`SECURITY.md`**: Comprehensive threat model covering trust boundaries (source -> bytecode -> VM), three attacker models (malicious `.maat` source, malicious `.mtc` bytecode, resource exhaustion), mitigation tables with code locations, memory safety guarantees, arithmetic safety, and timing side-channel baseline
+
+#### Benchmark Expansion
+
+- **28 benchmarks across 7 groups**: method dispatch, range iteration (for vs. while), bitwise operators, compilation pipeline breakdown (lexer/parser/typechecker/codegen individually), serialization round-trip, and baseline overhead -- in addition to existing fibonacci, closures, arrays, strings, structs, enums, and option matching
+
+#### CI Hardening
+
+- **Fuzz testing CI** (`fuzz.yml`): 60s per target on PRs, 300s per target overnight on `main`
+- **Coverage reporting** (`coverage.yml`): `cargo-llvm-cov` generates LCOV reports per PR
+- **Miri integration**: Full test suite runs under Miri with strict provenance checking
+- **Windows tests**: CI matrix expanded to run tests (not just builds) on Windows with stable + nightly Rust
+
+#### Prelude
+
+- **`Some`, `None`, `Ok`, `Err` available unqualified** in expression position (construction) -- matching existing pattern-position behavior. Qualified `Option::Some` / `Result::Ok` syntax remains valid
+
+### Changed
+
+- **`ExprStmt::Display`** now emits trailing semicolons, fixing AST round-trip correctness (discovered by proptest)
+- **Constant pool overflow check** fires before push (was off-by-one: 65536th constant was allocated before error)
+- **Shift operations** use `checked_shl`/`checked_shr` with bit-width validation (was casting to `u32` without bounds check)
+- **Enum variant tag limit** enforced at registration time (`MAX_ENUM_VARIANTS = 256`) with proper error (was silently truncating via `& 0xFF`)
+- **`resolve_symbol().unwrap()` calls** in compiler replaced with proper `Result` propagation (was panicking on malformed input)
+- **Redundant `find_variant_in_registry()` double lookups** consolidated to single lookup with stored result
+- **Interpreter block scoping** fixed: `eval_block_statement`, `eval_for_statement`, `eval_while_statement` now wrap bodies in `Env::new_enclosed()` (variables were leaking out of blocks)
+- **Conditional stack corruption** fixed: `Expr::Cond` compilation emits `Opcode::Null` when branches contain only statements
+- **Numeric literal AST** consolidated from 24 variants into unified `Number { kind: NumberKind, value: i128 }`
+- **`compile_expression()`** decomposed from ~260 lines into focused sub-functions
+- **VM integer macros** unified and simplified
+- **Example programs** replaced with 10 progressive, stress-testing programs
+- **Test suite** overhauled: deceptive/trivial tests removed, critical edge cases added (overflow, underflow, division by zero, deep recursion, empty ranges, etc.)
+
+### Security
+
+- All integer arithmetic in the VM uses `checked_*` methods -- overflow, underflow, division by zero, and out-of-range shifts produce runtime errors, never silent wrapping
+- `as` casts go through `TryFrom` with range validation -- out-of-range conversions produce errors, not silent truncation
+- Constant folding uses identical checked arithmetic
+- `#![forbid(unsafe_code)]` in all 13 crates -- memory safety guaranteed by the Rust type system
+- `pub use` re-exports enforce visibility transitivity
+
+---
+
 ## [0.9.0] - 2026-03-15
 
 Standard library, methods, and iterators release. Maat now features Rust-native method syntax on built-in types, a standard library importable via the module system, full language surface completeness (comments, bitwise operators, compound assignment, mutable bindings, forward references), compile-time type-directed method dispatch, and first-class range syntax with `for..in` integration.
@@ -705,6 +779,7 @@ When adding entries to this changelog for future releases:
 3. **Audience**: Write for users, not developers (focus on impact, not implementation)
 4. **Links**: Add comparison links at the bottom: `[0.2.0]: https://github.com/maatlabs/maat/compare/v0.1.0...v0.2.0`
 
+[0.10.0]: https://github.com/maatlabs/maat/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/maatlabs/maat/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/maatlabs/maat/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/maatlabs/maat/compare/v0.6.0...v0.7.0
