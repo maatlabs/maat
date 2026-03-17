@@ -69,7 +69,7 @@ fn statements_display() {
         ],
         span: span(),
     };
-    assert_eq!(block.to_string(), "{\nreturn 10;\nb\n}");
+    assert_eq!(block.to_string(), "{\nreturn 10;\nb;\n}");
 
     let prog = Program {
         statements: vec![Stmt::Let(LetStmt {
@@ -277,7 +277,7 @@ fn control_flow_display() {
         },
         span: span(),
     };
-    assert_eq!(loop_stmt.to_string(), "loop {\nbreak\n}");
+    assert_eq!(loop_stmt.to_string(), "loop {\nbreak;\n}");
 
     let break_val = BreakExpr {
         value: Some(Box::new(Expr::Number(Number {
@@ -393,5 +393,5 @@ fn function_display() {
         },
         span: span(),
     };
-    assert_eq!(macro_lit.to_string(), "macro($a, $b) {\nx\n}");
+    assert_eq!(macro_lit.to_string(), "macro($a, $b) {\nx;\n}");
 }

@@ -363,39 +363,39 @@ fn parse_rust_style_suffixes() {
 #[test]
 fn parse_operator_precedence() {
     [
-        ("-a * b", "((-a) * b)"),
-        ("!-a", "(!(-a))"),
-        ("a + b + c", "((a + b) + c)"),
-        ("a + b - c", "((a + b) - c)"),
-        ("a * b * c", "((a * b) * c)"),
-        ("a * b / c", "((a * b) / c)"),
-        ("a + b / c", "(a + (b / c))"),
-        ("a + b * c + d / e - f", "(((a + (b * c)) + (d / e)) - f)"),
-        ("3 + 4; -5 * 5", "(3 + 4)((-5) * 5)"),
-        ("5 > 4 == 3 < 4", "((5 > 4) == (3 < 4))"),
-        ("5 < 4 != 3 > 4", "((5 < 4) != (3 > 4))"),
+        ("-a * b", "((-a) * b);"),
+        ("!-a", "(!(-a));"),
+        ("a + b + c", "((a + b) + c);"),
+        ("a + b - c", "((a + b) - c);"),
+        ("a * b * c", "((a * b) * c);"),
+        ("a * b / c", "((a * b) / c);"),
+        ("a + b / c", "(a + (b / c));"),
+        ("a + b * c + d / e - f", "(((a + (b * c)) + (d / e)) - f);"),
+        ("3 + 4; -5 * 5", "(3 + 4);((-5) * 5);"),
+        ("5 > 4 == 3 < 4", "((5 > 4) == (3 < 4));"),
+        ("5 < 4 != 3 > 4", "((5 < 4) != (3 > 4));"),
         (
             "3 + 4 * 5 == 3 * 1 + 4 * 5",
-            "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))",
+            "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)));",
         ),
-        ("true", "true"),
-        ("false", "false"),
-        ("3 > 5 == false", "((3 > 5) == false)"),
-        ("3 < 5 == true", "((3 < 5) == true)"),
-        ("1 + (2 + 3) + 4", "((1 + (2 + 3)) + 4)"),
-        ("(5 + 5) * 2", "((5 + 5) * 2)"),
-        ("2 / (5 + 5)", "(2 / (5 + 5))"),
-        ("(5 + 5) * 2 * (5 + 5)", "(((5 + 5) * 2) * (5 + 5))"),
-        ("-(5 + 5)", "(-(5 + 5))"),
-        ("!(true == true)", "(!(true == true))"),
-        ("a + add(b * c) + d", "((a + add((b * c))) + d)"),
+        ("true", "true;"),
+        ("false", "false;"),
+        ("3 > 5 == false", "((3 > 5) == false);"),
+        ("3 < 5 == true", "((3 < 5) == true);"),
+        ("1 + (2 + 3) + 4", "((1 + (2 + 3)) + 4);"),
+        ("(5 + 5) * 2", "((5 + 5) * 2);"),
+        ("2 / (5 + 5)", "(2 / (5 + 5));"),
+        ("(5 + 5) * 2 * (5 + 5)", "(((5 + 5) * 2) * (5 + 5));"),
+        ("-(5 + 5)", "(-(5 + 5));"),
+        ("!(true == true)", "(!(true == true));"),
+        ("a + add(b * c) + d", "((a + add((b * c))) + d);"),
         (
             "add(a, b, 1, 2 * 3, 4 + 5, add(6, 7 * 8))",
-            "add(a, b, 1, (2 * 3), (4 + 5), add(6, (7 * 8)))",
+            "add(a, b, 1, (2 * 3), (4 + 5), add(6, (7 * 8)));",
         ),
         (
             "add(a + b + c * d / f + g)",
-            "add((((a + b) + ((c * d) / f)) + g))",
+            "add((((a + b) + ((c * d) / f)) + g));",
         ),
     ]
     .iter()
@@ -420,7 +420,7 @@ fn parse_conditionals() {
     };
     assert_eq!(infix.to_string(), "(x < y)");
     assert_eq!(cond.consequence.statements.len(), 1);
-    assert_eq!(cond.consequence.statements[0].to_string(), "x");
+    assert_eq!(cond.consequence.statements[0].to_string(), "x;");
     assert!(cond.alternative.is_none());
 
     // If with else
@@ -433,10 +433,10 @@ fn parse_conditionals() {
         panic!("expected Cond expression");
     };
     assert_eq!(cond.condition.to_string(), "(x < y)");
-    assert_eq!(cond.consequence.statements[0].to_string(), "x");
+    assert_eq!(cond.consequence.statements[0].to_string(), "x;");
     assert_eq!(
         cond.alternative.as_ref().unwrap().statements[0].to_string(),
-        "y"
+        "y;"
     );
 }
 
@@ -453,7 +453,7 @@ fn parse_functions() {
     };
     assert_eq!(func.param_names().collect::<Vec<_>>(), vec!["x", "y"]);
     assert_eq!(func.body.statements.len(), 1);
-    assert_eq!(func.body.statements[0].to_string(), "(x + y)");
+    assert_eq!(func.body.statements[0].to_string(), "(x + y);");
 
     // Function parameter variations
     [
@@ -539,7 +539,7 @@ fn parse_loops() {
         panic!("expected Loop statement");
     };
     assert_eq!(loop_stmt.body.statements.len(), 1);
-    assert_eq!(loop_stmt.body.statements[0].to_string(), "1");
+    assert_eq!(loop_stmt.body.statements[0].to_string(), "1;");
 
     // While
     let program = parse("while (x < 10) { x; }");
@@ -548,7 +548,7 @@ fn parse_loops() {
     };
     assert_eq!(while_stmt.condition.to_string(), "(x < 10)");
     assert_eq!(while_stmt.body.statements.len(), 1);
-    assert_eq!(while_stmt.body.statements[0].to_string(), "x");
+    assert_eq!(while_stmt.body.statements[0].to_string(), "x;");
 
     // For
     let program = parse("for x in [1, 2, 3] { x; }");
@@ -558,7 +558,7 @@ fn parse_loops() {
     assert_eq!(for_stmt.ident, "x");
     assert_eq!(for_stmt.iterable.to_string(), "[1, 2, 3]");
     assert_eq!(for_stmt.body.statements.len(), 1);
-    assert_eq!(for_stmt.body.statements[0].to_string(), "x");
+    assert_eq!(for_stmt.body.statements[0].to_string(), "x;");
 }
 
 #[test]

@@ -68,7 +68,7 @@ impl fmt::Display for ReturnStmt {
 
 impl fmt::Display for ExprStmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.value)
+        write!(f, "{};", self.value)
     }
 }
 
