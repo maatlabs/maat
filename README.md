@@ -226,6 +226,39 @@ cargo bench -p maat_tests --bench benchmarks -- --baseline before
 
 HTML reports are generated at `target/criterion/report/index.html`.
 
+### Fuzz Testing
+
+Maat includes [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz) targets for each compiler pipeline stage. Fuzz testing requires the nightly Rust toolchain.
+
+```bash
+# Install cargo-fuzz (one-time)
+cargo install cargo-fuzz
+
+# List available fuzz targets
+cargo +nightly fuzz list
+
+# Run a specific target (e.g., 60-second bounded run)
+cargo +nightly fuzz run fuzz_lexer -- -max_total_time=60
+cargo +nightly fuzz run fuzz_parser -- -max_total_time=60
+cargo +nightly fuzz run fuzz_typechecker -- -max_total_time=60
+cargo +nightly fuzz run fuzz_compiler -- -max_total_time=60
+cargo +nightly fuzz run fuzz_deserializer -- -max_total_time=60
+```
+
+Crash artifacts (if any) are saved to `fuzz/artifacts/<target>/`. Seed corpora live in `fuzz/corpus/`.
+
+### Property-Based Testing
+
+Maat uses [proptest](https://github.com/proptest-rs/proptest) for property-based testing. These tests verify invariants (round-trip correctness, execution determinism, type soundness) over thousands of randomly generated programs.
+
+```bash
+# Run all property tests
+cargo test -p maat_tests --test properties
+
+# Run a specific property test
+cargo test -p maat_tests --test properties -- bytecode_roundtrip
+```
+
 ### Development
 
 #### Code Formatting
