@@ -1,9 +1,9 @@
 use std::rc::Rc;
 
 use maat_ast::{
-    BlockStmt, CondExpr, EnumVariantKind, Expr, FieldAccessExpr, ForStmt, ImplBlock, InfixExpr,
-    MatchExpr, MethodCallExpr, Node, PathExpr, Pattern, Program, Stmt, StructLitExpr,
-    TypeAnnotation, TypeExpr,
+    BlockStmt, BreakExpr, CondExpr, ContinueExpr, EnumVariantKind, Expr, FieldAccessExpr, ForStmt,
+    ImplBlock, InfixExpr, MatchExpr, MethodCallExpr, Node, PathExpr, Pattern, Program, Stmt,
+    StructLitExpr, TypeAnnotation, TypeExpr,
 };
 use maat_bytecode::{
     Bytecode, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, MAX_ENUM_VARIANTS, Opcode,
@@ -16,15 +16,6 @@ use maat_span::{SourceMap, Span};
 use crate::{Symbol, SymbolScope, SymbolsTable};
 
 /// Tracks jump targets for break/continue within a loop.
-///
-/// Each loop pushes a context onto the compiler's loop stack. `break`
-/// emits a forward jump whose position is recorded in `break_jumps` for
-/// back-patching once the loop exit address is known. `continue` either
-/// jumps directly to `continue_target` (when the address is known at
-/// compile time, e.g. `loop` and `while`) or records the jump position
-/// in `continue_jumps` for back-patching (e.g. `for` loops where
-/// `continue` must jump to the increment section, whose address is only
-/// known after body compilation).
 #[derive(Debug, Clone)]
 struct LoopContext {
     continue_target: Option<usize>,
@@ -33,10 +24,6 @@ struct LoopContext {
 }
 
 /// Per-scope compilation state.
-///
-/// Each function body (and the top-level program) gets its own scope
-/// with an independent instruction stream and instruction history
-/// for peephole optimizations.
 #[derive(Debug, Clone)]
 struct CompilationScope {
     instructions: Instructions,
@@ -57,11 +44,6 @@ impl CompilationScope {
 }
 
 /// Compiler state for generating bytecode from AST nodes.
-///
-/// The compiler performs a recursive descent through the AST, emitting
-/// bytecode instructions and tracking constants in a separate pool.
-/// It maintains a stack of compilation scopes to support nested function
-/// bodies, each with its own instruction stream and peephole history.
 #[derive(Debug, Clone)]
 pub struct Compiler {
     constants: Vec<Object>,
@@ -173,8 +155,6 @@ impl Compiler {
     }
 
     /// Extracts the compiled bytecode and constants.
-    ///
-    /// This consumes the compiler instance and returns the final bytecode output.
     ///
     /// # Errors
     ///
@@ -595,11 +575,6 @@ impl Compiler {
     }
 
     /// Compiles a sequence of statements within a lexical block scope.
-    ///
-    /// Variables defined inside the block are scoped to it and become
-    /// invisible after the block exits, matching Rust's lexical scoping.
-    /// Used for `if`/`else` branches and standalone blocks where variable
-    /// isolation is desired.
     fn compile_block_statement(&mut self, block: &BlockStmt) -> Result<()> {
         self.symbols_table.push_block_scope();
         for stmt in &block.statements {
@@ -715,47 +690,8 @@ impl Compiler {
                 self.emit(Opcode::Convert, &[tag.to_byte() as usize], span);
                 Ok(())
             }
-            Expr::Break(break_expr) => {
-                if self.loop_contexts.is_empty() {
-                    return Err(CompileErrorKind::BreakOutsideLoop
-                        .at(break_expr.span)
-                        .into());
-                }
-                match &break_expr.value {
-                    Some(val) => self.compile_expression(val)?,
-                    None => {
-                        self.emit(Opcode::Null, &[], break_expr.span);
-                    }
-                }
-                let jump_pos = self.emit(Opcode::Jump, &[Self::JUMP], break_expr.span);
-                self.loop_contexts
-                    .last_mut()
-                    .expect("loop context was just verified")
-                    .break_jumps
-                    .push(jump_pos);
-
-                Ok(())
-            }
-            Expr::Continue(cont_expr) => {
-                let ctx = self
-                    .loop_contexts
-                    .last()
-                    .ok_or_else(|| CompileErrorKind::ContinueOutsideLoop.at(cont_expr.span))?;
-                match ctx.continue_target {
-                    Some(target) => {
-                        self.emit(Opcode::Jump, &[target], cont_expr.span);
-                    }
-                    None => {
-                        let jump_pos = self.emit(Opcode::Jump, &[Self::JUMP], cont_expr.span);
-                        self.loop_contexts
-                            .last_mut()
-                            .expect("loop context was just verified")
-                            .continue_jumps
-                            .push(jump_pos);
-                    }
-                }
-                Ok(())
-            }
+            Expr::Break(break_expr) => self.compile_break(break_expr),
+            Expr::Continue(cont_expr) => self.compile_continue(cont_expr),
             Expr::Macro(_) => Err(CompileErrorKind::UnsupportedExpr {
                 expr_type: "macro literal".to_string(),
             }
@@ -780,11 +716,49 @@ impl Compiler {
         }
     }
 
+    /// Compiles a `break` expression inside a loop.
+    fn compile_break(&mut self, expr: &BreakExpr) -> Result<()> {
+        if self.loop_contexts.is_empty() {
+            return Err(CompileErrorKind::BreakOutsideLoop.at(expr.span).into());
+        }
+        match &expr.value {
+            Some(val) => self.compile_expression(val)?,
+            None => {
+                self.emit(Opcode::Null, &[], expr.span);
+            }
+        }
+        let jump_pos = self.emit(Opcode::Jump, &[Self::JUMP], expr.span);
+        self.loop_contexts
+            .last_mut()
+            .expect("loop context was just verified")
+            .break_jumps
+            .push(jump_pos);
+        Ok(())
+    }
+
+    /// Compiles a `continue` expression inside a loop.
+    fn compile_continue(&mut self, expr: &ContinueExpr) -> Result<()> {
+        let ctx = self
+            .loop_contexts
+            .last()
+            .ok_or_else(|| CompileErrorKind::ContinueOutsideLoop.at(expr.span))?;
+        match ctx.continue_target {
+            Some(target) => {
+                self.emit(Opcode::Jump, &[target], expr.span);
+            }
+            None => {
+                let jump_pos = self.emit(Opcode::Jump, &[Self::JUMP], expr.span);
+                self.loop_contexts
+                    .last_mut()
+                    .expect("loop context was just verified")
+                    .continue_jumps
+                    .push(jump_pos);
+            }
+        }
+        Ok(())
+    }
+
     /// Compiles an infix (binary) expression, including short-circuit `&&`/`||`.
-    ///
-    /// Short-circuit operators emit conditional jumps that skip the right-hand
-    /// side when the result is already determined. Standard arithmetic and
-    /// comparison operators compile both operands then emit a single opcode.
     fn compile_infix(&mut self, infix_expr: &InfixExpr, span: Span) -> Result<()> {
         match infix_expr.operator.as_str() {
             "&&" => {
@@ -861,10 +835,6 @@ impl Compiler {
     }
 
     /// Compiles an `if`/`else` conditional expression.
-    ///
-    /// Both branches are required to leave exactly one value on the stack.
-    /// When a branch ends with a non-expression statement or is absent,
-    /// `Null` is emitted as the branch result.
     fn compile_conditional(&mut self, cond: &CondExpr) -> Result<()> {
         self.compile_expression(&cond.condition)?;
 
@@ -898,10 +868,6 @@ impl Compiler {
     }
 
     /// Compiles a struct literal expression (e.g., `Point { x: 1, y: 2 }`).
-    ///
-    /// Looks up the struct in the type registry to determine field ordering,
-    /// compiles each field value in declaration order, and emits a `Construct`
-    /// instruction.
     fn compile_struct_literal(&mut self, lit: &StructLitExpr) -> Result<()> {
         let span = lit.span;
         let (registry_index, field_names) = self
@@ -940,11 +906,6 @@ impl Compiler {
     }
 
     /// Compiles a path expression (e.g., `Option::None`, `Color::Red`).
-    ///
-    /// For a two-segment path `Enum::Variant`, resolves the enum and variant
-    /// in the type registry. Unit variants emit a `Construct` with zero fields.
-    /// For non-unit variants used as constructors (followed by call), this
-    /// pushes a closure that wraps the `Construct` instruction.
     fn compile_path_expression(&mut self, path: &PathExpr) -> Result<()> {
         let span = path.span;
         if path.segments.len() == 2 {
@@ -976,11 +937,6 @@ impl Compiler {
     }
 
     /// Emits bytecode to construct an enum variant.
-    ///
-    /// Unit variants (field_count == 0) emit a direct `Construct` instruction.
-    /// Tuple/struct variants emit a closure that accepts `field_count` parameters
-    /// and wraps the `Construct` opcode, allowing the variant to be used as a
-    /// first-class constructor function (e.g. `Some(42)`, `Ok(value)`).
     fn emit_variant_constructor(
         &mut self,
         registry_index: usize,
@@ -1047,10 +1003,6 @@ impl Compiler {
 
     /// Compiles a `match` expression as a chain of `MatchTag` / conditional
     /// jump instructions.
-    ///
-    /// The scrutinee is compiled once and left on the stack. Each arm tests
-    /// the variant tag (for enums) or pattern, emitting the arm body on match.
-    /// At the end all forward jumps are patched to the exit point.
     fn compile_match(&mut self, match_expr: &MatchExpr) -> Result<()> {
         let span = match_expr.span;
         self.compile_expression(&match_expr.scrutinee)?;
@@ -1195,9 +1147,6 @@ impl Compiler {
     }
 
     /// Compiles a field access expression (e.g., `point.x`).
-    ///
-    /// Resolves the field index from the type registry and emits a `GetField`
-    /// instruction.
     fn compile_field_access(&mut self, fa: &FieldAccessExpr) -> Result<()> {
         let span = fa.span;
         self.compile_expression(&fa.object)?;
@@ -1221,9 +1170,6 @@ impl Compiler {
     }
 
     /// Compiles a method call expression (e.g., `point.distance(other)`).
-    ///
-    /// Resolves the method as a qualified function name (`Type::method`),
-    /// pushes the receiver as the first argument, and emits a regular `Call`.
     fn compile_method_call(&mut self, mc: &MethodCallExpr) -> Result<()> {
         let span = mc.span;
         let qualified_name = self.resolve_method_name(mc).ok_or_else(|| {
@@ -1251,19 +1197,11 @@ impl Compiler {
         Ok(())
     }
 
-    /// Built-in type prefixes for method dispatch fallback.
-    ///
-    /// Used only when `receiver` is absent (e.g. REPL, tests that
-    /// skip type checking). With type-directed dispatch these are never consulted.
-    const BUILTIN_METHOD_PREFIXES: &[&str] = &["Array", "str", "Set"];
-
     /// Resolves the fully-qualified builtin name for a method call.
-    ///
-    /// Uses the type-checker-annotated `receiver` for direct dispatch
-    /// when available. Falls back to a linear search through user-defined types
-    /// and built-in type prefixes for unannotated ASTs (e.g. from the REPL or
-    /// test paths that bypass type checking).
     fn resolve_method_name(&mut self, mc: &MethodCallExpr) -> Option<String> {
+        // Built-in type prefixes for method dispatch fallback.
+        const BUILTIN_METHOD_PREFIXES: &[&str] = &["Array", "str", "Set"];
+
         if let Some(ref receiver) = mc.receiver {
             let candidate = format!("{receiver}::{}", mc.method);
             if self.symbols_table.resolve_symbol(&candidate).is_some() {
@@ -1275,7 +1213,7 @@ impl Compiler {
             .map(|td| match td {
                 TypeDef::Struct { name, .. } | TypeDef::Enum { name, .. } => name.as_str(),
             })
-            .chain(Self::BUILTIN_METHOD_PREFIXES.iter().copied())
+            .chain(BUILTIN_METHOD_PREFIXES.iter().copied())
             .find_map(|type_name| {
                 let candidate = format!("{type_name}::{}", mc.method);
                 self.symbols_table
@@ -1339,14 +1277,6 @@ impl Compiler {
     }
 
     /// Enters a new compilation scope for a function body.
-    ///
-    /// Creates a fresh instruction stream and an enclosed symbol table
-    /// that chains to the current one.
-    /// Compiles a function body (shared by `Stmt::FuncDef` and `Expr::Lambda`).
-    ///
-    /// Enters a new scope, optionally defines a function name for recursive
-    /// self-reference, compiles parameters and body, and emits the closure
-    /// instruction.
     fn compile_fn_body<'a>(
         &mut self,
         name: Option<&str>,
@@ -1435,8 +1365,6 @@ impl Compiler {
     /// Leaves the current compilation scope, returning its instructions
     /// and source map.
     ///
-    /// Restores the outer symbol table and pops the scope stack.
-    ///
     /// # Errors
     ///
     /// Returns `CompileError::ScopeUnderflow` if the scope stack is empty
@@ -1468,8 +1396,6 @@ impl Compiler {
     }
 
     /// Emits the appropriate store instruction for a resolved symbol.
-    ///
-    /// Dispatches to `SetGlobal` or `SetLocal` based on the symbol's scope.
     fn emit_set_symbol(&mut self, symbol: &Symbol, span: Span) {
         match symbol.scope {
             SymbolScope::Global => self.emit(Opcode::SetGlobal, &[symbol.index], span),
@@ -1481,9 +1407,6 @@ impl Compiler {
     }
 
     /// Emits the appropriate load instruction for a resolved symbol.
-    ///
-    /// Dispatches to the correct opcode based on the symbol's scope:
-    /// global, local, builtin, free variable, or current closure.
     fn load_symbol(&mut self, symbol: &Symbol, span: Span) {
         match symbol.scope {
             SymbolScope::Global => self.emit(Opcode::GetGlobal, &[symbol.index], span),
@@ -1495,9 +1418,6 @@ impl Compiler {
     }
 
     /// Emits a bytecode instruction with the given opcode and operands.
-    ///
-    /// Records the source span in the current scope's source map.
-    /// Returns the starting position of the emitted instruction.
     fn emit(&mut self, opcode: Opcode, operands: &[usize], span: Span) -> usize {
         let instruction = encode(opcode, operands);
         let pos = self.add_instruction(&instruction);
@@ -1562,9 +1482,6 @@ impl Compiler {
     }
 
     /// Replaces the operand of an instruction at the given position.
-    ///
-    /// Re-encodes the full instruction (opcode + new operand) and patches
-    /// it into the instruction stream. Used for back-patching forward jumps.
     fn replace_operand(&mut self, op_pos: usize, operand: usize) -> Result<()> {
         let scope = &mut self.scopes[self.scope_index];
         let byte = scope.instructions.as_bytes()[op_pos];

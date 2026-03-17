@@ -20,6 +20,12 @@ use maat_types::{
 
 use crate::{ModuleExports, ModuleGraph, ModuleId, ModuleResult};
 
+/// Per-module type-checking outputs: public exports and cached resolved imports.
+type TypeCheckResult = (
+    HashMap<ModuleId, ModuleExports>,
+    HashMap<ModuleId, Vec<ResolvedImport>>,
+);
+
 /// Type-checks, compiles, and links all modules in the given graph.
 ///
 /// The pipeline operates in two phases:
@@ -46,13 +52,20 @@ use crate::{ModuleExports, ModuleGraph, ModuleId, ModuleResult};
 /// Returns a [`ModuleError`](maat_errors::ModuleError) if type checking or
 /// compilation fails for any module.
 pub fn check_and_compile(graph: &mut ModuleGraph) -> ModuleResult<Bytecode> {
-    let mut exports: HashMap<ModuleId, ModuleExports> = HashMap::new();
     let topo_order = graph.topo_order().to_vec();
-    // Phase 1: Type-check each module independently and extract exports.
-    // Resolved imports are cached to avoid redundant work in phase 2.
+    let (exports, cached_imports) = type_check_modules(graph, &topo_order)?;
+    compile_modules(graph, &topo_order, &exports, &cached_imports)
+}
+
+/// Type-checks each module independently and extracts public exports.
+fn type_check_modules(
+    graph: &mut ModuleGraph,
+    topo_order: &[ModuleId],
+) -> ModuleResult<TypeCheckResult> {
+    let mut exports: HashMap<ModuleId, ModuleExports> = HashMap::new();
     let mut cached_imports: HashMap<ModuleId, Vec<ResolvedImport>> = HashMap::new();
 
-    for &module_id in &topo_order {
+    for &module_id in topo_order {
         let node = graph.node(module_id);
         let file_path = node.path.clone();
         let imports = resolve_imports(&node.program, &exports, graph)?;
@@ -86,17 +99,19 @@ pub fn check_and_compile(graph: &mut ModuleGraph) -> ModuleResult<Bytecode> {
         }
         cached_imports.insert(module_id, imports);
     }
-    // Phase 2: Compile all modules with a shared compiler. Because the
-    // compiler's symbol table and constant pool persist across modules,
-    // `define_symbol` reuses existing global indices for imported symbols,
-    // i.e., no post-hoc linking or index remapping is required.
-    //
-    // After each non-root module is compiled, newly-defined globals that
-    // are not part of the module's public exports are hidden from the
-    // symbol table, preventing private symbols from leaking into
-    // subsequent modules.
+    Ok((exports, cached_imports))
+}
+
+/// Compiles all modules with a shared compiler and produces final bytecode.
+fn compile_modules(
+    graph: &ModuleGraph,
+    topo_order: &[ModuleId],
+    exports: &HashMap<ModuleId, ModuleExports>,
+    cached_imports: &HashMap<ModuleId, Vec<ResolvedImport>>,
+) -> ModuleResult<Bytecode> {
+    let _ = exports; // exports used only during type checking; kept for downstream linking
     let mut compiler = Compiler::new();
-    for &module_id in &topo_order {
+    for &module_id in topo_order {
         let file_path = graph.node(module_id).path.clone();
         if let Some(imports) = cached_imports.get(&module_id) {
             for import in imports {
@@ -113,21 +128,7 @@ pub fn check_and_compile(graph: &mut ModuleGraph) -> ModuleResult<Bytecode> {
             .at(Span::ZERO, file_path.clone())
         })?;
 
-        // Mask all newly-defined globals after compiling a non-root
-        // module. Masking hides symbols from resolution without removing
-        // their storage indices, so that `inject_import_into_compiler`
-        // in subsequent iterations can unmask and reuse the same global
-        // slot via `define_symbol`. This prevents both private and public
-        // symbols from leaking into modules that have not explicitly
-        // imported them.
-        if module_id != ModuleId::ROOT {
-            let after = compiler.symbols_table_mut().global_symbol_names();
-            for name in after {
-                if !before.contains(&name) {
-                    compiler.symbols_table_mut().mask_symbol(&name);
-                }
-            }
-        }
+        apply_module_visibility(&mut compiler, module_id, &before);
     }
     let root_path = graph.root().path.clone();
     compiler.bytecode().map_err(|e| {
@@ -139,11 +140,25 @@ pub fn check_and_compile(graph: &mut ModuleGraph) -> ModuleResult<Bytecode> {
     })
 }
 
-/// Returns the per-module public exports extracted during type checking.
+/// Masks newly-defined globals after compiling a non-root module.
 ///
-/// This is a convenience for tests and tooling that need to inspect
-/// which items are publicly visible from each module without running
-/// the full compilation phase.
+/// Masking hides symbols from resolution without removing their storage
+/// indices, so that `inject_import_into_compiler` in subsequent iterations
+/// can unmask and reuse the same global slot. This prevents both private
+/// and public symbols from leaking into modules that have not explicitly
+/// imported them.
+fn apply_module_visibility(compiler: &mut Compiler, module_id: ModuleId, before: &[String]) {
+    if module_id != ModuleId::ROOT {
+        let after = compiler.symbols_table_mut().global_symbol_names();
+        for name in after {
+            if !before.contains(&name) {
+                compiler.symbols_table_mut().mask_symbol(&name);
+            }
+        }
+    }
+}
+
+/// Returns the per-module public exports extracted during type checking.
 pub fn check_exports(graph: &mut ModuleGraph) -> ModuleResult<HashMap<ModuleId, ModuleExports>> {
     let mut exports: HashMap<ModuleId, ModuleExports> = HashMap::new();
     let topo_order = graph.topo_order().to_vec();
