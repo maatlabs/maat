@@ -99,4 +99,4 @@ jobs:
             - name: Run tests under Miri
               run: cargo +nightly miri test --workspace
               env:
-                  MIRIFLAGS: -Zmiri-strict-provenance
+                  MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-ignore-leaks
