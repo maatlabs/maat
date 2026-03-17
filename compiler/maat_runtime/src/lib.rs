@@ -2,6 +2,7 @@
 //!
 //! This crate defines the core object model and built-in functions shared
 //! by both the tree-walking interpreter and the bytecode compiler/VM.
+#![forbid(unsafe_code)]
 
 mod builtins;
 mod env;

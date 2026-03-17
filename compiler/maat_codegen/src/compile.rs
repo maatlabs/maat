@@ -370,20 +370,35 @@ impl Compiler {
                     .at(span)
                     .into());
                 }
+                let variants = decl
+                    .variants
+                    .iter()
+                    .map(|v| {
+                        let count = match &v.kind {
+                            EnumVariantKind::Unit => 0,
+                            EnumVariantKind::Tuple(fields) => fields.len(),
+                            EnumVariantKind::Struct(fields) => fields.len(),
+                        };
+                        let field_count = u8::try_from(count).map_err(|_| {
+                            Error::from(
+                                CompileErrorKind::UnsupportedExpr {
+                                    expr_type: format!(
+                                        "variant `{}` has {count} fields, exceeding the u8 maximum",
+                                        v.name
+                                    ),
+                                }
+                                .at(span),
+                            )
+                        })?;
+                        Ok(VariantInfo {
+                            name: v.name.clone(),
+                            field_count,
+                        })
+                    })
+                    .collect::<Result<Vec<_>>>()?;
                 self.type_registry.push(TypeDef::Enum {
                     name: decl.name.clone(),
-                    variants: decl
-                        .variants
-                        .iter()
-                        .map(|v| VariantInfo {
-                            name: v.name.clone(),
-                            field_count: match &v.kind {
-                                EnumVariantKind::Unit => 0,
-                                EnumVariantKind::Tuple(fields) => fields.len() as u8,
-                                EnumVariantKind::Struct(fields) => fields.len() as u8,
-                            },
-                        })
-                        .collect(),
+                    variants,
                 });
                 Ok(())
             }
@@ -596,7 +611,8 @@ impl Compiler {
         let span = expr.span();
         match expr {
             Expr::Number(lit) => {
-                let obj = Object::from_number_literal(lit);
+                let obj = Object::from_number_literal(lit)
+                    .map_err(|msg| CompileErrorKind::UnsupportedExpr { expr_type: msg }.at(span))?;
                 self.compile_numeric_constant(obj, span)
             }
             Expr::Bool(b) => {

@@ -90,22 +90,35 @@ pub enum Object {
 
 impl Object {
     /// Converts a `Number` AST node into its corresponding runtime `Object`.
-    pub fn from_number_literal(lit: &Number) -> Self {
+    ///
+    /// The type checker validates that `lit.value` fits within the target type
+    /// before this function is called. The `TryFrom` conversions enforce this
+    /// invariant at runtime as a defense-in-depth measure, returning an error
+    /// rather than silently truncating if the value is out of range.
+    pub fn from_number_literal(lit: &Number) -> std::result::Result<Self, String> {
+        macro_rules! narrow {
+            ($variant:ident, $ty:ty) => {
+                <$ty>::try_from(lit.value)
+                    .map(Self::$variant)
+                    .map_err(|_| format!("{} out of range for {}", lit.value, stringify!($ty)))
+            };
+        }
         match lit.kind {
-            NumberKind::I8 => Self::I8(lit.value as i8),
-            NumberKind::I16 => Self::I16(lit.value as i16),
-            NumberKind::I32 => Self::I32(lit.value as i32),
-            NumberKind::I64 => Self::I64(lit.value as i64),
-            NumberKind::I128 => Self::I128(lit.value),
-            NumberKind::Isize => Self::Isize(lit.value as isize),
-            NumberKind::U8 => Self::U8(lit.value as u8),
-            NumberKind::U16 => Self::U16(lit.value as u16),
-            NumberKind::U32 => Self::U32(lit.value as u32),
-            NumberKind::U64 => Self::U64(lit.value as u64),
-            NumberKind::U128 => Self::U128(lit.value as u128),
-            NumberKind::Usize => Self::Usize(lit.value as usize),
+            NumberKind::I8 => narrow!(I8, i8),
+            NumberKind::I16 => narrow!(I16, i16),
+            NumberKind::I32 => narrow!(I32, i32),
+            NumberKind::I64 => narrow!(I64, i64),
+            NumberKind::I128 => Ok(Self::I128(lit.value)),
+            NumberKind::Isize => narrow!(Isize, isize),
+            NumberKind::U8 => narrow!(U8, u8),
+            NumberKind::U16 => narrow!(U16, u16),
+            NumberKind::U32 => narrow!(U32, u32),
+            NumberKind::U64 => narrow!(U64, u64),
+            NumberKind::U128 => narrow!(U128, u128),
+            NumberKind::Usize => narrow!(Usize, usize),
         }
     }
+
     /// Converts a runtime object back to an AST node.
     ///
     /// Used to splice evaluated values back into quoted code.

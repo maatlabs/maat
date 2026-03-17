@@ -3,6 +3,7 @@
 //! This crate implements a stack-based virtual machine that executes
 //! compiled bytecode instructions. The VM uses call frames for function
 //! invocations, maintaining a value stack, globals store, and frame stack.
+#![forbid(unsafe_code)]
 
 use std::rc::Rc;
 

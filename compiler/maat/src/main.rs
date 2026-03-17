@@ -3,6 +3,7 @@
 //! Provides the `maat` command with subcommands for running source files,
 //! starting the interactive REPL, compiling to bytecode, and executing
 //! pre-compiled bytecode.
+#![forbid(unsafe_code)]
 
 mod cmd;
 mod diagnostic;

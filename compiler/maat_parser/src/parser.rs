@@ -21,6 +21,10 @@ use maat_lexer::{Lexer, Span, Token, TokenKind};
 
 use crate::prec::{LOWEST, PREFIX, Precedence};
 
+/// Maximum nesting depth for expressions. Prevents stack overflow on
+/// deeply nested input like `(((((((...)))))))`  or `1+1+1+1+...`.
+const MAX_NESTING_DEPTH: usize = 256;
+
 /// A recursive descent parser that builds an AST from a token stream.
 ///
 /// The parser maintains two-token lookahead (`current` and `peek`) to enable
@@ -32,6 +36,7 @@ pub struct Parser<'a> {
     current: Token<'a>,
     peek: Token<'a>,
     errors: Vec<ParseError>,
+    nesting_depth: usize,
 }
 
 impl<'a> Parser<'a> {
@@ -55,6 +60,7 @@ impl<'a> Parser<'a> {
             peek: lexer.next_token(),
             lexer,
             errors: vec![],
+            nesting_depth: 0,
         }
     }
 
@@ -502,6 +508,20 @@ impl<'a> Parser<'a> {
     /// 2. While the next token's precedence is higher than `prec`,
     ///    consume it and parse an infix operation.
     fn parse_expression(&mut self, prec: u8) -> Option<Expr> {
+        self.nesting_depth += 1;
+        if self.nesting_depth > MAX_NESTING_DEPTH {
+            self.push_error(format!(
+                "expression nesting depth exceeds maximum of {MAX_NESTING_DEPTH}"
+            ));
+            self.nesting_depth -= 1;
+            return None;
+        }
+        let result = self.parse_expression_inner(prec);
+        self.nesting_depth -= 1;
+        result
+    }
+
+    fn parse_expression_inner(&mut self, prec: u8) -> Option<Expr> {
         let mut expr = match self.current.kind {
             TokenKind::Ident => self.parse_identifier()?,
 

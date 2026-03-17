@@ -20,6 +20,7 @@
 //! // Display as disassembly
 //! println!("{}", bytecode);
 //! ```
+#![forbid(unsafe_code)]
 
 use maat_runtime::{Object, TypeDef};
 use maat_span::SourceMap;

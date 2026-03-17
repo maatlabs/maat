@@ -20,6 +20,7 @@
 //! If both `foo.maat` and `foo/mod.maat` exist, the resolution is ambiguous
 //! and an error is produced. If neither exists, a resolution error is
 //! produced.
+#![forbid(unsafe_code)]
 
 mod exports;
 mod graph;
