@@ -3,6 +3,7 @@
 //! This crate implements a stack-based virtual machine that executes
 //! compiled bytecode instructions. The VM uses call frames for function
 //! invocations, maintaining a value stack, globals store, and frame stack.
+#![forbid(unsafe_code)]
 
 use std::rc::Rc;
 
@@ -15,131 +16,11 @@ use maat_runtime::{
 };
 use maat_span::{SourceMap, Span};
 
-/// Dispatches checked integer arithmetic across all 12 integer variants.
-///
-/// Returns `Option<Option<Object>>`:
-/// - outer `None`: operands are not the same integer type
-/// - inner `None`: arithmetic overflow
-macro_rules! int_binop {
-    ($left:expr, $right:expr, $method:ident) => {
-        match ($left, $right) {
-            (Object::I8(l), Object::I8(r)) => Some(l.$method(*r).map(Object::I8)),
-            (Object::I16(l), Object::I16(r)) => Some(l.$method(*r).map(Object::I16)),
-            (Object::I32(l), Object::I32(r)) => Some(l.$method(*r).map(Object::I32)),
-            (Object::I64(l), Object::I64(r)) => Some(l.$method(*r).map(Object::I64)),
-            (Object::I128(l), Object::I128(r)) => Some(l.$method(*r).map(Object::I128)),
-            (Object::Isize(l), Object::Isize(r)) => Some(l.$method(*r).map(Object::Isize)),
-            (Object::U8(l), Object::U8(r)) => Some(l.$method(*r).map(Object::U8)),
-            (Object::U16(l), Object::U16(r)) => Some(l.$method(*r).map(Object::U16)),
-            (Object::U32(l), Object::U32(r)) => Some(l.$method(*r).map(Object::U32)),
-            (Object::U64(l), Object::U64(r)) => Some(l.$method(*r).map(Object::U64)),
-            (Object::U128(l), Object::U128(r)) => Some(l.$method(*r).map(Object::U128)),
-            (Object::Usize(l), Object::Usize(r)) => Some(l.$method(*r).map(Object::Usize)),
-            _ => None,
-        }
-    };
-}
+/// Numeric ops/utils
+#[macro_use]
+pub mod num;
 
-/// Dispatches ordered comparison across all 12 integer variants.
-///
-/// Returns `None` if the operands are not the same integer type.
-macro_rules! int_cmp {
-    ($left:expr, $right:expr, $op:tt) => {
-        match ($left, $right) {
-            (Object::I8(l), Object::I8(r)) => Some(*l $op *r),
-            (Object::I16(l), Object::I16(r)) => Some(*l $op *r),
-            (Object::I32(l), Object::I32(r)) => Some(*l $op *r),
-            (Object::I64(l), Object::I64(r)) => Some(*l $op *r),
-            (Object::I128(l), Object::I128(r)) => Some(*l $op *r),
-            (Object::Isize(l), Object::Isize(r)) => Some(*l $op *r),
-            (Object::U8(l), Object::U8(r)) => Some(*l $op *r),
-            (Object::U16(l), Object::U16(r)) => Some(*l $op *r),
-            (Object::U32(l), Object::U32(r)) => Some(*l $op *r),
-            (Object::U64(l), Object::U64(r)) => Some(*l $op *r),
-            (Object::U128(l), Object::U128(r)) => Some(*l $op *r),
-            (Object::Usize(l), Object::Usize(r)) => Some(*l $op *r),
-            _ => None,
-        }
-    };
-}
-
-/// Dispatches checked negation for signed integer types.
-///
-/// Returns `Option<Option<Object>>`:
-/// - outer `None`: operand is not a signed integer
-/// - inner `None`: negation overflow (e.g., `i8::MIN`)
-macro_rules! checked_neg {
-    ($val:expr) => {
-        match $val {
-            Object::I8(v) => Some(v.checked_neg().map(Object::I8)),
-            Object::I16(v) => Some(v.checked_neg().map(Object::I16)),
-            Object::I32(v) => Some(v.checked_neg().map(Object::I32)),
-            Object::I64(v) => Some(v.checked_neg().map(Object::I64)),
-            Object::I128(v) => Some(v.checked_neg().map(Object::I128)),
-            Object::Isize(v) => Some(v.checked_neg().map(Object::Isize)),
-            _ => None,
-        }
-    };
-}
-
-/// Dispatches a bitwise binary operation across all 12 integer variants.
-///
-/// Returns `Option<Object>`:
-/// - `None`: operands are not the same integer type
-/// - `Some(result)`: the result of the operation
-macro_rules! int_bitwise {
-    ($left:expr, $right:expr, $op:tt) => {
-        match ($left, $right) {
-            (Object::I8(l), Object::I8(r)) => Some(Object::I8(*l $op *r)),
-            (Object::I16(l), Object::I16(r)) => Some(Object::I16(*l $op *r)),
-            (Object::I32(l), Object::I32(r)) => Some(Object::I32(*l $op *r)),
-            (Object::I64(l), Object::I64(r)) => Some(Object::I64(*l $op *r)),
-            (Object::I128(l), Object::I128(r)) => Some(Object::I128(*l $op *r)),
-            (Object::Isize(l), Object::Isize(r)) => Some(Object::Isize(*l $op *r)),
-            (Object::U8(l), Object::U8(r)) => Some(Object::U8(*l $op *r)),
-            (Object::U16(l), Object::U16(r)) => Some(Object::U16(*l $op *r)),
-            (Object::U32(l), Object::U32(r)) => Some(Object::U32(*l $op *r)),
-            (Object::U64(l), Object::U64(r)) => Some(Object::U64(*l $op *r)),
-            (Object::U128(l), Object::U128(r)) => Some(Object::U128(*l $op *r)),
-            (Object::Usize(l), Object::Usize(r)) => Some(Object::Usize(*l $op *r)),
-            _ => None,
-        }
-    };
-}
-
-/// Dispatches a checked shift operation across all 12 integer variants.
-///
-/// Returns `Option<Option<Object>>`:
-/// - outer `None`: operands are not the same integer type
-/// - inner `None`: shift amount too large
-macro_rules! int_shift {
-    ($left:expr, $right:expr, $method:ident) => {
-        match ($left, $right) {
-            (Object::I8(l), Object::I8(r)) => Some(l.$method(*r as u32).map(Object::I8)),
-            (Object::I16(l), Object::I16(r)) => Some(l.$method(*r as u32).map(Object::I16)),
-            (Object::I32(l), Object::I32(r)) => Some(l.$method(*r as u32).map(Object::I32)),
-            (Object::I64(l), Object::I64(r)) => Some(l.$method(*r as u32).map(Object::I64)),
-            (Object::I128(l), Object::I128(r)) => Some(l.$method(*r as u32).map(Object::I128)),
-            (Object::Isize(l), Object::Isize(r)) => Some(l.$method(*r as u32).map(Object::Isize)),
-            (Object::U8(l), Object::U8(r)) => Some(l.$method(*r as u32).map(Object::U8)),
-            (Object::U16(l), Object::U16(r)) => Some(l.$method(*r as u32).map(Object::U16)),
-            (Object::U32(l), Object::U32(r)) => Some(l.$method(*r as u32).map(Object::U32)),
-            (Object::U64(l), Object::U64(r)) => Some(l.$method(*r as u32).map(Object::U64)),
-            (Object::U128(l), Object::U128(r)) => Some(l.$method(*r as u32).map(Object::U128)),
-            (Object::Usize(l), Object::Usize(r)) => Some(l.$method(*r as u32).map(Object::Usize)),
-            _ => None,
-        }
-    };
-}
-
-/// Intermediate representation for type conversion.
-///
-/// All numeric source values are widened into one of these variants
-/// before narrowing to the target type, simplifying the conversion matrix.
-enum WideValue {
-    Int(i128),
-    Uint(u128),
-}
+use num::WideNum;
 
 /// A single call frame on the VM's frame stack.
 ///
@@ -717,7 +598,15 @@ impl VM {
             _ => None,
         };
         if let Some(maybe_val) = checked_result {
-            let val = maybe_val.ok_or_else(|| self.vm_error("integer arithmetic overflow"))?;
+            let val = maybe_val.ok_or_else(|| {
+                let msg = match op {
+                    Opcode::Div => "integer division by zero or overflow",
+                    Opcode::Mod => "integer modulo by zero or overflow",
+                    Opcode::Shl | Opcode::Shr => "shift amount exceeds type bit width",
+                    _ => "integer arithmetic overflow",
+                };
+                self.vm_error(msg)
+            })?;
             return self.push_stack(val);
         }
         let bitwise_result = match op {
@@ -840,22 +729,22 @@ impl VM {
 
     /// Extracts a widened value for conversion dispatch.
     ///
-    /// Integer types are widened to `WideValue::Int(i128)` or `WideValue::Uint(u128)`.
+    /// Integer types are widened to `WideNum::Int(i128)` or `WideNum::Uint(u128)`.
     /// Float types are preserved for float-specific conversion.
-    fn to_wide_value(&self, value: &Object) -> Result<WideValue> {
+    fn to_wide_value(&self, value: &Object) -> Result<WideNum> {
         match value {
-            Object::I8(v) => Ok(WideValue::Int(*v as i128)),
-            Object::I16(v) => Ok(WideValue::Int(*v as i128)),
-            Object::I32(v) => Ok(WideValue::Int(*v as i128)),
-            Object::I64(v) => Ok(WideValue::Int(*v as i128)),
-            Object::I128(v) => Ok(WideValue::Int(*v)),
-            Object::Isize(v) => Ok(WideValue::Int(*v as i128)),
-            Object::U8(v) => Ok(WideValue::Uint(*v as u128)),
-            Object::U16(v) => Ok(WideValue::Uint(*v as u128)),
-            Object::U32(v) => Ok(WideValue::Uint(*v as u128)),
-            Object::U64(v) => Ok(WideValue::Uint(*v as u128)),
-            Object::U128(v) => Ok(WideValue::Uint(*v)),
-            Object::Usize(v) => Ok(WideValue::Uint(*v as u128)),
+            Object::I8(v) => Ok(WideNum::Int(*v as i128)),
+            Object::I16(v) => Ok(WideNum::Int(*v as i128)),
+            Object::I32(v) => Ok(WideNum::Int(*v as i128)),
+            Object::I64(v) => Ok(WideNum::Int(*v as i128)),
+            Object::I128(v) => Ok(WideNum::Int(*v)),
+            Object::Isize(v) => Ok(WideNum::Int(*v as i128)),
+            Object::U8(v) => Ok(WideNum::Uint(*v as u128)),
+            Object::U16(v) => Ok(WideNum::Uint(*v as u128)),
+            Object::U32(v) => Ok(WideNum::Uint(*v as u128)),
+            Object::U64(v) => Ok(WideNum::Uint(*v as u128)),
+            Object::U128(v) => Ok(WideNum::Uint(*v)),
+            Object::Usize(v) => Ok(WideNum::Uint(*v as u128)),
             _ => Err(self.vm_error(format!(
                 "cannot cast {} to a numeric type",
                 value.type_name()
@@ -864,14 +753,14 @@ impl VM {
     }
 
     /// Narrows a wide value to a target integer type, rejecting out-of-range values.
-    fn narrow_int<T>(&self, wide: WideValue, type_name: &str) -> Result<T>
+    fn narrow_int<T>(&self, wide: WideNum, type_name: &str) -> Result<T>
     where
         T: TryFrom<i128> + TryFrom<u128>,
     {
         match wide {
-            WideValue::Int(v) => T::try_from(v)
+            WideNum::Int(v) => T::try_from(v)
                 .map_err(|_| self.vm_error(format!("value {v} out of range for {type_name}"))),
-            WideValue::Uint(v) => T::try_from(v)
+            WideNum::Uint(v) => T::try_from(v)
                 .map_err(|_| self.vm_error(format!("value {v} out of range for {type_name}"))),
         }
     }

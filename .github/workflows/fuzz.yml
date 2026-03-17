@@ -1,0 +1,56 @@
+name: Fuzz Testing
+
+on:
+    pull_request:
+        branches: [master, main]
+    schedule:
+        # Full overnight run at 02:00 UTC daily on main.
+        - cron: "0 2 * * *"
+
+env:
+    CARGO_TERM_COLOR: always
+
+jobs:
+    fuzz-pr:
+        name: Fuzz (PR —- 60s per target)
+        if: github.event_name == 'pull_request'
+        runs-on: ubuntu-latest
+        strategy:
+            matrix:
+                target:
+                    - fuzz_lexer
+                    - fuzz_parser
+                    - fuzz_typechecker
+                    - fuzz_compiler
+                    - fuzz_deserializer
+            fail-fast: false
+        steps:
+            - uses: actions/checkout@v4
+            - uses: dtolnay/rust-toolchain@nightly
+            - uses: Swatinem/rust-cache@v2
+            - name: Install cargo-fuzz
+              run: cargo install cargo-fuzz
+            - name: Run fuzz target (${{ matrix.target }}, 60s)
+              run: cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=60
+
+    fuzz-nightly:
+        name: Fuzz (nightly — 300s per target)
+        if: github.event_name == 'schedule'
+        runs-on: ubuntu-latest
+        strategy:
+            matrix:
+                target:
+                    - fuzz_lexer
+                    - fuzz_parser
+                    - fuzz_typechecker
+                    - fuzz_compiler
+                    - fuzz_deserializer
+            fail-fast: false
+        steps:
+            - uses: actions/checkout@v4
+            - uses: dtolnay/rust-toolchain@nightly
+            - uses: Swatinem/rust-cache@v2
+            - name: Install cargo-fuzz
+              run: cargo install cargo-fuzz
+            - name: Run fuzz target (${{ matrix.target }}, 300s)
+              run: cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=300

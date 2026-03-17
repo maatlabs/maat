@@ -1,0 +1,52 @@
+[package]
+name = "maat-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+maat_lexer = { path = "../compiler/maat_lexer" }
+maat_parser = { path = "../compiler/maat_parser" }
+maat_ast = { path = "../compiler/maat_ast" }
+maat_types = { path = "../compiler/maat_types" }
+maat_codegen = { path = "../compiler/maat_codegen" }
+maat_bytecode = { path = "../compiler/maat_bytecode" }
+
+[[bin]]
+name = "fuzz_lexer"
+path = "fuzz_targets/fuzz_lexer.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_parser"
+path = "fuzz_targets/fuzz_parser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_typechecker"
+path = "fuzz_targets/fuzz_typechecker.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_compiler"
+path = "fuzz_targets/fuzz_compiler.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_deserializer"
+path = "fuzz_targets/fuzz_deserializer.rs"
+test = false
+doc = false
+bench = false

@@ -23,6 +23,7 @@ maat_vm = { path = "../compiler/maat_vm" }
 [dev-dependencies]
 tempfile = "3"
 criterion = { version = "0.8", features = ["html_reports"] }
+proptest = "1"
 
 [[bench]]
 name = "benchmarks"

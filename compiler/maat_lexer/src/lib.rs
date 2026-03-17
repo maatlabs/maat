@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 mod lexer;
 mod num;
 pub mod token;

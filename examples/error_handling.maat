@@ -1,0 +1,115 @@
+// Result propagation, nested error matching, and function composition with fallible ops.
+
+// Fallible parsing: validate and convert a "numeric" string
+fn validate_positive(n: i64) -> Result<i64, str> {
+    if (n <= 0) {
+        Err("must be positive")
+    } else {
+        Ok(n)
+    }
+}
+
+fn validate_in_range(n: i64, lo: i64, hi: i64) -> Result<i64, str> {
+    if (n < lo) {
+        Err("below minimum")
+    } else if (n > hi) {
+        Err("above maximum")
+    } else {
+        Ok(n)
+    }
+}
+
+// Chain: validate positive, then validate range
+fn validate(n: i64) -> Result<i64, str> {
+    match validate_positive(n) {
+        Ok(v) => validate_in_range(v, 1, 100),
+        Err(e) => Err(e),
+    }
+}
+
+print(match validate(50) { Ok(v) => v, Err(e) => -1 });
+print(match validate(-5) { Ok(v) => v, Err(e) => -1 });
+print(match validate(200) { Ok(v) => v, Err(e) => -1 });
+
+// Deeply nested Result chaining: safe arithmetic pipeline
+fn safe_div(a: i64, b: i64) -> Result<i64, str> {
+    if (b == 0) {
+        Err("division by zero")
+    } else {
+        Ok(a / b)
+    }
+}
+
+fn safe_sub(a: i64, b: i64) -> Result<i64, str> {
+    if (a < b) {
+        Err("would underflow")
+    } else {
+        Ok(a - b)
+    }
+}
+
+// Pipeline: divide, then subtract, then divide again
+fn pipeline(a: i64, b: i64, c: i64, d: i64) -> Result<i64, str> {
+    match safe_div(a, b) {
+        Ok(v1) => match safe_sub(v1, c) {
+            Ok(v2) => safe_div(v2, d),
+            Err(e) => Err(e),
+        },
+        Err(e) => Err(e),
+    }
+}
+
+// 100 / 5 = 20, 20 - 8 = 12, 12 / 3 = 4
+print(match pipeline(100, 5, 8, 3) { Ok(v) => v, Err(e) => -1 });
+// Division by zero at first step
+print(match pipeline(100, 0, 8, 3) { Ok(v) => v, Err(e) => -1 });
+// Underflow at second step
+print(match pipeline(100, 50, 10, 3) { Ok(v) => v, Err(e) => -1 });
+
+// Error accumulation pattern: validate multiple fields
+struct Config {
+    width: i64,
+    height: i64,
+    depth: i64,
+}
+
+fn validate_config(c: Config) -> Result<i64, str> {
+    match validate_positive(c.width) {
+        Err(e) => Err("invalid width"),
+        Ok(w) => match validate_positive(c.height) {
+            Err(e) => Err("invalid height"),
+            Ok(h) => match validate_positive(c.depth) {
+                Err(e) => Err("invalid depth"),
+                Ok(d) => Ok(w * h * d),
+            },
+        },
+    }
+}
+
+let valid = Config { width: 5, height: 10, depth: 3 };
+let invalid = Config { width: 5, height: -2, depth: 3 };
+
+print(match validate_config(valid) { Ok(v) => v, Err(e) => -1 });
+print(match validate_config(invalid) { Ok(v) => v, Err(e) => -1 });
+
+// Option-to-Result conversion pattern
+fn lookup(arr, idx: i64) -> Option<i64> {
+    if (idx < 0) {
+        None
+    } else if (idx as usize >= arr.len()) {
+        None
+    } else {
+        Some(arr[idx])
+    }
+}
+
+fn require(opt: Option<i64>, msg: str) -> Result<i64, str> {
+    match opt {
+        Some(v) => Ok(v),
+        None => Err(msg),
+    }
+}
+
+let data = [10, 20, 30, 40, 50];
+print(match require(lookup(data, 2), "not found") { Ok(v) => v, Err(e) => -1 });
+print(match require(lookup(data, 99), "not found") { Ok(v) => v, Err(e) => -1 });

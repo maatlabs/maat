@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use std::path::PathBuf;
 
 use maat_span::Span;
@@ -223,6 +225,15 @@ pub enum CompileErrorKind {
 
     #[error("cannot re-assign to immutable variable `{name}`")]
     ImmutableAssignment { name: String },
+
+    #[error(
+        "enum `{name}` has {count} variants, exceeding the maximum of {max} (variant tags must fit in 8 bits)"
+    )]
+    VariantTagOverflow {
+        name: String,
+        count: usize,
+        max: usize,
+    },
 }
 
 impl CompileErrorKind {
@@ -329,6 +340,18 @@ pub enum SerializationError {
     /// An error occurred while decoding bytecode with postcard.
     #[error("bytecode decode error: {0}")]
     PostcardDecode(String),
+
+    /// The bytecode payload exceeds the maximum allowed size.
+    #[error("bytecode payload too large: {size} bytes exceeds {limit} byte limit")]
+    PayloadTooLarge { size: usize, limit: usize },
+
+    /// A deserialized field exceeds its allowed resource limit.
+    #[error("{field} too large: {size} exceeds limit of {limit}")]
+    ResourceLimitExceeded {
+        field: &'static str,
+        size: usize,
+        limit: usize,
+    },
 }
 
 /// A module resolution error with file context and source span.

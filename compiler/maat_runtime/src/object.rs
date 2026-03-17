@@ -2,7 +2,7 @@ use std::fmt;
 use std::rc::Rc;
 
 use indexmap::{IndexMap, IndexSet};
-use maat_ast::{BlockStmt, Node};
+use maat_ast::{BlockStmt, Node, Number, NumberKind};
 use maat_errors::{Error, EvalError, Result};
 use maat_span::SourceMap;
 use serde::{Deserialize, Serialize};
@@ -89,46 +89,77 @@ pub enum Object {
 }
 
 impl Object {
+    /// Converts a `Number` AST node into its corresponding runtime `Object`.
+    ///
+    /// The type checker validates that `lit.value` fits within the target type
+    /// before this function is called. The `TryFrom` conversions enforce this
+    /// invariant at runtime as a defense-in-depth measure, returning an error
+    /// rather than silently truncating if the value is out of range.
+    pub fn from_number_literal(lit: &Number) -> std::result::Result<Self, String> {
+        macro_rules! narrow {
+            ($variant:ident, $ty:ty) => {
+                <$ty>::try_from(lit.value)
+                    .map(Self::$variant)
+                    .map_err(|_| format!("{} out of range for {}", lit.value, stringify!($ty)))
+            };
+        }
+        match lit.kind {
+            NumberKind::I8 => narrow!(I8, i8),
+            NumberKind::I16 => narrow!(I16, i16),
+            NumberKind::I32 => narrow!(I32, i32),
+            NumberKind::I64 => narrow!(I64, i64),
+            NumberKind::I128 => Ok(Self::I128(lit.value)),
+            NumberKind::Isize => narrow!(Isize, isize),
+            NumberKind::U8 => narrow!(U8, u8),
+            NumberKind::U16 => narrow!(U16, u16),
+            NumberKind::U32 => narrow!(U32, u32),
+            NumberKind::U64 => narrow!(U64, u64),
+            NumberKind::U128 => narrow!(U128, u128),
+            NumberKind::Usize => narrow!(Usize, usize),
+        }
+    }
+
     /// Converts a runtime object back to an AST node.
     ///
     /// Used to splice evaluated values back into quoted code.
     pub fn to_ast_node(obj: &Self) -> Option<Node> {
-        use maat_ast::{self as ast, *};
+        use maat_ast::*;
         use maat_span::Span;
 
         macro_rules! convert_int {
-        ($($obj:ident => $ast_name:ident($ast_type:ident)),* $(,)?) => {
-            match obj {
-                $(
-                    Self::$obj(v) => Some(Node::Expr(Expr::$ast_name(ast::$ast_type {
-                        radix: Radix::Dec,
-                        value: *v,
+            ($($obj_variant:ident => $kind:ident),* $(,)?) => {
+                match obj {
+                    $(
+                        Self::$obj_variant(v) => Some(Node::Expr(Expr::Number(Number {
+                            kind: NumberKind::$kind,
+                            value: *v as i128,
+                            radix: Radix::Dec,
+                            span: Span::ZERO,
+                        }))),
+                    )*
+                    Self::Bool(b) => Some(Node::Expr(Expr::Bool(Bool {
+                        value: *b,
                         span: Span::ZERO,
                     }))),
-                )*
-                Self::Bool(b) => Some(Node::Expr(Expr::Bool(Bool {
-                    value: *b,
-                    span: Span::ZERO,
-                }))),
-                Self::Quote(q) => Some(q.node.clone()),
-                _ => None,
-            }
-        };
-    }
+                    Self::Quote(q) => Some(q.node.clone()),
+                    _ => None,
+                }
+            };
+        }
 
         convert_int!(
-            I8 => I8(I8),
-            I16 => I16(I16),
-            I32 => I32(I32),
-            I64 => I64(I64),
-            I128 => I128(I128),
-            Isize => Isize(Isize),
-            U8 => U8(U8),
-            U16 => U16(U16),
-            U32 => U32(U32),
-            U64 => U64(U64),
-            U128 => U128(U128),
-            Usize => Usize(Usize),
+            I8 => I8,
+            I16 => I16,
+            I32 => I32,
+            I64 => I64,
+            I128 => I128,
+            Isize => Isize,
+            U8 => U8,
+            U16 => U16,
+            U32 => U32,
+            U64 => U64,
+            U128 => U128,
+            Usize => Usize,
         )
     }
 

@@ -53,14 +53,14 @@ cargo run --release -- --version
 Compile and execute a Maat source file in a single step:
 
 ```bash
-cargo run --release -- run examples/fibonacci.maat
+cargo run --release -- run examples/hello_world.maat
 ```
 
 Or use the build-then-execute workflow for faster repeated execution:
 
 ```bash
-cargo run --release -- build examples/fibonacci.maat -o fibonacci.mtc
-cargo run --release -- exec fibonacci.mtc
+cargo run --release -- build examples/hello_world.maat -o hello_world.mtc
+cargo run --release -- exec hello_world.mtc
 ```
 
 ### Multi-Module Projects
@@ -216,7 +216,7 @@ Maat includes a Criterion-based benchmark suite for the bytecode VM:
 cargo bench -p maat_tests --bench benchmarks
 
 # Run specific benchmarks
-cargo bench -p maat_tests --bench benchmarks -- fibonacci
+cargo bench -p maat_tests --bench benchmarks -- hello_world
 
 # Save a baseline and compare after changes
 cargo bench -p maat_tests --bench benchmarks -- --save-baseline before
@@ -225,6 +225,39 @@ cargo bench -p maat_tests --bench benchmarks -- --baseline before
 ```
 
 HTML reports are generated at `target/criterion/report/index.html`.
+
+### Fuzz Testing
+
+Maat includes [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz) targets for each compiler pipeline stage. Fuzz testing requires the nightly Rust toolchain.
+
+```bash
+# Install cargo-fuzz (one-time)
+cargo install cargo-fuzz
+
+# List available fuzz targets
+cargo +nightly fuzz list
+
+# Run a specific target (e.g., 60-second bounded run)
+cargo +nightly fuzz run fuzz_lexer -- -max_total_time=60
+cargo +nightly fuzz run fuzz_parser -- -max_total_time=60
+cargo +nightly fuzz run fuzz_typechecker -- -max_total_time=60
+cargo +nightly fuzz run fuzz_compiler -- -max_total_time=60
+cargo +nightly fuzz run fuzz_deserializer -- -max_total_time=60
+```
+
+Crash artifacts (if any) are saved to `fuzz/artifacts/<target>/`. Seed corpora live in `fuzz/corpus/`.
+
+### Property-Based Testing
+
+Maat uses [proptest](https://github.com/proptest-rs/proptest) for property-based testing. These tests verify invariants (round-trip correctness, execution determinism, type soundness) over thousands of randomly generated programs.
+
+```bash
+# Run all property tests
+cargo test -p maat_tests --test properties
+
+# Run a specific property test
+cargo test -p maat_tests --test properties -- bytecode_roundtrip
+```
 
 ### Development
 
@@ -289,13 +322,17 @@ Licensed under either of [Apache License, Version 2.0](./LICENSE-APACHE) or [MIT
 
 Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in this codebase by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
 
+## Security
+
+All 13 crates enforce `#![forbid(unsafe_code)]`. The compiler and VM have been hardened against adversarial input with resource limits, checked arithmetic, and safe type conversions. See [`SECURITY.md`](./SECURITY.md) for the full threat model.
+
 ## Status
 
-Maat is currently at version 0.9 and is still going through several improvements in order to deliver the best-in-class experience as a fully-fledged Turing-complete ZK programming language.
+Maat is currently at version 0.10 and is still going through several improvements in order to deliver the best-in-class experience as a fully-fledged Turing-complete ZK programming language.
 
 ## Disclaimer
 
-Early adopters should be aware that Maat 0.9 is a transient accomplishment towards Maat 1.0, for which a formal audit process is expected. In the meantime, we invite you to know and experiment with Maat, but we don't recommend using it to build mission-critical systems.
+Early adopters should be aware that Maat 0.10 is a transient accomplishment towards Maat 1.0, for which a formal audit process is expected. In the meantime, we invite you to know and experiment with Maat, but we don't recommend using it to build mission-critical systems.
 
 ## Acknowledgments
 

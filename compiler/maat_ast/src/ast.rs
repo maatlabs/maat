@@ -140,21 +140,7 @@ pub struct ForStmt {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Expr {
     Ident(Ident),
-
-    I8(I8),
-    I16(I16),
-    I32(I32),
-    I64(I64),
-    I128(I128),
-    Isize(Isize),
-
-    U8(U8),
-    U16(U16),
-    U32(U32),
-    U64(U64),
-    U128(U128),
-    Usize(Usize),
-
+    Number(Number),
     Bool(Bool),
     Str(Str),
     Array(Array),
@@ -184,18 +170,7 @@ impl Expr {
     pub fn span(&self) -> Span {
         match self {
             Self::Ident(v) => v.span,
-            Self::I8(v) => v.span,
-            Self::I16(v) => v.span,
-            Self::I32(v) => v.span,
-            Self::I64(v) => v.span,
-            Self::I128(v) => v.span,
-            Self::Isize(v) => v.span,
-            Self::U8(v) => v.span,
-            Self::U16(v) => v.span,
-            Self::U32(v) => v.span,
-            Self::U64(v) => v.span,
-            Self::U128(v) => v.span,
-            Self::Usize(v) => v.span,
+            Self::Number(v) => v.span,
             Self::Bool(v) => v.span,
             Self::Str(v) => v.span,
             Self::Array(v) => v.span,
@@ -226,19 +201,7 @@ impl Expr {
     /// without requiring explicit suffixes or casts.
     pub fn is_integer_literal(&self) -> bool {
         match self {
-            Self::I8(_)
-            | Self::I16(_)
-            | Self::I32(_)
-            | Self::I64(_)
-            | Self::I128(_)
-            | Self::Isize(_)
-            | Self::U8(_)
-            | Self::U16(_)
-            | Self::U32(_)
-            | Self::U64(_)
-            | Self::U128(_)
-            | Self::Usize(_) => true,
-            // Negated literals: `-100` is `Prefix("-", I64(100))`
+            Self::Number(_) => true,
             Self::Prefix(prefix) if prefix.operator == "-" => prefix.operand.is_integer_literal(),
             _ => false,
         }
@@ -249,18 +212,7 @@ impl Expr {
     /// Returns the value as `i128` (wide enough for all integer types).
     pub fn extract_integer_value(&self) -> Option<i128> {
         match self {
-            Self::I8(lit) => Some(lit.value as i128),
-            Self::I16(lit) => Some(lit.value as i128),
-            Self::I32(lit) => Some(lit.value as i128),
-            Self::I64(lit) => Some(lit.value as i128),
-            Self::I128(lit) => Some(lit.value),
-            Self::Isize(lit) => Some(lit.value as i128),
-            Self::U8(lit) => Some(lit.value as i128),
-            Self::U16(lit) => Some(lit.value as i128),
-            Self::U32(lit) => Some(lit.value as i128),
-            Self::U64(lit) => Some(lit.value as i128),
-            Self::U128(lit) => Some(lit.value as i128),
-            Self::Usize(lit) => Some(lit.value as i128),
+            Self::Number(lit) => Some(lit.value),
             Self::Prefix(prefix) if prefix.operator == "-" => {
                 prefix.operand.extract_integer_value().map(|v| -v)
             }
@@ -290,6 +242,20 @@ pub struct Str {
     pub span: Span,
 }
 
+/// A numeric integer literal with type, value, radix, and span.
+///
+/// All integer literal types (i8..u128, isize, usize) are represented uniformly.
+/// The value is stored as `i128`, which is wide enough for all signed types and
+/// for unsigned values up to `i128::MAX`. The parser validates that the literal
+/// value fits within the target type's range before constructing this node.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Number {
+    pub kind: NumberKind,
+    pub value: i128,
+    pub radix: Radix,
+    pub span: Span,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Radix {
     Bin,
@@ -298,32 +264,68 @@ pub enum Radix {
     Hex,
 }
 
-/// Macro to generate integer type structs with radix support and native storage.
-macro_rules! define_int_type {
-    ($name:ident, $native:ty, $doc:expr) => {
-        #[doc = $doc]
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-        pub struct $name {
-            pub radix: Radix,
-            pub value: $native,
-            pub span: Span,
-        }
-    };
+/// Target integer type of a numeric literal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum NumberKind {
+    I8,
+    I16,
+    I32,
+    I64,
+    I128,
+    Isize,
+    U8,
+    U16,
+    U32,
+    U64,
+    U128,
+    Usize,
 }
 
-define_int_type!(I8, i8, "8-bit signed integer literal.");
-define_int_type!(I16, i16, "16-bit signed integer literal.");
-define_int_type!(I32, i32, "32-bit signed integer literal.");
-define_int_type!(I64, i64, "64-bit signed integer literal.");
-define_int_type!(I128, i128, "128-bit signed integer literal.");
-define_int_type!(Isize, isize, "Pointer-sized signed integer literal.");
+impl NumberKind {
+    /// Returns the type name as it appears in source code.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::I8 => "i8",
+            Self::I16 => "i16",
+            Self::I32 => "i32",
+            Self::I64 => "i64",
+            Self::I128 => "i128",
+            Self::Isize => "isize",
+            Self::U8 => "u8",
+            Self::U16 => "u16",
+            Self::U32 => "u32",
+            Self::U64 => "u64",
+            Self::U128 => "u128",
+            Self::Usize => "usize",
+        }
+    }
 
-define_int_type!(U8, u8, "8-bit unsigned integer literal.");
-define_int_type!(U16, u16, "16-bit unsigned integer literal.");
-define_int_type!(U32, u32, "32-bit unsigned integer literal.");
-define_int_type!(U64, u64, "64-bit unsigned integer literal.");
-define_int_type!(U128, u128, "128-bit unsigned integer literal.");
-define_int_type!(Usize, usize, "Pointer-sized unsigned integer literal.");
+    /// Returns `true` if this is a signed integer kind.
+    pub fn is_signed(self) -> bool {
+        matches!(
+            self,
+            Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::I128 | Self::Isize
+        )
+    }
+
+    /// Returns `true` if `value` fits within the range of `self`.
+    pub fn fits(&self, value: i128) -> bool {
+        match self {
+            Self::I8 => i8::try_from(value).is_ok(),
+            Self::I16 => i16::try_from(value).is_ok(),
+            Self::I32 => i32::try_from(value).is_ok(),
+            Self::I64 => i64::try_from(value).is_ok(),
+            Self::I128 => true,
+            Self::Isize => isize::try_from(value).is_ok(),
+            Self::U8 => u8::try_from(value).is_ok(),
+            Self::U16 => u16::try_from(value).is_ok(),
+            Self::U32 => u32::try_from(value).is_ok(),
+            Self::U64 => u64::try_from(value).is_ok(),
+            Self::U128 => u128::try_from(value).is_ok(),
+            Self::Usize => usize::try_from(value).is_ok(),
+        }
+    }
+}
 
 /// Arrays: `[expr, expr, ...]`
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

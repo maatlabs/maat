@@ -10,6 +10,7 @@
 //! Internally, macro bodies are evaluated using a tree-walking interpreter
 //! ([`eval`]) that is not exposed as a general-purpose execution API. Program
 //! execution is handled exclusively by the bytecode VM (`maat_vm`).
+#![forbid(unsafe_code)]
 
 mod interpreter;
 mod macros;

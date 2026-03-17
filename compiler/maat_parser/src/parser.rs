@@ -21,6 +21,10 @@ use maat_lexer::{Lexer, Span, Token, TokenKind};
 
 use crate::prec::{LOWEST, PREFIX, Precedence};
 
+/// Maximum nesting depth for expressions. Prevents stack overflow on
+/// deeply nested input like `(((((((...)))))))`  or `1+1+1+1+...`.
+const MAX_NESTING_DEPTH: usize = 256;
+
 /// A recursive descent parser that builds an AST from a token stream.
 ///
 /// The parser maintains two-token lookahead (`current` and `peek`) to enable
@@ -32,6 +36,7 @@ pub struct Parser<'a> {
     current: Token<'a>,
     peek: Token<'a>,
     errors: Vec<ParseError>,
+    nesting_depth: usize,
 }
 
 impl<'a> Parser<'a> {
@@ -55,6 +60,7 @@ impl<'a> Parser<'a> {
             peek: lexer.next_token(),
             lexer,
             errors: vec![],
+            nesting_depth: 0,
         }
     }
 
@@ -371,6 +377,9 @@ impl<'a> Parser<'a> {
 
         while self.peek_token_is(TokenKind::Comma) {
             self.next_token();
+            if self.peek_token_is(TokenKind::RBrace) {
+                break;
+            }
             if !self.expect_peek(TokenKind::Ident) {
                 return None;
             }
@@ -499,6 +508,20 @@ impl<'a> Parser<'a> {
     /// 2. While the next token's precedence is higher than `prec`,
     ///    consume it and parse an infix operation.
     fn parse_expression(&mut self, prec: u8) -> Option<Expr> {
+        self.nesting_depth += 1;
+        if self.nesting_depth > MAX_NESTING_DEPTH {
+            self.push_error(format!(
+                "expression nesting depth exceeds maximum of {MAX_NESTING_DEPTH}"
+            ));
+            self.nesting_depth -= 1;
+            return None;
+        }
+        let result = self.parse_expression_inner(prec);
+        self.nesting_depth -= 1;
+        result
+    }
+
+    fn parse_expression_inner(&mut self, prec: u8) -> Option<Expr> {
         let mut expr = match self.current.kind {
             TokenKind::Ident => self.parse_identifier()?,
 
@@ -737,30 +760,33 @@ impl<'a> Parser<'a> {
         let span = self.current.span;
 
         macro_rules! parse_int_type {
-            ($rust_ty:ty, $variant:ident) => {{
+            ($rust_ty:ty, $kind:expr) => {{
                 let (radix, value) = if let Some(bin) = literal
                     .strip_prefix("0b")
                     .or_else(|| literal.strip_prefix("0B"))
                 {
                     <$rust_ty>::from_str_radix(bin, 2)
                         .ok()
-                        .map(|v| (Radix::Bin, v))
+                        .map(|v| (Radix::Bin, v as i128))
                 } else if let Some(oct) = literal
                     .strip_prefix("0o")
                     .or_else(|| literal.strip_prefix("0O"))
                 {
                     <$rust_ty>::from_str_radix(oct, 8)
                         .ok()
-                        .map(|v| (Radix::Oct, v))
+                        .map(|v| (Radix::Oct, v as i128))
                 } else if let Some(hex) = literal
                     .strip_prefix("0x")
                     .or_else(|| literal.strip_prefix("0X"))
                 {
                     <$rust_ty>::from_str_radix(hex, 16)
                         .ok()
-                        .map(|v| (Radix::Hex, v))
+                        .map(|v| (Radix::Hex, v as i128))
                 } else {
-                    literal.parse::<$rust_ty>().ok().map(|v| (Radix::Dec, v))
+                    literal
+                        .parse::<$rust_ty>()
+                        .ok()
+                        .map(|v| (Radix::Dec, v as i128))
                 }
                 .or_else(|| {
                     self.push_error(format!(
@@ -771,23 +797,28 @@ impl<'a> Parser<'a> {
                     None
                 })?;
 
-                Expr::$variant($variant { radix, value, span })
+                Expr::Number(Number {
+                    kind: $kind,
+                    value,
+                    radix,
+                    span,
+                })
             }};
         }
 
         let expr = match token_kind {
-            TokenKind::I8 => parse_int_type!(i8, I8),
-            TokenKind::I16 => parse_int_type!(i16, I16),
-            TokenKind::I32 => parse_int_type!(i32, I32),
-            TokenKind::I64 => parse_int_type!(i64, I64),
-            TokenKind::I128 => parse_int_type!(i128, I128),
-            TokenKind::Isize => parse_int_type!(isize, Isize),
-            TokenKind::U8 => parse_int_type!(u8, U8),
-            TokenKind::U16 => parse_int_type!(u16, U16),
-            TokenKind::U32 => parse_int_type!(u32, U32),
-            TokenKind::U64 => parse_int_type!(u64, U64),
-            TokenKind::U128 => parse_int_type!(u128, U128),
-            TokenKind::Usize => parse_int_type!(usize, Usize),
+            TokenKind::I8 => parse_int_type!(i8, NumberKind::I8),
+            TokenKind::I16 => parse_int_type!(i16, NumberKind::I16),
+            TokenKind::I32 => parse_int_type!(i32, NumberKind::I32),
+            TokenKind::I64 => parse_int_type!(i64, NumberKind::I64),
+            TokenKind::I128 => parse_int_type!(i128, NumberKind::I128),
+            TokenKind::Isize => parse_int_type!(isize, NumberKind::Isize),
+            TokenKind::U8 => parse_int_type!(u8, NumberKind::U8),
+            TokenKind::U16 => parse_int_type!(u16, NumberKind::U16),
+            TokenKind::U32 => parse_int_type!(u32, NumberKind::U32),
+            TokenKind::U64 => parse_int_type!(u64, NumberKind::U64),
+            TokenKind::U128 => parse_int_type!(u128, NumberKind::U128),
+            TokenKind::Usize => parse_int_type!(usize, NumberKind::Usize),
             _ => unreachable!(),
         };
 
@@ -1712,6 +1743,9 @@ impl<'a> Parser<'a> {
 
         while self.peek_token_is(TokenKind::Comma) {
             self.next_token();
+            if self.peek_token_is(TokenKind::RParen) {
+                break;
+            }
             self.next_token();
             params.push(self.parse_method_param()?);
         }
@@ -1897,6 +1931,9 @@ impl<'a> Parser<'a> {
 
         while self.peek_token_is(TokenKind::Comma) {
             self.next_token();
+            if self.peek_token_is(TokenKind::RParen) {
+                break;
+            }
             self.next_token();
             identifiers.push(self.current.literal.to_string());
         }
@@ -1921,6 +1958,9 @@ impl<'a> Parser<'a> {
 
         while self.peek_token_is(TokenKind::Comma) {
             self.next_token();
+            if self.peek_token_is(TokenKind::RParen) {
+                break;
+            }
             self.next_token();
             params.push(self.parse_typed_param()?);
         }
@@ -2000,6 +2040,9 @@ impl<'a> Parser<'a> {
                     param_types.push(self.parse_type_expr()?);
                     while self.peek_token_is(TokenKind::Comma) {
                         self.next_token();
+                        if self.peek_token_is(TokenKind::RParen) {
+                            break;
+                        }
                         self.next_token();
                         param_types.push(self.parse_type_expr()?);
                     }
@@ -2025,6 +2068,9 @@ impl<'a> Parser<'a> {
                     let mut args = vec![self.parse_type_expr()?];
                     while self.peek_token_is(TokenKind::Comma) {
                         self.next_token();
+                        if self.peek_token_is(TokenKind::Greater) {
+                            break;
+                        }
                         self.next_token();
                         args.push(self.parse_type_expr()?);
                     }
@@ -2063,6 +2109,9 @@ impl<'a> Parser<'a> {
 
         while self.peek_token_is(TokenKind::Comma) {
             self.next_token();
+            if self.peek_token_is(TokenKind::Greater) {
+                break;
+            }
             self.next_token();
             params.push(self.parse_generic_param()?);
         }
@@ -2131,6 +2180,9 @@ impl<'a> Parser<'a> {
 
         while self.peek_token_is(TokenKind::Comma) {
             self.next_token();
+            if self.peek_token_is(end) {
+                break;
+            }
             self.next_token();
             list.push(self.parse_expression(LOWEST)?);
         }

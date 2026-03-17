@@ -35,7 +35,7 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
             }
             Stmt::ReAssign(assign) => {
                 let obj = eval(Node::Expr(assign.value), env)?;
-                env.set(assign.ident, &obj);
+                env.update(assign.ident, &obj);
                 Ok(obj)
             }
             Stmt::Return(rs) => {
@@ -64,19 +64,20 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
             | Stmt::Mod(_) => Ok(NULL),
         },
         Node::Expr(expr) => match expr {
-            Expr::I8(v) => Ok(Object::I8(v.value)),
-            Expr::I16(v) => Ok(Object::I16(v.value)),
-            Expr::I32(v) => Ok(Object::I32(v.value)),
-            Expr::I64(v) => Ok(Object::I64(v.value)),
-            Expr::I128(v) => Ok(Object::I128(v.value)),
-            Expr::Isize(v) => Ok(Object::Isize(v.value)),
-
-            Expr::U8(v) => Ok(Object::U8(v.value)),
-            Expr::U16(v) => Ok(Object::U16(v.value)),
-            Expr::U32(v) => Ok(Object::U32(v.value)),
-            Expr::U64(v) => Ok(Object::U64(v.value)),
-            Expr::U128(v) => Ok(Object::U128(v.value)),
-            Expr::Usize(v) => Ok(Object::Usize(v.value)),
+            Expr::Number(v) => Ok(match v.kind {
+                NumberKind::I8 => Object::I8(v.value as i8),
+                NumberKind::I16 => Object::I16(v.value as i16),
+                NumberKind::I32 => Object::I32(v.value as i32),
+                NumberKind::I64 => Object::I64(v.value as i64),
+                NumberKind::I128 => Object::I128(v.value),
+                NumberKind::Isize => Object::Isize(v.value as isize),
+                NumberKind::U8 => Object::U8(v.value as u8),
+                NumberKind::U16 => Object::U16(v.value as u16),
+                NumberKind::U32 => Object::U32(v.value as u32),
+                NumberKind::U64 => Object::U64(v.value as u64),
+                NumberKind::U128 => Object::U128(v.value as u128),
+                NumberKind::Usize => Object::Usize(v.value as usize),
+            }),
 
             Expr::Bool(b) => Ok(Object::Bool(b.value)),
             Expr::Str(s) => Ok(Object::Str(maat_ast::unescape_string(&s.value))),
@@ -179,9 +180,10 @@ fn eval_program(prog: Program, env: &Env) -> Result<Object> {
 }
 
 pub(crate) fn eval_block_statement(block: &BlockStmt, env: &Env) -> Result<Object> {
+    let block_env = Env::new_enclosed(env);
     let mut result = NULL;
     for stmt in &block.statements {
-        result = eval(Node::Stmt(stmt.clone()), env)?;
+        result = eval(Node::Stmt(stmt.clone()), &block_env)?;
         // Propagate control flow signals up to the enclosing loop or function.
         if matches!(
             result,
@@ -234,9 +236,10 @@ fn eval_for_statement(stmt: ForStmt, env: &Env) -> Result<Object> {
             .into());
         }
     };
+    let loop_env = Env::new_enclosed(env);
     for elem in elements {
-        env.set(stmt.ident.clone(), &elem);
-        let result = eval_block_statement(&stmt.body, env)?;
+        loop_env.set(stmt.ident.clone(), &elem);
+        let result = eval_block_statement(&stmt.body, &loop_env)?;
         match result {
             Object::Break(val) => return Ok(*val),
             Object::ReturnValue(_) => return Ok(result),

@@ -18,7 +18,7 @@
 
 use maat_errors::SerializationError;
 
-use crate::Bytecode;
+use crate::{Bytecode, MAX_CONSTANT_POOL_SIZE};
 
 /// Magic bytes identifying a Maat bytecode file.
 const MAAT_MAGIC: [u8; 4] = *b"MAAT";
@@ -29,6 +29,14 @@ const FORMAT_VERSION: u32 = 1;
 
 /// Header size in bytes (4-byte magic + 4-byte version).
 const HEADER_SIZE: usize = 4 + 4;
+
+/// Maximum payload size (16 MiB). Rejects absurdly large `.mtc` files before
+/// postcard attempts allocation-heavy deserialization.
+const MAX_PAYLOAD_SIZE: usize = 16 * 1024 * 1024;
+
+/// Maximum number of bytecode instructions (1M). Prevents malicious files from
+/// allocating huge instruction streams.
+const MAX_INSTRUCTION_COUNT: usize = 1_000_000;
 
 type Result<T> = std::result::Result<T, SerializationError>;
 
@@ -59,8 +67,8 @@ impl Bytecode {
     ///
     /// # Errors
     ///
-    /// Returns an error if the data is malformed: invalid magic bytes,
-    /// unsupported version, or a corrupted/truncated postcard payload.
+    /// Returns an error if the data is malformed, exceeds resource limits,
+    /// or contains an unsupported format version.
     pub fn deserialize(bytes: &[u8]) -> Result<Self> {
         if bytes.len() < HEADER_SIZE {
             return Err(SerializationError::UnexpectedEof {
@@ -77,8 +85,30 @@ impl Bytecode {
         if version != FORMAT_VERSION {
             return Err(SerializationError::UnsupportedVersion(version));
         }
-        postcard::from_bytes(&bytes[HEADER_SIZE..])
-            .map_err(|e| SerializationError::PostcardDecode(e.to_string()))
+        let payload = &bytes[HEADER_SIZE..];
+        if payload.len() > MAX_PAYLOAD_SIZE {
+            return Err(SerializationError::PayloadTooLarge {
+                size: payload.len(),
+                limit: MAX_PAYLOAD_SIZE,
+            });
+        }
+        let bc: Self = postcard::from_bytes(payload)
+            .map_err(|e| SerializationError::PostcardDecode(e.to_string()))?;
+        if bc.constants.len() > MAX_CONSTANT_POOL_SIZE {
+            return Err(SerializationError::ResourceLimitExceeded {
+                field: "constant pool",
+                size: bc.constants.len(),
+                limit: MAX_CONSTANT_POOL_SIZE,
+            });
+        }
+        if bc.instructions.len() > MAX_INSTRUCTION_COUNT {
+            return Err(SerializationError::ResourceLimitExceeded {
+                field: "instruction stream",
+                size: bc.instructions.len(),
+                limit: MAX_INSTRUCTION_COUNT,
+            });
+        }
+        Ok(bc)
     }
 }
 

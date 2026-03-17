@@ -1,10 +1,32 @@
+// modules example: multi-file program with pub/private, use imports, cross-module usage.
+
 mod geometry;
 mod math;
 
 use geometry::Point;
+use geometry::Rect;
 use math::add;
+use math::sum_of_squares;
 
+// Use imported struct and functions
+let origin = Point { x: 0, y: 0 };
 let p = Point { x: 3, y: 4 };
+
+print(p.sum());
+print(p.scale(2).x);
+print(p.scale(2).y);
+
+// Cross-module: use math functions with struct fields
 let total = add(p.x, p.y);
 print(total);
-print(p.sum());
+print(sum_of_squares(p.x, p.y));
+
+// Use Rect with Point
+let r = Rect { origin: origin, width: 10, height: 5 };
+print(r.area());
+print(r.perimeter());
+
+// Compose operations across modules
+let scaled = p.scale(3);
+let hyp_sq = sum_of_squares(scaled.x, scaled.y);
+print(hyp_sq);

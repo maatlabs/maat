@@ -20,6 +20,7 @@
 //! // Display as disassembly
 //! println!("{}", bytecode);
 //! ```
+#![forbid(unsafe_code)]
 
 use maat_runtime::{Object, TypeDef};
 use maat_span::SourceMap;
@@ -40,6 +41,13 @@ pub use opcode::{Opcode, TypeTag};
 /// 4 bytes (allowing up to 4,294,967,295 constants), but this comes with a
 /// bytecode size trade-off.
 pub const MAX_CONSTANT_POOL_SIZE: usize = u16::MAX as usize;
+
+/// Maximum number of variants an enum may have.
+///
+/// Variant tags are packed into the low 8 bits of the `Construct` instruction's
+/// type index operand (`type_index = (registry_index << 8) | variant_tag`),
+/// limiting tags to the range `0..=255`.
+pub const MAX_ENUM_VARIANTS: usize = 256;
 
 /// Maximum number of elements that can be pushed onto the VM's stack.
 pub const MAX_STACK_SIZE: usize = 2048;

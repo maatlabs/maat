@@ -135,49 +135,6 @@ fn parse_mod_stmt() {
 }
 
 #[test]
-fn parse_identifier_expression() {
-    let program = parse("foobar;");
-    let Stmt::Expr(ExprStmt {
-        value: Expr::Ident(ident),
-        ..
-    }) = expect_single_stmt(&program)
-    else {
-        panic!("expected identifier expression");
-    };
-    assert_eq!(ident.value, "foobar");
-}
-
-#[test]
-fn parse_integer_literal_expression() {
-    let program = parse("5;");
-    let Stmt::Expr(ExprStmt {
-        value: Expr::I64(I64 { value, .. }),
-        ..
-    }) = expect_single_stmt(&program)
-    else {
-        panic!("expected I64 expression");
-    };
-    assert_eq!(*value, 5);
-}
-
-#[test]
-fn parse_boolean_expression() {
-    [("true;", true), ("false;", false)]
-        .iter()
-        .for_each(|(input, expected)| {
-            let program = parse(input);
-            let Stmt::Expr(ExprStmt {
-                value: Expr::Bool(value),
-                ..
-            }) = expect_single_stmt(&program)
-            else {
-                panic!("expected Boolean expression");
-            };
-            assert_eq!(value.value, *expected);
-        });
-}
-
-#[test]
 fn parse_prefix_expressions() {
     [
         ("!5;", "!", "5"),
@@ -349,14 +306,14 @@ fn parse_non_decimal_literals() {
         .for_each(|(input, expected)| {
             let program = parse(input);
             let Stmt::Expr(ExprStmt {
-                value: Expr::I64(int64),
+                value: Expr::Number(num),
                 ..
             }) = expect_single_stmt(&program)
             else {
-                panic!("expected I64 expression");
+                panic!("expected Number expression");
             };
-            assert_eq!(int64.radix, Radix::Bin);
-            assert_eq!(int64.value, *expected, "input: {}", input);
+            assert_eq!(num.radix, Radix::Bin);
+            assert_eq!(num.value, *expected, "input: {input}");
         });
     // Octal
     [("0o755;", 493), ("0O644;", 420), ("0o0;", 0)]
@@ -364,14 +321,14 @@ fn parse_non_decimal_literals() {
         .for_each(|(input, expected)| {
             let program = parse(input);
             let Stmt::Expr(ExprStmt {
-                value: Expr::I64(int64),
+                value: Expr::Number(num),
                 ..
             }) = expect_single_stmt(&program)
             else {
-                panic!("expected I64 expression");
+                panic!("expected Number expression");
             };
-            assert_eq!(int64.radix, Radix::Oct);
-            assert_eq!(int64.value, *expected, "input: {}", input);
+            assert_eq!(num.radix, Radix::Oct);
+            assert_eq!(num.value, *expected, "input: {input}");
         });
     // Hex
     [("0xff;", 255), ("0xFF;", 255), ("0xDEAD;", 57005)]
@@ -379,14 +336,14 @@ fn parse_non_decimal_literals() {
         .for_each(|(input, expected)| {
             let program = parse(input);
             let Stmt::Expr(ExprStmt {
-                value: Expr::I64(int64),
+                value: Expr::Number(num),
                 ..
             }) = expect_single_stmt(&program)
             else {
-                panic!("expected I64 expression");
+                panic!("expected Number expression");
             };
-            assert_eq!(int64.radix, Radix::Hex);
-            assert_eq!(int64.value, *expected, "input: {}", input);
+            assert_eq!(num.radix, Radix::Hex);
+            assert_eq!(num.value, *expected, "input: {input}");
         });
 }
 
@@ -394,51 +351,51 @@ fn parse_non_decimal_literals() {
 fn parse_rust_style_suffixes() {
     let program = parse("123i64;");
     let Stmt::Expr(ExprStmt {
-        value: Expr::I64(i64_lit),
+        value: Expr::Number(num),
         ..
     }) = expect_single_stmt(&program)
     else {
-        panic!("expected I64 expression");
+        panic!("expected Number expression");
     };
-    assert_eq!(i64_lit.value, 123);
+    assert_eq!(num.value, 123);
 }
 
 #[test]
 fn parse_operator_precedence() {
     [
-        ("-a * b", "((-a) * b)"),
-        ("!-a", "(!(-a))"),
-        ("a + b + c", "((a + b) + c)"),
-        ("a + b - c", "((a + b) - c)"),
-        ("a * b * c", "((a * b) * c)"),
-        ("a * b / c", "((a * b) / c)"),
-        ("a + b / c", "(a + (b / c))"),
-        ("a + b * c + d / e - f", "(((a + (b * c)) + (d / e)) - f)"),
-        ("3 + 4; -5 * 5", "(3 + 4)((-5) * 5)"),
-        ("5 > 4 == 3 < 4", "((5 > 4) == (3 < 4))"),
-        ("5 < 4 != 3 > 4", "((5 < 4) != (3 > 4))"),
+        ("-a * b", "((-a) * b);"),
+        ("!-a", "(!(-a));"),
+        ("a + b + c", "((a + b) + c);"),
+        ("a + b - c", "((a + b) - c);"),
+        ("a * b * c", "((a * b) * c);"),
+        ("a * b / c", "((a * b) / c);"),
+        ("a + b / c", "(a + (b / c));"),
+        ("a + b * c + d / e - f", "(((a + (b * c)) + (d / e)) - f);"),
+        ("3 + 4; -5 * 5", "(3 + 4);((-5) * 5);"),
+        ("5 > 4 == 3 < 4", "((5 > 4) == (3 < 4));"),
+        ("5 < 4 != 3 > 4", "((5 < 4) != (3 > 4));"),
         (
             "3 + 4 * 5 == 3 * 1 + 4 * 5",
-            "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))",
+            "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)));",
         ),
-        ("true", "true"),
-        ("false", "false"),
-        ("3 > 5 == false", "((3 > 5) == false)"),
-        ("3 < 5 == true", "((3 < 5) == true)"),
-        ("1 + (2 + 3) + 4", "((1 + (2 + 3)) + 4)"),
-        ("(5 + 5) * 2", "((5 + 5) * 2)"),
-        ("2 / (5 + 5)", "(2 / (5 + 5))"),
-        ("(5 + 5) * 2 * (5 + 5)", "(((5 + 5) * 2) * (5 + 5))"),
-        ("-(5 + 5)", "(-(5 + 5))"),
-        ("!(true == true)", "(!(true == true))"),
-        ("a + add(b * c) + d", "((a + add((b * c))) + d)"),
+        ("true", "true;"),
+        ("false", "false;"),
+        ("3 > 5 == false", "((3 > 5) == false);"),
+        ("3 < 5 == true", "((3 < 5) == true);"),
+        ("1 + (2 + 3) + 4", "((1 + (2 + 3)) + 4);"),
+        ("(5 + 5) * 2", "((5 + 5) * 2);"),
+        ("2 / (5 + 5)", "(2 / (5 + 5));"),
+        ("(5 + 5) * 2 * (5 + 5)", "(((5 + 5) * 2) * (5 + 5));"),
+        ("-(5 + 5)", "(-(5 + 5));"),
+        ("!(true == true)", "(!(true == true));"),
+        ("a + add(b * c) + d", "((a + add((b * c))) + d);"),
         (
             "add(a, b, 1, 2 * 3, 4 + 5, add(6, 7 * 8))",
-            "add(a, b, 1, (2 * 3), (4 + 5), add(6, (7 * 8)))",
+            "add(a, b, 1, (2 * 3), (4 + 5), add(6, (7 * 8)));",
         ),
         (
             "add(a + b + c * d / f + g)",
-            "add((((a + b) + ((c * d) / f)) + g))",
+            "add((((a + b) + ((c * d) / f)) + g));",
         ),
     ]
     .iter()
@@ -463,7 +420,7 @@ fn parse_conditionals() {
     };
     assert_eq!(infix.to_string(), "(x < y)");
     assert_eq!(cond.consequence.statements.len(), 1);
-    assert_eq!(cond.consequence.statements[0].to_string(), "x");
+    assert_eq!(cond.consequence.statements[0].to_string(), "x;");
     assert!(cond.alternative.is_none());
 
     // If with else
@@ -476,10 +433,10 @@ fn parse_conditionals() {
         panic!("expected Cond expression");
     };
     assert_eq!(cond.condition.to_string(), "(x < y)");
-    assert_eq!(cond.consequence.statements[0].to_string(), "x");
+    assert_eq!(cond.consequence.statements[0].to_string(), "x;");
     assert_eq!(
         cond.alternative.as_ref().unwrap().statements[0].to_string(),
-        "y"
+        "y;"
     );
 }
 
@@ -496,7 +453,7 @@ fn parse_functions() {
     };
     assert_eq!(func.param_names().collect::<Vec<_>>(), vec!["x", "y"]);
     assert_eq!(func.body.statements.len(), 1);
-    assert_eq!(func.body.statements[0].to_string(), "(x + y)");
+    assert_eq!(func.body.statements[0].to_string(), "(x + y);");
 
     // Function parameter variations
     [
@@ -582,7 +539,7 @@ fn parse_loops() {
         panic!("expected Loop statement");
     };
     assert_eq!(loop_stmt.body.statements.len(), 1);
-    assert_eq!(loop_stmt.body.statements[0].to_string(), "1");
+    assert_eq!(loop_stmt.body.statements[0].to_string(), "1;");
 
     // While
     let program = parse("while (x < 10) { x; }");
@@ -591,7 +548,7 @@ fn parse_loops() {
     };
     assert_eq!(while_stmt.condition.to_string(), "(x < 10)");
     assert_eq!(while_stmt.body.statements.len(), 1);
-    assert_eq!(while_stmt.body.statements[0].to_string(), "x");
+    assert_eq!(while_stmt.body.statements[0].to_string(), "x;");
 
     // For
     let program = parse("for x in [1, 2, 3] { x; }");
@@ -601,7 +558,7 @@ fn parse_loops() {
     assert_eq!(for_stmt.ident, "x");
     assert_eq!(for_stmt.iterable.to_string(), "[1, 2, 3]");
     assert_eq!(for_stmt.body.statements.len(), 1);
-    assert_eq!(for_stmt.body.statements[0].to_string(), "x");
+    assert_eq!(for_stmt.body.statements[0].to_string(), "x;");
 }
 
 #[test]

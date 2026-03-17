@@ -43,17 +43,11 @@ impl TypeChecker {
     }
 
     /// Returns a reference to the type environment.
-    ///
-    /// Used by the module orchestrator to extract public exports
-    /// after type checking completes.
     pub fn env(&self) -> &TypeEnv {
         &self.env
     }
 
     /// Returns a mutable reference to the type environment.
-    ///
-    /// Used by the module orchestrator to inject imported type
-    /// definitions before type checking begins.
     pub fn env_mut(&mut self) -> &mut TypeEnv {
         &mut self.env
     }
@@ -467,121 +461,33 @@ impl TypeChecker {
     /// (e.g., inserting promotion casts on infix operands).
     fn infer_expression(&mut self, expr: &mut Expr) -> Type {
         match expr {
-            Expr::I8(_) => Type::I8,
-            Expr::I16(_) => Type::I16,
-            Expr::I32(_) => Type::I32,
-            Expr::I64(_) => Type::I64,
-            Expr::I128(_) => Type::I128,
-            Expr::Isize(_) => Type::Isize,
-            Expr::U8(_) => Type::U8,
-            Expr::U16(_) => Type::U16,
-            Expr::U32(_) => Type::U32,
-            Expr::U64(_) => Type::U64,
-            Expr::U128(_) => Type::U128,
-            Expr::Usize(_) => Type::Usize,
+            Expr::Number(lit) => match lit.kind {
+                NumberKind::I8 => Type::I8,
+                NumberKind::I16 => Type::I16,
+                NumberKind::I32 => Type::I32,
+                NumberKind::I64 => Type::I64,
+                NumberKind::I128 => Type::I128,
+                NumberKind::Isize => Type::Isize,
+                NumberKind::U8 => Type::U8,
+                NumberKind::U16 => Type::U16,
+                NumberKind::U32 => Type::U32,
+                NumberKind::U64 => Type::U64,
+                NumberKind::U128 => Type::U128,
+                NumberKind::Usize => Type::Usize,
+            },
             Expr::Bool(_) => Type::Bool,
             Expr::Str(_) => Type::String,
             Expr::Ident(ident) => self
                 .env
                 .instantiate(&ident.value, &self.subst)
+                .or_else(|| self.resolve_bare_variant(&ident.value))
                 .unwrap_or_else(|| self.env.fresh_var()),
-            Expr::Array(array) => {
-                if array.elements.is_empty() {
-                    let elem = self.env.fresh_var();
-                    Type::Array(Box::new(elem))
-                } else {
-                    let first = self.infer_expression(&mut array.elements[0]);
-                    for elem in &mut array.elements[1..] {
-                        let elem_ty = self.infer_expression(elem);
-                        if let Err(e) = self.subst.unify(&first, &elem_ty) {
-                            self.report_unify_error(e, elem.span());
-                        }
-                    }
-                    Type::Array(Box::new(self.subst.apply(&first)))
-                }
-            }
-            Expr::Map(hash) => {
-                if hash.pairs.is_empty() {
-                    let k = self.env.fresh_var();
-                    let v = self.env.fresh_var();
-                    Type::Hash(Box::new(k), Box::new(v))
-                } else {
-                    let (first_k, first_v) = {
-                        let k = self.infer_expression(&mut hash.pairs[0].0);
-                        let v = self.infer_expression(&mut hash.pairs[0].1);
-                        (k, v)
-                    };
-                    for (k_expr, v_expr) in &mut hash.pairs[1..] {
-                        let k = self.infer_expression(k_expr);
-                        let v = self.infer_expression(v_expr);
-                        if let Err(e) = self.subst.unify(&first_k, &k) {
-                            self.report_unify_error(e, k_expr.span());
-                        }
-                        if let Err(e) = self.subst.unify(&first_v, &v) {
-                            self.report_unify_error(e, v_expr.span());
-                        }
-                    }
-                    Type::Hash(
-                        Box::new(self.subst.apply(&first_k)),
-                        Box::new(self.subst.apply(&first_v)),
-                    )
-                }
-            }
-            Expr::Index(idx) => {
-                let collection = self.infer_expression(&mut idx.expr);
-                let _index_ty = self.infer_expression(&mut idx.index);
-                let resolved = self.subst.apply(&collection);
-                match resolved {
-                    Type::Array(elem) => *elem,
-                    Type::Hash(_, v) => *v,
-                    _ => self.env.fresh_var(),
-                }
-            }
-            Expr::Prefix(prefix) => {
-                let operand_ty = self.infer_expression(&mut prefix.operand);
-                let resolved = self.subst.apply(&operand_ty);
-                match prefix.operator.as_str() {
-                    "!" => {
-                        self.require_bool(&resolved, prefix.span);
-                        Type::Bool
-                    }
-                    "-" => {
-                        if !resolved.is_integer() && !matches!(resolved, Type::Var(_)) {
-                            self.errors.push(
-                                TypeErrorKind::Mismatch {
-                                    expected: "numeric".to_string(),
-                                    found: resolved.to_string(),
-                                }
-                                .at(prefix.span),
-                            );
-                        }
-                        resolved
-                    }
-                    _ => self.env.fresh_var(),
-                }
-            }
+            Expr::Array(array) => self.infer_array(array),
+            Expr::Map(hash) => self.infer_map(hash),
+            Expr::Index(idx) => self.infer_index(idx),
+            Expr::Prefix(prefix) => self.infer_prefix(prefix),
             Expr::Infix(infix) => self.check_infix(infix),
-            Expr::Cond(cond) => {
-                let cond_ty = self.infer_expression(&mut cond.condition);
-                let cond_resolved = self.subst.apply(&cond_ty);
-                self.require_bool(&cond_resolved, cond.condition.span());
-
-                self.env.push_scope();
-                let cons_ty = self.infer_block(&mut cond.consequence);
-                self.env.pop_scope();
-
-                if let Some(alt) = &mut cond.alternative {
-                    self.env.push_scope();
-                    let alt_ty = self.infer_block(alt);
-                    self.env.pop_scope();
-                    if let Err(e) = self.subst.unify(&cons_ty, &alt_ty) {
-                        self.report_unify_error(e, cond.span);
-                    }
-                    self.subst.apply(&cons_ty)
-                } else {
-                    cons_ty
-                }
-            }
+            Expr::Cond(cond) => self.infer_conditional(cond),
             Expr::Lambda(lambda) => self.infer_fn_body(
                 &lambda.generic_params,
                 &lambda.params,
@@ -589,60 +495,7 @@ impl TypeChecker {
                 &mut lambda.body,
                 lambda.span,
             ),
-            Expr::Call(call) => {
-                let func_ty = self.infer_expression(&mut call.function);
-                let resolved = self.subst.apply(&func_ty);
-                let arg_types = call
-                    .arguments
-                    .iter_mut()
-                    .map(|a| self.infer_expression(a))
-                    .collect::<Vec<Type>>();
-                match resolved {
-                    Type::Function(fn_ty) => {
-                        if fn_ty.params.len() != arg_types.len() {
-                            self.errors.push(
-                                TypeErrorKind::WrongArity {
-                                    expected: fn_ty.params.len(),
-                                    found: arg_types.len(),
-                                }
-                                .at(call.span),
-                            );
-                        } else {
-                            for (param, arg) in fn_ty.params.iter().zip(arg_types.iter()) {
-                                let p = self.subst.apply(param);
-                                let a = self.subst.apply(arg);
-                                if p.is_integer()
-                                    && a.is_integer()
-                                    && p != a
-                                    && promote::common_numeric_type(&p, &a).is_ok()
-                                {
-                                    continue;
-                                }
-                                if let Err(e) = self.subst.unify(&p, &a) {
-                                    self.report_unify_error(e, call.span);
-                                }
-                            }
-                        }
-                        self.subst.apply(&fn_ty.ret)
-                    }
-                    Type::Var(_) => {
-                        let ret = self.env.fresh_var();
-                        let expected_fn = Type::Function(FnType {
-                            params: arg_types,
-                            ret: Box::new(ret.clone()),
-                        });
-                        if let Err(e) = self.subst.unify(&resolved, &expected_fn) {
-                            self.report_unify_error(e, call.span);
-                        }
-                        self.subst.apply(&ret)
-                    }
-                    _ => {
-                        self.errors
-                            .push(TypeErrorKind::NotCallable(resolved.to_string()).at(call.span));
-                        self.env.fresh_var()
-                    }
-                }
-            }
+            Expr::Call(call) => self.check_call_expr(call),
             Expr::Cast(cast) => {
                 self.infer_expression(&mut cast.expr);
                 Type::from_type_annotation(&cast.target)
@@ -660,24 +513,189 @@ impl TypeChecker {
             Expr::MethodCall(method_call) => self.check_method_call(method_call),
             Expr::StructLit(struct_lit) => self.check_struct_literal(struct_lit),
             Expr::PathExpr(path_expr) => self.check_path_expr(path_expr),
-            Expr::Range(range) => {
-                let start_ty = self.infer_expression(&mut range.start);
-                let end_ty = self.infer_expression(&mut range.end);
-                let start_resolved = self.subst.apply(&start_ty);
-                let end_resolved = self.subst.apply(&end_ty);
-                if let Err(e) = self.subst.unify(&start_resolved, &end_resolved) {
-                    self.report_unify_error(e, range.span);
+            Expr::Range(range) => self.infer_range(range),
+        }
+    }
+
+    /// Infers the element type of an array literal.
+    fn infer_array(&mut self, array: &mut Array) -> Type {
+        if array.elements.is_empty() {
+            let elem = self.env.fresh_var();
+            Type::Array(Box::new(elem))
+        } else {
+            let first = self.infer_expression(&mut array.elements[0]);
+            for elem in &mut array.elements[1..] {
+                let elem_ty = self.infer_expression(elem);
+                if let Err(e) = self.subst.unify(&first, &elem_ty) {
+                    self.report_unify_error(e, elem.span());
                 }
-                if !start_resolved.is_integer() && !matches!(start_resolved, Type::Var(_)) {
+            }
+            Type::Array(Box::new(self.subst.apply(&first)))
+        }
+    }
+
+    /// Infers the key and value types of a map literal.
+    fn infer_map(&mut self, hash: &mut Map) -> Type {
+        if hash.pairs.is_empty() {
+            let k = self.env.fresh_var();
+            let v = self.env.fresh_var();
+            Type::Hash(Box::new(k), Box::new(v))
+        } else {
+            let (first_k, first_v) = {
+                let k = self.infer_expression(&mut hash.pairs[0].0);
+                let v = self.infer_expression(&mut hash.pairs[0].1);
+                (k, v)
+            };
+            for (k_expr, v_expr) in &mut hash.pairs[1..] {
+                let k = self.infer_expression(k_expr);
+                let v = self.infer_expression(v_expr);
+                if let Err(e) = self.subst.unify(&first_k, &k) {
+                    self.report_unify_error(e, k_expr.span());
+                }
+                if let Err(e) = self.subst.unify(&first_v, &v) {
+                    self.report_unify_error(e, v_expr.span());
+                }
+            }
+            Type::Hash(
+                Box::new(self.subst.apply(&first_k)),
+                Box::new(self.subst.apply(&first_v)),
+            )
+        }
+    }
+
+    /// Infers the result type of an index expression (`expr[index]`).
+    fn infer_index(&mut self, idx: &mut IndexExpr) -> Type {
+        let collection = self.infer_expression(&mut idx.expr);
+        let _index_ty = self.infer_expression(&mut idx.index);
+        let resolved = self.subst.apply(&collection);
+        match resolved {
+            Type::Array(elem) => *elem,
+            Type::Hash(_, v) => *v,
+            _ => self.env.fresh_var(),
+        }
+    }
+
+    /// Infers the result type of a prefix (unary) expression.
+    fn infer_prefix(&mut self, prefix: &mut PrefixExpr) -> Type {
+        let operand_ty = self.infer_expression(&mut prefix.operand);
+        let resolved = self.subst.apply(&operand_ty);
+        match prefix.operator.as_str() {
+            "!" => {
+                self.require_bool(&resolved, prefix.span);
+                Type::Bool
+            }
+            "-" => {
+                if !resolved.is_integer() && !matches!(resolved, Type::Var(_)) {
                     self.errors.push(
                         TypeErrorKind::Mismatch {
-                            expected: "integer".to_string(),
-                            found: start_resolved.to_string(),
+                            expected: "numeric".to_string(),
+                            found: resolved.to_string(),
                         }
-                        .at(range.span),
+                        .at(prefix.span),
                     );
                 }
-                Type::Range(Box::new(self.subst.apply(&start_resolved)))
+                resolved
+            }
+            _ => self.env.fresh_var(),
+        }
+    }
+
+    /// Infers the result type of an `if`/`else` conditional expression.
+    fn infer_conditional(&mut self, cond: &mut CondExpr) -> Type {
+        let cond_ty = self.infer_expression(&mut cond.condition);
+        let cond_resolved = self.subst.apply(&cond_ty);
+        self.require_bool(&cond_resolved, cond.condition.span());
+
+        self.env.push_scope();
+        let cons_ty = self.infer_block(&mut cond.consequence);
+        self.env.pop_scope();
+
+        if let Some(alt) = &mut cond.alternative {
+            self.env.push_scope();
+            let alt_ty = self.infer_block(alt);
+            self.env.pop_scope();
+            if let Err(e) = self.subst.unify(&cons_ty, &alt_ty) {
+                self.report_unify_error(e, cond.span);
+            }
+            self.subst.apply(&cons_ty)
+        } else {
+            cons_ty
+        }
+    }
+
+    /// Infers the type of a range expression (`start..end` or `start..=end`).
+    fn infer_range(&mut self, range: &mut RangeExpr) -> Type {
+        let start_ty = self.infer_expression(&mut range.start);
+        let end_ty = self.infer_expression(&mut range.end);
+        let start_resolved = self.subst.apply(&start_ty);
+        let end_resolved = self.subst.apply(&end_ty);
+        if let Err(e) = self.subst.unify(&start_resolved, &end_resolved) {
+            self.report_unify_error(e, range.span);
+        }
+        if !start_resolved.is_integer() && !matches!(start_resolved, Type::Var(_)) {
+            self.errors.push(
+                TypeErrorKind::Mismatch {
+                    expected: "integer".to_string(),
+                    found: start_resolved.to_string(),
+                }
+                .at(range.span),
+            );
+        }
+        Type::Range(Box::new(self.subst.apply(&start_resolved)))
+    }
+
+    /// Type-checks a function call expression.
+    fn check_call_expr(&mut self, call: &mut CallExpr) -> Type {
+        let func_ty = self.infer_expression(&mut call.function);
+        let resolved = self.subst.apply(&func_ty);
+        let arg_types = call
+            .arguments
+            .iter_mut()
+            .map(|a| self.infer_expression(a))
+            .collect::<Vec<Type>>();
+        match resolved {
+            Type::Function(fn_ty) => {
+                if fn_ty.params.len() != arg_types.len() {
+                    self.errors.push(
+                        TypeErrorKind::WrongArity {
+                            expected: fn_ty.params.len(),
+                            found: arg_types.len(),
+                        }
+                        .at(call.span),
+                    );
+                } else {
+                    for (param, arg) in fn_ty.params.iter().zip(arg_types.iter()) {
+                        let p = self.subst.apply(param);
+                        let a = self.subst.apply(arg);
+                        if p.is_integer()
+                            && a.is_integer()
+                            && p != a
+                            && promote::common_numeric_type(&p, &a).is_ok()
+                        {
+                            continue;
+                        }
+                        if let Err(e) = self.subst.unify(&p, &a) {
+                            self.report_unify_error(e, call.span);
+                        }
+                    }
+                }
+                self.subst.apply(&fn_ty.ret)
+            }
+            Type::Var(_) => {
+                let ret = self.env.fresh_var();
+                let expected_fn = Type::Function(FnType {
+                    params: arg_types,
+                    ret: Box::new(ret.clone()),
+                });
+                if let Err(e) = self.subst.unify(&resolved, &expected_fn) {
+                    self.report_unify_error(e, call.span);
+                }
+                self.subst.apply(&ret)
+            }
+            _ => {
+                self.errors
+                    .push(TypeErrorKind::NotCallable(resolved.to_string()).at(call.span));
+                self.env.fresh_var()
             }
         }
     }
@@ -987,18 +1005,20 @@ impl TypeChecker {
     /// Infers the type of a literal expression used in a pattern context.
     fn infer_literal_pattern_type(&self, expr: &Expr) -> Type {
         match expr {
-            Expr::I8(_) => Type::I8,
-            Expr::I16(_) => Type::I16,
-            Expr::I32(_) => Type::I32,
-            Expr::I64(_) => Type::I64,
-            Expr::I128(_) => Type::I128,
-            Expr::Isize(_) => Type::Isize,
-            Expr::U8(_) => Type::U8,
-            Expr::U16(_) => Type::U16,
-            Expr::U32(_) => Type::U32,
-            Expr::U64(_) => Type::U64,
-            Expr::U128(_) => Type::U128,
-            Expr::Usize(_) => Type::Usize,
+            Expr::Number(lit) => match lit.kind {
+                NumberKind::I8 => Type::I8,
+                NumberKind::I16 => Type::I16,
+                NumberKind::I32 => Type::I32,
+                NumberKind::I64 => Type::I64,
+                NumberKind::I128 => Type::I128,
+                NumberKind::Isize => Type::Isize,
+                NumberKind::U8 => Type::U8,
+                NumberKind::U16 => Type::U16,
+                NumberKind::U32 => Type::U32,
+                NumberKind::U64 => Type::U64,
+                NumberKind::U128 => Type::U128,
+                NumberKind::Usize => Type::Usize,
+            },
             Expr::Bool(_) => Type::Bool,
             Expr::Str(_) => Type::String,
             _ => Type::Null,
@@ -1143,6 +1163,39 @@ impl TypeChecker {
                     );
                 }
             }
+        }
+    }
+
+    /// Resolves a bare identifier as an enum variant constructor.
+    ///
+    /// Enables prelude-style usage: `Some(x)`, `None`, `Ok(v)`, `Err(e)`
+    /// without requiring qualified paths like `Option::Some(x)`.
+    fn resolve_bare_variant(&mut self, name: &str) -> Option<Type> {
+        let (enum_def, type_args) = self.find_enum_for_variant(name)?;
+        let variant = enum_def.variants.iter().find(|v| v.name == name)?;
+        match &variant.kind {
+            VariantKind::Unit => Some(Type::Enum(
+                enum_def.name.clone(),
+                type_args.iter().map(|t| self.subst.apply(t)).collect(),
+            )),
+            VariantKind::Tuple(field_types) => {
+                let params = field_types
+                    .iter()
+                    .map(|t| self.instantiate_generic_type(t, &enum_def.generic_params, &type_args))
+                    .collect();
+                let ret = Type::Enum(
+                    enum_def.name.clone(),
+                    type_args.iter().map(|t| self.subst.apply(t)).collect(),
+                );
+                Some(Type::Function(FnType {
+                    params,
+                    ret: Box::new(ret),
+                }))
+            }
+            VariantKind::Struct(_) => Some(Type::Enum(
+                enum_def.name.clone(),
+                type_args.iter().map(|t| self.subst.apply(t)).collect(),
+            )),
         }
     }
 

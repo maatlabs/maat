@@ -1,3 +1,22 @@
-pub fn add(a: i64, b: i64) -> i64 { a + b }
+// Internal helper: not exported
+fn square(x: i64) -> i64 {
+    x * x
+}
 
-fn internal_helper() -> i64 { 0 }
+// Public arithmetic functions
+pub fn add(a: i64, b: i64) -> i64 {
+    a + b
+}
+
+pub fn sub(a: i64, b: i64) -> i64 {
+    a - b
+}
+
+pub fn mul(a: i64, b: i64) -> i64 {
+    a * b
+}
+
+// Public: uses private helper internally
+pub fn sum_of_squares(a: i64, b: i64) -> i64 {
+    square(a) + square(b)
+}
