@@ -1,5 +1,7 @@
 //! Conversion from parsed [`TypeExpr`] to internal [`Type`] representation.
 
+use std::rc::Rc;
+
 use maat_ast::TypeExpr;
 
 use crate::{FnType, Type};
@@ -29,7 +31,7 @@ pub fn resolve_type_expr(expr: &TypeExpr) -> Type {
         }),
         TypeExpr::Generic(name, args, _) => {
             let _ = args;
-            Type::Generic(name.clone(), vec![])
+            Type::Generic(Rc::from(name.as_str()), vec![])
         }
     }
 }
@@ -52,7 +54,7 @@ fn resolve_named(name: &str) -> Type {
         "bool" => Type::Bool,
         "str" | "String" => Type::String,
         "null" => Type::Null,
-        other => Type::Generic(other.to_string(), vec![]),
+        other => Type::Generic(Rc::from(other), vec![]),
     }
 }
 

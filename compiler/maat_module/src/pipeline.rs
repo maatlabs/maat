@@ -307,7 +307,7 @@ fn find_exports(exports: &ModuleExports, name: &str, result: &mut Vec<ResolvedIm
     if is_type_import {
         for imp in &exports.impls {
             let matches = match &imp.self_type {
-                Type::Struct(n, _) | Type::Enum(n, _) => n == name,
+                Type::Struct(n, _) | Type::Enum(n, _) => n.as_ref() == name,
                 _ => false,
             };
             if matches {
@@ -371,7 +371,7 @@ fn inject_import_into_compiler(compiler: &mut Compiler, import: &ResolvedImport)
             // Register each method as a global symbol so that method
             // calls compile correctly.
             let type_name = match &def.self_type {
-                Type::Struct(n, _) | Type::Enum(n, _) => n.clone(),
+                Type::Struct(n, _) | Type::Enum(n, _) => n.to_string(),
                 _ => return,
             };
             for (method_name, _) in &def.methods {
@@ -451,7 +451,7 @@ fn extract_exports(program: &Program, env: &TypeEnv) -> ModuleExports {
                 // Find the matching ImplDef and export only public methods.
                 for imp in env.all_impls() {
                     let matches = match &imp.self_type {
-                        Type::Struct(n, _) | Type::Enum(n, _) => n == type_name,
+                        Type::Struct(n, _) | Type::Enum(n, _) => n.as_ref() == type_name,
                         _ => false,
                     };
                     if matches {

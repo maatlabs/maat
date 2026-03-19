@@ -1,5 +1,7 @@
 //! Compile-time type checker for the AST.
 
+use std::rc::Rc;
+
 use maat_ast::*;
 use maat_errors::{
     MissingTraitMethodError, TraitMethodSignatureMismatchError, TypeError, TypeErrorKind,
@@ -213,7 +215,7 @@ impl TypeChecker {
     fn resolve_field_type(&self, ty: &TypeExpr, generic_params: &[String]) -> Type {
         match ty {
             TypeExpr::Named(named) if generic_params.contains(&named.name) => {
-                Type::Generic(named.name.clone(), vec![])
+                Type::Generic(Rc::from(named.name.as_str()), vec![])
             }
             _ => self.env.resolve_type(ty),
         }
@@ -743,7 +745,7 @@ impl TypeChecker {
             }
         }
         Type::Struct(
-            lit.name.clone(),
+            Rc::from(lit.name.as_str()),
             type_args.iter().map(|t| self.subst.apply(t)).collect(),
         )
     }
@@ -763,7 +765,7 @@ impl TypeChecker {
                     match &variant.kind {
                         VariantKind::Unit => {
                             return Type::Enum(
-                                type_name.clone(),
+                                Rc::from(type_name.as_str()),
                                 type_args.iter().map(|t| self.subst.apply(t)).collect(),
                             );
                         }
@@ -779,7 +781,7 @@ impl TypeChecker {
                                 })
                                 .collect();
                             let ret = Type::Enum(
-                                type_name.clone(),
+                                Rc::from(type_name.as_str()),
                                 type_args.iter().map(|t| self.subst.apply(t)).collect(),
                             );
                             return Type::Function(FnType {
@@ -789,7 +791,7 @@ impl TypeChecker {
                         }
                         VariantKind::Struct(_) => {
                             return Type::Enum(
-                                type_name.clone(),
+                                Rc::from(type_name.as_str()),
                                 type_args.iter().map(|t| self.subst.apply(t)).collect(),
                             );
                         }
@@ -848,7 +850,7 @@ impl TypeChecker {
                     },
                     None => {
                         self.errors
-                            .push(TypeErrorKind::UnknownType(name.clone()).at(fa.span));
+                            .push(TypeErrorKind::UnknownType(name.to_string()).at(fa.span));
                         self.env.fresh_var()
                     }
                 }
@@ -1114,7 +1116,7 @@ impl TypeChecker {
         span: Span,
     ) {
         let struct_info = match scrutinee_ty {
-            Type::Struct(name, type_args) if name == type_name => self
+            Type::Struct(name, type_args) if name.as_ref() == type_name => self
                 .env
                 .lookup_struct(name)
                 .cloned()
@@ -1173,9 +1175,10 @@ impl TypeChecker {
     fn resolve_bare_variant(&mut self, name: &str) -> Option<Type> {
         let (enum_def, type_args) = self.find_enum_for_variant(name)?;
         let variant = enum_def.variants.iter().find(|v| v.name == name)?;
+        let enum_name: Rc<str> = Rc::from(enum_def.name.as_str());
         match &variant.kind {
             VariantKind::Unit => Some(Type::Enum(
-                enum_def.name.clone(),
+                enum_name,
                 type_args.iter().map(|t| self.subst.apply(t)).collect(),
             )),
             VariantKind::Tuple(field_types) => {
@@ -1184,7 +1187,7 @@ impl TypeChecker {
                     .map(|t| self.instantiate_generic_type(t, &enum_def.generic_params, &type_args))
                     .collect();
                 let ret = Type::Enum(
-                    enum_def.name.clone(),
+                    enum_name,
                     type_args.iter().map(|t| self.subst.apply(t)).collect(),
                 );
                 Some(Type::Function(FnType {
@@ -1193,7 +1196,7 @@ impl TypeChecker {
                 }))
             }
             VariantKind::Struct(_) => Some(Type::Enum(
-                enum_def.name.clone(),
+                enum_name,
                 type_args.iter().map(|t| self.subst.apply(t)).collect(),
             )),
         }
@@ -1224,7 +1227,7 @@ impl TypeChecker {
         match ty {
             Type::Generic(name, _) => generic_params
                 .iter()
-                .position(|g| g == name)
+                .position(|g| g.as_str() == name.as_ref())
                 .and_then(|i| type_args.get(i))
                 .cloned()
                 .unwrap_or_else(|| ty.clone()),
@@ -1558,7 +1561,7 @@ impl TypeChecker {
         match ty {
             Type::Array(_) => Some("Array".to_string()),
             Type::String => Some("str".to_string()),
-            Type::Struct(name, _) | Type::Enum(name, _) => Some(name.clone()),
+            Type::Struct(name, _) | Type::Enum(name, _) => Some(name.to_string()),
             _ => None,
         }
     }

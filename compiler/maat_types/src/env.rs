@@ -1,6 +1,7 @@
 //! Type environment for tracking variable bindings during type inference.
 
 use std::collections::HashSet;
+use std::rc::Rc;
 
 use indexmap::IndexMap;
 use maat_ast::{NamedType, TypeExpr};
@@ -23,14 +24,9 @@ struct BuiltinMethodScheme {
 }
 
 /// Lexically scoped type environment.
-///
-/// Maintains a stack of scopes, each mapping variable names to their type
-/// schemes. The innermost scope is checked first during lookups, supporting
-/// shadowing. Stores `TypeScheme` rather than raw `Type` to enable
-/// let-polymorphism: generalized bindings are instantiated with fresh
-/// variables at each use site.
 pub struct TypeEnv {
-    scopes: Vec<IndexMap<String, TypeScheme>>,
+    bindings: Vec<(String, TypeScheme)>,
+    scope_starts: Vec<usize>,
     next_var: TypeVarId,
     structs: IndexMap<String, StructDef>,
     enums: IndexMap<String, EnumDef>,
@@ -49,7 +45,8 @@ impl TypeEnv {
     /// Creates a new type environment with a single empty scope.
     pub fn new() -> Self {
         Self {
-            scopes: vec![IndexMap::new()],
+            bindings: Vec::new(),
+            scope_starts: vec![0],
             next_var: 0,
             structs: IndexMap::new(),
             enums: IndexMap::new(),
@@ -80,7 +77,7 @@ impl TypeEnv {
         });
 
         // Set::new() -> Set
-        let set_ty = Type::Struct("Set".to_string(), vec![]);
+        let set_ty = Type::Struct(Rc::from("Set"), vec![]);
         self.define_scheme(
             "Set::new",
             TypeScheme::monomorphic(Type::Function(FnType {
@@ -215,7 +212,7 @@ impl TypeEnv {
             );
         }
         // impl Set
-        let set_ty = Type::Struct("Set".to_string(), vec![]);
+        let set_ty = Type::Struct(Rc::from("Set"), vec![]);
         let set_elem_id = self.next_var;
         self.next_var += 1;
         let set_elem = Type::Var(set_elem_id);
@@ -282,7 +279,7 @@ impl TypeEnv {
             variants: vec![
                 VariantDef {
                     name: "Some".to_string(),
-                    kind: VariantKind::Tuple(vec![Type::Generic("T".to_string(), vec![])]),
+                    kind: VariantKind::Tuple(vec![Type::Generic(Rc::from("T"), vec![])]),
                 },
                 VariantDef {
                     name: "None".to_string(),
@@ -296,11 +293,11 @@ impl TypeEnv {
             variants: vec![
                 VariantDef {
                     name: "Ok".to_string(),
-                    kind: VariantKind::Tuple(vec![Type::Generic("T".to_string(), vec![])]),
+                    kind: VariantKind::Tuple(vec![Type::Generic(Rc::from("T"), vec![])]),
                 },
                 VariantDef {
                     name: "Err".to_string(),
-                    kind: VariantKind::Tuple(vec![Type::Generic("E".to_string(), vec![])]),
+                    kind: VariantKind::Tuple(vec![Type::Generic(Rc::from("E"), vec![])]),
                 },
             ],
         });
@@ -382,7 +379,7 @@ impl TypeEnv {
         self.impls
             .iter()
             .filter(|imp| match &imp.self_type {
-                Type::Struct(n, _) | Type::Enum(n, _) => n == type_name,
+                Type::Struct(n, _) | Type::Enum(n, _) => n.as_ref() == type_name,
                 _ => false,
             })
             .find_map(|imp| {
@@ -417,7 +414,7 @@ impl TypeEnv {
         let prefix = match receiver {
             Type::Array(_) => "Array",
             Type::String => "str",
-            Type::Struct(name, _) if name == "Set" => "Set",
+            Type::Struct(name, _) if name.as_ref() == "Set" => "Set",
             _ => return None,
         };
         let key = format!("{prefix}::{method_name}");
@@ -467,11 +464,11 @@ impl TypeEnv {
                     .map(|a| self.resolve_type(a))
                     .collect::<Vec<Type>>();
                 if self.structs.contains_key(name) {
-                    Type::Struct(name.clone(), resolved_args)
+                    Type::Struct(Rc::from(name.as_str()), resolved_args)
                 } else if self.enums.contains_key(name) {
-                    Type::Enum(name.clone(), resolved_args)
+                    Type::Enum(Rc::from(name.as_str()), resolved_args)
                 } else {
-                    Type::Generic(name.clone(), vec![])
+                    Type::Generic(Rc::from(name.as_str()), vec![])
                 }
             }
             _ => resolve_type_expr(expr),
@@ -482,9 +479,9 @@ impl TypeEnv {
     /// back to primitives.
     fn resolve_named_type(&self, name: &str) -> Type {
         if self.structs.contains_key(name) {
-            Type::Struct(name.to_string(), vec![])
+            Type::Struct(Rc::from(name), vec![])
         } else if self.enums.contains_key(name) {
-            Type::Enum(name.to_string(), vec![])
+            Type::Enum(Rc::from(name), vec![])
         } else {
             // Delegate to the standalone resolver for primitives and generics.
             resolve_type_expr(&TypeExpr::Named(NamedType {
@@ -508,14 +505,24 @@ impl TypeEnv {
 
     /// Defines a variable with a polymorphic type scheme in the current scope.
     pub fn define_scheme(&mut self, name: &str, scheme: TypeScheme) {
-        if let Some(scope) = self.scopes.last_mut() {
-            scope.insert(name.to_string(), scheme);
+        let scope_start = self.scope_starts.last().copied().unwrap_or(0);
+        if let Some(entry) = self.bindings[scope_start..]
+            .iter_mut()
+            .find(|(n, _)| n == name)
+        {
+            entry.1 = scheme;
+        } else {
+            self.bindings.push((name.to_string(), scheme));
         }
     }
 
     /// Looks up a variable's type scheme, searching from innermost to outermost scope.
     pub fn lookup_scheme(&self, name: &str) -> Option<&TypeScheme> {
-        self.scopes.iter().rev().find_map(|scope| scope.get(name))
+        self.bindings
+            .iter()
+            .rev()
+            .find(|(n, _)| n == name)
+            .map(|(_, scheme)| scheme)
     }
 
     /// Looks up a variable and instantiates its scheme with fresh type variables.
@@ -557,33 +564,36 @@ impl TypeEnv {
         }
     }
 
-    /// Collects all free type variables across all scopes in the environment.
+    /// Collects all free type variables across all bindings in the environment.
     fn free_env_vars(&self, subst: &Substitution) -> HashSet<TypeVarId> {
         let mut vars = HashSet::new();
-        for scope in &self.scopes {
-            for scheme in scope.values() {
-                let resolved = subst.apply(&scheme.ty);
-                let scheme_free = free_type_vars(&resolved);
-                let quantified = scheme
-                    .forall
-                    .iter()
-                    .copied()
-                    .collect::<HashSet<TypeVarId>>();
-                vars.extend(scheme_free.difference(&quantified));
-            }
+        for (_, scheme) in &self.bindings {
+            let resolved = subst.apply(&scheme.ty);
+            let scheme_free = free_type_vars(&resolved);
+            let quantified = scheme
+                .forall
+                .iter()
+                .copied()
+                .collect::<HashSet<TypeVarId>>();
+            vars.extend(scheme_free.difference(&quantified));
         }
         vars
     }
 
     /// Pushes a new empty scope.
     pub fn push_scope(&mut self) {
-        self.scopes.push(IndexMap::new());
+        self.scope_starts.push(self.bindings.len());
     }
 
-    /// Pops the innermost scope.
+    /// Pops the innermost scope, discarding all bindings introduced since
+    /// the matching [`push_scope`](Self::push_scope).
     pub fn pop_scope(&mut self) {
-        if self.scopes.len() > 1 {
-            self.scopes.pop();
+        if self.scope_starts.len() > 1 {
+            let start = self
+                .scope_starts
+                .pop()
+                .expect("scope_starts checked non-empty");
+            self.bindings.truncate(start);
         }
     }
 }

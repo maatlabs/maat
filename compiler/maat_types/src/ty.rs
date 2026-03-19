@@ -1,6 +1,7 @@
 //! Core type representations for the type system.
 
 use std::fmt;
+use std::rc::Rc;
 
 use maat_ast::*;
 
@@ -35,13 +36,13 @@ pub enum Type {
     Range(Box<Type>),
     Function(FnType),
     /// A user-defined struct type, identified by name with instantiated type arguments.
-    Struct(String, Vec<Type>),
+    Struct(Rc<str>, Vec<Type>),
     /// A user-defined enum type, identified by name with instantiated type arguments.
-    Enum(String, Vec<Type>),
+    Enum(Rc<str>, Vec<Type>),
     /// A type variable introduced during inference (Algorithm W).
     Var(TypeVarId),
     /// A named generic type parameter with optional trait bounds.
-    Generic(String, Vec<String>),
+    Generic(Rc<str>, Vec<String>),
     /// The bottom type (diverging expressions like `break`, `continue`, `return`).
     Never,
 }
