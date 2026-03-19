@@ -9,7 +9,6 @@ mod cmd;
 mod diagnostic;
 mod repl;
 
-use std::io;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
@@ -61,12 +60,7 @@ fn main() {
                 std::env::consts::ARCH,
             );
             println!("Type \"exit\", \"quit\" or press Ctrl+D to quit.\n");
-            let reader = io::stdin().lock();
-            let mut writer = io::stdout().lock();
-            if let Err(e) = repl::start(reader, &mut writer) {
-                eprintln!("repl error: {e}");
-                std::process::exit(1);
-            }
+            repl::start_interactive();
         }
         Some(Command::Build { file, output }) => {
             cmd::build(&file, output.as_deref());
