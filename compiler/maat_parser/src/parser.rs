@@ -17,7 +17,8 @@
 
 use maat_ast::*;
 use maat_errors::ParseError;
-use maat_lexer::{Lexer, Span, Token, TokenKind};
+use maat_lexer::{Lexer, Token, TokenKind};
+use maat_span::Span;
 
 use crate::prec::{LOWEST, PREFIX, Precedence};
 

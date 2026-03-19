@@ -1,6 +1,17 @@
 //! Implements utilities for handling the lexing of number types.
 
-use super::TokenKind;
+use crate::TokenKind;
+
+/// Metadata produced by number-lexing callbacks.
+///
+/// Carries the resolved token kind and the byte length of the value portion
+/// (digits and radix prefix, excluding any type suffix) so the wrapper can
+/// split `slice()` into the correct `literal` and `span`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NumToken {
+    pub kind: TokenKind,
+    pub value_len: u32,
+}
 
 /// Type of numeric suffix found during lexing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
