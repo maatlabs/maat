@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use maat_ast::{
@@ -43,6 +44,14 @@ impl CompilationScope {
     }
 }
 
+/// Pre-computed enum variant lookup entry, indexed by variant name.
+#[derive(Debug, Clone, Copy)]
+struct VariantEntry {
+    registry_index: usize,
+    tag: usize,
+    field_count: usize,
+}
+
 /// Compiler state for generating bytecode from AST nodes.
 #[derive(Debug, Clone)]
 pub struct Compiler {
@@ -53,6 +62,7 @@ pub struct Compiler {
     loop_contexts: Vec<LoopContext>,
     for_loop_counter: usize,
     type_registry: Vec<TypeDef>,
+    variant_index: HashMap<String, VariantEntry>,
 }
 
 impl Default for Compiler {
@@ -70,6 +80,8 @@ impl Compiler {
     pub fn new() -> Self {
         let mut symbols_table = SymbolsTable::new();
         Self::register_builtins(&mut symbols_table);
+        let type_registry = Self::builtin_type_registry();
+        let variant_index = Self::build_variant_index(&type_registry);
         Self {
             constants: Vec::new(),
             symbols_table,
@@ -77,7 +89,8 @@ impl Compiler {
             scope_index: 0,
             loop_contexts: Vec::new(),
             for_loop_counter: 0,
-            type_registry: Self::builtin_type_registry(),
+            type_registry,
+            variant_index,
         }
     }
 
@@ -87,6 +100,8 @@ impl Compiler {
     /// persist across multiple compilation passes.
     pub fn with_state(mut symbols_table: SymbolsTable, constants: Vec<Object>) -> Self {
         Self::register_builtins(&mut symbols_table);
+        let type_registry = Self::builtin_type_registry();
+        let variant_index = Self::build_variant_index(&type_registry);
         Self {
             constants,
             symbols_table,
@@ -94,7 +109,8 @@ impl Compiler {
             scope_index: 0,
             loop_contexts: Vec::new(),
             for_loop_counter: 0,
-            type_registry: Self::builtin_type_registry(),
+            type_registry,
+            variant_index,
         }
     }
 
@@ -106,13 +122,17 @@ impl Compiler {
         &mut self.symbols_table
     }
 
-    /// Returns a mutable reference to the compiler's type registry.
+    /// Registers a type definition (struct or enum) in the type registry.
     ///
-    /// Used by the module pipeline to register imported type definitions
-    /// (structs, enums) so that construction and field access work
-    /// across module boundaries.
-    pub fn type_registry_mut(&mut self) -> &mut Vec<TypeDef> {
-        &mut self.type_registry
+    /// Used by the module pipeline to register imported type
+    /// definitions so that construction and field access work across module
+    /// boundaries.
+    pub fn register_type(&mut self, typedef: TypeDef) {
+        let registry_index = self.type_registry.len();
+        if let TypeDef::Enum { ref variants, .. } = typedef {
+            Self::index_variants(&mut self.variant_index, registry_index, variants);
+        }
+        self.type_registry.push(typedef);
     }
 
     /// Registers all built-in functions in the given symbols table.
@@ -152,6 +172,35 @@ impl Compiler {
                 ],
             },
         ]
+    }
+
+    /// Builds the enum variant index from an existing type registry.
+    fn build_variant_index(registry: &[TypeDef]) -> HashMap<String, VariantEntry> {
+        let mut index = HashMap::new();
+        for (registry_index, td) in registry.iter().enumerate() {
+            if let TypeDef::Enum { variants, .. } = td {
+                Self::index_variants(&mut index, registry_index, variants);
+            }
+        }
+        index
+    }
+
+    /// Inserts entries for each variant of an enum at the given registry index.
+    fn index_variants(
+        index: &mut HashMap<String, VariantEntry>,
+        registry_index: usize,
+        variants: &[VariantInfo],
+    ) {
+        for (tag, v) in variants.iter().enumerate() {
+            index.insert(
+                v.name.clone(),
+                VariantEntry {
+                    registry_index,
+                    tag,
+                    field_count: v.field_count as usize,
+                },
+            );
+        }
     }
 
     /// Extracts the compiled bytecode and constants.
@@ -353,7 +402,7 @@ impl Compiler {
                 Ok(())
             }
             Stmt::StructDecl(decl) => {
-                self.type_registry.push(TypeDef::Struct {
+                self.register_type(TypeDef::Struct {
                     name: decl.name.clone(),
                     field_names: decl.fields.iter().map(|f| f.name.clone()).collect(),
                 });
@@ -396,7 +445,7 @@ impl Compiler {
                         })
                     })
                     .collect::<Result<Vec<_>>>()?;
-                self.type_registry.push(TypeDef::Enum {
+                self.register_type(TypeDef::Enum {
                     name: decl.name.clone(),
                     variants,
                 });
@@ -1107,19 +1156,11 @@ impl Compiler {
         Ok(())
     }
 
-    /// Finds an enum variant across the entire type registry by variant name.
-    fn find_variant_in_registry(&self, variant_name: &str) -> Option<(usize, usize, usize)> {
-        self.type_registry
-            .iter()
-            .enumerate()
-            .find_map(|(i, td)| match td {
-                TypeDef::Enum { variants, .. } => variants
-                    .iter()
-                    .enumerate()
-                    .find(|(_, v)| v.name == variant_name)
-                    .map(|(tag, v)| (i, tag, v.field_count as usize)),
-                _ => None,
-            })
+    /// Looks up an enum variant by name in the pre-built variant index.
+    fn find_variant_in_registry(&self, variant: &str) -> Option<(usize, usize, usize)> {
+        self.variant_index
+            .get(variant)
+            .map(|entry| (entry.registry_index, entry.tag, entry.field_count))
     }
 
     /// Binds variant payload fields to local variables via `GetField`.

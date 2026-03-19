@@ -341,13 +341,13 @@ fn inject_import_into_compiler(compiler: &mut Compiler, import: &ResolvedImport)
                 .define_symbol(&import.local_name, false);
         }
         ImportKind::Struct(def) => {
-            compiler.type_registry_mut().push(TypeDef::Struct {
+            compiler.register_type(TypeDef::Struct {
                 name: def.name.clone(),
                 field_names: def.fields.iter().map(|(n, _)| n.clone()).collect(),
             });
         }
         ImportKind::Enum(def) => {
-            compiler.type_registry_mut().push(TypeDef::Enum {
+            compiler.register_type(TypeDef::Enum {
                 name: def.name.clone(),
                 variants: def
                     .variants
