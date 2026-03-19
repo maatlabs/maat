@@ -109,27 +109,33 @@ impl FuncDef {
     }
 }
 
-/// An infinite loop: `loop { <body> }`.
+/// An infinite loop: `loop { <body> }` or `'label: loop { <body> }`.
 ///
 /// Exits only via `break`. The optional break value becomes
-/// the loop expression's result.
+/// the loop expression's result. When labeled, `break 'label` and
+/// `continue 'label` target this specific loop.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LoopStmt {
+    pub label: Option<String>,
     pub body: BlockStmt,
     pub span: Span,
 }
 
-/// A conditional loop: `while <condition> { <body> }`.
+/// A conditional loop: `while <condition> { <body> }` or
+/// `'label: while <condition> { <body> }`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct WhileStmt {
+    pub label: Option<String>,
     pub condition: Box<Expr>,
     pub body: BlockStmt,
     pub span: Span,
 }
 
-/// An iterator loop: `for <ident> in <iterable> { <body> }`.
+/// An iterator loop: `for <ident> in <iterable> { <body> }` or
+/// `'label: for <ident> in <iterable> { <body> }`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ForStmt {
+    pub label: Option<String>,
     pub ident: String,
     pub iterable: Box<Expr>,
     pub body: BlockStmt,
@@ -416,23 +422,27 @@ pub struct CastExpr {
     pub span: Span,
 }
 
-/// A break expression: `break` or `break <value>`.
+/// A break expression: `break`, `break <value>`, or `break 'label [<value>]`.
 ///
 /// When used inside a `loop`, the optional value becomes the
 /// loop's result. In `while` and `for` loops, break takes no value.
+/// When a label is present, the break targets the loop with that label.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BreakExpr {
+    pub label: Option<String>,
     pub value: Option<Box<Expr>>,
     pub span: Span,
 }
 
-/// A continue expression: `continue`.
+/// A continue expression: `continue` or `continue 'label`.
 ///
 /// Skips the remainder of the current loop iteration and jumps
 /// to the loop's condition check (for `while`) or next iteration
-/// (for `loop` and `for`).
+/// (for `loop` and `for`). When a label is present, the continue
+/// targets the loop with that label.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ContinueExpr {
+    pub label: Option<String>,
     pub span: Span,
 }
 

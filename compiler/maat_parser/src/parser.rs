@@ -205,9 +205,18 @@ fn parse_statement<'a>(input: &mut &'a [Token<'a>], depth: &Cell<usize>) -> Pars
         TokenKind::Fn if peek_at(input, 1) == TokenKind::Ident => {
             parse_fn_declaration(input, depth, false).map(Stmt::FuncDef)
         }
-        TokenKind::Loop => parse_loop_stmt(input, depth).map(Stmt::Loop),
-        TokenKind::While => parse_while_stmt(input, depth).map(Stmt::While),
-        TokenKind::For => parse_for_stmt(input, depth).map(Stmt::For),
+        TokenKind::Label
+            if matches!(peek_at(input, 1), TokenKind::Colon)
+                && matches!(
+                    peek_at(input, 2),
+                    TokenKind::Loop | TokenKind::While | TokenKind::For
+                ) =>
+        {
+            parse_labeled_loop(input, depth)
+        }
+        TokenKind::Loop => parse_loop_stmt(input, depth, None).map(Stmt::Loop),
+        TokenKind::While => parse_while_stmt(input, depth, None).map(Stmt::While),
+        TokenKind::For => parse_for_stmt(input, depth, None).map(Stmt::For),
         TokenKind::Struct => parse_struct_decl(input, depth, false).map(Stmt::StructDecl),
         TokenKind::Enum => parse_enum_decl(input, depth, false).map(Stmt::EnumDecl),
         TokenKind::Trait => parse_trait_decl(input, depth, false).map(Stmt::TraitDecl),
@@ -856,12 +865,20 @@ fn parse_hash_literal<'a>(input: &mut &'a [Token<'a>], depth: &Cell<usize>) -> P
     }))
 }
 
-/// Parses a `break` expression: `break` or `break <value>`.
+/// Parses a `break` expression: `break`, `break <value>`, or `break 'label [<value>]`.
 fn parse_break_expression<'a>(
     input: &mut &'a [Token<'a>],
     depth: &Cell<usize>,
 ) -> ParseResult<Expr> {
     let start = expect(input, TokenKind::Break)?.span;
+
+    let label = if peek_kind(input) == TokenKind::Label {
+        let tok: Token<'a> = any.parse_next(input)?;
+        Some(tok.literal.to_string())
+    } else {
+        None
+    };
+
     let value = if peek_kind(input) != TokenKind::Semicolon
         && peek_kind(input) != TokenKind::RBrace
         && peek_kind(input) != TokenKind::Eof
@@ -872,15 +889,24 @@ fn parse_break_expression<'a>(
     };
     let end = value.as_ref().map_or(start, |v| v.span());
     Ok(Expr::Break(BreakExpr {
+        label,
         value,
         span: start.merge(end),
     }))
 }
 
-/// Parses a `continue` expression.
+/// Parses a `continue` expression: `continue` or `continue 'label`.
 fn parse_continue_expression<'a>(input: &mut &'a [Token<'a>]) -> ParseResult<Expr> {
-    let tok = expect(input, TokenKind::Continue)?;
-    Ok(Expr::Continue(ContinueExpr { span: tok.span }))
+    let start = expect(input, TokenKind::Continue)?.span;
+
+    let label = if peek_kind(input) == TokenKind::Label {
+        let tok: Token<'a> = any.parse_next(input)?;
+        Some(tok.literal.to_string())
+    } else {
+        None
+    };
+
+    Ok(Expr::Continue(ContinueExpr { label, span: start }))
 }
 
 /// Parses a `match` expression: `match scrutinee { arms }`.
@@ -1220,22 +1246,42 @@ fn parse_pattern_fields<'a>(
     Ok((fields, end))
 }
 
-/// Parses an infinite loop: `loop { body }`.
-fn parse_loop_stmt<'a>(input: &mut &'a [Token<'a>], depth: &Cell<usize>) -> ParseResult<LoopStmt> {
+/// Parses a labeled loop: `'label: loop/while/for { ... }`.
+fn parse_labeled_loop<'a>(input: &mut &'a [Token<'a>], depth: &Cell<usize>) -> ParseResult<Stmt> {
+    let label_tok: Token<'a> = any.parse_next(input)?;
+    let label = label_tok.literal.to_string();
+    expect(input, TokenKind::Colon)?;
+    match peek_kind(input) {
+        TokenKind::Loop => parse_loop_stmt(input, depth, Some(label)).map(Stmt::Loop),
+        TokenKind::While => parse_while_stmt(input, depth, Some(label)).map(Stmt::While),
+        TokenKind::For => parse_for_stmt(input, depth, Some(label)).map(Stmt::For),
+        _ => Err(ErrMode::Backtrack(ContextError::new())),
+    }
+}
+
+/// Parses an infinite loop: `loop { body }` or `'label: loop { body }`.
+fn parse_loop_stmt<'a>(
+    input: &mut &'a [Token<'a>],
+    depth: &Cell<usize>,
+    label: Option<String>,
+) -> ParseResult<LoopStmt> {
     let start = expect(input, TokenKind::Loop)?.span;
     expect(input, TokenKind::LBrace)?;
     let body = parse_block(input, depth)?;
     let end = body.span;
     Ok(LoopStmt {
+        label,
         body,
         span: start.merge(end),
     })
 }
 
-/// Parses a `while` loop: `while (condition) { body }`.
+/// Parses a `while` loop: `while (condition) { body }` or
+/// `'label: while (condition) { body }`.
 fn parse_while_stmt<'a>(
     input: &mut &'a [Token<'a>],
     depth: &Cell<usize>,
+    label: Option<String>,
 ) -> ParseResult<WhileStmt> {
     let start = expect(input, TokenKind::While)?.span;
     expect(input, TokenKind::LParen)?;
@@ -1245,14 +1291,20 @@ fn parse_while_stmt<'a>(
     let body = parse_block(input, depth)?;
     let end = body.span;
     Ok(WhileStmt {
+        label,
         condition,
         body,
         span: start.merge(end),
     })
 }
 
-/// Parses a `for` loop: `for ident in iterable { body }`.
-fn parse_for_stmt<'a>(input: &mut &'a [Token<'a>], depth: &Cell<usize>) -> ParseResult<ForStmt> {
+/// Parses a `for` loop: `for ident in iterable { body }` or
+/// `'label: for ident in iterable { body }`.
+fn parse_for_stmt<'a>(
+    input: &mut &'a [Token<'a>],
+    depth: &Cell<usize>,
+    label: Option<String>,
+) -> ParseResult<ForStmt> {
     let start = expect(input, TokenKind::For)?.span;
     let ident = expect(input, TokenKind::Ident)?.literal.to_string();
     expect(input, TokenKind::In)?;
@@ -1261,6 +1313,7 @@ fn parse_for_stmt<'a>(input: &mut &'a [Token<'a>], depth: &Cell<usize>) -> Parse
     let body = parse_block(input, depth)?;
     let end = body.span;
     Ok(ForStmt {
+        label,
         ident,
         iterable,
         body,

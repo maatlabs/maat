@@ -109,6 +109,7 @@ impl<'a> Lexer<'a> {
                 Token::new(num.kind, literal, maat_span)
             }
             RawToken::Ident => Token::new(TokenKind::Ident, slice, maat_span),
+            RawToken::Label => Token::new(TokenKind::Label, &slice[1..], maat_span),
             other => Token::new(other.to_token_kind(), slice, maat_span),
         }
     }
@@ -274,6 +275,9 @@ enum RawToken {
 
     #[regex(r"[\p{L}_][\p{L}\p{N}_]*")]
     Ident,
+
+    #[regex(r"'[a-zA-Z_][a-zA-Z0-9_]*")]
+    Label,
 }
 
 impl RawToken {
@@ -351,7 +355,9 @@ impl RawToken {
             Self::LBracket => TokenKind::LBracket,
             Self::RBracket => TokenKind::RBracket,
 
-            Self::Comment | Self::String | Self::Number(_) | Self::Ident => unreachable!(),
+            Self::Comment | Self::String | Self::Number(_) | Self::Ident | Self::Label => {
+                unreachable!()
+            }
         }
     }
 }

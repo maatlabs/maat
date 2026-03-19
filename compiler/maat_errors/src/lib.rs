@@ -223,6 +223,9 @@ pub enum CompileErrorKind {
     #[error("`continue` outside of a loop")]
     ContinueOutsideLoop,
 
+    #[error("undeclared label `'{label}`")]
+    UndeclaredLabel { label: String },
+
     #[error("cannot re-assign to immutable variable `{name}`")]
     ImmutableAssignment { name: String },
 

@@ -19,6 +19,7 @@ use crate::{Symbol, SymbolScope, SymbolsTable};
 /// Tracks jump targets for break/continue within a loop.
 #[derive(Debug, Clone)]
 struct LoopContext {
+    label: Option<String>,
     continue_target: Option<usize>,
     break_jumps: Vec<usize>,
     continue_jumps: Vec<usize>,
@@ -362,6 +363,7 @@ impl Compiler {
             Stmt::Loop(loop_stmt) => {
                 let start = self.current_instructions().len();
                 self.loop_contexts.push(LoopContext {
+                    label: loop_stmt.label.clone(),
                     continue_target: Some(start),
                     break_jumps: Vec::new(),
                     continue_jumps: Vec::new(),
@@ -382,6 +384,7 @@ impl Compiler {
             Stmt::While(while_stmt) => {
                 let start = self.current_instructions().len();
                 self.loop_contexts.push(LoopContext {
+                    label: while_stmt.label.clone(),
                     continue_target: Some(start),
                     break_jumps: Vec::new(),
                     continue_jumps: Vec::new(),
@@ -506,6 +509,7 @@ impl Compiler {
         // loop_start: condition check
         let loop_start = self.current_instructions().len();
         self.loop_contexts.push(LoopContext {
+            label: for_stmt.label.clone(),
             continue_target: None,
             break_jumps: Vec::new(),
             continue_jumps: Vec::new(),
@@ -584,6 +588,7 @@ impl Compiler {
         let loop_start = self.current_instructions().len();
 
         self.loop_contexts.push(LoopContext {
+            label: for_stmt.label.clone(),
             continue_target: None,
             break_jumps: Vec::new(),
             continue_jumps: Vec::new(),
@@ -786,6 +791,7 @@ impl Compiler {
         if self.loop_contexts.is_empty() {
             return Err(CompileErrorKind::BreakOutsideLoop.at(expr.span).into());
         }
+        let ctx_index = self.resolve_loop_label(&expr.label, expr.span)?;
         match &expr.value {
             Some(val) => self.compile_expression(val)?,
             None => {
@@ -793,34 +799,47 @@ impl Compiler {
             }
         }
         let jump_pos = self.emit(Opcode::Jump, &[Self::JUMP], expr.span);
-        self.loop_contexts
-            .last_mut()
-            .expect("loop context was just verified")
-            .break_jumps
-            .push(jump_pos);
+        self.loop_contexts[ctx_index].break_jumps.push(jump_pos);
         Ok(())
     }
 
     /// Compiles a `continue` expression inside a loop.
     fn compile_continue(&mut self, expr: &ContinueExpr) -> Result<()> {
-        let ctx = self
-            .loop_contexts
-            .last()
-            .ok_or_else(|| CompileErrorKind::ContinueOutsideLoop.at(expr.span))?;
-        match ctx.continue_target {
+        if self.loop_contexts.is_empty() {
+            return Err(CompileErrorKind::ContinueOutsideLoop.at(expr.span).into());
+        }
+        let ctx_index = self.resolve_loop_label(&expr.label, expr.span)?;
+        match self.loop_contexts[ctx_index].continue_target {
             Some(target) => {
                 self.emit(Opcode::Jump, &[target], expr.span);
             }
             None => {
                 let jump_pos = self.emit(Opcode::Jump, &[Self::JUMP], expr.span);
-                self.loop_contexts
-                    .last_mut()
-                    .expect("loop context was just verified")
-                    .continue_jumps
-                    .push(jump_pos);
+                self.loop_contexts[ctx_index].continue_jumps.push(jump_pos);
             }
         }
         Ok(())
+    }
+
+    /// Resolves a loop label to the index into `self.loop_contexts`.
+    ///
+    /// Returns the innermost loop's index when no label is specified.
+    /// When a label is given, searches outward for a matching loop context.
+    fn resolve_loop_label(&self, label: &Option<String>, span: Span) -> Result<usize> {
+        match label {
+            None => Ok(self.loop_contexts.len() - 1),
+            Some(name) => self
+                .loop_contexts
+                .iter()
+                .rposition(|ctx| ctx.label.as_deref() == Some(name))
+                .ok_or_else(|| {
+                    CompileErrorKind::UndeclaredLabel {
+                        label: name.clone(),
+                    }
+                    .at(span)
+                    .into()
+                }),
+        }
     }
 
     /// Compiles an infix (binary) expression, including short-circuit `&&`/`||`.

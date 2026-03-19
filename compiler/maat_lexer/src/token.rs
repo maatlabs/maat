@@ -79,6 +79,8 @@ pub enum TokenKind {
 
     /// A user-defined identifier (variable, function name, etc.).
     Ident,
+    /// A lifetime-style label for loops (`'outer`, `'inner`).
+    Label,
     /// A string literal.
     String,
 

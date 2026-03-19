@@ -1307,6 +1307,71 @@ fn continue_in_loops() {
 }
 
 #[test]
+fn labeled_loops() {
+    // break 'outer from nested loop
+    run_vm_test(
+        r#"
+        fn find_pair() -> i64 {
+            let mut result = 0;
+            'outer: for i in 0..5 {
+                for j in 0..5 {
+                    if (i + j == 6) {
+                        result = i * 10 + j;
+                        break 'outer;
+                    }
+                }
+            }
+            result
+        }
+        find_pair()
+        "#,
+        TestValue::I64(24),
+    );
+
+    // continue 'outer from nested loop
+    run_vm_test(
+        r#"
+        fn sum_diag() -> i64 {
+            let mut total = 0;
+            'outer: for i in 0..5 {
+                for j in 0..5 {
+                    if (j > i) {
+                        continue 'outer;
+                    }
+                    total += 1;
+                }
+            }
+            total
+        }
+        sum_diag()
+        "#,
+        TestValue::I64(15),
+    );
+
+    // labeled while loop
+    run_vm_test(
+        r#"
+        fn labeled_while() -> i64 {
+            let mut x = 0;
+            let mut y = 0;
+            'outer: while (x < 10) {
+                x += 1;
+                while (y < 10) {
+                    y += 1;
+                    if (y == 3) {
+                        continue 'outer;
+                    }
+                }
+            }
+            x * 100 + y
+        }
+        labeled_while()
+        "#,
+        TestValue::I64(1010),
+    );
+}
+
+#[test]
 fn variable_shadowing_across_blocks() {
     run_vm_test(
         r#"

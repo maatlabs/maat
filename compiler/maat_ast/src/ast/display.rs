@@ -287,34 +287,51 @@ impl fmt::Display for CastExpr {
 
 impl fmt::Display for LoopStmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(label) = &self.label {
+            write!(f, "'{label}: ")?;
+        }
         write!(f, "loop {}", self.body)
     }
 }
 
 impl fmt::Display for WhileStmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(label) = &self.label {
+            write!(f, "'{label}: ")?;
+        }
         write!(f, "while {} {}", self.condition, self.body)
     }
 }
 
 impl fmt::Display for ForStmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(label) = &self.label {
+            write!(f, "'{label}: ")?;
+        }
         write!(f, "for {} in {} {}", self.ident, self.iterable, self.body)
     }
 }
 
 impl fmt::Display for BreakExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.value {
-            Some(val) => write!(f, "break {val}"),
-            None => write!(f, "break"),
+        write!(f, "break")?;
+        if let Some(label) = &self.label {
+            write!(f, " '{label}")?;
         }
+        if let Some(val) = &self.value {
+            write!(f, " {val}")?;
+        }
+        Ok(())
     }
 }
 
 impl fmt::Display for ContinueExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "continue")
+        write!(f, "continue")?;
+        if let Some(label) = &self.label {
+            write!(f, " '{label}")?;
+        }
+        Ok(())
     }
 }
 

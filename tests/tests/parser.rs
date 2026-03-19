@@ -603,6 +603,52 @@ fn parse_loop_control() {
     else {
         panic!("expected Continue expression");
     };
+
+    // Labeled loop
+    let program = parse("'outer: loop { break 'outer; }");
+    let Stmt::Loop(loop_stmt) = expect_single_stmt(&program) else {
+        panic!("expected Loop statement");
+    };
+    assert_eq!(loop_stmt.label.as_deref(), Some("outer"));
+    let Stmt::Expr(ExprStmt {
+        value: Expr::Break(break_expr),
+        ..
+    }) = &loop_stmt.body.statements[0]
+    else {
+        panic!("expected Break expression");
+    };
+    assert_eq!(break_expr.label.as_deref(), Some("outer"));
+
+    // Labeled while
+    let program = parse("'outer: while (true) { continue 'outer; }");
+    let Stmt::While(while_stmt) = expect_single_stmt(&program) else {
+        panic!("expected While statement");
+    };
+    assert_eq!(while_stmt.label.as_deref(), Some("outer"));
+    let Stmt::Expr(ExprStmt {
+        value: Expr::Continue(cont_expr),
+        ..
+    }) = &while_stmt.body.statements[0]
+    else {
+        panic!("expected Continue expression");
+    };
+    assert_eq!(cont_expr.label.as_deref(), Some("outer"));
+
+    // Labeled for
+    let program = parse("'rows: for i in 0..10 { break 'rows 42; }");
+    let Stmt::For(for_stmt) = expect_single_stmt(&program) else {
+        panic!("expected For statement");
+    };
+    assert_eq!(for_stmt.label.as_deref(), Some("rows"));
+    let Stmt::Expr(ExprStmt {
+        value: Expr::Break(break_expr),
+        ..
+    }) = &for_stmt.body.statements[0]
+    else {
+        panic!("expected Break expression");
+    };
+    assert_eq!(break_expr.label.as_deref(), Some("rows"));
+    assert!(break_expr.value.is_some());
 }
 
 #[test]

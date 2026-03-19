@@ -238,6 +238,7 @@ fn control_flow_display() {
     );
 
     let while_stmt = WhileStmt {
+        label: None,
         condition: Box::new(Expr::Ident(Ident {
             value: "cond".to_string(),
             span: span(),
@@ -251,6 +252,7 @@ fn control_flow_display() {
     assert_eq!(while_stmt.to_string(), "while cond {}");
 
     let for_stmt = ForStmt {
+        label: None,
         ident: "i".to_string(),
         iterable: Box::new(Expr::Ident(Ident {
             value: "0..10".to_string(),
@@ -265,9 +267,11 @@ fn control_flow_display() {
     assert_eq!(for_stmt.to_string(), "for i in 0..10 {}");
 
     let loop_stmt = LoopStmt {
+        label: None,
         body: BlockStmt {
             statements: vec![Stmt::Expr(ExprStmt {
                 value: Expr::Break(BreakExpr {
+                    label: None,
                     value: None,
                     span: span(),
                 }),
@@ -280,6 +284,7 @@ fn control_flow_display() {
     assert_eq!(loop_stmt.to_string(), "loop {\nbreak;\n}");
 
     let break_val = BreakExpr {
+        label: None,
         value: Some(Box::new(Expr::Number(Number {
             kind: NumberKind::I32,
             value: 42,
@@ -289,7 +294,14 @@ fn control_flow_display() {
         span: span(),
     };
     assert_eq!(break_val.to_string(), "break 42");
-    assert_eq!(ContinueExpr { span: span() }.to_string(), "continue");
+    assert_eq!(
+        ContinueExpr {
+            label: None,
+            span: span()
+        }
+        .to_string(),
+        "continue"
+    );
 }
 
 #[test]
