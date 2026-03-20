@@ -485,7 +485,7 @@ impl TypeChecker {
                 .or_else(|| self.resolve_bare_variant(&ident.value))
                 .unwrap_or_else(|| self.env.fresh_var()),
             Expr::Array(array) => self.infer_array(array),
-            Expr::Map(hash) => self.infer_map(hash),
+            Expr::Map(map) => self.infer_map(map),
             Expr::Index(idx) => self.infer_index(idx),
             Expr::Prefix(prefix) => self.infer_prefix(prefix),
             Expr::Infix(infix) => self.check_infix(infix),
@@ -537,18 +537,18 @@ impl TypeChecker {
     }
 
     /// Infers the key and value types of a map literal.
-    fn infer_map(&mut self, hash: &mut Map) -> Type {
-        if hash.pairs.is_empty() {
+    fn infer_map(&mut self, map: &mut Map) -> Type {
+        if map.pairs.is_empty() {
             let k = self.env.fresh_var();
             let v = self.env.fresh_var();
-            Type::Hash(Box::new(k), Box::new(v))
+            Type::Map(Box::new(k), Box::new(v))
         } else {
             let (first_k, first_v) = {
-                let k = self.infer_expression(&mut hash.pairs[0].0);
-                let v = self.infer_expression(&mut hash.pairs[0].1);
+                let k = self.infer_expression(&mut map.pairs[0].0);
+                let v = self.infer_expression(&mut map.pairs[0].1);
                 (k, v)
             };
-            for (k_expr, v_expr) in &mut hash.pairs[1..] {
+            for (k_expr, v_expr) in &mut map.pairs[1..] {
                 let k = self.infer_expression(k_expr);
                 let v = self.infer_expression(v_expr);
                 if let Err(e) = self.subst.unify(&first_k, &k) {
@@ -558,7 +558,7 @@ impl TypeChecker {
                     self.report_unify_error(e, v_expr.span());
                 }
             }
-            Type::Hash(
+            Type::Map(
                 Box::new(self.subst.apply(&first_k)),
                 Box::new(self.subst.apply(&first_v)),
             )
@@ -572,7 +572,7 @@ impl TypeChecker {
         let resolved = self.subst.apply(&collection);
         match resolved {
             Type::Array(elem) => *elem,
-            Type::Hash(_, v) => *v,
+            Type::Map(_, v) => *v,
             _ => self.env.fresh_var(),
         }
     }
@@ -1250,7 +1250,7 @@ impl TypeChecker {
                 generic_params,
                 type_args,
             ))),
-            Type::Hash(k, v) => Type::Hash(
+            Type::Map(k, v) => Type::Map(
                 Box::new(self.instantiate_generic_type(k, generic_params, type_args)),
                 Box::new(self.instantiate_generic_type(v, generic_params, type_args)),
             ),
@@ -1563,13 +1563,14 @@ impl TypeChecker {
     /// Maps a resolved type to the dispatch prefix used in builtin qualified names.
     ///
     /// Returns `Some("Array")` for array types, `Some("str")` for strings,
-    /// and `Some(name)` for user-defined structs/enums (including `Set`).
-    /// Returns `None` for unresolved type variables or primitive types
+    /// `Some("Map")` for map types, and `Some(name)` for user-defined
+    /// structs/enums (including `Set`). Returns `None` for unresolved type variables or primitive types
     /// that have no inherent methods.
     fn receiver_type_name(ty: &Type) -> Option<String> {
         match ty {
             Type::Array(_) => Some("Array".to_string()),
             Type::String => Some("str".to_string()),
+            Type::Map(..) => Some("Map".to_string()),
             Type::Struct(name, _) | Type::Enum(name, _) => Some(name.to_string()),
             _ => None,
         }

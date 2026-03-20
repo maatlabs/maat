@@ -11,7 +11,7 @@ pub type TypeVarId = u32;
 /// A concrete or polymorphic type in the type system.
 ///
 /// Mirrors the runtime value categories: numeric primitives, booleans, strings,
-/// compound types (arrays, hashes, functions), user-defined types (structs,
+/// compound types (arrays, maps, functions), user-defined types (structs,
 /// enums), and inference-time placeholders (type variables and generics).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
@@ -31,7 +31,8 @@ pub enum Type {
     String,
     Null,
     Array(Box<Type>),
-    Hash(Box<Type>, Box<Type>),
+    /// A map type with key and value types (e.g., `Map<str, i64>`).
+    Map(Box<Type>, Box<Type>),
     /// A range type parameterised by its element type (e.g., `Range<i64>`).
     Range(Box<Type>),
     Function(FnType),
@@ -294,7 +295,7 @@ impl fmt::Display for Type {
             Self::String => f.write_str("String"),
             Self::Null => f.write_str("null"),
             Self::Array(elem) => write!(f, "[{elem}]"),
-            Self::Hash(k, v) => write!(f, "{{{k}: {v}}}"),
+            Self::Map(k, v) => write!(f, "{{{k}: {v}}}"),
             Self::Range(elem) => write!(f, "Range<{elem}>"),
             Self::Function(fn_ty) => {
                 let params = fn_ty

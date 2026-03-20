@@ -56,8 +56,8 @@ pub enum Object {
     Str(String),
     /// An array literal.
     Array(Vec<Object>),
-    /// A hashable object.
-    Hash(HashObject),
+    /// A map (key-value collection) object.
+    Map(MapObject),
     /// A function object with parameters, body, and closure environment.
     Function(Function),
     /// A macro object with parameters, body, and closure environment.
@@ -257,7 +257,7 @@ impl Object {
             Self::Bool(_) => "Bool",
             Self::Str(_) => "Str",
             Self::Array(_) => "Array",
-            Self::Hash(_) => "HashObject",
+            Self::Map(_) => "Map",
             Self::Function(_) => "Function",
             Self::Macro(_) => "Macro",
             Self::Quote(_) => "Quote",
@@ -300,7 +300,7 @@ enum SerializableObject {
     Bool(bool),
     Str(String),
     Array(Vec<Object>),
-    Hash(HashObject),
+    Map(MapObject),
     CompiledFunction(CompiledFunction),
     Closure(Closure),
     Struct(StructObject),
@@ -332,7 +332,7 @@ impl Serialize for Object {
             Self::Bool(v) => SerializableObject::Bool(*v),
             Self::Str(v) => SerializableObject::Str(v.clone()),
             Self::Array(v) => SerializableObject::Array(v.clone()),
-            Self::Hash(v) => SerializableObject::Hash(v.clone()),
+            Self::Map(v) => SerializableObject::Map(v.clone()),
             Self::CompiledFunction(v) => SerializableObject::CompiledFunction(v.clone()),
             Self::Closure(v) => SerializableObject::Closure(v.clone()),
             Self::Struct(v) => SerializableObject::Struct(v.clone()),
@@ -372,7 +372,7 @@ impl<'de> Deserialize<'de> for Object {
             SerializableObject::Bool(v) => Self::Bool(v),
             SerializableObject::Str(v) => Self::Str(v),
             SerializableObject::Array(v) => Self::Array(v),
-            SerializableObject::Hash(v) => Self::Hash(v),
+            SerializableObject::Map(v) => Self::Map(v),
             SerializableObject::CompiledFunction(v) => Self::CompiledFunction(v),
             SerializableObject::Closure(v) => Self::Closure(v),
             SerializableObject::Struct(v) => Self::Struct(v),
@@ -404,7 +404,7 @@ impl PartialEq for Object {
             (Bool(a), Bool(b)) => a == b,
             (Str(a), Str(b)) => a == b,
             (Array(a1), Array(a2)) => a1 == a2,
-            (Hash(h1), Hash(h2)) => h1 == h2,
+            (Map(m1), Map(m2)) => m1 == m2,
             (Function(f1), Function(f2)) => f1 == f2,
             (Macro(m1), Macro(m2)) => m1 == m2,
             (Quote(q1), Quote(q2)) => q1 == q2,
@@ -542,7 +542,7 @@ pub struct VariantInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct HashObject {
+pub struct MapObject {
     pub pairs: IndexMap<Hashable, Object>,
 }
 
@@ -617,7 +617,7 @@ impl fmt::Display for Object {
                         .join(", ")
                 )
             }
-            Self::Hash(v) => v.fmt(f),
+            Self::Map(v) => v.fmt(f),
             Self::Function(v) => v.fmt(f),
             Self::Macro(v) => v.fmt(f),
             Self::Quote(v) => v.fmt(f),
@@ -691,7 +691,7 @@ impl fmt::Display for Quote {
     }
 }
 
-impl fmt::Display for HashObject {
+impl fmt::Display for MapObject {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,

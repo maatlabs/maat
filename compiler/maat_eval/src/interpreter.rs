@@ -6,7 +6,7 @@ use indexmap::IndexMap;
 use maat_ast::*;
 use maat_errors::{EvalError, Result};
 use maat_runtime::{
-    Env, FALSE, Function, HashObject, Hashable, Macro, NULL, Object, QUOTE, Quote, TRUE, UNQUOTE,
+    Env, FALSE, Function, Hashable, Macro, MapObject, NULL, Object, QUOTE, Quote, TRUE, UNQUOTE,
     get_builtin,
 };
 
@@ -86,7 +86,7 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
                 Ok(Object::Array(elements))
             }
             Expr::Index(index_expr) => eval_index_expression(index_expr, env),
-            Expr::Map(map) => eval_hash_map(map, env),
+            Expr::Map(map) => eval_map_literal(map, env),
             Expr::Prefix(prefix_expr) => eval_prefix_expression(prefix_expr, env),
             Expr::Infix(infix_expr)
                 if infix_expr.operator == "&&" || infix_expr.operator == "||" =>
@@ -286,7 +286,7 @@ fn eval_index_expression(idx_expr: IndexExpr, env: &Env) -> Result<Object> {
                 .into())
             }
         }
-        Object::Hash(map) => {
+        Object::Map(map) => {
             let key_hash = Hashable::try_from(index)?;
             Ok(map.pairs.get(&key_hash).cloned().unwrap_or(NULL))
         }
@@ -296,7 +296,7 @@ fn eval_index_expression(idx_expr: IndexExpr, env: &Env) -> Result<Object> {
     }
 }
 
-fn eval_hash_map(expr: Map, env: &Env) -> Result<Object> {
+fn eval_map_literal(expr: Map, env: &Env) -> Result<Object> {
     let mut pairs = IndexMap::new();
     for (key_expr, val_expr) in &expr.pairs {
         let key = eval(Node::Expr(key_expr.clone()), env)?;
@@ -304,7 +304,7 @@ fn eval_hash_map(expr: Map, env: &Env) -> Result<Object> {
         let value = eval(Node::Expr(val_expr.clone()), env)?;
         pairs.insert(key, value);
     }
-    Ok(Object::Hash(HashObject { pairs }))
+    Ok(Object::Map(MapObject { pairs }))
 }
 
 fn eval_prefix_expression(expr: PrefixExpr, env: &Env) -> Result<Object> {

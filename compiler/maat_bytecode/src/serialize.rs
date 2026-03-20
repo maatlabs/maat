@@ -116,7 +116,7 @@ impl Bytecode {
 mod tests {
     use std::rc::Rc;
 
-    use maat_runtime::{Closure, CompiledFunction, HashObject, Hashable, Object};
+    use maat_runtime::{Closure, CompiledFunction, Hashable, MapObject, Object};
     use maat_span::{SourceMap, Span};
 
     use super::*;
@@ -197,14 +197,14 @@ mod tests {
     }
 
     #[test]
-    fn hash_constant() {
+    fn map_constant() {
         let mut pairs = indexmap::IndexMap::new();
         pairs.insert(Hashable::I64(1), Object::Str("one".to_owned()));
         pairs.insert(Hashable::Str("key".to_owned()), Object::Bool(true));
 
         let bc = Bytecode {
             instructions: Instructions::new(),
-            constants: vec![Object::Hash(HashObject { pairs })],
+            constants: vec![Object::Map(MapObject { pairs })],
             source_map: SourceMap::new(),
             type_registry: vec![],
         };

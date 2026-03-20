@@ -27,3 +27,8 @@ pub fn set_len(s: Set) -> usize {
 pub fn set_to_array(s: Set) -> [i64] {
     s.to_array()
 }
+
+// Creates a new empty map.
+pub fn new_map() {
+    Map::new()
+}

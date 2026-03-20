@@ -348,7 +348,7 @@ pub struct IndexExpr {
     pub span: Span,
 }
 
-/// Key-value hash literal: `{ key: value, ... }`
+/// Map literal: `{ key: value, ... }`
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Map {
     pub pairs: Vec<(Expr, Expr)>,
@@ -638,7 +638,7 @@ pub struct MethodCallExpr {
     pub method: String,
     /// Arguments passed to the method (excluding the receiver).
     pub arguments: Vec<Expr>,
-    /// Receiver type name resolved by the type checker (e.g. `"Array"`, `"str"`, `"Set"`).
+    /// Receiver type name resolved by the type checker (e.g. `"Array"`, `"str"`, `"Set"`, `"Map"`).
     pub receiver: Option<String>,
     pub span: Span,
 }

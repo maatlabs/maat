@@ -44,7 +44,7 @@ impl Substitution {
         match ty {
             Type::Var(id) => *id == var,
             Type::Array(elem) | Type::Range(elem) => self.occurs(var, elem),
-            Type::Hash(k, v) => self.occurs(var, k) || self.occurs(var, v),
+            Type::Map(k, v) => self.occurs(var, k) || self.occurs(var, v),
             Type::Function(fn_ty) => {
                 fn_ty.params.iter().any(|p| self.occurs(var, p)) || self.occurs(var, &fn_ty.ret)
             }
@@ -70,7 +70,7 @@ impl Substitution {
             (_, Type::Var(id)) => self.bind_var(*id, &a),
             (Type::Array(ea), Type::Array(eb)) => self.unify(ea, eb),
             (Type::Range(ea), Type::Range(eb)) => self.unify(ea, eb),
-            (Type::Hash(ka, va), Type::Hash(kb, vb)) => {
+            (Type::Map(ka, va), Type::Map(kb, vb)) => {
                 self.unify(ka, kb)?;
                 self.unify(va, vb)
             }
@@ -106,7 +106,7 @@ impl Substitution {
             },
             Type::Array(elem) => Type::Array(Box::new(self.apply(elem))),
             Type::Range(elem) => Type::Range(Box::new(self.apply(elem))),
-            Type::Hash(k, v) => Type::Hash(Box::new(self.apply(k)), Box::new(self.apply(v))),
+            Type::Map(k, v) => Type::Map(Box::new(self.apply(k)), Box::new(self.apply(v))),
             Type::Function(fn_ty) => Type::Function(FnType {
                 params: fn_ty.params.iter().map(|p| self.apply(p)).collect(),
                 ret: Box::new(self.apply(&fn_ty.ret)),

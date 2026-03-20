@@ -21,7 +21,7 @@ pub fn resolve_type_expr(expr: &TypeExpr) -> Type {
     match expr {
         TypeExpr::Named(named) => resolve_named(&named.name),
         TypeExpr::Array(elem, _) => Type::Array(Box::new(resolve_type_expr(elem))),
-        TypeExpr::Map(k, v, _) => Type::Hash(
+        TypeExpr::Map(k, v, _) => Type::Map(
             Box::new(resolve_type_expr(k)),
             Box::new(resolve_type_expr(v)),
         ),

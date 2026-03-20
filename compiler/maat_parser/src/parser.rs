@@ -505,7 +505,7 @@ fn parse_expression_inner<'a>(
         TokenKind::Fn => parse_lambda(input, depth)?,
         TokenKind::Macro => parse_macro(input, depth)?,
         TokenKind::LBracket => parse_array_literal(input, depth)?,
-        TokenKind::LBrace => parse_hash_literal(input, depth)?,
+        TokenKind::LBrace => parse_map_literal(input, depth)?,
         TokenKind::Break => parse_break_expression(input, depth)?,
         TokenKind::Continue => parse_continue_expression(input)?,
         TokenKind::Match => parse_match_expression(input, depth)?,
@@ -854,8 +854,8 @@ fn parse_array_literal<'a>(input: &mut &'a [Token<'a>], depth: &Cell<usize>) -> 
     }))
 }
 
-/// Parses a hash/map literal: `{ key: value, ... }`.
-fn parse_hash_literal<'a>(input: &mut &'a [Token<'a>], depth: &Cell<usize>) -> ParseResult<Expr> {
+/// Parses a map literal: `{ key: value, ... }`.
+fn parse_map_literal<'a>(input: &mut &'a [Token<'a>], depth: &Cell<usize>) -> ParseResult<Expr> {
     let start = expect(input, TokenKind::LBrace)?.span;
     let mut pairs = Vec::new();
 

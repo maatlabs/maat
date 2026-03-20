@@ -398,12 +398,12 @@ fn compile_arrays() {
 }
 
 #[test]
-fn compile_hashes() {
+fn compile_maps() {
     let cases = vec![
         (
             "{}",
             vec![],
-            vec![encode(Opcode::Hash, &[0]), encode(Opcode::Pop, &[])],
+            vec![encode(Opcode::Map, &[0]), encode(Opcode::Pop, &[])],
         ),
         (
             "{1: 2, 3: 4, 5: 6}",
@@ -415,7 +415,7 @@ fn compile_hashes() {
                 encode(Opcode::Constant, &[3]),
                 encode(Opcode::Constant, &[4]),
                 encode(Opcode::Constant, &[5]),
-                encode(Opcode::Hash, &[6]),
+                encode(Opcode::Map, &[6]),
                 encode(Opcode::Pop, &[]),
             ],
         ),
@@ -431,7 +431,7 @@ fn compile_hashes() {
                 encode(Opcode::Constant, &[4]),
                 encode(Opcode::Constant, &[5]),
                 encode(Opcode::Mul, &[]),
-                encode(Opcode::Hash, &[4]),
+                encode(Opcode::Map, &[4]),
                 encode(Opcode::Pop, &[]),
             ],
         ),
@@ -467,7 +467,7 @@ fn compile_index_expressions() {
             vec![
                 encode(Opcode::Constant, &[0]),
                 encode(Opcode::Constant, &[1]),
-                encode(Opcode::Hash, &[2]),
+                encode(Opcode::Map, &[2]),
                 encode(Opcode::Constant, &[2]),
                 encode(Opcode::Constant, &[3]),
                 encode(Opcode::Sub, &[]),

@@ -256,15 +256,15 @@ fn parse_index_expression() {
 }
 
 #[test]
-fn parse_hashes() {
-    // Non-empty hash
+fn parse_maps() {
+    // Non-empty map
     let program = parse(r#"{"one": 1, "two": 2, "three": 3}"#);
     let Stmt::Expr(ExprStmt {
         value: Expr::Map(map),
         ..
     }) = expect_single_stmt(&program)
     else {
-        panic!("expected hash literal");
+        panic!("expected map literal");
     };
     assert_eq!(map.pairs.len(), 3);
     let expected = [("one", "1"), ("two", "2"), ("three", "3")];
@@ -275,27 +275,27 @@ fn parse_hashes() {
             .any(|(k, v)| k.to_string() == key && v.to_string() == value);
         assert!(found, "expected key-value pair: {} => {}", key, value);
     }
-    // Empty hash
+    // Empty map
     let program = parse("{}");
     let Stmt::Expr(ExprStmt {
-        value: Expr::Map(hash),
+        value: Expr::Map(map),
         ..
     }) = expect_single_stmt(&program)
     else {
-        panic!("expected hash literal");
+        panic!("expected map literal");
     };
-    assert_eq!(hash.pairs.len(), 0);
+    assert_eq!(map.pairs.len(), 0);
 
-    // Hash with expressions
+    // Map with expressions
     let program = parse(r#"{"one": 0 + 1, "two": 10 - 8}"#);
     let Stmt::Expr(ExprStmt {
-        value: Expr::Map(hash),
+        value: Expr::Map(map),
         ..
     }) = expect_single_stmt(&program)
     else {
-        panic!("expected hash literal");
+        panic!("expected map literal");
     };
-    assert_eq!(hash.pairs.len(), 2);
+    assert_eq!(map.pairs.len(), 2);
 }
 
 #[test]

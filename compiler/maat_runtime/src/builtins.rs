@@ -1,7 +1,7 @@
-use indexmap::IndexSet;
+use indexmap::{IndexMap, IndexSet};
 use maat_errors::{EvalError, Result};
 
-use crate::{BuiltinFn, Hashable, NULL, Object};
+use crate::{BuiltinFn, Hashable, MapObject, NULL, Object};
 
 /// The name of the `quote` special form for AST quoting.
 ///
@@ -55,24 +55,32 @@ macro_rules! define_builtins {
 define_builtins! {
     "print" => print,
     "Array::len" => array_len,
-    "str::len" => str_len,
     "Array::first" => array_first,
     "Array::last" => array_last,
     "Array::rest" => array_rest,
     "Array::push" => array_push,
     "Array::join" => array_join,
-    "str::trim" => str_trim,
-    "str::contains" => str_contains,
-    "str::starts_with" => str_starts_with,
-    "str::ends_with" => str_ends_with,
-    "str::split" => str_split,
-    "str::parse_int" => str_parse_int,
+    "Map::new" => map_new,
+    "Map::insert" => map_insert,
+    "Map::get" => map_get,
+    "Map::contains_key" => map_contains_key,
+    "Map::remove" => map_remove,
+    "Map::len" => map_len,
+    "Map::keys" => map_keys,
+    "Map::values" => map_values,
     "Set::new" => set_new,
     "Set::insert" => set_insert,
     "Set::contains" => set_contains,
     "Set::remove" => set_remove,
     "Set::len" => set_len,
     "Set::to_array" => set_to_array,
+    "str::len" => str_len,
+    "str::trim" => str_trim,
+    "str::contains" => str_contains,
+    "str::starts_with" => str_starts_with,
+    "str::ends_with" => str_ends_with,
+    "str::split" => str_split,
+    "str::parse_int" => str_parse_int,
 }
 
 /// Prints arguments to stdout, separated by spaces.
@@ -97,15 +105,6 @@ fn array_len(args: &[Object]) -> Result<Object> {
     match &args[0] {
         Object::Array(arr) => Ok(Object::Usize(arr.len())),
         other => method_type_error(other, "len", "array"),
-    }
-}
-
-/// Returns the byte length of a string. Receiver: `self` at `args[0]`.
-fn str_len(args: &[Object]) -> Result<Object> {
-    expect_arg_count("str::len", args, 1)?;
-    match &args[0] {
-        Object::Str(s) => Ok(Object::Usize(s.len())),
-        other => method_type_error(other, "len", "str"),
     }
 }
 
@@ -172,85 +171,100 @@ fn array_join(args: &[Object]) -> Result<Object> {
     }
 }
 
-/// Returns a new string with leading and trailing whitespace removed.
-fn str_trim(args: &[Object]) -> Result<Object> {
-    expect_arg_count("str::trim", args, 1)?;
+/// Creates a new empty map.
+fn map_new(args: &[Object]) -> Result<Object> {
+    expect_arg_count("Map::new", args, 0)?;
+    Ok(Object::Map(MapObject {
+        pairs: IndexMap::new(),
+    }))
+}
+
+/// Returns a new map with the given key-value pair inserted.
+/// Receiver at `args[0]`, key at `args[1]`, value at `args[2]`.
+fn map_insert(args: &[Object]) -> Result<Object> {
+    expect_arg_count("Map::insert", args, 3)?;
     match &args[0] {
-        Object::Str(s) => Ok(Object::Str(s.trim().to_string())),
-        other => method_type_error(other, "trim", "str"),
-    }
-}
-
-/// Returns `true` if the string contains the given substring.
-fn str_contains(args: &[Object]) -> Result<Object> {
-    expect_arg_count("str::contains", args, 2)?;
-    match (&args[0], &args[1]) {
-        (Object::Str(haystack), Object::Str(needle)) => {
-            Ok(Object::Bool(haystack.contains(needle.as_str())))
+        Object::Map(map) => {
+            let key = Hashable::try_from(args[1].clone())?;
+            let mut new_map = map.pairs.clone();
+            new_map.insert(key, args[2].clone());
+            Ok(Object::Map(MapObject { pairs: new_map }))
         }
-        (Object::Str(_), other) => Err(EvalError::Builtin(format!(
-            "str::contains: pattern must be a string, got {}",
-            other.type_name()
-        ))
-        .into()),
-        (other, _) => method_type_error(other, "contains", "str"),
+        other => method_type_error(other, "insert", "Map"),
     }
 }
 
-/// Returns `true` if the string starts with the given prefix.
-fn str_starts_with(args: &[Object]) -> Result<Object> {
-    expect_arg_count("str::starts_with", args, 2)?;
-    match (&args[0], &args[1]) {
-        (Object::Str(s), Object::Str(prefix)) => Ok(Object::Bool(s.starts_with(prefix.as_str()))),
-        (Object::Str(_), other) => Err(EvalError::Builtin(format!(
-            "str::starts_with: prefix must be a string, got {}",
-            other.type_name()
-        ))
-        .into()),
-        (other, _) => method_type_error(other, "starts_with", "str"),
-    }
-}
-
-/// Returns `true` if the string ends with the given suffix.
-fn str_ends_with(args: &[Object]) -> Result<Object> {
-    expect_arg_count("str::ends_with", args, 2)?;
-    match (&args[0], &args[1]) {
-        (Object::Str(s), Object::Str(suffix)) => Ok(Object::Bool(s.ends_with(suffix.as_str()))),
-        (Object::Str(_), other) => Err(EvalError::Builtin(format!(
-            "str::ends_with: suffix must be a string, got {}",
-            other.type_name()
-        ))
-        .into()),
-        (other, _) => method_type_error(other, "ends_with", "str"),
-    }
-}
-
-/// Splits a string by a delimiter, returning an array of substrings.
-fn str_split(args: &[Object]) -> Result<Object> {
-    expect_arg_count("str::split", args, 2)?;
-    match (&args[0], &args[1]) {
-        (Object::Str(s), Object::Str(delim)) => {
-            let parts = s
-                .split(delim.as_str())
-                .map(|part| Object::Str(part.to_string()))
-                .collect();
-            Ok(Object::Array(parts))
-        }
-        (Object::Str(_), other) => Err(EvalError::Builtin(format!(
-            "str::split: delimiter must be a string, got {}",
-            other.type_name()
-        ))
-        .into()),
-        (other, _) => method_type_error(other, "split", "str"),
-    }
-}
-
-/// Parses a string as a base-10 integer. Returns `null` on failure.
-fn str_parse_int(args: &[Object]) -> Result<Object> {
-    expect_arg_count("str::parse_int", args, 1)?;
+/// Returns the value associated with the given key, or `null` if not present.
+/// Receiver at `args[0]`, key at `args[1]`.
+fn map_get(args: &[Object]) -> Result<Object> {
+    expect_arg_count("Map::get", args, 2)?;
     match &args[0] {
-        Object::Str(s) => Ok(s.trim().parse::<i64>().map_or(NULL, Object::I64)),
-        other => method_type_error(other, "parse_int", "str"),
+        Object::Map(map) => {
+            let key = Hashable::try_from(args[1].clone())?;
+            Ok(map.pairs.get(&key).cloned().unwrap_or(NULL))
+        }
+        other => method_type_error(other, "get", "Map"),
+    }
+}
+
+/// Returns `true` if the map contains the given key.
+/// Receiver at `args[0]`, key at `args[1]`.
+fn map_contains_key(args: &[Object]) -> Result<Object> {
+    expect_arg_count("Map::contains_key", args, 2)?;
+    match &args[0] {
+        Object::Map(map) => {
+            let key = Hashable::try_from(args[1].clone())?;
+            Ok(Object::Bool(map.pairs.contains_key(&key)))
+        }
+        other => method_type_error(other, "contains_key", "Map"),
+    }
+}
+
+/// Returns a new map with the given key removed.
+/// Receiver at `args[0]`, key at `args[1]`.
+fn map_remove(args: &[Object]) -> Result<Object> {
+    expect_arg_count("Map::remove", args, 2)?;
+    match &args[0] {
+        Object::Map(map) => {
+            let key = Hashable::try_from(args[1].clone())?;
+            let mut new_map = map.pairs.clone();
+            new_map.swap_remove(&key);
+            Ok(Object::Map(MapObject { pairs: new_map }))
+        }
+        other => method_type_error(other, "remove", "Map"),
+    }
+}
+
+/// Returns the number of key-value pairs in the map.
+fn map_len(args: &[Object]) -> Result<Object> {
+    expect_arg_count("Map::len", args, 1)?;
+    match &args[0] {
+        Object::Map(map) => Ok(Object::Usize(map.pairs.len())),
+        other => method_type_error(other, "len", "Map"),
+    }
+}
+
+/// Returns an array of all keys in the map, in insertion order.
+fn map_keys(args: &[Object]) -> Result<Object> {
+    expect_arg_count("Map::keys", args, 1)?;
+    match &args[0] {
+        Object::Map(map) => {
+            let keys = map.pairs.keys().map(hashable_to_object).collect();
+            Ok(Object::Array(keys))
+        }
+        other => method_type_error(other, "keys", "Map"),
+    }
+}
+
+/// Returns an array of all values in the map, in insertion order.
+fn map_values(args: &[Object]) -> Result<Object> {
+    expect_arg_count("Map::values", args, 1)?;
+    match &args[0] {
+        Object::Map(map) => {
+            let values = map.pairs.values().cloned().collect();
+            Ok(Object::Array(values))
+        }
+        other => method_type_error(other, "values", "Map"),
     }
 }
 
@@ -336,6 +350,117 @@ fn set_to_array(args: &[Object]) -> Result<Object> {
             Ok(Object::Array(arr))
         }
         other => method_type_error(other, "to_array", "Set"),
+    }
+}
+
+/// Returns the byte length of a string. Receiver: `self` at `args[0]`.
+fn str_len(args: &[Object]) -> Result<Object> {
+    expect_arg_count("str::len", args, 1)?;
+    match &args[0] {
+        Object::Str(s) => Ok(Object::Usize(s.len())),
+        other => method_type_error(other, "len", "str"),
+    }
+}
+
+/// Returns a new string with leading and trailing whitespace removed.
+fn str_trim(args: &[Object]) -> Result<Object> {
+    expect_arg_count("str::trim", args, 1)?;
+    match &args[0] {
+        Object::Str(s) => Ok(Object::Str(s.trim().to_string())),
+        other => method_type_error(other, "trim", "str"),
+    }
+}
+
+/// Returns `true` if the string contains the given substring.
+fn str_contains(args: &[Object]) -> Result<Object> {
+    expect_arg_count("str::contains", args, 2)?;
+    match (&args[0], &args[1]) {
+        (Object::Str(haystack), Object::Str(needle)) => {
+            Ok(Object::Bool(haystack.contains(needle.as_str())))
+        }
+        (Object::Str(_), other) => Err(EvalError::Builtin(format!(
+            "str::contains: pattern must be a string, got {}",
+            other.type_name()
+        ))
+        .into()),
+        (other, _) => method_type_error(other, "contains", "str"),
+    }
+}
+
+/// Returns `true` if the string starts with the given prefix.
+fn str_starts_with(args: &[Object]) -> Result<Object> {
+    expect_arg_count("str::starts_with", args, 2)?;
+    match (&args[0], &args[1]) {
+        (Object::Str(s), Object::Str(prefix)) => Ok(Object::Bool(s.starts_with(prefix.as_str()))),
+        (Object::Str(_), other) => Err(EvalError::Builtin(format!(
+            "str::starts_with: prefix must be a string, got {}",
+            other.type_name()
+        ))
+        .into()),
+        (other, _) => method_type_error(other, "starts_with", "str"),
+    }
+}
+
+/// Returns `true` if the string ends with the given suffix.
+fn str_ends_with(args: &[Object]) -> Result<Object> {
+    expect_arg_count("str::ends_with", args, 2)?;
+    match (&args[0], &args[1]) {
+        (Object::Str(s), Object::Str(suffix)) => Ok(Object::Bool(s.ends_with(suffix.as_str()))),
+        (Object::Str(_), other) => Err(EvalError::Builtin(format!(
+            "str::ends_with: suffix must be a string, got {}",
+            other.type_name()
+        ))
+        .into()),
+        (other, _) => method_type_error(other, "ends_with", "str"),
+    }
+}
+
+/// Splits a string by a delimiter, returning an array of substrings.
+fn str_split(args: &[Object]) -> Result<Object> {
+    expect_arg_count("str::split", args, 2)?;
+    match (&args[0], &args[1]) {
+        (Object::Str(s), Object::Str(delim)) => {
+            let parts = s
+                .split(delim.as_str())
+                .map(|part| Object::Str(part.to_string()))
+                .collect();
+            Ok(Object::Array(parts))
+        }
+        (Object::Str(_), other) => Err(EvalError::Builtin(format!(
+            "str::split: delimiter must be a string, got {}",
+            other.type_name()
+        ))
+        .into()),
+        (other, _) => method_type_error(other, "split", "str"),
+    }
+}
+
+/// Parses a string as a base-10 integer. Returns `null` on failure.
+fn str_parse_int(args: &[Object]) -> Result<Object> {
+    expect_arg_count("str::parse_int", args, 1)?;
+    match &args[0] {
+        Object::Str(s) => Ok(s.trim().parse::<i64>().map_or(NULL, Object::I64)),
+        other => method_type_error(other, "parse_int", "str"),
+    }
+}
+
+/// Converts a `Hashable` back to an `Object`.
+fn hashable_to_object(h: &Hashable) -> Object {
+    match h {
+        Hashable::I8(v) => Object::I8(*v),
+        Hashable::I16(v) => Object::I16(*v),
+        Hashable::I32(v) => Object::I32(*v),
+        Hashable::I64(v) => Object::I64(*v),
+        Hashable::I128(v) => Object::I128(*v),
+        Hashable::Isize(v) => Object::Isize(*v),
+        Hashable::U8(v) => Object::U8(*v),
+        Hashable::U16(v) => Object::U16(*v),
+        Hashable::U32(v) => Object::U32(*v),
+        Hashable::U64(v) => Object::U64(*v),
+        Hashable::U128(v) => Object::U128(*v),
+        Hashable::Usize(v) => Object::Usize(*v),
+        Hashable::Bool(v) => Object::Bool(*v),
+        Hashable::Str(v) => Object::Str(v.clone()),
     }
 }
 

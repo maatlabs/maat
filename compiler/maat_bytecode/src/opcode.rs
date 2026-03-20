@@ -85,11 +85,11 @@ pub enum Opcode {
     /// Operands: [u16] - number of elements
     Array = 19,
 
-    /// Build a hash from the top N stack elements (key-value pairs).
+    /// Build a map from the top N stack elements (key-value pairs).
     /// Operands: [u16] - total number of elements (keys + values)
-    Hash = 20,
+    Map = 20,
 
-    /// Index into an array or hash. Pops index and container, pushes result.
+    /// Index into an array or map. Pops index and container, pushes result.
     /// Operands: none
     Index = 21,
 
@@ -206,7 +206,7 @@ impl Opcode {
             Self::SetGlobal => "OpSetGlobal",
             Self::GetGlobal => "OpGetGlobal",
             Self::Array => "OpArray",
-            Self::Hash => "OpHash",
+            Self::Map => "OpMap",
             Self::Index => "OpIndex",
             Self::Call => "OpCall",
             Self::ReturnValue => "OpReturnValue",
@@ -245,7 +245,7 @@ impl Opcode {
             | Self::SetGlobal
             | Self::GetGlobal
             | Self::Array
-            | Self::Hash
+            | Self::Map
             | Self::GetField => &[2],
             Self::Closure | Self::Construct => &[2, 1],
             Self::MatchTag => &[2, 2],
@@ -308,7 +308,7 @@ impl Opcode {
             17 => Some(Self::SetGlobal),
             18 => Some(Self::GetGlobal),
             19 => Some(Self::Array),
-            20 => Some(Self::Hash),
+            20 => Some(Self::Map),
             21 => Some(Self::Index),
             22 => Some(Self::Call),
             23 => Some(Self::ReturnValue),

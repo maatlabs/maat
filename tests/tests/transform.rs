@@ -117,11 +117,11 @@ fn transform_collections() {
             .iter()
             .all(|e| matches!(e, Expr::Number(n) if n.value == 2))
     );
-    let hash = Expr::Map(Map {
+    let map = Expr::Map(Map {
         pairs: vec![(one(), one())],
         span: Span::ZERO,
     });
-    let Node::Expr(Expr::Map(h)) = transform(Node::Expr(hash), &mut turn_one_into_two) else {
+    let Node::Expr(Expr::Map(h)) = transform(Node::Expr(map), &mut turn_one_into_two) else {
         panic!("expected Map");
     };
     let (ref k, ref v) = h.pairs[0];

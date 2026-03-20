@@ -85,6 +85,23 @@ impl TypeEnv {
                 ret: Box::new(set_ty),
             })),
         );
+
+        // Map::new() -> Map<K, V>
+        let map_k_id = self.next_var;
+        self.next_var += 1;
+        let map_v_id = self.next_var;
+        self.next_var += 1;
+        let map_ty = Type::Map(Box::new(Type::Var(map_k_id)), Box::new(Type::Var(map_v_id)));
+        self.define_scheme(
+            "Map::new",
+            TypeScheme {
+                forall: vec![map_k_id, map_v_id],
+                ty: Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(map_ty),
+                }),
+            },
+        );
     }
 
     /// Registers inherent methods on built-in types (`[T]` and `str`).
@@ -269,6 +286,83 @@ impl TypeEnv {
                 },
             );
         }
+        // impl Map<K, V>
+        let map_k_id = self.next_var;
+        self.next_var += 1;
+        let map_v_id = self.next_var;
+        self.next_var += 1;
+        let map_k = Type::Var(map_k_id);
+        let map_v = Type::Var(map_v_id);
+        let map_ty = Type::Map(Box::new(map_k.clone()), Box::new(map_v.clone()));
+        let map_forall = vec![map_k_id, map_v_id];
+        let map_methods = [
+            (
+                "Map::insert",
+                map_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![map_k.clone(), map_v.clone()],
+                    ret: Box::new(map_ty.clone()),
+                }),
+            ),
+            (
+                "Map::get",
+                map_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![map_k.clone()],
+                    ret: Box::new(map_v),
+                }),
+            ),
+            (
+                "Map::contains_key",
+                map_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![map_k.clone()],
+                    ret: Box::new(Type::Bool),
+                }),
+            ),
+            (
+                "Map::remove",
+                map_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![map_k.clone()],
+                    ret: Box::new(map_ty.clone()),
+                }),
+            ),
+            (
+                "Map::len",
+                vec![],
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Usize),
+                }),
+            ),
+            (
+                "Map::keys",
+                map_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Array(Box::new(map_k))),
+                }),
+            ),
+            (
+                "Map::values",
+                map_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Array(Box::new(Type::Var(map_v_id)))),
+                }),
+            ),
+        ];
+        for (name, forall, fn_type) in map_methods {
+            self.builtin_method_schemes.insert(
+                name.to_string(),
+                BuiltinMethodScheme {
+                    forall,
+                    self_type: map_ty.clone(),
+                    fn_type,
+                },
+            );
+        }
     }
 
     /// Registers `Option<T>` and `Result<T, E>` as language-level enum types.
@@ -414,6 +508,7 @@ impl TypeEnv {
         let prefix = match receiver {
             Type::Array(_) => "Array",
             Type::String => "str",
+            Type::Map(..) => "Map",
             Type::Struct(name, _) if name.as_ref() == "Set" => "Set",
             _ => return None,
         };
@@ -611,7 +706,7 @@ fn collect_free_vars(ty: &Type, vars: &mut HashSet<TypeVarId>) {
             vars.insert(*id);
         }
         Type::Array(elem) | Type::Range(elem) => collect_free_vars(elem, vars),
-        Type::Hash(k, v) => {
+        Type::Map(k, v) => {
             collect_free_vars(k, vars);
             collect_free_vars(v, vars);
         }

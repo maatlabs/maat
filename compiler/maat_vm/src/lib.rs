@@ -11,7 +11,7 @@ use indexmap::IndexMap;
 use maat_bytecode::{Bytecode, MAX_FRAMES, MAX_GLOBALS, MAX_STACK_SIZE, Opcode, TypeTag};
 use maat_errors::{Result, VmError};
 use maat_runtime::{
-    BUILTINS, Closure, CompiledFunction, EnumVariantObject, FALSE, HashObject, Hashable, NULL,
+    BUILTINS, Closure, CompiledFunction, EnumVariantObject, FALSE, Hashable, MapObject, NULL,
     Object, StructObject, TRUE, TypeDef,
 };
 use maat_span::{SourceMap, Span};
@@ -312,11 +312,11 @@ impl VM {
                     let array = self.build_array(num_elements)?;
                     self.push_stack(array)?;
                 }
-                Opcode::Hash => {
+                Opcode::Map => {
                     let num_elements = self.read_u16_operand(ip + 1)?;
                     self.current_frame_mut()?.ip += 2;
-                    let hash = self.build_hash(num_elements)?;
-                    self.push_stack(hash)?;
+                    let map = self.build_map(num_elements)?;
+                    self.push_stack(map)?;
                 }
                 Opcode::Index => {
                     let index = self.pop_stack()?;
@@ -795,13 +795,13 @@ impl VM {
         Ok(Object::Array(elements))
     }
 
-    /// Builds a hash object from the top `num_elements` stack values.
+    /// Builds a map object from the top `num_elements` stack values.
     ///
     /// Elements are expected in alternating key-value order on the stack.
-    fn build_hash(&mut self, num_elements: usize) -> Result<Object> {
+    fn build_map(&mut self, num_elements: usize) -> Result<Object> {
         if num_elements > self.sp {
             return Err(self.vm_error(format!(
-                "stack underflow in hash construction: need {num_elements} elements, stack has {}",
+                "stack underflow in map construction: need {num_elements} elements, stack has {}",
                 self.sp
             )));
         }
@@ -814,14 +814,14 @@ impl VM {
             pairs.insert(key, value);
         }
         self.sp = start;
-        Ok(Object::Hash(HashObject { pairs }))
+        Ok(Object::Map(MapObject { pairs }))
     }
 
     /// Dispatches index operations to the appropriate handler.
     fn execute_index_expression(&mut self, container: Object, index: Object) -> Result<()> {
         match (&container, &index) {
             (Object::Array(elements), _) => self.execute_array_index(elements, &index),
-            (Object::Hash(hash), _) => self.execute_hash_index(hash, index),
+            (Object::Map(map), _) => self.execute_map_index(map, index),
             _ => Err(self.vm_error(format!(
                 "index operator not supported: {}",
                 container.type_name()
@@ -843,10 +843,10 @@ impl VM {
         }
     }
 
-    /// Indexes into a hash by key.
-    fn execute_hash_index(&mut self, hash: &HashObject, index: Object) -> Result<()> {
+    /// Indexes into a map by key.
+    fn execute_map_index(&mut self, map: &MapObject, index: Object) -> Result<()> {
         let key = Hashable::try_from(index).map_err(|e| self.vm_error(e.to_string()))?;
-        match hash.pairs.get(&key) {
+        match map.pairs.get(&key) {
             Some(value) => self.push_stack(value.clone()),
             None => self.push_stack(NULL),
         }

@@ -10,7 +10,7 @@ enum TestValue {
     Bool(bool),
     Str(String),
     IntArray(Vec<i64>),
-    Hash(Vec<(i64, i64)>),
+    Map(Vec<(i64, i64)>),
     Range(i64, i64),
     RangeInclusive(i64, i64),
     Null,
@@ -80,23 +80,23 @@ fn run_vm_test(input: &str, expected: TestValue) {
             }
             _ => panic!("expected array object, got: {:?}", stack_elem),
         },
-        TestValue::Hash(expected_pairs) => match &stack_elem {
-            Object::Hash(hash_obj) => {
+        TestValue::Map(expected_pairs) => match &stack_elem {
+            Object::Map(map_obj) => {
                 assert_eq!(
-                    hash_obj.pairs.len(),
+                    map_obj.pairs.len(),
                     expected_pairs.len(),
-                    "wrong hash size for input: {input}"
+                    "wrong map size for input: {input}"
                 );
                 for (key, value) in &expected_pairs {
-                    let hash_key = Hashable::I64(*key);
-                    let actual = hash_obj
+                    let map_key = Hashable::I64(*key);
+                    let actual = map_obj
                         .pairs
-                        .get(&hash_key)
-                        .unwrap_or_else(|| panic!("missing key {key} in hash for input: {input}"));
+                        .get(&map_key)
+                        .unwrap_or_else(|| panic!("missing key {key} in map for input: {input}"));
                     match actual {
                         Object::I64(val) => assert_eq!(
                             *val, *value,
-                            "wrong hash value for key {key} in input: {input}"
+                            "wrong map value for key {key} in input: {input}"
                         ),
                         other => {
                             panic!("expected integer value for key {key}, got: {:?}", other)
@@ -104,7 +104,7 @@ fn run_vm_test(input: &str, expected: TestValue) {
                     }
                 }
             }
-            _ => panic!("expected hash object, got: {:?}", stack_elem),
+            _ => panic!("expected map object, got: {:?}", stack_elem),
         },
         TestValue::Range(s, e) => {
             assert_eq!(
@@ -273,13 +273,13 @@ fn array_literals() {
 }
 
 #[test]
-fn hash_literals() {
+fn map_literals() {
     let cases = vec![
-        ("{}", TestValue::Hash(vec![])),
-        ("{1: 2, 2: 3}", TestValue::Hash(vec![(1, 2), (2, 3)])),
+        ("{}", TestValue::Map(vec![])),
+        ("{1: 2, 2: 3}", TestValue::Map(vec![(1, 2), (2, 3)])),
         (
             "{1 + 1: 2 * 2, 3 + 3: 4 * 4}",
-            TestValue::Hash(vec![(2, 4), (6, 16)]),
+            TestValue::Map(vec![(2, 4), (6, 16)]),
         ),
     ];
     for (input, expected) in cases {
@@ -1517,5 +1517,135 @@ fn struct_update_syntax() {
         test()
         "#,
         TestValue::I64(47),
+    );
+}
+
+#[test]
+fn map_type() {
+    // Map::new, insert, get
+    run_vm_test(
+        r#"
+        fn test() -> i64 {
+            let m = Map::new();
+            let m = m.insert(1, 100);
+            let m = m.insert(2, 200);
+            m.get(1) + m.get(2)
+        }
+        test()
+        "#,
+        TestValue::I64(300),
+    );
+
+    // Map::contains_key
+    run_vm_test(
+        r#"
+        fn test() -> bool {
+            let m = Map::new();
+            let m = m.insert(42, 0);
+            m.contains_key(42)
+        }
+        test()
+        "#,
+        TestValue::Bool(true),
+    );
+
+    // Map::contains_key returns false for missing key
+    run_vm_test(
+        r#"
+        fn test() -> bool {
+            let m = Map::new();
+            let m = m.insert(1, 10);
+            m.contains_key(99)
+        }
+        test()
+        "#,
+        TestValue::Bool(false),
+    );
+
+    // Map::remove
+    run_vm_test(
+        r#"
+        fn test() -> usize {
+            let m = Map::new();
+            let m = m.insert(1, 10);
+            let m = m.insert(2, 20);
+            let m = m.remove(1);
+            m.len()
+        }
+        test()
+        "#,
+        TestValue::Usize(1),
+    );
+
+    // Map::len
+    run_vm_test(
+        r#"
+        fn test() -> usize {
+            let m = Map::new();
+            let m = m.insert(1, 10);
+            let m = m.insert(2, 20);
+            let m = m.insert(3, 30);
+            m.len()
+        }
+        test()
+        "#,
+        TestValue::Usize(3),
+    );
+
+    // Map::keys
+    run_vm_test(
+        r#"
+        fn test() -> i64 {
+            let m = Map::new();
+            let m = m.insert(10, 100);
+            let m = m.insert(20, 200);
+            let ks = m.keys();
+            ks[0] + ks[1]
+        }
+        test()
+        "#,
+        TestValue::I64(30),
+    );
+
+    // Map::values
+    run_vm_test(
+        r#"
+        fn test() -> i64 {
+            let m = Map::new();
+            let m = m.insert(1, 100);
+            let m = m.insert(2, 200);
+            let vs = m.values();
+            vs[0] + vs[1]
+        }
+        test()
+        "#,
+        TestValue::I64(300),
+    );
+
+    // Map with string keys
+    run_vm_test(
+        r#"
+        fn test() -> i64 {
+            let m = Map::new();
+            let m = m.insert("x", 10);
+            let m = m.insert("y", 20);
+            m.get("x") + m.get("y")
+        }
+        test()
+        "#,
+        TestValue::I64(30),
+    );
+
+    // Map indexing with [] operator
+    run_vm_test(
+        r#"
+        fn test() -> i64 {
+            let m = Map::new();
+            let m = m.insert(1, 42);
+            m[1]
+        }
+        test()
+        "#,
+        TestValue::I64(42),
     );
 }

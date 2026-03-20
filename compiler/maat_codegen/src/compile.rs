@@ -722,12 +722,12 @@ impl Compiler {
                 self.emit(Opcode::Array, &[array.elements.len()], span);
                 Ok(())
             }
-            Expr::Map(hash) => {
-                for (key, value) in &hash.pairs {
+            Expr::Map(map) => {
+                for (key, value) in &map.pairs {
                     self.compile_expression(key)?;
                     self.compile_expression(value)?;
                 }
-                self.emit(Opcode::Hash, &[hash.pairs.len() * 2], span);
+                self.emit(Opcode::Map, &[map.pairs.len() * 2], span);
                 Ok(())
             }
             Expr::Index(index_expr) => {
@@ -1292,7 +1292,7 @@ impl Compiler {
     /// Resolves the fully-qualified builtin name for a method call.
     fn resolve_method_name(&mut self, mc: &MethodCallExpr) -> Option<String> {
         // Built-in type prefixes for method dispatch fallback.
-        const BUILTIN_METHOD_PREFIXES: &[&str] = &["Array", "str", "Set"];
+        const BUILTIN_METHOD_PREFIXES: &[&str] = &["Array", "str", "Set", "Map"];
 
         if let Some(ref receiver) = mc.receiver {
             let candidate = format!("{receiver}::{}", mc.method);
