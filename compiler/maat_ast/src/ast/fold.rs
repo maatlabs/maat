@@ -135,6 +135,9 @@ fn fold_expression(expr: &mut Expr, errors: &mut Vec<TypeError>) {
             for (_, val) in &mut e.fields {
                 fold_expression(val, errors);
             }
+            if let Some(base) = &mut e.base {
+                fold_expression(base, errors);
+            }
         }
         Expr::Range(e) => {
             fold_expression(&mut e.start, errors);

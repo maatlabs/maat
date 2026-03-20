@@ -1444,3 +1444,78 @@ fn conditional_reassignment_in_loop() {
         TestValue::I64(6),
     );
 }
+
+#[test]
+fn struct_update_syntax() {
+    // Basic struct update: override one field, inherit the rest
+    run_vm_test(
+        r#"
+        struct Point { x: i64, y: i64 }
+        fn test() -> i64 {
+            let p1 = Point { x: 1, y: 2 };
+            let p2 = Point { x: 10, ..p1 };
+            p2.x + p2.y
+        }
+        test()
+        "#,
+        TestValue::I64(12),
+    );
+
+    // Update with no explicit fields (clone via update syntax)
+    run_vm_test(
+        r#"
+        struct Pair { a: i64, b: i64 }
+        fn test() -> i64 {
+            let p1 = Pair { a: 3, b: 7 };
+            let p2 = Pair { ..p1 };
+            p2.a + p2.b
+        }
+        test()
+        "#,
+        TestValue::I64(10),
+    );
+
+    // Update with all fields overridden (base is unused but valid)
+    run_vm_test(
+        r#"
+        struct Vec2 { x: i64, y: i64 }
+        fn test() -> i64 {
+            let v1 = Vec2 { x: 1, y: 2 };
+            let v2 = Vec2 { x: 100, y: 200, ..v1 };
+            v2.x + v2.y
+        }
+        test()
+        "#,
+        TestValue::I64(300),
+    );
+
+    // Struct update with three fields
+    run_vm_test(
+        r#"
+        struct Config { width: i64, height: i64, depth: i64 }
+        fn test() -> i64 {
+            let base = Config { width: 10, height: 20, depth: 30 };
+            let updated = Config { height: 99, ..base };
+            updated.width + updated.height + updated.depth
+        }
+        test()
+        "#,
+        TestValue::I64(139),
+    );
+
+    // Struct update with a function returning the base
+    run_vm_test(
+        r#"
+        struct Rect { w: i64, h: i64 }
+        fn default_rect() -> Rect {
+            Rect { w: 5, h: 10 }
+        }
+        fn test() -> i64 {
+            let r = Rect { h: 42, ..default_rect() };
+            r.w + r.h
+        }
+        test()
+        "#,
+        TestValue::I64(47),
+    );
+}

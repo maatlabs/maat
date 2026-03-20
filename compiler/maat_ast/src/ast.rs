@@ -643,13 +643,16 @@ pub struct MethodCallExpr {
     pub span: Span,
 }
 
-/// Struct literal construction: `Point { x: 1, y: 2 }`.
+/// Struct literal construction: `Point { x: 1, y: 2 }` or with functional
+/// update syntax: `Point { x: 10, ..other }`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StructLitExpr {
     /// The struct type name.
     pub name: String,
     /// Field initializers: `(field_name, value_expr)`.
     pub fields: Vec<(String, Expr)>,
+    /// Optional base expression for functional update (`..expr`).
+    pub base: Option<Box<Expr>>,
     pub span: Span,
 }
 

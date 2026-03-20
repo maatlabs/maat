@@ -412,6 +412,12 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                             (name, new_val)
                         })
                         .collect();
+                    struct_lit.base = struct_lit.base.map(|base| {
+                        Box::new(match transform(Node::Expr(*base), transformer) {
+                            Node::Expr(e) => e,
+                            _ => unreachable!("Expr transformation returned non-expression"),
+                        })
+                    });
                     Expr::StructLit(struct_lit)
                 }
 

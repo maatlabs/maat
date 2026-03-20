@@ -702,7 +702,8 @@ impl TypeChecker {
         }
     }
 
-    /// Type-checks a struct literal expression (e.g., `Point { x: 1, y: 2 }`).
+    /// Type-checks a struct literal expression (e.g., `Point { x: 1, y: 2 }`)
+    /// or with functional update syntax (e.g., `Point { x: 10, ..other }`).
     fn check_struct_literal(&mut self, lit: &mut StructLitExpr) -> Type {
         let struct_def = self.env.lookup_struct(&lit.name).cloned();
         let Some(def) = struct_def else {
@@ -733,21 +734,29 @@ impl TypeChecker {
                 );
             }
         }
-        for (def_field_name, _) in &def.fields {
-            if !lit.fields.iter().any(|(n, _)| n == def_field_name) {
-                self.errors.push(
-                    TypeErrorKind::UnknownField {
-                        ty: format!("missing field `{}` in `{}`", def_field_name, lit.name),
-                        field: def_field_name.clone(),
-                    }
-                    .at(lit.span),
-                );
-            }
-        }
-        Type::Struct(
+        let expected_struct_ty = Type::Struct(
             Rc::from(lit.name.as_str()),
             type_args.iter().map(|t| self.subst.apply(t)).collect(),
-        )
+        );
+        if let Some(base_expr) = &mut lit.base {
+            let base_ty = self.infer_expression(base_expr);
+            if let Err(e) = self.subst.unify(&expected_struct_ty, &base_ty) {
+                self.report_unify_error(e, base_expr.span());
+            }
+        } else {
+            for (def_field_name, _) in &def.fields {
+                if !lit.fields.iter().any(|(n, _)| n == def_field_name) {
+                    self.errors.push(
+                        TypeErrorKind::UnknownField {
+                            ty: format!("missing field `{}` in `{}`", def_field_name, lit.name),
+                            field: def_field_name.clone(),
+                        }
+                        .at(lit.span),
+                    );
+                }
+            }
+        }
+        expected_struct_ty
     }
 
     /// Type-checks a path expression (e.g., `Option::Some`, `Color::Red`).

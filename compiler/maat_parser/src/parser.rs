@@ -599,7 +599,8 @@ fn parse_path_expression<'a>(
     }))
 }
 
-/// Parses a struct literal: `Name { field: value, ... }`.
+/// Parses a struct literal: `Name { field: value, ... }` or with functional
+/// update syntax: `Name { field: value, ..base }`.
 fn parse_struct_literal<'a>(
     input: &mut &'a [Token<'a>],
     name: String,
@@ -608,8 +609,18 @@ fn parse_struct_literal<'a>(
 ) -> ParseResult<Expr> {
     any.parse_next(input)?; // consume `{`
     let mut fields = Vec::new();
+    let mut base = None;
 
     while peek_kind(input) != TokenKind::RBrace {
+        if peek_kind(input) == TokenKind::DotDot {
+            any.parse_next(input)?; // consume `..`
+            base = Some(Box::new(parse_expression(input, LOWEST, depth)?));
+            if peek_kind(input) == TokenKind::Comma {
+                any.parse_next(input)?;
+            }
+            break;
+        }
+
         let field_name = expect(input, TokenKind::Ident)?.literal.to_string();
         expect(input, TokenKind::Colon)?;
         let value = parse_expression(input, LOWEST, depth)?;
@@ -624,6 +635,7 @@ fn parse_struct_literal<'a>(
     Ok(Expr::StructLit(StructLitExpr {
         name,
         fields,
+        base,
         span: start.merge(end),
     }))
 }

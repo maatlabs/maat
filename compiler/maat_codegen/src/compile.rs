@@ -951,7 +951,8 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles a struct literal expression (e.g., `Point { x: 1, y: 2 }`).
+    /// Compiles a struct literal expression (e.g., `Point { x: 1, y: 2 }`)
+    /// or with functional update syntax (e.g., `Point { x: 10, ..other }`).
     fn compile_struct_literal(&mut self, lit: &StructLitExpr) -> Result<()> {
         let span = lit.span;
         let (registry_index, field_names) = self
@@ -970,19 +971,34 @@ impl Compiler {
                 }
                 .at(span)
             })?;
-        for field_name in &field_names {
-            let value_expr = lit
-                .fields
-                .iter()
-                .find(|(name, _)| name == field_name)
-                .map(|(_, expr)| expr)
-                .ok_or_else(|| {
-                    CompileErrorKind::UndefinedVariable {
-                        name: format!("missing field `{}` in struct `{}`", field_name, lit.name),
-                    }
-                    .at(span)
-                })?;
-            self.compile_expression(value_expr)?;
+        let base_sym = lit
+            .base
+            .as_ref()
+            .map(|base_expr| {
+                self.compile_expression(base_expr)?;
+                let id = self.for_loop_counter;
+                self.for_loop_counter += 1;
+                let hidden = format!("__struct_base_{id}");
+                self.define_and_set(&hidden, false, span)
+            })
+            .transpose()?;
+        for (field_index, field_name) in field_names.iter().enumerate() {
+            match lit.fields.iter().find(|(name, _)| name == field_name) {
+                Some((_, expr)) => self.compile_expression(expr)?,
+                None => {
+                    let sym = base_sym.as_ref().ok_or_else(|| {
+                        CompileErrorKind::UndefinedVariable {
+                            name: format!(
+                                "missing field `{}` in struct `{}`",
+                                field_name, lit.name
+                            ),
+                        }
+                        .at(span)
+                    })?;
+                    self.load_symbol(sym, span);
+                    self.emit(Opcode::GetField, &[field_index], span);
+                }
+            }
         }
         let type_index = registry_index << 8;
         self.emit(Opcode::Construct, &[type_index, field_names.len()], span);

@@ -926,3 +926,46 @@ fn parse_mixed_module_items() {
     assert!(matches!(&program.statements[2], Stmt::FuncDef(f) if f.is_public));
     assert!(matches!(&program.statements[3], Stmt::StructDecl(s) if s.is_public));
 }
+
+#[test]
+fn parse_struct_update_syntax() {
+    // Struct update with one explicit field
+    let program = parse("let p = Point { x: 10, ..base };");
+    let stmt = expect_single_stmt(&program);
+    let Stmt::Let(let_stmt) = stmt else {
+        panic!("expected let statement");
+    };
+    let Expr::StructLit(lit) = &let_stmt.value else {
+        panic!("expected struct literal");
+    };
+    assert_eq!(lit.name, "Point");
+    assert_eq!(lit.fields.len(), 1);
+    assert_eq!(lit.fields[0].0, "x");
+    assert!(lit.base.is_some());
+
+    // Struct update with no explicit fields
+    let program = parse("let p = Config { ..defaults };");
+    let stmt = expect_single_stmt(&program);
+    let Stmt::Let(let_stmt) = stmt else {
+        panic!("expected let statement");
+    };
+    let Expr::StructLit(lit) = &let_stmt.value else {
+        panic!("expected struct literal");
+    };
+    assert_eq!(lit.name, "Config");
+    assert!(lit.fields.is_empty());
+    assert!(lit.base.is_some());
+
+    // Regular struct literal (no base)
+    let program = parse("let p = Point { x: 1, y: 2 };");
+    let stmt = expect_single_stmt(&program);
+    let Stmt::Let(let_stmt) = stmt else {
+        panic!("expected let statement");
+    };
+    let Expr::StructLit(lit) = &let_stmt.value else {
+        panic!("expected struct literal");
+    };
+    assert_eq!(lit.name, "Point");
+    assert_eq!(lit.fields.len(), 2);
+    assert!(lit.base.is_none());
+}

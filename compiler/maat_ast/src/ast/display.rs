@@ -548,13 +548,15 @@ impl fmt::Display for MethodCallExpr {
 impl fmt::Display for StructLitExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} {{ ", self.name)?;
-        let fields = self
+        let mut parts = self
             .fields
             .iter()
             .map(|(name, val)| format!("{name}: {val}"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        write!(f, "{fields} }}")
+            .collect::<Vec<String>>();
+        if let Some(base) = &self.base {
+            parts.push(format!("..{base}"));
+        }
+        write!(f, "{} }}", parts.join(", "))
     }
 }
 
