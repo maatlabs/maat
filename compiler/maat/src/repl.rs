@@ -47,7 +47,7 @@ const BUILTIN_NAMES: &[&str] = &["print"];
 /// Type names available for completion.
 const TYPE_NAMES: &[&str] = &[
     "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64", "u128", "usize", "bool",
-    "str", "Array", "Set", "Map", "Option", "Result",
+    "str", "Vector", "Set", "Map", "Option", "Result",
 ];
 
 // ANSI escape sequences for syntax highlighting.

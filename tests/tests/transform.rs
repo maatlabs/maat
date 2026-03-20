@@ -105,12 +105,12 @@ fn transform_compound_expressions() {
 
 #[test]
 fn transform_collections() {
-    let array = Expr::Array(Array {
+    let array = Expr::Vector(Vector {
         elements: vec![one(), one()],
         span: Span::ZERO,
     });
-    let Node::Expr(Expr::Array(arr)) = transform(Node::Expr(array), &mut turn_one_into_two) else {
-        panic!("expected Array");
+    let Node::Expr(Expr::Vector(arr)) = transform(Node::Expr(array), &mut turn_one_into_two) else {
+        panic!("expected Vector");
     };
     assert!(
         arr.elements

@@ -30,9 +30,11 @@ pub enum Type {
     Bool,
     String,
     Null,
-    Array(Box<Type>),
+    Vector(Box<Type>),
     /// A map type with key and value types (e.g., `Map<str, i64>`).
     Map(Box<Type>, Box<Type>),
+    /// A set type parameterised by its element type (e.g., `Set<i64>`).
+    Set(Box<Type>),
     /// A range type parameterised by its element type (e.g., `Range<i64>`).
     Range(Box<Type>),
     Function(FnType),
@@ -294,8 +296,9 @@ impl fmt::Display for Type {
             Self::Bool => f.write_str("bool"),
             Self::String => f.write_str("String"),
             Self::Null => f.write_str("null"),
-            Self::Array(elem) => write!(f, "[{elem}]"),
+            Self::Vector(elem) => write!(f, "[{elem}]"),
             Self::Map(k, v) => write!(f, "{{{k}: {v}}}"),
+            Self::Set(elem) => write!(f, "Set<{elem}>"),
             Self::Range(elem) => write!(f, "Range<{elem}>"),
             Self::Function(fn_ty) => {
                 let params = fn_ty

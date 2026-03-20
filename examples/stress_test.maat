@@ -2,11 +2,6 @@
 // ranges, Sets, Result handling, recursion, and complex match patterns.
 
 use std::math::gcd;
-use std::collections::new_set;
-use std::collections::set_insert;
-use std::collections::set_contains;
-use std::collections::set_len;
-use std::collections::set_to_array;
 
 // Graph node with adjacency list representation
 struct Graph {

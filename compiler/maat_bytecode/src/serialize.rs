@@ -184,11 +184,11 @@ mod tests {
     fn array_constant() {
         let bc = Bytecode {
             instructions: Instructions::new(),
-            constants: vec![Object::Array(vec![
+            constants: vec![Object::Vector(vec![
                 Object::I64(1),
                 Object::Str("two".to_owned()),
                 Object::Bool(true),
-                Object::Array(vec![Object::I64(3), Object::I64(4)]),
+                Object::Vector(vec![Object::I64(3), Object::I64(4)]),
             ])],
             source_map: SourceMap::new(),
             type_registry: vec![],

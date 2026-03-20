@@ -81,9 +81,9 @@ pub fn eval(node: Node, env: &Env) -> Result<Object> {
 
             Expr::Bool(b) => Ok(Object::Bool(b.value)),
             Expr::Str(s) => Ok(Object::Str(maat_ast::unescape_string(&s.value))),
-            Expr::Array(array_lit) => {
-                let elements = eval_expressions(&array_lit.elements, env)?;
-                Ok(Object::Array(elements))
+            Expr::Vector(vector) => {
+                let elements = eval_expressions(&vector.elements, env)?;
+                Ok(Object::Vector(elements))
             }
             Expr::Index(index_expr) => eval_index_expression(index_expr, env),
             Expr::Map(map) => eval_map_literal(map, env),
@@ -227,10 +227,10 @@ fn eval_while_statement(stmt: WhileStmt, env: &Env) -> Result<Object> {
 fn eval_for_statement(stmt: ForStmt, env: &Env) -> Result<Object> {
     let iterable = eval(Node::Expr(*stmt.iterable), env)?;
     let elements = match iterable {
-        Object::Array(elems) => elems,
+        Object::Vector(elems) => elems,
         other => {
             return Err(EvalError::Ident(format!(
-                "for..in requires an array, got {}",
+                "for..in requires a vector, got {}",
                 other.type_name()
             ))
             .into());
@@ -272,15 +272,15 @@ fn eval_index_expression(idx_expr: IndexExpr, env: &Env) -> Result<Object> {
     let index = eval(Node::Expr(*idx_expr.index), env)?;
 
     match expr {
-        Object::Array(arr) => {
+        Object::Vector(arr) => {
             if index.is_integer() {
-                match index.to_array_index() {
+                match index.to_vector_index() {
                     Some(idx) if idx < arr.len() => Ok(arr[idx].clone()),
                     _ => Ok(NULL),
                 }
             } else {
                 Err(EvalError::IndexExpr(format!(
-                    "array index must be an integer, got {}",
+                    "vector index must be an integer, got {}",
                     index.type_name()
                 ))
                 .into())

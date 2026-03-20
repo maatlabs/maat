@@ -1,0 +1,29 @@
+// Creates a new empty set.
+pub fn new() {
+    Set::new()
+}
+
+// Returns a new set with the given value inserted.
+pub fn insert(s: Set, value) {
+    s.insert(value)
+}
+
+// Returns true if the set contains the given value.
+pub fn contains(s: Set, value) -> bool {
+    s.contains(value)
+}
+
+// Returns a new set with the given value removed.
+pub fn remove(s: Set, value) {
+    s.remove(value)
+}
+
+// Returns the number of elements in the set.
+pub fn len(s: Set) -> usize {
+    s.len()
+}
+
+// Converts a set to a vector of its elements.
+pub fn to_vector(s: Set) {
+    s.to_vector()
+}

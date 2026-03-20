@@ -54,12 +54,13 @@ macro_rules! define_builtins {
 
 define_builtins! {
     "print" => print,
-    "Array::len" => array_len,
-    "Array::first" => array_first,
-    "Array::last" => array_last,
-    "Array::rest" => array_rest,
-    "Array::push" => array_push,
-    "Array::join" => array_join,
+    "Vector::len" => vector_len,
+    "Vector::first" => vector_first,
+    "Vector::last" => vector_last,
+    "Vector::rest" => vector_rest,
+    "Vector::push" => vector_push,
+    "Vector::new" => vector_new,
+    "Vector::join" => vector_join,
     "Map::new" => map_new,
     "Map::insert" => map_insert,
     "Map::get" => map_get,
@@ -73,7 +74,7 @@ define_builtins! {
     "Set::contains" => set_contains,
     "Set::remove" => set_remove,
     "Set::len" => set_len,
-    "Set::to_array" => set_to_array,
+    "Set::to_vector" => set_to_vector,
     "str::len" => str_len,
     "str::trim" => str_trim,
     "str::contains" => str_contains,
@@ -99,62 +100,62 @@ pub fn print(args: &[Object]) -> Result<Object> {
     Ok(NULL)
 }
 
-/// Returns the number of elements in an array. Receiver: `self` at `args[0]`.
-fn array_len(args: &[Object]) -> Result<Object> {
-    expect_arg_count("Array::len", args, 1)?;
+/// Returns the number of elements in a vec. Receiver: `self` at `args[0]`.
+fn vector_len(args: &[Object]) -> Result<Object> {
+    expect_arg_count("Vector::len", args, 1)?;
     match &args[0] {
-        Object::Array(arr) => Ok(Object::Usize(arr.len())),
-        other => method_type_error(other, "len", "array"),
+        Object::Vector(arr) => Ok(Object::Usize(arr.len())),
+        other => method_type_error(other, "len", "Vector"),
     }
 }
 
-/// Returns the first element of an array, or `null` if empty.
-fn array_first(args: &[Object]) -> Result<Object> {
-    expect_arg_count("Array::first", args, 1)?;
+/// Returns the first element of a vec, or `null` if empty.
+fn vector_first(args: &[Object]) -> Result<Object> {
+    expect_arg_count("Vector::first", args, 1)?;
     match &args[0] {
-        Object::Array(arr) => Ok(arr.first().cloned().unwrap_or(NULL)),
-        other => method_type_error(other, "first", "array"),
+        Object::Vector(arr) => Ok(arr.first().cloned().unwrap_or(NULL)),
+        other => method_type_error(other, "first", "Vector"),
     }
 }
 
-/// Returns the last element of an array, or `null` if empty.
-fn array_last(args: &[Object]) -> Result<Object> {
-    expect_arg_count("Array::last", args, 1)?;
+/// Returns the last element of a vec, or `null` if empty.
+fn vector_last(args: &[Object]) -> Result<Object> {
+    expect_arg_count("Vector::last", args, 1)?;
     match &args[0] {
-        Object::Array(arr) => Ok(arr.last().cloned().unwrap_or(NULL)),
-        other => method_type_error(other, "last", "array"),
+        Object::Vector(arr) => Ok(arr.last().cloned().unwrap_or(NULL)),
+        other => method_type_error(other, "last", "Vector"),
     }
 }
 
 /// Returns all elements after the first, or `null` if empty.
-fn array_rest(args: &[Object]) -> Result<Object> {
-    expect_arg_count("Array::rest", args, 1)?;
+fn vector_rest(args: &[Object]) -> Result<Object> {
+    expect_arg_count("Vector::rest", args, 1)?;
     match &args[0] {
-        Object::Array(arr) => arr
+        Object::Vector(arr) => arr
             .split_first()
-            .map_or(Ok(NULL), |(_, tail)| Ok(Object::Array(tail.to_vec()))),
-        other => method_type_error(other, "rest", "array"),
+            .map_or(Ok(NULL), |(_, tail)| Ok(Object::Vector(tail.to_vec()))),
+        other => method_type_error(other, "rest", "Vector"),
     }
 }
 
-/// Returns a new array with `value` appended. Receiver at `args[0]`, value at `args[1]`.
-fn array_push(args: &[Object]) -> Result<Object> {
-    expect_arg_count("Array::push", args, 2)?;
+/// Returns a new vec with `value` appended. Receiver at `args[0]`, value at `args[1]`.
+fn vector_push(args: &[Object]) -> Result<Object> {
+    expect_arg_count("Vector::push", args, 2)?;
     match &args[0] {
-        Object::Array(arr) => {
+        Object::Vector(arr) => {
             let mut new_arr = arr.to_vec();
             new_arr.push(args[1].clone());
-            Ok(Object::Array(new_arr))
+            Ok(Object::Vector(new_arr))
         }
-        other => method_type_error(other, "push", "array"),
+        other => method_type_error(other, "push", "Vector"),
     }
 }
 
-/// Joins array elements into a string with a separator. Receiver at `args[0]`, separator at `args[1]`.
-fn array_join(args: &[Object]) -> Result<Object> {
-    expect_arg_count("Array::join", args, 2)?;
+/// Joins vec elements into a string with a separator. Receiver at `args[0]`, separator at `args[1]`.
+fn vector_join(args: &[Object]) -> Result<Object> {
+    expect_arg_count("Vector::join", args, 2)?;
     match (&args[0], &args[1]) {
-        (Object::Array(arr), Object::Str(sep)) => {
+        (Object::Vector(arr), Object::Str(sep)) => {
             let joined = arr
                 .iter()
                 .map(|obj| format!("{obj}"))
@@ -162,13 +163,19 @@ fn array_join(args: &[Object]) -> Result<Object> {
                 .join(sep);
             Ok(Object::Str(joined))
         }
-        (Object::Array(_), other) => Err(EvalError::Builtin(format!(
-            "Array::join: separator must be a string, got {}",
+        (Object::Vector(_), other) => Err(EvalError::Builtin(format!(
+            "Vector::join: separator must be a string, got {}",
             other.type_name()
         ))
         .into()),
-        (other, _) => method_type_error(other, "join", "array"),
+        (other, _) => method_type_error(other, "join", "Vector"),
     }
+}
+
+/// Creates a new empty vector.
+fn vector_new(args: &[Object]) -> Result<Object> {
+    expect_arg_count("Vector::new", args, 0)?;
+    Ok(Object::Vector(Vec::new()))
 }
 
 /// Creates a new empty map.
@@ -244,25 +251,25 @@ fn map_len(args: &[Object]) -> Result<Object> {
     }
 }
 
-/// Returns an array of all keys in the map, in insertion order.
+/// Returns a vector of all keys in the map, in insertion order.
 fn map_keys(args: &[Object]) -> Result<Object> {
     expect_arg_count("Map::keys", args, 1)?;
     match &args[0] {
         Object::Map(map) => {
             let keys = map.pairs.keys().map(hashable_to_object).collect();
-            Ok(Object::Array(keys))
+            Ok(Object::Vector(keys))
         }
         other => method_type_error(other, "keys", "Map"),
     }
 }
 
-/// Returns an array of all values in the map, in insertion order.
+/// Returns a vector of all values in the map, in insertion order.
 fn map_values(args: &[Object]) -> Result<Object> {
     expect_arg_count("Map::values", args, 1)?;
     match &args[0] {
         Object::Map(map) => {
             let values = map.pairs.values().cloned().collect();
-            Ok(Object::Array(values))
+            Ok(Object::Vector(values))
         }
         other => method_type_error(other, "values", "Map"),
     }
@@ -323,9 +330,9 @@ fn set_len(args: &[Object]) -> Result<Object> {
     }
 }
 
-/// Converts a set to an array of its elements.
-fn set_to_array(args: &[Object]) -> Result<Object> {
-    expect_arg_count("Set::to_array", args, 1)?;
+/// Converts a set to a vec of its elements.
+fn set_to_vector(args: &[Object]) -> Result<Object> {
+    expect_arg_count("Set::to_vector", args, 1)?;
     match &args[0] {
         Object::Set(set) => {
             let arr = set
@@ -347,9 +354,9 @@ fn set_to_array(args: &[Object]) -> Result<Object> {
                     Hashable::Str(v) => Object::Str(v.clone()),
                 })
                 .collect();
-            Ok(Object::Array(arr))
+            Ok(Object::Vector(arr))
         }
-        other => method_type_error(other, "to_array", "Set"),
+        other => method_type_error(other, "to_vector", "Set"),
     }
 }
 
@@ -415,7 +422,7 @@ fn str_ends_with(args: &[Object]) -> Result<Object> {
     }
 }
 
-/// Splits a string by a delimiter, returning an array of substrings.
+/// Splits a string by a delimiter, returning a vector of substrings.
 fn str_split(args: &[Object]) -> Result<Object> {
     expect_arg_count("str::split", args, 2)?;
     match (&args[0], &args[1]) {
@@ -424,7 +431,7 @@ fn str_split(args: &[Object]) -> Result<Object> {
                 .split(delim.as_str())
                 .map(|part| Object::Str(part.to_string()))
                 .collect();
-            Ok(Object::Array(parts))
+            Ok(Object::Vector(parts))
         }
         (Object::Str(_), other) => Err(EvalError::Builtin(format!(
             "str::split: delimiter must be a string, got {}",

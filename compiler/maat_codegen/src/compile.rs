@@ -472,7 +472,7 @@ impl Compiler {
 
     /// Compiles a `for x in start..end` or `for x in start..=end` loop.
     ///
-    /// Desugars to a counter-based loop without allocating an array:
+    /// Desugars to a counter-based loop without allocating a vector:
     ///
     /// ```text
     /// let __end = <end>;
@@ -539,7 +539,7 @@ impl Compiler {
     ///
     /// ```text
     /// let __iter = <iterable>;
-    /// let __len  = Array::len(__iter);
+    /// let __len  = Vector::len(__iter);
     /// let __i    = 0;
     /// loop_start:
     ///     if !(__i < __len) goto loop_exit
@@ -563,13 +563,13 @@ impl Compiler {
         self.compile_expression(&for_stmt.iterable)?;
         let iter_sym = self.define_and_set(&iter_name, false, span)?;
 
-        // __len_N = Array::len(__iter_N)
+        // __len_N = Vector::len(__iter_N)
         let len_builtin = self
             .symbols_table
-            .resolve_symbol("Array::len")
+            .resolve_symbol("Vector::len")
             .ok_or_else(|| {
                 CompileErrorKind::UndefinedVariable {
-                    name: "Array::len".to_string(),
+                    name: "Vector::len".to_string(),
                 }
                 .at(span)
             })?
@@ -715,11 +715,11 @@ impl Compiler {
                 self.emit(Opcode::Constant, &[index], span);
                 Ok(())
             }
-            Expr::Array(array) => {
+            Expr::Vector(array) => {
                 for element in &array.elements {
                     self.compile_expression(element)?;
                 }
-                self.emit(Opcode::Array, &[array.elements.len()], span);
+                self.emit(Opcode::Vector, &[array.elements.len()], span);
                 Ok(())
             }
             Expr::Map(map) => {
@@ -1292,7 +1292,7 @@ impl Compiler {
     /// Resolves the fully-qualified builtin name for a method call.
     fn resolve_method_name(&mut self, mc: &MethodCallExpr) -> Option<String> {
         // Built-in type prefixes for method dispatch fallback.
-        const BUILTIN_METHOD_PREFIXES: &[&str] = &["Array", "str", "Set", "Map"];
+        const BUILTIN_METHOD_PREFIXES: &[&str] = &["Vector", "str", "Set", "Map"];
 
         if let Some(ref receiver) = mc.receiver {
             let candidate = format!("{receiver}::{}", mc.method);

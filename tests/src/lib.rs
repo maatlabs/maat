@@ -125,7 +125,7 @@ let add10 = makeAdder(10);
 add5(add10(1));
 ";
 
-    pub const ARRAY_SOURCE: &str = "
+    pub const VECTOR_SOURCE: &str = "
 let sum = fn(arr) {
     let iter = fn(idx, acc) {
         if (idx == arr.len()) {

@@ -504,7 +504,7 @@ fn parse_expression_inner<'a>(
         TokenKind::If => parse_conditional_expression(input, depth)?,
         TokenKind::Fn => parse_lambda(input, depth)?,
         TokenKind::Macro => parse_macro(input, depth)?,
-        TokenKind::LBracket => parse_array_literal(input, depth)?,
+        TokenKind::LBracket => parse_vector(input, depth)?,
         TokenKind::LBrace => parse_map_literal(input, depth)?,
         TokenKind::Break => parse_break_expression(input, depth)?,
         TokenKind::Continue => parse_continue_expression(input)?,
@@ -844,11 +844,11 @@ fn parse_macro<'a>(input: &mut &'a [Token<'a>], depth: &Cell<usize>) -> ParseRes
     }))
 }
 
-/// Parses an array literal: `[expr, expr, ...]`.
-fn parse_array_literal<'a>(input: &mut &'a [Token<'a>], depth: &Cell<usize>) -> ParseResult<Expr> {
+/// Parses a vector of expressions: `[expr, expr, ...]`.
+fn parse_vector<'a>(input: &mut &'a [Token<'a>], depth: &Cell<usize>) -> ParseResult<Expr> {
     let start = expect(input, TokenKind::LBracket)?.span;
     let (elements, end) = parse_delimited_exprs(input, TokenKind::RBracket, depth)?;
-    Ok(Expr::Array(Array {
+    Ok(Expr::Vector(Vector {
         elements,
         span: start.merge(end),
     }))
@@ -1819,7 +1819,7 @@ fn parse_type_expr<'a>(input: &mut &'a [Token<'a>]) -> ParseResult<TypeExpr> {
             let start = expect(input, TokenKind::LBracket)?.span;
             let elem = parse_type_expr(input)?;
             let end = expect(input, TokenKind::RBracket)?.span;
-            Ok(TypeExpr::Array(Box::new(elem), start.merge(end)))
+            Ok(TypeExpr::Vector(Box::new(elem), start.merge(end)))
         }
         TokenKind::LBrace => {
             let start = expect(input, TokenKind::LBrace)?.span;

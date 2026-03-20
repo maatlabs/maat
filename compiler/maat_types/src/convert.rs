@@ -15,12 +15,12 @@ use crate::{FnType, Type};
 /// - `null` -> [`Type::Null`]
 /// - Unknown names are treated as generic type references.
 ///
-/// Compound types ([`TypeExpr::Array`], [`TypeExpr::Map`], [`TypeExpr::Fn`],
+/// Compound types ([`TypeExpr::Vector`], [`TypeExpr::Map`], [`TypeExpr::Fn`],
 /// [`TypeExpr::Generic`]) are resolved recursively.
 pub fn resolve_type_expr(expr: &TypeExpr) -> Type {
     match expr {
         TypeExpr::Named(named) => resolve_named(&named.name),
-        TypeExpr::Array(elem, _) => Type::Array(Box::new(resolve_type_expr(elem))),
+        TypeExpr::Vector(elem, _) => Type::Vector(Box::new(resolve_type_expr(elem))),
         TypeExpr::Map(k, v, _) => Type::Map(
             Box::new(resolve_type_expr(k)),
             Box::new(resolve_type_expr(v)),
@@ -86,14 +86,14 @@ mod tests {
 
     #[test]
     fn resolve_array() {
-        let expr = TypeExpr::Array(
+        let expr = TypeExpr::Vector(
             Box::new(TypeExpr::Named(NamedType {
                 name: "i64".to_string(),
                 span: Span::ZERO,
             })),
             Span::ZERO,
         );
-        assert_eq!(resolve_type_expr(&expr), Type::Array(Box::new(Type::I64)));
+        assert_eq!(resolve_type_expr(&expr), Type::Vector(Box::new(Type::I64)));
     }
 
     #[test]

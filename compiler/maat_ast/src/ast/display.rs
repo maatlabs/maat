@@ -113,7 +113,7 @@ impl fmt::Display for Expr {
 
             Self::Bool(e) => e.value.fmt(f),
             Self::Str(e) => e.value.fmt(f),
-            Self::Array(e) => e.fmt(f),
+            Self::Vector(e) => e.fmt(f),
             Self::Index(e) => e.fmt(f),
             Self::Map(e) => e.fmt(f),
             Self::Prefix(e) => e.fmt(f),
@@ -135,7 +135,7 @@ impl fmt::Display for Expr {
     }
 }
 
-impl fmt::Display for Array {
+impl fmt::Display for Vector {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -604,7 +604,7 @@ impl fmt::Display for TypeExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Named(n) => f.write_str(&n.name),
-            Self::Array(elem, _) => write!(f, "[{elem}]"),
+            Self::Vector(elem, _) => write!(f, "[{elem}]"),
             Self::Map(k, v, _) => write!(f, "{{{k}: {v}}}"),
             Self::Fn(params, ret, _) => {
                 let params = params

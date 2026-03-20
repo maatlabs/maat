@@ -212,7 +212,7 @@ impl TypeChecker {
 
     /// Resolves a type expression for a struct/enum field, treating names
     /// that match a generic parameter as `Type::Generic`.
-    fn resolve_field_type(&self, ty: &TypeExpr, generic_params: &[String]) -> Type {
+    fn resolve_field_type(&mut self, ty: &TypeExpr, generic_params: &[String]) -> Type {
         match ty {
             TypeExpr::Named(named) if generic_params.contains(&named.name) => {
                 Type::Generic(Rc::from(named.name.as_str()), vec![])
@@ -246,7 +246,7 @@ impl TypeChecker {
                 let iter_ty = self.infer_expression(&mut for_stmt.iterable);
                 let resolved = self.subst.apply(&iter_ty);
                 let elem_ty = match resolved {
-                    Type::Array(elem) => *elem,
+                    Type::Vector(elem) => *elem,
                     Type::Range(elem) => *elem,
                     Type::Var(_) => self.env.fresh_var(),
                     _ => {
@@ -484,7 +484,7 @@ impl TypeChecker {
                 .instantiate(&ident.value, &self.subst)
                 .or_else(|| self.resolve_bare_variant(&ident.value))
                 .unwrap_or_else(|| self.env.fresh_var()),
-            Expr::Array(array) => self.infer_array(array),
+            Expr::Vector(vector) => self.infer_vector(vector),
             Expr::Map(map) => self.infer_map(map),
             Expr::Index(idx) => self.infer_index(idx),
             Expr::Prefix(prefix) => self.infer_prefix(prefix),
@@ -519,20 +519,20 @@ impl TypeChecker {
         }
     }
 
-    /// Infers the element type of an array literal.
-    fn infer_array(&mut self, array: &mut Array) -> Type {
-        if array.elements.is_empty() {
+    /// Infers the element type of a vector.
+    fn infer_vector(&mut self, vector: &mut Vector) -> Type {
+        if vector.elements.is_empty() {
             let elem = self.env.fresh_var();
-            Type::Array(Box::new(elem))
+            Type::Vector(Box::new(elem))
         } else {
-            let first = self.infer_expression(&mut array.elements[0]);
-            for elem in &mut array.elements[1..] {
+            let first = self.infer_expression(&mut vector.elements[0]);
+            for elem in &mut vector.elements[1..] {
                 let elem_ty = self.infer_expression(elem);
                 if let Err(e) = self.subst.unify(&first, &elem_ty) {
                     self.report_unify_error(e, elem.span());
                 }
             }
-            Type::Array(Box::new(self.subst.apply(&first)))
+            Type::Vector(Box::new(self.subst.apply(&first)))
         }
     }
 
@@ -571,7 +571,7 @@ impl TypeChecker {
         let _index_ty = self.infer_expression(&mut idx.index);
         let resolved = self.subst.apply(&collection);
         match resolved {
-            Type::Array(elem) => *elem,
+            Type::Vector(elem) => *elem,
             Type::Map(_, v) => *v,
             _ => self.env.fresh_var(),
         }
@@ -1240,7 +1240,7 @@ impl TypeChecker {
                 .and_then(|i| type_args.get(i))
                 .cloned()
                 .unwrap_or_else(|| ty.clone()),
-            Type::Array(elem) => Type::Array(Box::new(self.instantiate_generic_type(
+            Type::Vector(elem) => Type::Vector(Box::new(self.instantiate_generic_type(
                 elem,
                 generic_params,
                 type_args,
@@ -1562,15 +1562,16 @@ impl TypeChecker {
 
     /// Maps a resolved type to the dispatch prefix used in builtin qualified names.
     ///
-    /// Returns `Some("Array")` for array types, `Some("str")` for strings,
-    /// `Some("Map")` for map types, and `Some(name)` for user-defined
-    /// structs/enums (including `Set`). Returns `None` for unresolved type variables or primitive types
-    /// that have no inherent methods.
+    /// Returns `Some("Vector")` for vector types, `Some("str")` for strings,
+    /// `Some("Map")` for map types, `Some("Set")` for set types, and
+    /// `Some(name)` for user-defined structs/enums. Returns `None` for
+    /// unresolved type variables or primitive types that have no inherent methods.
     fn receiver_type_name(ty: &Type) -> Option<String> {
         match ty {
-            Type::Array(_) => Some("Array".to_string()),
+            Type::Vector(_) => Some("Vector".to_string()),
             Type::String => Some("str".to_string()),
             Type::Map(..) => Some("Map".to_string()),
+            Type::Set(_) => Some("Set".to_string()),
             Type::Struct(name, _) | Type::Enum(name, _) => Some(name.to_string()),
             _ => None,
         }

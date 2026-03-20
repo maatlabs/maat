@@ -9,7 +9,7 @@ enum TestValue {
     Usize(usize),
     Bool(bool),
     Str(String),
-    IntArray(Vec<i64>),
+    IntVector(Vec<i64>),
     Map(Vec<(i64, i64)>),
     Range(i64, i64),
     RangeInclusive(i64, i64),
@@ -59,26 +59,26 @@ fn run_vm_test(input: &str, expected: TestValue) {
             }
             _ => panic!("expected string object, got: {:?}", stack_elem),
         },
-        TestValue::IntArray(expected_vals) => match stack_elem {
-            Object::Array(elements) => {
+        TestValue::IntVector(expected_vals) => match stack_elem {
+            Object::Vector(elements) => {
                 assert_eq!(
                     elements.len(),
                     expected_vals.len(),
-                    "wrong array length for input: {input}"
+                    "wrong vector length for input: {input}"
                 );
                 for (i, expected_elem) in expected_vals.iter().enumerate() {
                     match &elements[i] {
                         Object::I64(val) => assert_eq!(
                             *val, *expected_elem,
-                            "wrong array element at index {i} for input: {input}"
+                            "wrong vector element at index {i} for input: {input}"
                         ),
                         other => {
-                            panic!("expected integer in array at index {i}, got: {:?}", other)
+                            panic!("expected integer in vector at index {i}, got: {:?}", other)
                         }
                     }
                 }
             }
-            _ => panic!("expected array object, got: {:?}", stack_elem),
+            _ => panic!("expected vector object, got: {:?}", stack_elem),
         },
         TestValue::Map(expected_pairs) => match &stack_elem {
             Object::Map(map_obj) => {
@@ -258,13 +258,13 @@ fn string_literals() {
 }
 
 #[test]
-fn array_literals() {
+fn vectors() {
     let cases = vec![
-        ("[]", TestValue::IntArray(vec![])),
-        ("[1, 2, 3]", TestValue::IntArray(vec![1, 2, 3])),
+        ("[]", TestValue::IntVector(vec![])),
+        ("[1, 2, 3]", TestValue::IntVector(vec![1, 2, 3])),
         (
             "[1 + 2, 3 * 4, 5 + 6]",
-            TestValue::IntArray(vec![3, 12, 11]),
+            TestValue::IntVector(vec![3, 12, 11]),
         ),
     ];
     for (input, expected) in cases {
@@ -461,16 +461,16 @@ fn calling_functions_with_wrong_arguments() {
 #[test]
 fn builtin_methods() {
     let cases = vec![
-        // Array methods
+        // Vector methods
         ("[1, 2, 3].len()", TestValue::Usize(3)),
         ("[].len()", TestValue::Usize(0)),
         ("[1, 2, 3].first()", TestValue::I64(1)),
         ("[].first()", TestValue::Null),
         ("[1, 2, 3].last()", TestValue::I64(3)),
         ("[].last()", TestValue::Null),
-        ("[1, 2, 3].rest()", TestValue::IntArray(vec![2, 3])),
+        ("[1, 2, 3].rest()", TestValue::IntVector(vec![2, 3])),
         ("[].rest()", TestValue::Null),
-        ("[].push(1)", TestValue::IntArray(vec![1])),
+        ("[].push(1)", TestValue::IntVector(vec![1])),
         // str methods
         (r#""".len()"#, TestValue::Usize(0)),
         (r#""four".len()"#, TestValue::Usize(4)),
@@ -487,20 +487,32 @@ fn builtin_methods() {
 
 #[test]
 fn builtin_method_chaining() {
-    // `push` returns a new array, so chaining is possible
+    // `push` returns a new vector, so chaining is possible
     run_vm_test("[1, 2].push(3).len()", TestValue::Usize(3));
-    // `rest` returns a new array
+    // `rest` returns a new vector
     run_vm_test("[1, 2, 3].rest().first()", TestValue::I64(2));
     run_vm_test("[1, 2, 3].rest().last()", TestValue::I64(3));
-    run_vm_test("let arr = [10, 20, 30]; arr.len()", TestValue::Usize(3));
-    run_vm_test("let arr = [10, 20, 30]; arr.first()", TestValue::I64(10));
-    run_vm_test("let arr = [10, 20, 30]; arr.last()", TestValue::I64(30));
+    run_vm_test(
+        "let vector = [10, 20, 30]; vector.len()",
+        TestValue::Usize(3),
+    );
+    run_vm_test(
+        "let vector = [10, 20, 30]; vector.first()",
+        TestValue::I64(10),
+    );
+    run_vm_test(
+        "let vector = [10, 20, 30]; vector.last()",
+        TestValue::I64(30),
+    );
     run_vm_test(r#"let s = "hello world"; s.len()"#, TestValue::Usize(11));
     run_vm_test(
-        "let arr = [1, 2, 3]; arr.len() as i64 + 1",
+        "let vector = [1, 2, 3]; vector.len() as i64 + 1",
         TestValue::I64(4),
     );
-    run_vm_test("let arr = [1, 2, 3]; arr.rest().len()", TestValue::Usize(2));
+    run_vm_test(
+        "let vector = [1, 2, 3]; vector.rest().len()",
+        TestValue::Usize(2),
+    );
 }
 
 #[test]
@@ -586,15 +598,15 @@ fn recursive_functions() {
 }
 
 #[test]
-fn closure_captures_array_with_builtins() {
+fn closure_captures_vector_with_builtins() {
     run_vm_test(
         r#"
-        let sum = fn(arr) {
+        let sum = fn(vector) {
             let iter = fn(idx, acc) {
-                if (idx == arr.len()) {
+                if (idx == vector.len()) {
                     acc
                 } else {
-                    iter(idx + 1, acc + arr[idx]);
+                    iter(idx + 1, acc + vector[idx]);
                 }
             };
             iter(0, 0);
@@ -706,13 +718,13 @@ fn loop_control_flow() {
     // return from function inside loop
     run_vm_test(
         r#"
-        let find_first = fn(arr, target) {
+        let find_first = fn(vector, target) {
             let mut i = 0;
             loop {
-                if (i == arr.len() as i64) {
+                if (i == vector.len() as i64) {
                     return -1;
                 }
-                if (arr[i] == target) {
+                if (vector[i] == target) {
                     return i;
                 }
                 i = i + 1;
@@ -796,7 +808,7 @@ fn for_loops() {
         "#,
         TestValue::I64(15),
     );
-    // Empty array
+    // Empty vector
     run_vm_test(
         r#"
         let mut sum = 0;
@@ -1267,9 +1279,9 @@ fn result_error_propagation() {
 fn break_with_value() {
     run_vm_test(
         r#"
-        fn find_first_even(arr: [i64]) -> i64 {
+        fn find_first_even(vector: [i64]) -> i64 {
             let mut result = -1;
-            for x in arr {
+            for x in vector {
                 if (x % 2 == 0) {
                     result = x;
                     break;
@@ -1411,12 +1423,12 @@ fn conditional_reassignment_in_loop() {
     run_vm_test(
         r#"
         fn test() -> i64 {
-            let arr = [10, 20, 30];
+            let vector = [10, 20, 30];
             let target: i64 = 1;
             let mut result: i64 = 0;
             for i in 0..3 {
                 if (i == target) {
-                    result = arr[i];
+                    result = vector[i];
                 } else {
                     result += 1;
                 }
@@ -1647,5 +1659,102 @@ fn map_type() {
         test()
         "#,
         TestValue::I64(42),
+    );
+}
+
+#[test]
+fn generic_set() {
+    // Set<str>: insert and contains with string elements
+    run_vm_test(
+        r#"
+        fn test() -> bool {
+            let s = Set::new();
+            let s = s.insert("a");
+            let s = s.insert("b");
+            s.contains("a")
+        }
+        test()
+        "#,
+        TestValue::Bool(true),
+    );
+    // Set<str>: contains returns false for missing element
+    run_vm_test(
+        r#"
+        fn test() -> bool {
+            let s = Set::new();
+            let s = s.insert("hello");
+            s.contains("world")
+        }
+        test()
+        "#,
+        TestValue::Bool(false),
+    );
+    // Set<bool>: insert and len
+    run_vm_test(
+        r#"
+        fn test() -> usize {
+            let s = Set::new();
+            let s = s.insert(true);
+            let s = s.insert(false);
+            let s = s.insert(true);
+            s.len()
+        }
+        test()
+        "#,
+        TestValue::Usize(2),
+    );
+    // Set<str>: remove
+    run_vm_test(
+        r#"
+        fn test() -> usize {
+            let s = Set::new();
+            let s = s.insert("x");
+            let s = s.insert("y");
+            let s = s.insert("z");
+            let s = s.remove("y");
+            s.len()
+        }
+        test()
+        "#,
+        TestValue::Usize(2),
+    );
+
+    // Set<i64>: to_vector preserves elements
+    run_vm_test(
+        r#"
+        fn test() -> i64 {
+            let s = Set::new();
+            let s = s.insert(10);
+            let s = s.insert(20);
+            let vector = s.to_vector();
+            vector[0] + vector[1]
+        }
+        test()
+        "#,
+        TestValue::I64(30),
+    );
+    // Set used in struct field with generic element type
+    run_vm_test(
+        r#"
+        struct State {
+            visited: Set,
+        }
+        fn test() -> bool {
+            let st = State { visited: Set::new().insert("node_a") };
+            st.visited.contains("node_a")
+        }
+        test()
+        "#,
+        TestValue::Bool(true),
+    );
+    // Set<str>: method chaining
+    run_vm_test(
+        r#"
+        fn test() -> usize {
+            Set::new().insert("a").insert("b").insert("c").len()
+        }
+        test()
+        "#,
+        TestValue::Usize(3),
     );
 }

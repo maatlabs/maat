@@ -37,7 +37,7 @@ pub const CAST: u8 = 13;
 pub const PREFIX: u8 = 14;
 /// Function calls: `f(x)`
 pub const CALL: u8 = 15;
-/// Array indexing and index expressions: `expr[i]`
+/// Vector indexing and index expressions: `expr[i]`
 pub const INDEX: u8 = 16;
 /// Field access and method calls: `expr.field`, `expr.method(args)`
 pub const FIELD: u8 = 17;

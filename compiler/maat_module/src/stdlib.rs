@@ -22,15 +22,23 @@ const STD_MATH: &str = include_str!("../../../library/std/math.maat");
 /// Embedded source for `std::string`.
 const STD_STRING: &str = include_str!("../../../library/std/string.maat");
 
-/// Embedded source for `std::collections`.
-const STD_COLLECTIONS: &str = include_str!("../../../library/std/collections.maat");
+/// Embedded source for `std::vec`.
+const STD_VEC: &str = include_str!("../../../library/std/vec.maat");
+
+/// Embedded source for `std::set`.
+const STD_SET: &str = include_str!("../../../library/std/set.maat");
+
+/// Embedded source for `std::map`.
+const STD_MAP: &str = include_str!("../../../library/std/map.maat");
 
 /// Returns the embedded source for a standard library module, if it exists.
 fn lookup_stdlib_source(module_name: &str) -> Option<&'static str> {
     match module_name {
         "math" => Some(STD_MATH),
         "string" => Some(STD_STRING),
-        "collections" => Some(STD_COLLECTIONS),
+        "vec" => Some(STD_VEC),
+        "set" => Some(STD_SET),
+        "map" => Some(STD_MAP),
         _ => None,
     }
 }

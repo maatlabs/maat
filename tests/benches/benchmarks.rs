@@ -8,9 +8,9 @@ use maat_codegen::Compiler;
 use maat_lexer::{Lexer, TokenKind};
 use maat_parser::Parser;
 use maat_tests::benchmark_programs::{
-    ARITHMETIC_BASELINE, ARRAY_SOURCE, BITWISE_SOURCE, CLOSURE_SOURCE, EMPTY_PROGRAM,
-    ENUM_MATCH_SOURCE, METHOD_DISPATCH_SOURCE, OPTION_SOURCE, RANGE_LOOP_10, RANGE_LOOP_100,
-    RANGE_LOOP_1000, STRING_SOURCE, STRUCT_SOURCE, WHILE_LOOP_1000, fib_source,
+    ARITHMETIC_BASELINE, BITWISE_SOURCE, CLOSURE_SOURCE, EMPTY_PROGRAM, ENUM_MATCH_SOURCE,
+    METHOD_DISPATCH_SOURCE, OPTION_SOURCE, RANGE_LOOP_10, RANGE_LOOP_100, RANGE_LOOP_1000,
+    STRING_SOURCE, STRUCT_SOURCE, VECTOR_SOURCE, WHILE_LOOP_1000, fib_source,
 };
 use maat_tests::compile;
 use maat_types::TypeChecker;
@@ -123,9 +123,9 @@ fn bench_closures(c: &mut Criterion) {
     });
 }
 
-fn bench_array_iteration(c: &mut Criterion) {
-    c.bench_function("array_iteration/vm", |b| {
-        b.iter(|| run_vm(ARRAY_SOURCE));
+fn bench_vector_iteration(c: &mut Criterion) {
+    c.bench_function("vector_iteration/vm", |b| {
+        b.iter(|| run_vm(VECTOR_SOURCE));
     });
 }
 
@@ -275,7 +275,7 @@ criterion_group! {
 criterion_group!(
     feature_benches,
     bench_closures,
-    bench_array_iteration,
+    bench_vector_iteration,
     bench_string_operations,
     bench_struct_method,
     bench_enum_match,

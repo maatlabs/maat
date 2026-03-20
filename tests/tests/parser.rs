@@ -218,7 +218,7 @@ fn parse_arrays() {
     // Non-empty array
     let program = parse("[1, 2 * 2, 3 + 3]");
     let Stmt::Expr(ExprStmt {
-        value: Expr::Array(array),
+        value: Expr::Vector(array),
         ..
     }) = expect_single_stmt(&program)
     else {
@@ -232,7 +232,7 @@ fn parse_arrays() {
     // Empty array
     let program = parse("[]");
     let Stmt::Expr(ExprStmt {
-        value: Expr::Array(array),
+        value: Expr::Vector(array),
         ..
     }) = expect_single_stmt(&program)
     else {

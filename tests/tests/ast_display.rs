@@ -150,13 +150,13 @@ fn expressions_display() {
 
 #[test]
 fn collections_display() {
-    let empty_arr = Array {
+    let empty_arr = Vector {
         elements: vec![],
         span: span(),
     };
     assert_eq!(empty_arr.to_string(), "[]");
 
-    let arr = Array {
+    let arr = Vector {
         elements: vec![
             Expr::Number(Number {
                 kind: NumberKind::I32,

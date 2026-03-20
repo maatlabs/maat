@@ -1,9 +1,14 @@
-// Splits a string by a delimiter, returning an array of substrings.
+// Returns the byte length of a string.
+pub fn len(s: str) -> usize {
+    s.len()
+}
+
+// Splits a string by a delimiter, returning a vector of substrings.
 pub fn split(s: str, delimiter: str) -> [str] {
     s.split(delimiter)
 }
 
-// Joins an array of strings with a separator between elements.
+// Joins a vector of strings with a separator between elements.
 pub fn join(parts: [str], separator: str) -> str {
     parts.join(separator)
 }

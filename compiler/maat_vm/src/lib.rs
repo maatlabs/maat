@@ -306,11 +306,11 @@ impl VM {
                     })?;
                     self.push_stack(value)?;
                 }
-                Opcode::Array => {
+                Opcode::Vector => {
                     let num_elements = self.read_u16_operand(ip + 1)?;
                     self.current_frame_mut()?.ip += 2;
-                    let array = self.build_array(num_elements)?;
-                    self.push_stack(array)?;
+                    let vector = self.build_vector(num_elements)?;
+                    self.push_stack(vector)?;
                 }
                 Opcode::Map => {
                     let num_elements = self.read_u16_operand(ip + 1)?;
@@ -644,7 +644,7 @@ impl VM {
             };
             return self.push_stack(Object::Bool(result));
         }
-        // Non-numeric equality (booleans, strings, arrays, etc.)
+        // Non-numeric equality (booleans, strings, vectors, etc.)
         match op {
             Opcode::Equal => self.push_stack(Object::Bool(left == right)),
             Opcode::NotEqual => self.push_stack(Object::Bool(left != right)),
@@ -781,18 +781,18 @@ impl VM {
         self.push_stack(Object::Str(result))
     }
 
-    /// Builds an array object from the top `num_elements` stack values.
-    fn build_array(&mut self, num_elements: usize) -> Result<Object> {
+    /// Builds a vector object from the top `num_elements` stack values.
+    fn build_vector(&mut self, num_elements: usize) -> Result<Object> {
         if num_elements > self.sp {
             return Err(self.vm_error(format!(
-                "stack underflow in array construction: need {num_elements} elements, stack has {}",
+                "stack underflow in vector construction: need {num_elements} elements, stack has {}",
                 self.sp
             )));
         }
         let start = self.sp - num_elements;
         let elements = self.stack[start..self.sp].to_vec();
         self.sp = start;
-        Ok(Object::Array(elements))
+        Ok(Object::Vector(elements))
     }
 
     /// Builds a map object from the top `num_elements` stack values.
@@ -820,7 +820,7 @@ impl VM {
     /// Dispatches index operations to the appropriate handler.
     fn execute_index_expression(&mut self, container: Object, index: Object) -> Result<()> {
         match (&container, &index) {
-            (Object::Array(elements), _) => self.execute_array_index(elements, &index),
+            (Object::Vector(elements), _) => self.execute_vector_index(elements, &index),
             (Object::Map(map), _) => self.execute_map_index(map, index),
             _ => Err(self.vm_error(format!(
                 "index operator not supported: {}",
@@ -829,15 +829,15 @@ impl VM {
         }
     }
 
-    /// Indexes into an array with bounds checking.
-    fn execute_array_index(&mut self, elements: &[Object], index: &Object) -> Result<()> {
+    /// Indexes into a vector with bounds checking.
+    fn execute_vector_index(&mut self, elements: &[Object], index: &Object) -> Result<()> {
         if !index.is_integer() {
             return Err(self.vm_error(format!(
-                "array index must be an integer, got {}",
+                "vector index must be an integer, got {}",
                 index.type_name()
             )));
         }
-        match index.to_array_index() {
+        match index.to_vector_index() {
             Some(idx) if idx < elements.len() => self.push_stack(elements[idx].clone()),
             _ => self.push_stack(NULL),
         }

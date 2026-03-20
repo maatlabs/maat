@@ -43,7 +43,7 @@ impl Substitution {
     fn occurs(&self, var: TypeVarId, ty: &Type) -> bool {
         match ty {
             Type::Var(id) => *id == var,
-            Type::Array(elem) | Type::Range(elem) => self.occurs(var, elem),
+            Type::Vector(elem) | Type::Set(elem) | Type::Range(elem) => self.occurs(var, elem),
             Type::Map(k, v) => self.occurs(var, k) || self.occurs(var, v),
             Type::Function(fn_ty) => {
                 fn_ty.params.iter().any(|p| self.occurs(var, p)) || self.occurs(var, &fn_ty.ret)
@@ -68,7 +68,8 @@ impl Substitution {
             (Type::Never, _) | (_, Type::Never) => Ok(()),
             (Type::Var(id), _) => self.bind_var(*id, &b),
             (_, Type::Var(id)) => self.bind_var(*id, &a),
-            (Type::Array(ea), Type::Array(eb)) => self.unify(ea, eb),
+            (Type::Vector(ea), Type::Vector(eb)) => self.unify(ea, eb),
+            (Type::Set(ea), Type::Set(eb)) => self.unify(ea, eb),
             (Type::Range(ea), Type::Range(eb)) => self.unify(ea, eb),
             (Type::Map(ka, va), Type::Map(kb, vb)) => {
                 self.unify(ka, kb)?;
@@ -104,7 +105,8 @@ impl Substitution {
                 Some(resolved) => self.apply(resolved),
                 None => ty.clone(),
             },
-            Type::Array(elem) => Type::Array(Box::new(self.apply(elem))),
+            Type::Vector(elem) => Type::Vector(Box::new(self.apply(elem))),
+            Type::Set(elem) => Type::Set(Box::new(self.apply(elem))),
             Type::Range(elem) => Type::Range(Box::new(self.apply(elem))),
             Type::Map(k, v) => Type::Map(Box::new(self.apply(k)), Box::new(self.apply(v))),
             Type::Function(fn_ty) => Type::Function(FnType {
@@ -153,7 +155,7 @@ mod tests {
     #[test]
     fn unify_occurs_check() {
         let mut subst = Substitution::new();
-        let result = subst.unify(&Type::Var(0), &Type::Array(Box::new(Type::Var(0))));
+        let result = subst.unify(&Type::Var(0), &Type::Vector(Box::new(Type::Var(0))));
         assert!(matches!(result, Err(UnifyError::OccursCheck(_, _))));
     }
 

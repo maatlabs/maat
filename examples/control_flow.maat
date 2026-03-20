@@ -24,7 +24,7 @@ while (i <= 100) {
 }
 print(sum);
 
-// for..in over an array
+// for..in over a vector
 let mut product: i64 = 1;
 for x in [2, 3, 5, 7] {
     product *= x;

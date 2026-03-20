@@ -359,7 +359,7 @@ fn compile_arrays() {
         (
             "[]",
             vec![],
-            vec![encode(Opcode::Array, &[0]), encode(Opcode::Pop, &[])],
+            vec![encode(Opcode::Vector, &[0]), encode(Opcode::Pop, &[])],
         ),
         (
             "[1, 2, 3]",
@@ -368,7 +368,7 @@ fn compile_arrays() {
                 encode(Opcode::Constant, &[0]),
                 encode(Opcode::Constant, &[1]),
                 encode(Opcode::Constant, &[2]),
-                encode(Opcode::Array, &[3]),
+                encode(Opcode::Vector, &[3]),
                 encode(Opcode::Pop, &[]),
             ],
         ),
@@ -385,7 +385,7 @@ fn compile_arrays() {
                 encode(Opcode::Constant, &[4]),
                 encode(Opcode::Constant, &[5]),
                 encode(Opcode::Mul, &[]),
-                encode(Opcode::Array, &[3]),
+                encode(Opcode::Vector, &[3]),
                 encode(Opcode::Pop, &[]),
             ],
         ),
@@ -453,7 +453,7 @@ fn compile_index_expressions() {
                 encode(Opcode::Constant, &[0]),
                 encode(Opcode::Constant, &[1]),
                 encode(Opcode::Constant, &[2]),
-                encode(Opcode::Array, &[3]),
+                encode(Opcode::Vector, &[3]),
                 encode(Opcode::Constant, &[3]),
                 encode(Opcode::Constant, &[4]),
                 encode(Opcode::Add, &[]),
@@ -698,24 +698,24 @@ fn compile_let_statement_scopes() {
 #[test]
 fn compile_builtins() {
     let cases: Vec<ConstantTestCase<'_>> = vec![
-        // Method calls: Array::len (builtin index 1)
+        // Method calls: Vector::len (builtin index 1)
         (
             "[].len();",
             vec![],
             vec![
                 encode(Opcode::GetBuiltin, &[1]),
-                encode(Opcode::Array, &[0]),
+                encode(Opcode::Vector, &[0]),
                 encode(Opcode::Call, &[1]),
                 encode(Opcode::Pop, &[]),
             ],
         ),
-        // Method calls: Array::push (builtin index 6)
+        // Method calls: Vector::push (builtin index 5)
         (
             "[].push(1);",
             vec![Constant::Int(1)],
             vec![
-                encode(Opcode::GetBuiltin, &[6]),
-                encode(Opcode::Array, &[0]),
+                encode(Opcode::GetBuiltin, &[5]),
+                encode(Opcode::Vector, &[0]),
                 encode(Opcode::Constant, &[0]),
                 encode(Opcode::Call, &[2]),
                 encode(Opcode::Pop, &[]),

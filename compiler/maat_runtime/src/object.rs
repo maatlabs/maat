@@ -54,8 +54,8 @@ pub enum Object {
     Bool(bool),
     /// A string literal.
     Str(String),
-    /// An array literal.
-    Array(Vec<Object>),
+    /// A vector of values.
+    Vector(Vec<Object>),
     /// A map (key-value collection) object.
     Map(MapObject),
     /// A function object with parameters, body, and closure environment.
@@ -176,11 +176,11 @@ impl Object {
         }
     }
 
-    /// Attempts to convert this object to a `usize` array index.
+    /// Attempts to convert this object to a `usize` vector index.
     ///
     /// Returns `Some(index)` for any integer type whose value fits in `usize`.
     /// Returns `None` for negative values, out-of-range values, or non-integer types.
-    pub fn to_array_index(&self) -> Option<usize> {
+    pub fn to_vector_index(&self) -> Option<usize> {
         match self {
             Self::I8(v) => usize::try_from(*v).ok(),
             Self::I16(v) => usize::try_from(*v).ok(),
@@ -256,7 +256,7 @@ impl Object {
             Self::Usize(_) => "Usize",
             Self::Bool(_) => "Bool",
             Self::Str(_) => "Str",
-            Self::Array(_) => "Array",
+            Self::Vector(_) => "Vector",
             Self::Map(_) => "Map",
             Self::Function(_) => "Function",
             Self::Macro(_) => "Macro",
@@ -299,7 +299,7 @@ enum SerializableObject {
     Usize(usize),
     Bool(bool),
     Str(String),
-    Array(Vec<Object>),
+    Vector(Vec<Object>),
     Map(MapObject),
     CompiledFunction(CompiledFunction),
     Closure(Closure),
@@ -331,7 +331,7 @@ impl Serialize for Object {
             Self::Usize(v) => SerializableObject::Usize(*v),
             Self::Bool(v) => SerializableObject::Bool(*v),
             Self::Str(v) => SerializableObject::Str(v.clone()),
-            Self::Array(v) => SerializableObject::Array(v.clone()),
+            Self::Vector(v) => SerializableObject::Vector(v.clone()),
             Self::Map(v) => SerializableObject::Map(v.clone()),
             Self::CompiledFunction(v) => SerializableObject::CompiledFunction(v.clone()),
             Self::Closure(v) => SerializableObject::Closure(v.clone()),
@@ -371,7 +371,7 @@ impl<'de> Deserialize<'de> for Object {
             SerializableObject::Usize(v) => Self::Usize(v),
             SerializableObject::Bool(v) => Self::Bool(v),
             SerializableObject::Str(v) => Self::Str(v),
-            SerializableObject::Array(v) => Self::Array(v),
+            SerializableObject::Vector(v) => Self::Vector(v),
             SerializableObject::Map(v) => Self::Map(v),
             SerializableObject::CompiledFunction(v) => Self::CompiledFunction(v),
             SerializableObject::Closure(v) => Self::Closure(v),
@@ -403,7 +403,7 @@ impl PartialEq for Object {
             (Usize(a), Usize(b)) => a == b,
             (Bool(a), Bool(b)) => a == b,
             (Str(a), Str(b)) => a == b,
-            (Array(a1), Array(a2)) => a1 == a2,
+            (Vector(v1), Vector(v2)) => v1 == v2,
             (Map(m1), Map(m2)) => m1 == m2,
             (Function(f1), Function(f2)) => f1 == f2,
             (Macro(m1), Macro(m2)) => m1 == m2,
@@ -606,11 +606,11 @@ impl fmt::Display for Object {
             Self::Usize(v) => v.fmt(f),
             Self::Bool(v) => v.fmt(f),
             Self::Str(v) => v.fmt(f),
-            Self::Array(array) => {
+            Self::Vector(vector) => {
                 write!(
                     f,
                     "[{}]",
-                    array
+                    vector
                         .iter()
                         .map(|e| format!("{e}"))
                         .collect::<Vec<String>>()

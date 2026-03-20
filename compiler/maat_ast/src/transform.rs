@@ -198,8 +198,8 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
 
         Node::Expr(expr) => {
             let new_expr = match expr {
-                Expr::Array(mut array) => {
-                    array.elements = array
+                Expr::Vector(mut vector) => {
+                    vector.elements = vector
                         .elements
                         .into_iter()
                         .map(|elem| match transform(Node::Expr(elem), transformer) {
@@ -207,7 +207,7 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                             _ => unreachable!("Expr transformation returned non-expression"),
                         })
                         .collect();
-                    Expr::Array(array)
+                    Expr::Vector(vector)
                 }
 
                 Expr::Index(mut index) => {

@@ -17,7 +17,7 @@ use crate::{
 struct BuiltinMethodScheme {
     /// Type variables universally quantified in this method.
     forall: Vec<TypeVarId>,
-    /// The self-type pattern (e.g., `[?T0]` for array methods).
+    /// The self-type pattern (e.g., `[?T0]` for vector methods).
     self_type: Type,
     /// The method's function type (parameters exclude `self`).
     fn_type: Type,
@@ -70,20 +70,34 @@ impl TypeEnv {
 
     /// Registers constructor functions and opaque types for built-in types.
     fn register_builtin_ctors(&mut self) {
-        self.register_struct(StructDef {
-            name: "Set".to_string(),
-            generic_params: vec![],
-            fields: vec![],
-        });
+        // Vector::new() -> Vector<T> (i.e., [T])
+        let vec_t_id = self.next_var;
+        self.next_var += 1;
+        let vec_ty = Type::Vector(Box::new(Type::Var(vec_t_id)));
+        self.define_scheme(
+            "Vector::new",
+            TypeScheme {
+                forall: vec![vec_t_id],
+                ty: Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(vec_ty),
+                }),
+            },
+        );
 
-        // Set::new() -> Set
-        let set_ty = Type::Struct(Rc::from("Set"), vec![]);
+        // Set::new() -> Set<T>
+        let set_t_id = self.next_var;
+        self.next_var += 1;
+        let set_ty = Type::Set(Box::new(Type::Var(set_t_id)));
         self.define_scheme(
             "Set::new",
-            TypeScheme::monomorphic(Type::Function(FnType {
-                params: vec![],
-                ret: Box::new(set_ty),
-            })),
+            TypeScheme {
+                forall: vec![set_t_id],
+                ty: Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(set_ty),
+                }),
+            },
         );
 
         // Map::new() -> Map<K, V>
@@ -109,59 +123,59 @@ impl TypeEnv {
         let elem_id = self.next_var;
         self.next_var += 1;
         let elem = Type::Var(elem_id);
-        let array_ty = Type::Array(Box::new(elem.clone()));
+        let vector_ty = Type::Vector(Box::new(elem.clone()));
         let forall = vec![elem_id];
-        // impl [T]
-        let array_methods = [
+        // impl Vector<T>
+        let vec_methods = [
             (
-                "Array::len",
+                "Vector::len",
                 Type::Function(FnType {
                     params: vec![],
                     ret: Box::new(Type::Usize),
                 }),
             ),
             (
-                "Array::first",
+                "Vector::first",
                 Type::Function(FnType {
                     params: vec![],
                     ret: Box::new(elem.clone()),
                 }),
             ),
             (
-                "Array::last",
+                "Vector::last",
                 Type::Function(FnType {
                     params: vec![],
                     ret: Box::new(elem.clone()),
                 }),
             ),
             (
-                "Array::rest",
+                "Vector::rest",
                 Type::Function(FnType {
                     params: vec![],
-                    ret: Box::new(array_ty.clone()),
+                    ret: Box::new(vector_ty.clone()),
                 }),
             ),
             (
-                "Array::push",
+                "Vector::push",
                 Type::Function(FnType {
                     params: vec![elem],
-                    ret: Box::new(array_ty.clone()),
+                    ret: Box::new(vector_ty.clone()),
                 }),
             ),
             (
-                "Array::join",
+                "Vector::join",
                 Type::Function(FnType {
                     params: vec![Type::String],
                     ret: Box::new(Type::String),
                 }),
             ),
         ];
-        for (name, fn_type) in array_methods {
+        for (name, fn_type) in vec_methods {
             self.builtin_method_schemes.insert(
                 name.to_string(),
                 BuiltinMethodScheme {
                     forall: forall.clone(),
-                    self_type: array_ty.clone(),
+                    self_type: vector_ty.clone(),
                     fn_type,
                 },
             );
@@ -207,7 +221,7 @@ impl TypeEnv {
                 "str::split",
                 Type::Function(FnType {
                     params: vec![Type::String],
-                    ret: Box::new(Type::Array(Box::new(Type::String))),
+                    ret: Box::new(Type::Vector(Box::new(Type::String))),
                 }),
             ),
             (
@@ -228,11 +242,11 @@ impl TypeEnv {
                 },
             );
         }
-        // impl Set
-        let set_ty = Type::Struct(Rc::from("Set"), vec![]);
+        // impl Set<T>
         let set_elem_id = self.next_var;
         self.next_var += 1;
         let set_elem = Type::Var(set_elem_id);
+        let set_ty = Type::Set(Box::new(set_elem.clone()));
         let set_forall = vec![set_elem_id];
         let set_methods = [
             (
@@ -255,24 +269,24 @@ impl TypeEnv {
                 "Set::remove",
                 set_forall.clone(),
                 Type::Function(FnType {
-                    params: vec![set_elem],
+                    params: vec![set_elem.clone()],
                     ret: Box::new(set_ty.clone()),
                 }),
             ),
             (
                 "Set::len",
-                vec![],
+                set_forall.clone(),
                 Type::Function(FnType {
                     params: vec![],
                     ret: Box::new(Type::Usize),
                 }),
             ),
             (
-                "Set::to_array",
-                vec![],
+                "Set::to_vector",
+                set_forall.clone(),
                 Type::Function(FnType {
                     params: vec![],
-                    ret: Box::new(Type::Array(Box::new(Type::Var(set_elem_id)))),
+                    ret: Box::new(Type::Vector(Box::new(set_elem))),
                 }),
             ),
         ];
@@ -341,7 +355,7 @@ impl TypeEnv {
                 map_forall.clone(),
                 Type::Function(FnType {
                     params: vec![],
-                    ret: Box::new(Type::Array(Box::new(map_k))),
+                    ret: Box::new(Type::Vector(Box::new(map_k))),
                 }),
             ),
             (
@@ -349,7 +363,7 @@ impl TypeEnv {
                 map_forall.clone(),
                 Type::Function(FnType {
                     params: vec![],
-                    ret: Box::new(Type::Array(Box::new(Type::Var(map_v_id)))),
+                    ret: Box::new(Type::Vector(Box::new(Type::Var(map_v_id)))),
                 }),
             ),
         ];
@@ -489,7 +503,7 @@ impl TypeEnv {
     /// For polymorphic methods (e.g., `[T].first() -> T`), each call site
     /// receives fresh inference variables that are independent of all other
     /// call sites. This prevents the type pollution that would occur if a
-    /// single shared type variable were reused across different array element
+    /// single shared type variable were reused across different vector element
     /// types.
     ///
     /// Returns `(instantiated_self_type, instantiated_fn_type)` on success.
@@ -506,10 +520,10 @@ impl TypeEnv {
         subst: &Substitution,
     ) -> Option<(Type, Type)> {
         let prefix = match receiver {
-            Type::Array(_) => "Array",
+            Type::Vector(_) => "Vector",
             Type::String => "str",
             Type::Map(..) => "Map",
-            Type::Struct(name, _) if name.as_ref() == "Set" => "Set",
+            Type::Set(_) => "Set",
             _ => return None,
         };
         let key = format!("{prefix}::{method_name}");
@@ -550,7 +564,7 @@ impl TypeEnv {
     /// type registry to recognize user-defined struct and enum names.
     ///
     /// Falls back to [`resolve_type_expr`] for primitive and compound types.
-    pub fn resolve_type(&self, expr: &TypeExpr) -> Type {
+    pub fn resolve_type(&mut self, expr: &TypeExpr) -> Type {
         match expr {
             TypeExpr::Named(named) => self.resolve_named_type(&named.name),
             TypeExpr::Generic(name, args, _) => {
@@ -558,7 +572,24 @@ impl TypeEnv {
                     .iter()
                     .map(|a| self.resolve_type(a))
                     .collect::<Vec<Type>>();
-                if self.structs.contains_key(name) {
+                if name == "Vector" {
+                    let elem = resolved_args
+                        .into_iter()
+                        .next()
+                        .unwrap_or_else(|| self.fresh_var());
+                    Type::Vector(Box::new(elem))
+                } else if name == "Set" {
+                    let elem = resolved_args
+                        .into_iter()
+                        .next()
+                        .unwrap_or_else(|| self.fresh_var());
+                    Type::Set(Box::new(elem))
+                } else if name == "Map" {
+                    let mut args = resolved_args.into_iter();
+                    let k = args.next().unwrap_or_else(|| self.fresh_var());
+                    let v = args.next().unwrap_or_else(|| self.fresh_var());
+                    Type::Map(Box::new(k), Box::new(v))
+                } else if self.structs.contains_key(name) {
                     Type::Struct(Rc::from(name.as_str()), resolved_args)
                 } else if self.enums.contains_key(name) {
                     Type::Enum(Rc::from(name.as_str()), resolved_args)
@@ -572,13 +603,27 @@ impl TypeEnv {
 
     /// Resolves a named type string, checking the registry before falling
     /// back to primitives.
-    fn resolve_named_type(&self, name: &str) -> Type {
-        if self.structs.contains_key(name) {
-            Type::Struct(Rc::from(name), vec![])
-        } else if self.enums.contains_key(name) {
-            Type::Enum(Rc::from(name), vec![])
+    ///
+    /// When a registered struct or enum has generic type parameters and none
+    /// are explicitly provided, fresh inference variables are inserted so that
+    /// bare usage (e.g., `s: Set`) is equivalent to `s: Set<_>`.
+    fn resolve_named_type(&mut self, name: &str) -> Type {
+        if name == "Vector" {
+            return Type::Vector(Box::new(self.fresh_var()));
+        }
+        if name == "Set" {
+            return Type::Set(Box::new(self.fresh_var()));
+        }
+        if name == "Map" {
+            return Type::Map(Box::new(self.fresh_var()), Box::new(self.fresh_var()));
+        }
+        if let Some(count) = self.structs.get(name).map(|d| d.generic_params.len()) {
+            let args = (0..count).map(|_| self.fresh_var()).collect();
+            Type::Struct(Rc::from(name), args)
+        } else if let Some(count) = self.enums.get(name).map(|d| d.generic_params.len()) {
+            let args = (0..count).map(|_| self.fresh_var()).collect();
+            Type::Enum(Rc::from(name), args)
         } else {
-            // Delegate to the standalone resolver for primitives and generics.
             resolve_type_expr(&TypeExpr::Named(NamedType {
                 name: name.to_string(),
                 span: maat_span::Span::ZERO,
@@ -705,7 +750,7 @@ fn collect_free_vars(ty: &Type, vars: &mut HashSet<TypeVarId>) {
         Type::Var(id) => {
             vars.insert(*id);
         }
-        Type::Array(elem) | Type::Range(elem) => collect_free_vars(elem, vars),
+        Type::Vector(elem) | Type::Set(elem) | Type::Range(elem) => collect_free_vars(elem, vars),
         Type::Map(k, v) => {
             collect_free_vars(k, vars);
             collect_free_vars(v, vars);
@@ -798,24 +843,24 @@ mod tests {
         let mut env = TypeEnv::new();
         env.register_builtins();
         let subst = Substitution::new();
-        let i64_array = Type::Array(Box::new(Type::I64));
-        let str_array = Type::Array(Box::new(Type::String));
+        let i64_vector = Type::Vector(Box::new(Type::I64));
+        let str_vector = Type::Vector(Box::new(Type::String));
 
         // Two separate instantiations should produce independent type variables.
         let (self1, fn1) = env
-            .instantiate_builtin_method(&i64_array, "first", &subst)
-            .expect("Array::first should exist");
+            .instantiate_builtin_method(&i64_vector, "first", &subst)
+            .expect("Vector::first should exist");
         let (self2, fn2) = env
-            .instantiate_builtin_method(&str_array, "first", &subst)
-            .expect("Array::first should exist");
+            .instantiate_builtin_method(&str_vector, "first", &subst)
+            .expect("Vector::first should exist");
         match (&self1, &self2) {
-            (Type::Array(a), Type::Array(b)) => {
+            (Type::Vector(a), Type::Vector(b)) => {
                 assert_ne!(
                     a, b,
                     "each instantiation must use independent type variables"
                 );
             }
-            _ => panic!("expected Array types"),
+            _ => panic!("expected Vector types"),
         }
         match (&fn1, &fn2) {
             (Type::Function(f1), Type::Function(f2)) => {
@@ -833,13 +878,13 @@ mod tests {
         let mut env = TypeEnv::new();
         env.register_builtins();
         let mut subst = Substitution::new();
-        let i64_array = Type::Array(Box::new(Type::I64));
+        let i64_vector = Type::Vector(Box::new(Type::I64));
         let (inst_self, inst_fn) = env
-            .instantiate_builtin_method(&i64_array, "first", &subst)
-            .expect("Array::first should exist");
+            .instantiate_builtin_method(&i64_vector, "first", &subst)
+            .expect("Vector::first should exist");
         // Unify the instantiated self-type with the actual receiver.
         subst
-            .unify(&inst_self, &i64_array)
+            .unify(&inst_self, &i64_vector)
             .expect("unification should succeed");
         match subst.apply(&inst_fn) {
             Type::Function(fn_ty) => {

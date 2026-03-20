@@ -149,7 +149,7 @@ pub enum Expr {
     Number(Number),
     Bool(Bool),
     Str(Str),
-    Array(Array),
+    Vector(Vector),
     Index(IndexExpr),
     Map(Map),
 
@@ -179,7 +179,7 @@ impl Expr {
             Self::Number(v) => v.span,
             Self::Bool(v) => v.span,
             Self::Str(v) => v.span,
-            Self::Array(v) => v.span,
+            Self::Vector(v) => v.span,
             Self::Index(v) => v.span,
             Self::Map(v) => v.span,
             Self::Prefix(v) => v.span,
@@ -335,7 +335,7 @@ impl NumberKind {
 
 /// Arrays: `[expr, expr, ...]`
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Array {
+pub struct Vector {
     pub elements: Vec<Expr>,
     pub span: Span,
 }
@@ -638,7 +638,7 @@ pub struct MethodCallExpr {
     pub method: String,
     /// Arguments passed to the method (excluding the receiver).
     pub arguments: Vec<Expr>,
-    /// Receiver type name resolved by the type checker (e.g. `"Array"`, `"str"`, `"Set"`, `"Map"`).
+    /// Receiver type name resolved by the type checker (e.g. `"Vector"`, `"str"`, `"Set"`, `"Map"`).
     pub receiver: Option<String>,
     pub span: Span,
 }
@@ -687,14 +687,14 @@ pub struct RangeExpr {
 ///
 /// - `Named` — a simple named type like `i64`, `bool`, or a user-defined
 ///   type like `Point`.
-/// - `Array` — `[T]`, an array of element type `T`.
-/// - `Hash` — `{K: V}`, a hash map from key type `K` to value type `V`.
+/// - `Vector` — `Vector<T>`, a vector of element type `T`.
+/// - `Map` — `{K: V}`, a hash map from key type `K` to value type `V`.
 /// - `Fn` — `fn(A, B) -> R`, a function type.
 /// - `Generic` — a parameterized type like `Option<T>` or `Result<T, E>`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TypeExpr {
     Named(NamedType),
-    Array(Box<TypeExpr>, Span),
+    Vector(Box<TypeExpr>, Span),
     Map(Box<TypeExpr>, Box<TypeExpr>, Span),
     Fn(Vec<TypeExpr>, Box<TypeExpr>, Span),
     Generic(String, Vec<TypeExpr>, Span),
@@ -705,9 +705,10 @@ impl TypeExpr {
     pub fn span(&self) -> Span {
         match self {
             Self::Named(n) => n.span,
-            Self::Array(_, s) | Self::Map(_, _, s) | Self::Fn(_, _, s) | Self::Generic(_, _, s) => {
-                *s
-            }
+            Self::Vector(_, s)
+            | Self::Map(_, _, s)
+            | Self::Fn(_, _, s)
+            | Self::Generic(_, _, s) => *s,
         }
     }
 }

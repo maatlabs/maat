@@ -81,15 +81,15 @@ pub enum Opcode {
     /// Operands: [u16] - global variable index
     GetGlobal = 18,
 
-    /// Build an array from the top N stack elements.
+    /// Build a vector from the top N stack elements.
     /// Operands: [u16] - number of elements
-    Array = 19,
+    Vector = 19,
 
     /// Build a map from the top N stack elements (key-value pairs).
     /// Operands: [u16] - total number of elements (keys + values)
     Map = 20,
 
-    /// Index into an array or map. Pops index and container, pushes result.
+    /// Index into a vector or map. Pops index and container, pushes result.
     /// Operands: none
     Index = 21,
 
@@ -205,7 +205,7 @@ impl Opcode {
             Self::Null => "OpNull",
             Self::SetGlobal => "OpSetGlobal",
             Self::GetGlobal => "OpGetGlobal",
-            Self::Array => "OpArray",
+            Self::Vector => "OpVector",
             Self::Map => "OpMap",
             Self::Index => "OpIndex",
             Self::Call => "OpCall",
@@ -244,7 +244,7 @@ impl Opcode {
             | Self::Jump
             | Self::SetGlobal
             | Self::GetGlobal
-            | Self::Array
+            | Self::Vector
             | Self::Map
             | Self::GetField => &[2],
             Self::Closure | Self::Construct => &[2, 1],
@@ -307,7 +307,7 @@ impl Opcode {
             16 => Some(Self::Null),
             17 => Some(Self::SetGlobal),
             18 => Some(Self::GetGlobal),
-            19 => Some(Self::Array),
+            19 => Some(Self::Vector),
             20 => Some(Self::Map),
             21 => Some(Self::Index),
             22 => Some(Self::Call),

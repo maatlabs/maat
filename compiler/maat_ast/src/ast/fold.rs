@@ -82,7 +82,7 @@ fn fold_expression(expr: &mut Expr, errors: &mut Vec<TypeError>) {
                 *expr = folded;
             }
         }
-        Expr::Array(e) => {
+        Expr::Vector(e) => {
             for elem in &mut e.elements {
                 fold_expression(elem, errors);
             }
