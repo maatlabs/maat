@@ -5,7 +5,7 @@ use maat_ast::{Node, fold_constants};
 use maat_bytecode::Bytecode;
 use maat_codegen::Compiler;
 use maat_lexer::{MaatLexer, TokenKind};
-use maat_parser::Parser;
+use maat_parser::MaatParser;
 use maat_tests::benchmark_programs::{
     ARITHMETIC_BASELINE, BITWISE_SOURCE, CLOSURE_SOURCE, EMPTY_PROGRAM, ENUM_MATCH_SOURCE,
     METHOD_DISPATCH_SOURCE, OPTION_SOURCE, RANGE_LOOP_10, RANGE_LOOP_100, RANGE_LOOP_1000,
@@ -47,14 +47,14 @@ fn lex_all(source: &str) {
 
 fn parse_source(source: &str) {
     let lexer = MaatLexer::new(black_box(source));
-    let mut parser = Parser::new(lexer);
+    let mut parser = MaatParser::new(lexer);
     let program = parser.parse();
     black_box(program);
 }
 
 fn typecheck_source(source: &str) {
     let lexer = MaatLexer::new(source);
-    let mut parser = Parser::new(lexer);
+    let mut parser = MaatParser::new(lexer);
     let mut program = parser.parse();
     let errors = TypeChecker::new().check_program(&mut program);
     black_box(errors);
@@ -62,7 +62,7 @@ fn typecheck_source(source: &str) {
 
 fn check_and_compile(source: &str) {
     let lexer = MaatLexer::new(source);
-    let mut parser = Parser::new(lexer);
+    let mut parser = MaatParser::new(lexer);
     let mut program = parser.parse();
     let _ = TypeChecker::new().check_program(&mut program);
     let _ = fold_constants(&mut program);

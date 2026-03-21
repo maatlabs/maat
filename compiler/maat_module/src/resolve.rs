@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use maat_ast::{Program, Stmt};
 use maat_errors::ModuleErrorKind;
 use maat_lexer::MaatLexer;
-use maat_parser::Parser;
+use maat_parser::MaatParser;
 use maat_span::Span;
 
 use crate::{ModuleGraph, ModuleId, ModuleResult};
@@ -208,7 +208,7 @@ fn read_source(path: &Path) -> ModuleResult<String> {
 
 /// Parses a source file into an AST, collecting all parse errors.
 fn parse_source(path: &Path, source: &str) -> ModuleResult<Program> {
-    let mut parser = Parser::new(MaatLexer::new(source));
+    let mut parser = MaatParser::new(MaatLexer::new(source));
     let program = parser.parse();
     if parser.errors().is_empty() {
         Ok(program)

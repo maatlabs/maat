@@ -15,7 +15,7 @@ use maat_codegen::{Compiler, SymbolsTable};
 use maat_errors::Error;
 use maat_eval::{define_macros, expand_macros};
 use maat_lexer::MaatLexer;
-use maat_parser::Parser;
+use maat_parser::MaatParser;
 use maat_runtime::{Env, Object};
 use maat_types::TypeChecker;
 use maat_vm::VM;
@@ -248,7 +248,7 @@ pub fn start_interactive() {
             break;
         }
 
-        let mut parser = Parser::new(MaatLexer::new(line));
+        let mut parser = MaatParser::new(MaatLexer::new(line));
         let program = parser.parse();
         if !parser.errors().is_empty() {
             for err in parser.errors() {
@@ -367,7 +367,7 @@ mod tests {
             if line == "exit" || line == "quit" {
                 break;
             }
-            let mut parser = Parser::new(MaatLexer::new(line));
+            let mut parser = MaatParser::new(MaatLexer::new(line));
             let program = parser.parse();
             if !parser.errors().is_empty() {
                 for err in parser.errors() {
