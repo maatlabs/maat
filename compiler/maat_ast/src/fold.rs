@@ -1,12 +1,12 @@
 //! Constant folding pass over the AST.
 //!
-//! Replaces `Infix(Literal, op, Literal)` nodes with a single literal
+//! Replaces `Infix(lhs, op, rhs)` nodes with a single literal
 //! when both operands are compile-time constants. Uses checked arithmetic;
 //! overflow is reported as a compile error.
 
 use maat_errors::{TypeError, TypeErrorKind};
 
-use super::*;
+use crate::*;
 
 /// Folds constant expressions in a program.
 ///

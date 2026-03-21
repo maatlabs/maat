@@ -3,8 +3,8 @@ use std::rc::Rc;
 
 use maat_ast::{
     BlockStmt, BreakExpr, CondExpr, ContinueExpr, EnumVariantKind, Expr, FieldAccessExpr, ForStmt,
-    ImplBlock, InfixExpr, MatchExpr, MethodCallExpr, Node, PathExpr, Pattern, Program, Stmt,
-    StructLitExpr, TypeAnnotation, TypeExpr,
+    ImplBlock, InfixExpr, MatchExpr, MethodCallExpr, Node, NumberKind, PathExpr, Pattern, Program,
+    Stmt, StructLitExpr, TypeExpr,
 };
 use maat_bytecode::{
     Bytecode, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, MAX_ENUM_VARIANTS, Opcode,
@@ -756,7 +756,7 @@ impl Compiler {
             }
             Expr::Cast(cast) => {
                 self.compile_expression(&cast.expr)?;
-                let tag = Self::type_annotation_to_tag(cast.target);
+                let tag = num_kind_to_tag(cast.target);
                 self.emit(Opcode::Convert, &[tag.to_byte() as usize], span);
                 Ok(())
             }
@@ -1314,24 +1314,6 @@ impl Compiler {
             })
     }
 
-    /// Maps a source-level type annotation to a bytecode type tag.
-    fn type_annotation_to_tag(t: TypeAnnotation) -> TypeTag {
-        match t {
-            TypeAnnotation::I8 => TypeTag::I8,
-            TypeAnnotation::I16 => TypeTag::I16,
-            TypeAnnotation::I32 => TypeTag::I32,
-            TypeAnnotation::I64 => TypeTag::I64,
-            TypeAnnotation::I128 => TypeTag::I128,
-            TypeAnnotation::Isize => TypeTag::Isize,
-            TypeAnnotation::U8 => TypeTag::U8,
-            TypeAnnotation::U16 => TypeTag::U16,
-            TypeAnnotation::U32 => TypeTag::U32,
-            TypeAnnotation::U64 => TypeTag::U64,
-            TypeAnnotation::U128 => TypeTag::U128,
-            TypeAnnotation::Usize => TypeTag::Usize,
-        }
-    }
-
     /// Attaches a span to a compile error that lacks one.
     fn attach_span(&self, err: Error, span: Span) -> Error {
         match err {
@@ -1585,6 +1567,24 @@ impl Compiler {
         let new_inst = encode(op, &[operand]);
         scope.instructions.replace_bytes(op_pos, &new_inst);
         Ok(())
+    }
+}
+
+/// Maps a source-level type annotation to a bytecode type tag.
+fn num_kind_to_tag(t: NumberKind) -> TypeTag {
+    match t {
+        NumberKind::I8 => TypeTag::I8,
+        NumberKind::I16 => TypeTag::I16,
+        NumberKind::I32 => TypeTag::I32,
+        NumberKind::I64 => TypeTag::I64,
+        NumberKind::I128 => TypeTag::I128,
+        NumberKind::Isize => TypeTag::Isize,
+        NumberKind::U8 => TypeTag::U8,
+        NumberKind::U16 => TypeTag::U16,
+        NumberKind::U32 => TypeTag::U32,
+        NumberKind::U64 => TypeTag::U64,
+        NumberKind::U128 => TypeTag::U128,
+        NumberKind::Usize => TypeTag::Usize,
     }
 }
 

@@ -500,7 +500,7 @@ impl TypeChecker {
             Expr::Call(call) => self.check_call_expr(call),
             Expr::Cast(cast) => {
                 self.infer_expression(&mut cast.expr);
-                Type::from_type_annotation(&cast.target)
+                Type::from_number_kind(&cast.target)
             }
             Expr::Break(break_expr) => {
                 if let Some(val) = &mut break_expr.value {
@@ -1467,7 +1467,7 @@ impl TypeChecker {
         if current == target {
             return;
         }
-        if let Some(ann) = target.to_type_annotation() {
+        if let Some(ann) = target.to_number_kind() {
             let span = expr.span();
             let inner = std::mem::replace(
                 expr.as_mut(),

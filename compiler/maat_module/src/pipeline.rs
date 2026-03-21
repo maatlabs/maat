@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use maat_ast::{Program, Stmt, TypeExpr};
+use maat_ast::{Program, Stmt, TypeExpr, fold_constants};
 use maat_bytecode::Bytecode;
 use maat_codegen::Compiler;
 use maat_errors::ModuleErrorKind;
@@ -88,7 +88,7 @@ fn type_check_modules(
         let module_exports = extract_exports(program, checker.env());
         exports.insert(module_id, module_exports);
 
-        let fold_errors = maat_ast::fold::fold_constants(program);
+        let fold_errors = fold_constants(program);
         if !fold_errors.is_empty() {
             let messages = fold_errors.iter().map(|e| e.kind.to_string()).collect();
             return Err(ModuleErrorKind::TypeErrors {

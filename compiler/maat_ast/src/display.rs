@@ -1,6 +1,8 @@
-//! Implements `std::fmt::Display` for all AST nodes.
+//! Implements [`core::fmt::Display`] for all AST nodes.
 
-use super::*;
+use core::fmt;
+
+use crate::*;
 
 impl fmt::Display for Node {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -654,18 +656,6 @@ impl fmt::Display for GenericParam {
 impl fmt::Display for TraitBound {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.name)
-    }
-}
-
-impl fmt::Display for TypeAnnotation {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl fmt::Display for UnknownTypeAnnotation {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("unknown type annotation")
     }
 }
 

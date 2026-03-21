@@ -630,18 +630,18 @@ fn eval_cast_expression(expr: CastExpr, env: &Env) -> Result<Object> {
     }
 
     match target {
-        TypeAnnotation::I8 => narrow!(i8, I8, "i8"),
-        TypeAnnotation::I16 => narrow!(i16, I16, "i16"),
-        TypeAnnotation::I32 => narrow!(i32, I32, "i32"),
-        TypeAnnotation::I64 => narrow!(i64, I64, "i64"),
-        TypeAnnotation::I128 => narrow!(i128, I128, "i128"),
-        TypeAnnotation::Isize => narrow!(isize, Isize, "isize"),
-        TypeAnnotation::U8 => narrow!(u8, U8, "u8"),
-        TypeAnnotation::U16 => narrow!(u16, U16, "u16"),
-        TypeAnnotation::U32 => narrow!(u32, U32, "u32"),
-        TypeAnnotation::U64 => narrow!(u64, U64, "u64"),
-        TypeAnnotation::U128 => narrow!(u128, U128, "u128"),
-        TypeAnnotation::Usize => narrow!(usize, Usize, "usize"),
+        NumberKind::I8 => narrow!(i8, I8, "i8"),
+        NumberKind::I16 => narrow!(i16, I16, "i16"),
+        NumberKind::I32 => narrow!(i32, I32, "i32"),
+        NumberKind::I64 => narrow!(i64, I64, "i64"),
+        NumberKind::I128 => narrow!(i128, I128, "i128"),
+        NumberKind::Isize => narrow!(isize, Isize, "isize"),
+        NumberKind::U8 => narrow!(u8, U8, "u8"),
+        NumberKind::U16 => narrow!(u16, U16, "u16"),
+        NumberKind::U32 => narrow!(u32, U32, "u32"),
+        NumberKind::U64 => narrow!(u64, U64, "u64"),
+        NumberKind::U128 => narrow!(u128, U128, "u128"),
+        NumberKind::Usize => narrow!(usize, Usize, "usize"),
     }
 }
 

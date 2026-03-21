@@ -157,42 +157,42 @@ impl Type {
         Some((self.is_signed(), width))
     }
 
-    /// Converts an internal `Type` to a `TypeAnnotation` for generating cast nodes.
+    /// Converts an internal `Type` to a `NumberKind` for generating cast nodes.
     ///
     /// Returns `None` for non-numeric types since cast nodes only support numeric targets.
-    pub fn to_type_annotation(&self) -> Option<TypeAnnotation> {
+    pub fn to_number_kind(&self) -> Option<NumberKind> {
         match self {
-            Self::I8 => Some(TypeAnnotation::I8),
-            Self::I16 => Some(TypeAnnotation::I16),
-            Self::I32 => Some(TypeAnnotation::I32),
-            Self::I64 => Some(TypeAnnotation::I64),
-            Self::I128 => Some(TypeAnnotation::I128),
-            Self::Isize => Some(TypeAnnotation::Isize),
-            Self::U8 => Some(TypeAnnotation::U8),
-            Self::U16 => Some(TypeAnnotation::U16),
-            Self::U32 => Some(TypeAnnotation::U32),
-            Self::U64 => Some(TypeAnnotation::U64),
-            Self::U128 => Some(TypeAnnotation::U128),
-            Self::Usize => Some(TypeAnnotation::Usize),
+            Self::I8 => Some(NumberKind::I8),
+            Self::I16 => Some(NumberKind::I16),
+            Self::I32 => Some(NumberKind::I32),
+            Self::I64 => Some(NumberKind::I64),
+            Self::I128 => Some(NumberKind::I128),
+            Self::Isize => Some(NumberKind::Isize),
+            Self::U8 => Some(NumberKind::U8),
+            Self::U16 => Some(NumberKind::U16),
+            Self::U32 => Some(NumberKind::U32),
+            Self::U64 => Some(NumberKind::U64),
+            Self::U128 => Some(NumberKind::U128),
+            Self::Usize => Some(NumberKind::Usize),
             _ => None,
         }
     }
 
-    /// Converts a `TypeAnnotation` (for `as` casts) to an internal `Type`.
-    pub fn from_type_annotation(ann: &TypeAnnotation) -> Self {
-        match ann {
-            TypeAnnotation::I8 => Self::I8,
-            TypeAnnotation::I16 => Self::I16,
-            TypeAnnotation::I32 => Self::I32,
-            TypeAnnotation::I64 => Self::I64,
-            TypeAnnotation::I128 => Self::I128,
-            TypeAnnotation::Isize => Self::Isize,
-            TypeAnnotation::U8 => Self::U8,
-            TypeAnnotation::U16 => Self::U16,
-            TypeAnnotation::U32 => Self::U32,
-            TypeAnnotation::U64 => Self::U64,
-            TypeAnnotation::U128 => Self::U128,
-            TypeAnnotation::Usize => Self::Usize,
+    /// Converts a `NumberKind` (for `as` casts) to an internal `Type`.
+    pub fn from_number_kind(num: &NumberKind) -> Self {
+        match num {
+            NumberKind::I8 => Self::I8,
+            NumberKind::I16 => Self::I16,
+            NumberKind::I32 => Self::I32,
+            NumberKind::I64 => Self::I64,
+            NumberKind::I128 => Self::I128,
+            NumberKind::Isize => Self::Isize,
+            NumberKind::U8 => Self::U8,
+            NumberKind::U16 => Self::U16,
+            NumberKind::U32 => Self::U32,
+            NumberKind::U64 => Self::U64,
+            NumberKind::U128 => Self::U128,
+            NumberKind::Usize => Self::Usize,
         }
     }
 }

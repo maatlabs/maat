@@ -127,7 +127,7 @@ fn expressions_display() {
             radix: Radix::Dec,
             span: span(),
         })),
-        target: TypeAnnotation::I64,
+        target: NumberKind::I64,
         span: span(),
     };
     assert_eq!(cast.to_string(), "(42 as i64)");

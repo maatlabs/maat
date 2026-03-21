@@ -1036,7 +1036,7 @@ fn parse_cast_expression<'src>(input: &mut &'src [Token<'src>], lhs: Expr) -> Pa
     let start = lhs.span();
     let type_tok = expect(input, TokenKind::Ident)?;
     let end = type_tok.span;
-    let target: TypeAnnotation = type_tok
+    let target: NumberKind = type_tok
         .literal
         .parse()
         .map_err(|_| ErrMode::Backtrack(ContextError::new()))?;

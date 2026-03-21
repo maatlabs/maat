@@ -10,8 +10,7 @@
 
 use std::borrow::Cow;
 
-use maat_ast::fold::fold_constants;
-use maat_ast::{Node, Stmt};
+use maat_ast::{Node, Stmt, fold_constants};
 use maat_codegen::{Compiler, SymbolsTable};
 use maat_errors::Error;
 use maat_eval::{define_macros, expand_macros};

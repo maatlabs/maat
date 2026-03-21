@@ -933,7 +933,7 @@ fn immutable_assignment_error() {
     let lexer = maat_lexer::MaatLexer::new(input);
     let mut parser = maat_parser::Parser::new(lexer);
     let mut program = parser.parse();
-    maat_ast::fold::fold_constants(&mut program);
+    maat_ast::fold_constants(&mut program);
     let mut compiler = maat_codegen::Compiler::new();
     let result = compiler.compile(&maat_ast::Node::Program(program));
     assert!(

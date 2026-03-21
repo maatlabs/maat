@@ -2,7 +2,7 @@
 //!
 //! Provides the `transform` function for traversing and modifying
 //! AST nodes. It's essential for macro expansion and other AST modifications.
-use crate::ast::*;
+use crate::*;
 
 /// A function that takes a node and returns a potentially modified one.
 pub type TransformFn<'a> = &'a mut dyn FnMut(Node) -> Node;

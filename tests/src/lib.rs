@@ -1,7 +1,6 @@
 //! Shared utilities for integration tests.
 
-use maat_ast::fold::fold_constants;
-use maat_ast::{Node, Program};
+use maat_ast::{Node, Program, fold_constants};
 use maat_bytecode::Bytecode;
 use maat_codegen::Compiler;
 use maat_lexer::MaatLexer;
