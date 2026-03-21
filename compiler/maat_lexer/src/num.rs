@@ -4,9 +4,9 @@ use crate::TokenKind;
 
 /// Metadata produced by number-lexing callbacks.
 ///
-/// Carries the resolved token kind and the byte length of the value portion
+/// Carries the resolved [`TokenKind`] and the byte length of the value portion
 /// (digits and radix prefix, excluding any type suffix) so the wrapper can
-/// split `slice()` into the correct `literal` and `span`.
+/// split the current token into the correct `literal` and `span`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct NumToken {
     pub kind: TokenKind,
@@ -15,7 +15,7 @@ pub struct NumToken {
 
 /// Type of numeric suffix found during lexing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Suffix {
+pub enum NumSuffix {
     I8,
     I16,
     I32,
@@ -30,8 +30,8 @@ pub enum Suffix {
     Usize,
 }
 
-impl Suffix {
-    /// Converts this suffix to the appropriate TokenKind.
+impl NumSuffix {
+    /// Converts this suffix to the appropriate token kind.
     #[inline]
     pub const fn to_token_kind(self) -> TokenKind {
         match self {
@@ -58,63 +58,59 @@ impl Suffix {
 /// This prevents matching partial suffixes like "i64" in "42i641", such as in Rust
 /// where invalid suffixes like "i641" cause errors.
 #[inline]
-pub(super) fn match_int_suffix(bytes: &[u8]) -> Option<(Suffix, usize)> {
-    #[inline]
-    fn is_ident_continue(b: &u8) -> bool {
-        b.is_ascii_alphanumeric() || *b == b'_'
-    }
-
-    let prefix = *bytes.first()?;
-
-    if prefix != b'i' && prefix != b'u' {
+pub fn match_int_suffix(bytes: &[u8]) -> Option<(NumSuffix, usize)> {
+    let first_byte = *bytes.first()?;
+    if first_byte != b'i' && first_byte != b'u' {
         return None;
     }
-
     // Check single-digit suffixes: i8/u8
     if bytes.get(1..2) == Some(b"8") && !bytes.get(2).is_some_and(is_ident_continue) {
-        let suffix = if prefix == b'i' {
-            Suffix::I8
+        let suffix = if first_byte == b'i' {
+            NumSuffix::I8
         } else {
-            Suffix::U8
+            NumSuffix::U8
         };
         return Some((suffix, 2));
     }
-
     // Check two-digit suffixes: i16/u16, i32/u32, i64/u64
     if let Some(digits) = bytes.get(1..3)
         && !bytes.get(3).is_some_and(is_ident_continue)
     {
-        let suffix = match (prefix, digits) {
-            (b'i', b"16") => Suffix::I16,
-            (b'i', b"32") => Suffix::I32,
-            (b'i', b"64") => Suffix::I64,
-            (b'u', b"16") => Suffix::U16,
-            (b'u', b"32") => Suffix::U32,
-            (b'u', b"64") => Suffix::U64,
+        let suffix = match (first_byte, digits) {
+            (b'i', b"16") => NumSuffix::I16,
+            (b'i', b"32") => NumSuffix::I32,
+            (b'i', b"64") => NumSuffix::I64,
+            (b'u', b"16") => NumSuffix::U16,
+            (b'u', b"32") => NumSuffix::U32,
+            (b'u', b"64") => NumSuffix::U64,
             _ => return None,
         };
         return Some((suffix, 3));
     }
-
     // Check three-digit suffixes: i128/u128
     if bytes.get(1..4) == Some(b"128") && !bytes.get(4).is_some_and(is_ident_continue) {
-        let suffix = if prefix == b'i' {
-            Suffix::I128
+        let suffix = if first_byte == b'i' {
+            NumSuffix::I128
         } else {
-            Suffix::U128
+            NumSuffix::U128
         };
         return Some((suffix, 4));
     }
-
-    // Check size suffixes: isize/usize
+    // Check pointer-size suffixes: isize/usize
     if bytes.get(1..5) == Some(b"size") && !bytes.get(5).is_some_and(is_ident_continue) {
-        let suffix = if prefix == b'i' {
-            Suffix::Isize
+        let suffix = if first_byte == b'i' {
+            NumSuffix::Isize
         } else {
-            Suffix::Usize
+            NumSuffix::Usize
         };
         return Some((suffix, 5));
     }
-
     None
+}
+
+/// Returns true if this `byte` is an ASCII alphanumeric character or
+/// an underscore (`_`).
+#[inline]
+fn is_ident_continue(byte: &u8) -> bool {
+    byte.is_ascii_alphanumeric() || *byte == b'_'
 }

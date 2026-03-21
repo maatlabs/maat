@@ -1,7 +1,7 @@
 use maat_ast::{Node, Program};
 use maat_bytecode::Bytecode;
 use maat_codegen::Compiler;
-use maat_lexer::{Lexer, TokenKind};
+use maat_lexer::{MaatLexer, TokenKind};
 use maat_parser::Parser;
 use maat_types::TypeChecker;
 use maat_vm::VM;
@@ -86,7 +86,7 @@ fn arb_well_typed_program() -> impl Strategy<Value = String> {
 }
 
 fn parse_source(source: &str) -> Option<Program> {
-    let mut parser = Parser::new(Lexer::new(source));
+    let mut parser = Parser::new(MaatLexer::new(source));
     let program = parser.parse();
     if parser.errors().is_empty() {
         Some(program)
@@ -112,7 +112,7 @@ proptest! {
 
     #[test]
     fn lexer_never_panics(source in "\\PC{0,256}") {
-        let mut lexer = Lexer::new(&source);
+        let mut lexer = MaatLexer::new(&source);
         loop {
             let token = lexer.next_token();
             if token.kind == TokenKind::Eof {
@@ -128,7 +128,7 @@ proptest! {
 
     #[test]
     fn parser_never_panics(source in "\\PC{0,256}") {
-        let lexer = Lexer::new(&source);
+        let lexer = MaatLexer::new(&source);
         let mut parser = Parser::new(lexer);
         let _program = parser.parse();
     }

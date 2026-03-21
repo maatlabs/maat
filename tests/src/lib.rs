@@ -4,7 +4,7 @@ use maat_ast::fold::fold_constants;
 use maat_ast::{Node, Program};
 use maat_bytecode::Bytecode;
 use maat_codegen::Compiler;
-use maat_lexer::Lexer;
+use maat_lexer::MaatLexer;
 use maat_parser::Parser;
 use maat_types::TypeChecker;
 
@@ -14,7 +14,7 @@ use maat_types::TypeChecker;
 ///
 /// Panics if the parser encounters any errors.
 pub fn parse(input: &str) -> Program {
-    let lexer = Lexer::new(input);
+    let lexer = MaatLexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse();
     assert!(

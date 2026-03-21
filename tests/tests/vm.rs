@@ -930,7 +930,7 @@ fn plain_assignment() {
 #[test]
 fn immutable_assignment_error() {
     let input = "let x = 10; x = 20; x";
-    let lexer = maat_lexer::Lexer::new(input);
+    let lexer = maat_lexer::MaatLexer::new(input);
     let mut parser = maat_parser::Parser::new(lexer);
     let mut program = parser.parse();
     maat_ast::fold::fold_constants(&mut program);

@@ -5,7 +5,7 @@
 //! - [`start_interactive`] -- the production REPL powered by [`rustyline`], with
 //!   persistent history, keyword completion, syntax highlighting, and multi-line
 //!   input via brace/paren/bracket balancing.
-//! - [`start`] -- a generic `BufRead`/`Write` interface used exclusively by the
+//! - `start` -- a generic `BufRead`/`Write` interface used exclusively by the
 //!   test suite.
 
 use std::borrow::Cow;
@@ -15,7 +15,7 @@ use maat_ast::{Node, Stmt};
 use maat_codegen::{Compiler, SymbolsTable};
 use maat_errors::Error;
 use maat_eval::{define_macros, expand_macros};
-use maat_lexer::Lexer;
+use maat_lexer::MaatLexer;
 use maat_parser::Parser;
 use maat_runtime::{Env, Object};
 use maat_types::TypeChecker;
@@ -249,7 +249,7 @@ pub fn start_interactive() {
             break;
         }
 
-        let mut parser = Parser::new(Lexer::new(line));
+        let mut parser = Parser::new(MaatLexer::new(line));
         let program = parser.parse();
         if !parser.errors().is_empty() {
             for err in parser.errors() {
@@ -368,7 +368,7 @@ mod tests {
             if line == "exit" || line == "quit" {
                 break;
             }
-            let mut parser = Parser::new(Lexer::new(line));
+            let mut parser = Parser::new(MaatLexer::new(line));
             let program = parser.parse();
             if !parser.errors().is_empty() {
                 for err in parser.errors() {

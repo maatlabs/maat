@@ -5,7 +5,7 @@ use maat_ast::Node;
 use maat_ast::fold::fold_constants;
 use maat_bytecode::Bytecode;
 use maat_codegen::Compiler;
-use maat_lexer::{Lexer, TokenKind};
+use maat_lexer::{MaatLexer, TokenKind};
 use maat_parser::Parser;
 use maat_tests::benchmark_programs::{
     ARITHMETIC_BASELINE, BITWISE_SOURCE, CLOSURE_SOURCE, EMPTY_PROGRAM, ENUM_MATCH_SOURCE,
@@ -37,7 +37,7 @@ fn run_vm(source: &str) {
 }
 
 fn lex_all(source: &str) {
-    let mut lexer = Lexer::new(black_box(source));
+    let mut lexer = MaatLexer::new(black_box(source));
     loop {
         let tok = lexer.next_token();
         if tok.kind == TokenKind::Eof {
@@ -47,14 +47,14 @@ fn lex_all(source: &str) {
 }
 
 fn parse_source(source: &str) {
-    let lexer = Lexer::new(black_box(source));
+    let lexer = MaatLexer::new(black_box(source));
     let mut parser = Parser::new(lexer);
     let program = parser.parse();
     black_box(program);
 }
 
 fn typecheck_source(source: &str) {
-    let lexer = Lexer::new(source);
+    let lexer = MaatLexer::new(source);
     let mut parser = Parser::new(lexer);
     let mut program = parser.parse();
     let errors = TypeChecker::new().check_program(&mut program);
@@ -62,7 +62,7 @@ fn typecheck_source(source: &str) {
 }
 
 fn check_and_compile(source: &str) {
-    let lexer = Lexer::new(source);
+    let lexer = MaatLexer::new(source);
     let mut parser = Parser::new(lexer);
     let mut program = parser.parse();
     let _ = TypeChecker::new().check_program(&mut program);

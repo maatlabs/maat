@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use maat_ast::{Program, Stmt};
 use maat_errors::ModuleErrorKind;
-use maat_lexer::Lexer;
+use maat_lexer::MaatLexer;
 use maat_parser::Parser;
 use maat_span::Span;
 
@@ -100,7 +100,7 @@ fn collect_std_imports(program: &Program) -> Vec<String> {
 
 /// Parses an embedded stdlib source string into a [`Program`].
 fn parse_stdlib_source(module_name: &str, source: &str) -> ModuleResult<Program> {
-    let mut parser = Parser::new(Lexer::new(source));
+    let mut parser = Parser::new(MaatLexer::new(source));
     let program = parser.parse();
     if parser.errors().is_empty() {
         Ok(program)
