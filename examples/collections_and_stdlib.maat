@@ -77,10 +77,10 @@ print(visited.contains(99));
 
 visited = visited.remove(20);
 print(visited.len());
-print(visited.to_array());
+print(visited.to_vector());
 
 // Method chaining on Set values directly
 let s1 = Set::new().insert(1).insert(2).insert(3);
 print(s1.len());
 print(s1.contains(2));
-print(s1.to_array());
+print(s1.to_vector());
