@@ -11,7 +11,7 @@ use maat_bytecode::{
     TypeTag, encode,
 };
 use maat_errors::{CompileError, CompileErrorKind, Error, Result};
-use maat_runtime::{BUILTINS, CompiledFunction, Object, TypeDef, VariantInfo};
+use maat_runtime::{BUILTINS, CompiledFn, Integer, TypeDef, Value, VariantInfo};
 use maat_span::{SourceMap, Span};
 
 use crate::{Symbol, SymbolScope, SymbolsTable};
@@ -56,7 +56,7 @@ struct VariantEntry {
 /// Compiler state for generating bytecode from AST nodes.
 #[derive(Debug, Clone)]
 pub struct Compiler {
-    constants: Vec<Object>,
+    constants: Vec<Value>,
     symbols_table: SymbolsTable,
     scopes: Vec<CompilationScope>,
     scope_index: usize,
@@ -99,7 +99,7 @@ impl Compiler {
     ///
     /// This enables REPL sessions where variable definitions and constants
     /// persist across multiple compilation passes.
-    pub fn with_state(mut symbols_table: SymbolsTable, constants: Vec<Object>) -> Self {
+    pub fn with_state(mut symbols_table: SymbolsTable, constants: Vec<Value>) -> Self {
         Self::register_builtins(&mut symbols_table);
         let type_registry = Self::builtin_type_registry();
         let variant_index = Self::build_variant_index(&type_registry);
@@ -580,7 +580,7 @@ impl Compiler {
         let len_sym = self.define_and_set(&len_name, false, span)?;
 
         // __i_N = 0
-        let zero_idx = self.add_constant(Object::I64(0))?;
+        let zero_idx = self.add_constant(Value::Integer(Integer::I64(0)))?;
         self.emit(Opcode::Constant, &[zero_idx], span);
         let i_sym = self.define_and_set(&i_name, false, span)?;
 
@@ -622,7 +622,7 @@ impl Compiler {
     ) -> Result<()> {
         let continue_target = self.current_instructions().len();
         self.load_symbol(i_sym, span);
-        let one_idx = self.add_constant(Object::I64(1))?;
+        let one_idx = self.add_constant(Value::Integer(Integer::I64(1)))?;
         self.emit(Opcode::Constant, &[one_idx], span);
         self.emit(Opcode::Add, &[], span);
         self.emit_set_symbol(i_sym, span);
@@ -654,8 +654,8 @@ impl Compiler {
     }
 
     /// Emits a constant-load instruction for a numeric literal.
-    fn compile_numeric_constant(&mut self, obj: Object, span: Span) -> Result<()> {
-        let index = self.add_constant(obj)?;
+    fn compile_numeric_constant(&mut self, val: Value, span: Span) -> Result<()> {
+        let index = self.add_constant(val)?;
         self.emit(Opcode::Constant, &[index], span);
         Ok(())
     }
@@ -665,9 +665,9 @@ impl Compiler {
         let span = expr.span();
         match expr {
             Expr::Number(lit) => {
-                let obj = Object::from_number_literal(lit)
+                let val = Value::from_number_literal(lit)
                     .map_err(|msg| CompileErrorKind::UnsupportedExpr { expr_type: msg }.at(span))?;
-                self.compile_numeric_constant(obj, span)
+                self.compile_numeric_constant(val, span)
             }
             Expr::Bool(b) => {
                 let opcode = if b.value { Opcode::True } else { Opcode::False };
@@ -710,7 +710,7 @@ impl Compiler {
                 }
             }
             Expr::Str(s) => {
-                let constant = Object::Str(maat_ast::unescape_string(&s.value));
+                let constant = Value::Str(maat_ast::unescape_string(&s.value));
                 let index = self.add_constant(constant)?;
                 self.emit(Opcode::Constant, &[index], span);
                 Ok(())
@@ -1068,7 +1068,7 @@ impl Compiler {
 
             let num_locals = self.symbols_table.max_definitions();
             let (instructions, inner_source_map) = self.leave_scope()?;
-            let compiled_fn = Object::CompiledFunction(CompiledFunction {
+            let compiled_fn = Value::CompiledFn(CompiledFn {
                 instructions: Rc::from(instructions.as_bytes()),
                 num_locals,
                 num_parameters: field_count,
@@ -1332,7 +1332,7 @@ impl Compiler {
     ///
     /// Returns `CompileError::ConstantPoolOverflow` if adding this constant
     /// would exceed the maximum constant pool size.
-    fn add_constant(&mut self, obj: Object) -> Result<usize> {
+    fn add_constant(&mut self, val: Value) -> Result<usize> {
         let index = self.constants.len();
         if index > MAX_CONSTANT_POOL_SIZE {
             return Err(CompileError::new(CompileErrorKind::ConstantPoolOverflow {
@@ -1341,7 +1341,7 @@ impl Compiler {
             })
             .into());
         }
-        self.constants.push(obj);
+        self.constants.push(val);
         Ok(index)
     }
 
@@ -1383,7 +1383,7 @@ impl Compiler {
         for sym in &free_vars {
             self.load_symbol(sym, span);
         }
-        let compiled_fn = Object::CompiledFunction(CompiledFunction {
+        let compiled_fn = Value::CompiledFn(CompiledFn {
             instructions: Rc::from(instructions.as_bytes()),
             num_locals,
             num_parameters: num_params,
@@ -1596,10 +1596,10 @@ mod tests {
     fn constant_pool_overflow() {
         let mut compiler = Compiler::new();
         for i in 0..=MAX_CONSTANT_POOL_SIZE as i64 {
-            let result = compiler.add_constant(Object::I64(i));
+            let result = compiler.add_constant(Value::Integer(Integer::I64(i)));
             assert!(result.is_ok(), "should succeed for index {i}");
         }
-        let result = compiler.add_constant(Object::I64(999));
+        let result = compiler.add_constant(Value::Integer(Integer::I64(999)));
         assert!(
             result.is_err(),
             "should fail when exceeding MAX_CONSTANT_POOL_SIZE"

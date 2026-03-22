@@ -1,7 +1,7 @@
 use indexmap::{IndexMap, IndexSet};
 use maat_errors::{EvalError, Result};
 
-use crate::{BuiltinFn, Hashable, MapObject, NULL, Object};
+use crate::{BuiltinFn, Hashable, Integer, MapVal, NULL, Value};
 
 /// The name of the `quote` special form for AST quoting.
 ///
@@ -85,7 +85,7 @@ define_builtins! {
 }
 
 /// Prints arguments to stdout, separated by spaces.
-pub fn print(args: &[Object]) -> Result<Object> {
+pub fn print(args: &[Value]) -> Result<Value> {
     if args.is_empty() {
         println!();
     } else {
@@ -101,69 +101,69 @@ pub fn print(args: &[Object]) -> Result<Object> {
 }
 
 /// Returns the number of elements in a vec. Receiver: `self` at `args[0]`.
-fn vector_len(args: &[Object]) -> Result<Object> {
+fn vector_len(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::len", args, 1)?;
     match &args[0] {
-        Object::Vector(arr) => Ok(Object::Usize(arr.len())),
+        Value::Vector(arr) => Ok(Value::Integer(Integer::Usize(arr.len()))),
         other => method_type_error(other, "len", "Vector"),
     }
 }
 
 /// Returns the first element of a vec, or `null` if empty.
-fn vector_first(args: &[Object]) -> Result<Object> {
+fn vector_first(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::first", args, 1)?;
     match &args[0] {
-        Object::Vector(arr) => Ok(arr.first().cloned().unwrap_or(NULL)),
+        Value::Vector(arr) => Ok(arr.first().cloned().unwrap_or(NULL)),
         other => method_type_error(other, "first", "Vector"),
     }
 }
 
 /// Returns the last element of a vec, or `null` if empty.
-fn vector_last(args: &[Object]) -> Result<Object> {
+fn vector_last(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::last", args, 1)?;
     match &args[0] {
-        Object::Vector(arr) => Ok(arr.last().cloned().unwrap_or(NULL)),
+        Value::Vector(arr) => Ok(arr.last().cloned().unwrap_or(NULL)),
         other => method_type_error(other, "last", "Vector"),
     }
 }
 
 /// Returns all elements after the first, or `null` if empty.
-fn vector_rest(args: &[Object]) -> Result<Object> {
+fn vector_rest(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::rest", args, 1)?;
     match &args[0] {
-        Object::Vector(arr) => arr
+        Value::Vector(arr) => arr
             .split_first()
-            .map_or(Ok(NULL), |(_, tail)| Ok(Object::Vector(tail.to_vec()))),
+            .map_or(Ok(NULL), |(_, tail)| Ok(Value::Vector(tail.to_vec()))),
         other => method_type_error(other, "rest", "Vector"),
     }
 }
 
 /// Returns a new vec with `value` appended. Receiver at `args[0]`, value at `args[1]`.
-fn vector_push(args: &[Object]) -> Result<Object> {
+fn vector_push(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::push", args, 2)?;
     match &args[0] {
-        Object::Vector(arr) => {
+        Value::Vector(arr) => {
             let mut new_arr = arr.to_vec();
             new_arr.push(args[1].clone());
-            Ok(Object::Vector(new_arr))
+            Ok(Value::Vector(new_arr))
         }
         other => method_type_error(other, "push", "Vector"),
     }
 }
 
 /// Joins vec elements into a string with a separator. Receiver at `args[0]`, separator at `args[1]`.
-fn vector_join(args: &[Object]) -> Result<Object> {
+fn vector_join(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::join", args, 2)?;
     match (&args[0], &args[1]) {
-        (Object::Vector(arr), Object::Str(sep)) => {
+        (Value::Vector(arr), Value::Str(sep)) => {
             let joined = arr
                 .iter()
-                .map(|obj| format!("{obj}"))
+                .map(|val| format!("{val}"))
                 .collect::<Vec<_>>()
                 .join(sep);
-            Ok(Object::Str(joined))
+            Ok(Value::Str(joined))
         }
-        (Object::Vector(_), other) => Err(EvalError::Builtin(format!(
+        (Value::Vector(_), other) => Err(EvalError::Builtin(format!(
             "Vector::join: separator must be a string, got {}",
             other.type_name()
         ))
@@ -173,29 +173,29 @@ fn vector_join(args: &[Object]) -> Result<Object> {
 }
 
 /// Creates a new empty vector.
-fn vector_new(args: &[Object]) -> Result<Object> {
+fn vector_new(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::new", args, 0)?;
-    Ok(Object::Vector(Vec::new()))
+    Ok(Value::Vector(Vec::new()))
 }
 
 /// Creates a new empty map.
-fn map_new(args: &[Object]) -> Result<Object> {
+fn map_new(args: &[Value]) -> Result<Value> {
     expect_arg_count("Map::new", args, 0)?;
-    Ok(Object::Map(MapObject {
+    Ok(Value::Map(MapVal {
         pairs: IndexMap::new(),
     }))
 }
 
 /// Returns a new map with the given key-value pair inserted.
 /// Receiver at `args[0]`, key at `args[1]`, value at `args[2]`.
-fn map_insert(args: &[Object]) -> Result<Object> {
+fn map_insert(args: &[Value]) -> Result<Value> {
     expect_arg_count("Map::insert", args, 3)?;
     match &args[0] {
-        Object::Map(map) => {
+        Value::Map(map) => {
             let key = Hashable::try_from(args[1].clone())?;
             let mut new_map = map.pairs.clone();
             new_map.insert(key, args[2].clone());
-            Ok(Object::Map(MapObject { pairs: new_map }))
+            Ok(Value::Map(MapVal { pairs: new_map }))
         }
         other => method_type_error(other, "insert", "Map"),
     }
@@ -203,10 +203,10 @@ fn map_insert(args: &[Object]) -> Result<Object> {
 
 /// Returns the value associated with the given key, or `null` if not present.
 /// Receiver at `args[0]`, key at `args[1]`.
-fn map_get(args: &[Object]) -> Result<Object> {
+fn map_get(args: &[Value]) -> Result<Value> {
     expect_arg_count("Map::get", args, 2)?;
     match &args[0] {
-        Object::Map(map) => {
+        Value::Map(map) => {
             let key = Hashable::try_from(args[1].clone())?;
             Ok(map.pairs.get(&key).cloned().unwrap_or(NULL))
         }
@@ -216,12 +216,12 @@ fn map_get(args: &[Object]) -> Result<Object> {
 
 /// Returns `true` if the map contains the given key.
 /// Receiver at `args[0]`, key at `args[1]`.
-fn map_contains_key(args: &[Object]) -> Result<Object> {
+fn map_contains_key(args: &[Value]) -> Result<Value> {
     expect_arg_count("Map::contains_key", args, 2)?;
     match &args[0] {
-        Object::Map(map) => {
+        Value::Map(map) => {
             let key = Hashable::try_from(args[1].clone())?;
-            Ok(Object::Bool(map.pairs.contains_key(&key)))
+            Ok(Value::Bool(map.pairs.contains_key(&key)))
         }
         other => method_type_error(other, "contains_key", "Map"),
     }
@@ -229,163 +229,152 @@ fn map_contains_key(args: &[Object]) -> Result<Object> {
 
 /// Returns a new map with the given key removed.
 /// Receiver at `args[0]`, key at `args[1]`.
-fn map_remove(args: &[Object]) -> Result<Object> {
+fn map_remove(args: &[Value]) -> Result<Value> {
     expect_arg_count("Map::remove", args, 2)?;
     match &args[0] {
-        Object::Map(map) => {
+        Value::Map(map) => {
             let key = Hashable::try_from(args[1].clone())?;
             let mut new_map = map.pairs.clone();
             new_map.swap_remove(&key);
-            Ok(Object::Map(MapObject { pairs: new_map }))
+            Ok(Value::Map(MapVal { pairs: new_map }))
         }
         other => method_type_error(other, "remove", "Map"),
     }
 }
 
 /// Returns the number of key-value pairs in the map.
-fn map_len(args: &[Object]) -> Result<Object> {
+fn map_len(args: &[Value]) -> Result<Value> {
     expect_arg_count("Map::len", args, 1)?;
     match &args[0] {
-        Object::Map(map) => Ok(Object::Usize(map.pairs.len())),
+        Value::Map(map) => Ok(Value::Integer(Integer::Usize(map.pairs.len()))),
         other => method_type_error(other, "len", "Map"),
     }
 }
 
 /// Returns a vector of all keys in the map, in insertion order.
-fn map_keys(args: &[Object]) -> Result<Object> {
+fn map_keys(args: &[Value]) -> Result<Value> {
     expect_arg_count("Map::keys", args, 1)?;
     match &args[0] {
-        Object::Map(map) => {
+        Value::Map(map) => {
             let keys = map.pairs.keys().map(hashable_to_object).collect();
-            Ok(Object::Vector(keys))
+            Ok(Value::Vector(keys))
         }
         other => method_type_error(other, "keys", "Map"),
     }
 }
 
 /// Returns a vector of all values in the map, in insertion order.
-fn map_values(args: &[Object]) -> Result<Object> {
+fn map_values(args: &[Value]) -> Result<Value> {
     expect_arg_count("Map::values", args, 1)?;
     match &args[0] {
-        Object::Map(map) => {
+        Value::Map(map) => {
             let values = map.pairs.values().cloned().collect();
-            Ok(Object::Vector(values))
+            Ok(Value::Vector(values))
         }
         other => method_type_error(other, "values", "Map"),
     }
 }
 
 /// Creates a new empty set.
-fn set_new(args: &[Object]) -> Result<Object> {
+fn set_new(args: &[Value]) -> Result<Value> {
     expect_arg_count("Set::new", args, 0)?;
-    Ok(Object::Set(IndexSet::new()))
+    Ok(Value::Set(IndexSet::new()))
 }
 
 /// Returns a new set with the given value inserted. Receiver at `args[0]`, value at `args[1]`.
-fn set_insert(args: &[Object]) -> Result<Object> {
+fn set_insert(args: &[Value]) -> Result<Value> {
     expect_arg_count("Set::insert", args, 2)?;
     match &args[0] {
-        Object::Set(set) => {
+        Value::Set(set) => {
             let key = Hashable::try_from(args[1].clone())?;
             let mut new_set = set.clone();
             new_set.insert(key);
-            Ok(Object::Set(new_set))
+            Ok(Value::Set(new_set))
         }
         other => method_type_error(other, "insert", "Set"),
     }
 }
 
 /// Returns `true` if the set contains the given value.
-fn set_contains(args: &[Object]) -> Result<Object> {
+fn set_contains(args: &[Value]) -> Result<Value> {
     expect_arg_count("Set::contains", args, 2)?;
     match &args[0] {
-        Object::Set(set) => {
+        Value::Set(set) => {
             let key = Hashable::try_from(args[1].clone())?;
-            Ok(Object::Bool(set.contains(&key)))
+            Ok(Value::Bool(set.contains(&key)))
         }
         other => method_type_error(other, "contains", "Set"),
     }
 }
 
 /// Returns a new set with the given value removed.
-fn set_remove(args: &[Object]) -> Result<Object> {
+fn set_remove(args: &[Value]) -> Result<Value> {
     expect_arg_count("Set::remove", args, 2)?;
     match &args[0] {
-        Object::Set(set) => {
+        Value::Set(set) => {
             let key = Hashable::try_from(args[1].clone())?;
             let mut new_set = set.clone();
             new_set.swap_remove(&key);
-            Ok(Object::Set(new_set))
+            Ok(Value::Set(new_set))
         }
         other => method_type_error(other, "remove", "Set"),
     }
 }
 
 /// Returns the number of elements in the set.
-fn set_len(args: &[Object]) -> Result<Object> {
+fn set_len(args: &[Value]) -> Result<Value> {
     expect_arg_count("Set::len", args, 1)?;
     match &args[0] {
-        Object::Set(set) => Ok(Object::Usize(set.len())),
+        Value::Set(set) => Ok(Value::Integer(Integer::Usize(set.len()))),
         other => method_type_error(other, "len", "Set"),
     }
 }
 
 /// Converts a set to a vec of its elements.
-fn set_to_vector(args: &[Object]) -> Result<Object> {
+fn set_to_vector(args: &[Value]) -> Result<Value> {
     expect_arg_count("Set::to_vector", args, 1)?;
     match &args[0] {
-        Object::Set(set) => {
+        Value::Set(set) => {
             let arr = set
                 .iter()
                 .map(|h| match h {
-                    Hashable::I8(v) => Object::I8(*v),
-                    Hashable::I16(v) => Object::I16(*v),
-                    Hashable::I32(v) => Object::I32(*v),
-                    Hashable::I64(v) => Object::I64(*v),
-                    Hashable::I128(v) => Object::I128(*v),
-                    Hashable::Isize(v) => Object::Isize(*v),
-                    Hashable::U8(v) => Object::U8(*v),
-                    Hashable::U16(v) => Object::U16(*v),
-                    Hashable::U32(v) => Object::U32(*v),
-                    Hashable::U64(v) => Object::U64(*v),
-                    Hashable::U128(v) => Object::U128(*v),
-                    Hashable::Usize(v) => Object::Usize(*v),
-                    Hashable::Bool(v) => Object::Bool(*v),
-                    Hashable::Str(v) => Object::Str(v.clone()),
+                    Hashable::Integer(v) => Value::Integer(*v),
+                    Hashable::Bool(v) => Value::Bool(*v),
+                    Hashable::Str(v) => Value::Str(v.clone()),
                 })
                 .collect();
-            Ok(Object::Vector(arr))
+            Ok(Value::Vector(arr))
         }
         other => method_type_error(other, "to_vector", "Set"),
     }
 }
 
 /// Returns the byte length of a string. Receiver: `self` at `args[0]`.
-fn str_len(args: &[Object]) -> Result<Object> {
+fn str_len(args: &[Value]) -> Result<Value> {
     expect_arg_count("str::len", args, 1)?;
     match &args[0] {
-        Object::Str(s) => Ok(Object::Usize(s.len())),
+        Value::Str(s) => Ok(Value::Integer(Integer::Usize(s.len()))),
         other => method_type_error(other, "len", "str"),
     }
 }
 
 /// Returns a new string with leading and trailing whitespace removed.
-fn str_trim(args: &[Object]) -> Result<Object> {
+fn str_trim(args: &[Value]) -> Result<Value> {
     expect_arg_count("str::trim", args, 1)?;
     match &args[0] {
-        Object::Str(s) => Ok(Object::Str(s.trim().to_string())),
+        Value::Str(s) => Ok(Value::Str(s.trim().to_string())),
         other => method_type_error(other, "trim", "str"),
     }
 }
 
 /// Returns `true` if the string contains the given substring.
-fn str_contains(args: &[Object]) -> Result<Object> {
+fn str_contains(args: &[Value]) -> Result<Value> {
     expect_arg_count("str::contains", args, 2)?;
     match (&args[0], &args[1]) {
-        (Object::Str(haystack), Object::Str(needle)) => {
-            Ok(Object::Bool(haystack.contains(needle.as_str())))
+        (Value::Str(haystack), Value::Str(needle)) => {
+            Ok(Value::Bool(haystack.contains(needle.as_str())))
         }
-        (Object::Str(_), other) => Err(EvalError::Builtin(format!(
+        (Value::Str(_), other) => Err(EvalError::Builtin(format!(
             "str::contains: pattern must be a string, got {}",
             other.type_name()
         ))
@@ -395,11 +384,11 @@ fn str_contains(args: &[Object]) -> Result<Object> {
 }
 
 /// Returns `true` if the string starts with the given prefix.
-fn str_starts_with(args: &[Object]) -> Result<Object> {
+fn str_starts_with(args: &[Value]) -> Result<Value> {
     expect_arg_count("str::starts_with", args, 2)?;
     match (&args[0], &args[1]) {
-        (Object::Str(s), Object::Str(prefix)) => Ok(Object::Bool(s.starts_with(prefix.as_str()))),
-        (Object::Str(_), other) => Err(EvalError::Builtin(format!(
+        (Value::Str(s), Value::Str(prefix)) => Ok(Value::Bool(s.starts_with(prefix.as_str()))),
+        (Value::Str(_), other) => Err(EvalError::Builtin(format!(
             "str::starts_with: prefix must be a string, got {}",
             other.type_name()
         ))
@@ -409,11 +398,11 @@ fn str_starts_with(args: &[Object]) -> Result<Object> {
 }
 
 /// Returns `true` if the string ends with the given suffix.
-fn str_ends_with(args: &[Object]) -> Result<Object> {
+fn str_ends_with(args: &[Value]) -> Result<Value> {
     expect_arg_count("str::ends_with", args, 2)?;
     match (&args[0], &args[1]) {
-        (Object::Str(s), Object::Str(suffix)) => Ok(Object::Bool(s.ends_with(suffix.as_str()))),
-        (Object::Str(_), other) => Err(EvalError::Builtin(format!(
+        (Value::Str(s), Value::Str(suffix)) => Ok(Value::Bool(s.ends_with(suffix.as_str()))),
+        (Value::Str(_), other) => Err(EvalError::Builtin(format!(
             "str::ends_with: suffix must be a string, got {}",
             other.type_name()
         ))
@@ -423,17 +412,17 @@ fn str_ends_with(args: &[Object]) -> Result<Object> {
 }
 
 /// Splits a string by a delimiter, returning a vector of substrings.
-fn str_split(args: &[Object]) -> Result<Object> {
+fn str_split(args: &[Value]) -> Result<Value> {
     expect_arg_count("str::split", args, 2)?;
     match (&args[0], &args[1]) {
-        (Object::Str(s), Object::Str(delim)) => {
+        (Value::Str(s), Value::Str(delim)) => {
             let parts = s
                 .split(delim.as_str())
-                .map(|part| Object::Str(part.to_string()))
+                .map(|part| Value::Str(part.to_string()))
                 .collect();
-            Ok(Object::Vector(parts))
+            Ok(Value::Vector(parts))
         }
-        (Object::Str(_), other) => Err(EvalError::Builtin(format!(
+        (Value::Str(_), other) => Err(EvalError::Builtin(format!(
             "str::split: delimiter must be a string, got {}",
             other.type_name()
         ))
@@ -443,35 +432,27 @@ fn str_split(args: &[Object]) -> Result<Object> {
 }
 
 /// Parses a string as a base-10 integer. Returns `null` on failure.
-fn str_parse_int(args: &[Object]) -> Result<Object> {
+fn str_parse_int(args: &[Value]) -> Result<Value> {
     expect_arg_count("str::parse_int", args, 1)?;
     match &args[0] {
-        Object::Str(s) => Ok(s.trim().parse::<i64>().map_or(NULL, Object::I64)),
+        Value::Str(s) => Ok(s
+            .trim()
+            .parse::<i64>()
+            .map_or(NULL, |v| Value::Integer(Integer::I64(v)))),
         other => method_type_error(other, "parse_int", "str"),
     }
 }
 
-/// Converts a `Hashable` back to an `Object`.
-fn hashable_to_object(h: &Hashable) -> Object {
+/// Converts a `Hashable` back to an `Value`.
+fn hashable_to_object(h: &Hashable) -> Value {
     match h {
-        Hashable::I8(v) => Object::I8(*v),
-        Hashable::I16(v) => Object::I16(*v),
-        Hashable::I32(v) => Object::I32(*v),
-        Hashable::I64(v) => Object::I64(*v),
-        Hashable::I128(v) => Object::I128(*v),
-        Hashable::Isize(v) => Object::Isize(*v),
-        Hashable::U8(v) => Object::U8(*v),
-        Hashable::U16(v) => Object::U16(*v),
-        Hashable::U32(v) => Object::U32(*v),
-        Hashable::U64(v) => Object::U64(*v),
-        Hashable::U128(v) => Object::U128(*v),
-        Hashable::Usize(v) => Object::Usize(*v),
-        Hashable::Bool(v) => Object::Bool(*v),
-        Hashable::Str(v) => Object::Str(v.clone()),
+        Hashable::Integer(v) => Value::Integer(*v),
+        Hashable::Bool(v) => Value::Bool(*v),
+        Hashable::Str(v) => Value::Str(v.clone()),
     }
 }
 
-fn expect_arg_count(method: &str, args: &[Object], count: usize) -> Result<()> {
+fn expect_arg_count(method: &str, args: &[Value], count: usize) -> Result<()> {
     (args.len() == count).then_some(()).ok_or(
         EvalError::Builtin(format!(
             "{method}: wrong number of arguments. got={}, want={count}",
@@ -481,10 +462,10 @@ fn expect_arg_count(method: &str, args: &[Object], count: usize) -> Result<()> {
     )
 }
 
-fn method_type_error(obj: &Object, method: &str, expected_type: &str) -> Result<Object> {
+fn method_type_error(val: &Value, method: &str, expected_type: &str) -> Result<Value> {
     Err(EvalError::Builtin(format!(
         "cannot call `{method}` on {}, expected {expected_type}",
-        obj.type_name()
+        val.type_name()
     ))
     .into())
 }

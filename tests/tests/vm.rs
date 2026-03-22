@@ -1,5 +1,5 @@
 use maat_bytecode::{Bytecode, Instructions, Opcode, encode};
-use maat_runtime::{Hashable, Object};
+use maat_runtime::{Hashable, Integer, Value};
 use maat_vm::VM;
 
 #[derive(Debug)]
@@ -27,40 +27,40 @@ fn run_vm_test(input: &str, expected: TestValue) {
         .clone();
     match expected {
         TestValue::I64(exp) => match stack_elem {
-            Object::I64(val) => {
+            Value::Integer(Integer::I64(val)) => {
                 assert_eq!(val, exp, "wrong integer value for input: {input}")
             }
-            Object::Usize(val) => {
+            Value::Integer(Integer::Usize(val)) => {
                 assert_eq!(val as i64, exp, "wrong integer value for input: {input}")
             }
-            _ => panic!("expected integer object, got: {:?}", stack_elem),
+            _ => panic!("expected integer, got: {:?}", stack_elem),
         },
         TestValue::I32(exp) => match stack_elem {
-            Object::I32(val) => {
+            Value::Integer(Integer::I32(val)) => {
                 assert_eq!(val, exp, "wrong I32 value for input: {input}")
             }
-            _ => panic!("expected I32 object, got: {:?}", stack_elem),
+            _ => panic!("expected I32, got: {:?}", stack_elem),
         },
         TestValue::Usize(exp) => match stack_elem {
-            Object::Usize(val) => {
+            Value::Integer(Integer::Usize(val)) => {
                 assert_eq!(val, exp, "wrong Usize value for input: {input}")
             }
-            _ => panic!("expected Usize object, got: {:?}", stack_elem),
+            _ => panic!("expected Usize, got: {:?}", stack_elem),
         },
         TestValue::Bool(exp) => match stack_elem {
-            Object::Bool(val) => {
+            Value::Bool(val) => {
                 assert_eq!(val, exp, "wrong boolean value for input: {input}")
             }
-            _ => panic!("expected boolean object, got: {:?}", stack_elem),
+            _ => panic!("expected boolean, got: {:?}", stack_elem),
         },
         TestValue::Str(exp) => match stack_elem {
-            Object::Str(val) => {
+            Value::Str(val) => {
                 assert_eq!(val, exp, "wrong string value for input: {input}")
             }
-            _ => panic!("expected string object, got: {:?}", stack_elem),
+            _ => panic!("expected string, got: {:?}", stack_elem),
         },
         TestValue::IntVector(expected_vals) => match stack_elem {
-            Object::Vector(elements) => {
+            Value::Vector(elements) => {
                 assert_eq!(
                     elements.len(),
                     expected_vals.len(),
@@ -68,7 +68,7 @@ fn run_vm_test(input: &str, expected: TestValue) {
                 );
                 for (i, expected_elem) in expected_vals.iter().enumerate() {
                     match &elements[i] {
-                        Object::I64(val) => assert_eq!(
+                        Value::Integer(Integer::I64(val)) => assert_eq!(
                             *val, *expected_elem,
                             "wrong vector element at index {i} for input: {input}"
                         ),
@@ -78,23 +78,23 @@ fn run_vm_test(input: &str, expected: TestValue) {
                     }
                 }
             }
-            _ => panic!("expected vector object, got: {:?}", stack_elem),
+            _ => panic!("expected vector, got: {:?}", stack_elem),
         },
         TestValue::Map(expected_pairs) => match &stack_elem {
-            Object::Map(map_obj) => {
+            Value::Map(map_obj) => {
                 assert_eq!(
                     map_obj.pairs.len(),
                     expected_pairs.len(),
                     "wrong map size for input: {input}"
                 );
                 for (key, value) in &expected_pairs {
-                    let map_key = Hashable::I64(*key);
+                    let map_key = Hashable::Integer(Integer::I64(*key));
                     let actual = map_obj
                         .pairs
                         .get(&map_key)
                         .unwrap_or_else(|| panic!("missing key {key} in map for input: {input}"));
                     match actual {
-                        Object::I64(val) => assert_eq!(
+                        Value::Integer(Integer::I64(val)) => assert_eq!(
                             *val, *value,
                             "wrong map value for key {key} in input: {input}"
                         ),
@@ -104,12 +104,12 @@ fn run_vm_test(input: &str, expected: TestValue) {
                     }
                 }
             }
-            _ => panic!("expected map object, got: {:?}", stack_elem),
+            _ => panic!("expected map , got: {:?}", stack_elem),
         },
         TestValue::Range(s, e) => {
             assert_eq!(
                 stack_elem,
-                Object::Range(s, e),
+                Value::Range(s, e),
                 "expected Range({s}..{e}) for input: {input}, got: {:?}",
                 stack_elem
             );
@@ -117,7 +117,7 @@ fn run_vm_test(input: &str, expected: TestValue) {
         TestValue::RangeInclusive(s, e) => {
             assert_eq!(
                 stack_elem,
-                Object::RangeInclusive(s, e),
+                Value::RangeInclusive(s, e),
                 "expected RangeInclusive({s}..={e}) for input: {input}, got: {:?}",
                 stack_elem
             );
@@ -125,7 +125,7 @@ fn run_vm_test(input: &str, expected: TestValue) {
         TestValue::Null => {
             assert_eq!(
                 stack_elem,
-                Object::Null,
+                Value::Null,
                 "expected null for input: {input}, got: {:?}",
                 stack_elem
             );
@@ -659,7 +659,7 @@ fn typed_integer_arithmetic() {
 
 #[test]
 fn unsigned_negation_error() {
-    run_vm_error_test("-(5usize)", "unsupported type for negation");
+    run_vm_error_test("-(5usize)", "integer negation overflow");
 }
 
 #[test]
@@ -1161,10 +1161,13 @@ fn euclidean_modulo_edge_case() {
 #[test]
 fn shift_overflow() {
     // Shifting by more bits than the type width should produce an error
-    run_vm_error_test("1 << 64", "shift amount exceeds type bit width");
-    run_vm_error_test("1 >> 64", "shift amount exceeds type bit width");
-    // Negative shift amount
-    run_vm_error_test("1 << -1", "shift amount exceeds type bit width");
+    run_vm_error_test("1 << 64", "shift value exceeds type bit width");
+    run_vm_error_test("1 >> 64", "shift value exceeds type bit width");
+    // Negative shift value
+    run_vm_error_test(
+        "1 << -1",
+        "shift amount must be a non-negative integer <= u32::MAX",
+    );
 }
 
 #[test]

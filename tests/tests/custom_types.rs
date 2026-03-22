@@ -1,8 +1,8 @@
-use maat_runtime::Object;
+use maat_runtime::{Integer, Value};
 use maat_types::TypeChecker;
 use maat_vm::VM;
 
-fn run(input: &str) -> Object {
+fn run(input: &str) -> Value {
     let bytecode = maat_tests::compile(input);
     let mut vm = VM::new(bytecode);
     vm.run().expect("vm error");
@@ -13,21 +13,21 @@ fn run(input: &str) -> Object {
 
 fn run_i64(input: &str, expected: i64) {
     match run(input) {
-        Object::I64(v) => assert_eq!(v, expected, "wrong value for:\n{input}"),
+        Value::Integer(Integer::I64(v)) => assert_eq!(v, expected, "wrong value for:\n{input}"),
         other => panic!("expected I64({expected}), got {other:?} for:\n{input}"),
     }
 }
 
 fn run_bool(input: &str, expected: bool) {
     match run(input) {
-        Object::Bool(v) => assert_eq!(v, expected, "wrong value for:\n{input}"),
+        Value::Bool(v) => assert_eq!(v, expected, "wrong value for:\n{input}"),
         other => panic!("expected Bool({expected}), got {other:?} for:\n{input}"),
     }
 }
 
 fn run_str(input: &str, expected: &str) {
     match run(input) {
-        Object::Str(v) => assert_eq!(v, expected, "wrong value for:\n{input}"),
+        Value::Str(v) => assert_eq!(v, expected, "wrong value for:\n{input}"),
         other => panic!("expected Str({expected:?}), got {other:?} for:\n{input}"),
     }
 }
@@ -398,7 +398,7 @@ fn roundtrip_struct() {
     let mut vm = VM::new(bytecode);
     vm.run().expect("vm error after roundtrip");
     match vm.last_popped_stack_elem() {
-        Some(Object::I64(7)) => {}
+        Some(Value::Integer(Integer::I64(7))) => {}
         other => panic!("expected I64(7), got {other:?}"),
     }
 }
@@ -412,7 +412,7 @@ fn roundtrip_option() {
     let mut vm = VM::new(bytecode);
     vm.run().expect("vm error after roundtrip");
     match vm.last_popped_stack_elem() {
-        Some(Object::I64(42)) => {}
+        Some(Value::Integer(Integer::I64(42))) => {}
         other => panic!("expected I64(42), got {other:?}"),
     }
 }
@@ -426,7 +426,7 @@ fn roundtrip_result() {
     let mut vm = VM::new(bytecode);
     vm.run().expect("vm error after roundtrip");
     match vm.last_popped_stack_elem() {
-        Some(Object::I64(99)) => {}
+        Some(Value::Integer(Integer::I64(99))) => {}
         other => panic!("expected I64(99), got {other:?}"),
     }
 }

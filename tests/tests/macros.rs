@@ -1,6 +1,6 @@
 use maat_ast::{Expr, Node};
 use maat_eval::{define_macros, eval, expand_macros};
-use maat_runtime::{Env, Object};
+use maat_runtime::{Env, Value};
 
 fn test_macros(input: &str, expected: &str) {
     let program = maat_tests::parse(input);
@@ -45,13 +45,13 @@ fn test_define_macros() {
     assert_eq!(modified.statements.len(), 2);
     assert!(env.get("mymacro").is_some());
 
-    if let Some(Object::Macro(macro_obj)) = env.get("mymacro") {
+    if let Some(Value::Macro(macro_obj)) = env.get("mymacro") {
         assert_eq!(macro_obj.params.len(), 2);
         assert_eq!(macro_obj.params[0], "x");
         assert_eq!(macro_obj.params[1], "y");
         assert_eq!(format!("{}", macro_obj.body), "{\n(x + y);\n}");
     } else {
-        panic!("Expected macro object");
+        panic!("Expected macro");
     }
 }
 
@@ -61,7 +61,7 @@ fn test_quote_builtin() {
     let program = maat_tests::parse(input);
     let env = Env::default();
     let result = eval(Node::Program(program), &env).unwrap();
-    if let Object::Quote(quote_obj) = result {
+    if let Value::Quote(quote_obj) = result {
         if let Node::Expr(Expr::Infix(infix)) = &quote_obj.node {
             assert_eq!(infix.operator, "+");
             assert_eq!(format!("{infix}"), "(5 + 5)");
@@ -69,7 +69,7 @@ fn test_quote_builtin() {
             panic!("Expected infix expression in quote");
         }
     } else {
-        panic!("Expected Quote object");
+        panic!("Expected Quote");
     }
 }
 

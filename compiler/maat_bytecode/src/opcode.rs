@@ -1,3 +1,5 @@
+use maat_runtime::NumberKind;
+
 /// Bytecode operation codes.
 ///
 /// Each opcode represents a single VM instruction. Opcodes are encoded
@@ -137,11 +139,11 @@ pub enum Opcode {
     /// Operands: [u16] - type registry index, [u8] - number of fields
     Construct = 32,
 
-    /// Read a field from a struct object on top of the stack.
+    /// Read a field from a struct on top of the stack.
     /// Operands: [u16] - field index
     GetField = 33,
 
-    /// Read the variant tag from an enum object on top of the stack.
+    /// Read the variant tag from an enum on top of the stack.
     /// If the tag matches, jump over the operand's target address;
     /// otherwise jump to the target.
     /// Operands: [u16] - expected variant tag, [u16] - jump target on mismatch
@@ -172,12 +174,12 @@ pub enum Opcode {
     Shr = 40,
 
     /// Construct a half-open `Range` from two i64 values on the stack.
-    /// Pops `end` then `start`, pushes `Object::Range(start, end)`.
+    /// Pops `end` then `start`, pushes `Value::Range(start, end)`.
     /// Operands: none
     MakeRange = 41,
 
     /// Construct an inclusive `RangeInclusive` from two i64 values on the stack.
-    /// Pops `end` then `start`, pushes `Object::RangeInclusive(start, end)`.
+    /// Pops `end` then `start`, pushes `Value::RangeInclusive(start, end)`.
     /// Operands: none
     MakeRangeInclusive = 42,
 }
@@ -388,6 +390,24 @@ impl TypeTag {
     #[inline]
     pub const fn to_byte(self) -> u8 {
         self as u8
+    }
+
+    /// Maps an integer bytecode type tag to a number type.
+    pub fn to_num_kind(&self) -> NumberKind {
+        match self {
+            Self::I8 => NumberKind::I8,
+            Self::I16 => NumberKind::I16,
+            Self::I32 => NumberKind::I32,
+            Self::I64 => NumberKind::I64,
+            Self::I128 => NumberKind::I128,
+            Self::Isize => NumberKind::Isize,
+            Self::U8 => NumberKind::U8,
+            Self::U16 => NumberKind::U16,
+            Self::U32 => NumberKind::U32,
+            Self::U64 => NumberKind::U64,
+            Self::U128 => NumberKind::U128,
+            Self::Usize => NumberKind::Usize,
+        }
     }
 }
 

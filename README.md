@@ -305,7 +305,7 @@ Errors are reported with precise `file:line:col` locations using source maps and
 | `maat_ast`      | Abstract Syntax Tree definitions and transformations             |
 | `maat_parser`   | Pratt parser with operator precedence                            |
 | `maat_eval`     | Macro expansion engine (`quote`/`unquote`)                       |
-| `maat_runtime`  | Object system, built-in functions, and compiled types            |
+| `maat_runtime`  | Value system, built-in functions, and compiled types             |
 | `maat_types`    | Hindley-Milner type inference (Algorithm W)                      |
 | `maat_bytecode` | Instruction set encoding/decoding and serialization (43 opcodes) |
 | `maat_codegen`  | AST-to-bytecode compiler with scope analysis                     |

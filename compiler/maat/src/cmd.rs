@@ -3,6 +3,7 @@ use std::process;
 
 use maat_bytecode::Bytecode;
 use maat_module::{check_and_compile, resolve_module_graph};
+use maat_runtime::Value;
 use maat_vm::VM;
 
 use crate::diagnostic;
@@ -68,7 +69,7 @@ pub fn execute(path: &Path) {
         process::exit(1);
     }
     if let Some(result) = vm.last_popped_stack_elem()
-        && !matches!(result, maat_runtime::Object::Null)
+        && !matches!(result, Value::Null)
     {
         println!("{result}");
     }
@@ -90,7 +91,7 @@ pub fn run(path: &Path) {
         process::exit(1);
     }
     if let Some(result) = vm.last_popped_stack_elem()
-        && !matches!(result, maat_runtime::Object::Null)
+        && !matches!(result, Value::Null)
     {
         println!("{result}");
     }

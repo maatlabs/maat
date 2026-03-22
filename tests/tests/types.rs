@@ -1,4 +1,4 @@
-use maat_runtime::Object;
+use maat_runtime::{Integer, Value};
 use maat_types::TypeChecker;
 use maat_vm::VM;
 
@@ -21,28 +21,28 @@ fn run_vm_test(input: &str, expected: TestValue) {
         .clone();
     match expected {
         TestValue::I64(expected_val) => match stack_elem {
-            Object::I64(val) => assert_eq!(
+            Value::Integer(Integer::I64(val)) => assert_eq!(
                 val, expected_val,
                 "wrong value for input: {input}\n  got: {val}\n  want: {expected_val}"
             ),
             _ => panic!("expected I64, got: {stack_elem:?} for input: {input}"),
         },
         TestValue::I16(expected_val) => match stack_elem {
-            Object::I16(val) => assert_eq!(
+            Value::Integer(Integer::I16(val)) => assert_eq!(
                 val, expected_val,
                 "wrong value for input: {input}\n  got: {val}\n  want: {expected_val}"
             ),
             _ => panic!("expected I16, got: {stack_elem:?} for input: {input}"),
         },
         TestValue::U8(expected_val) => match stack_elem {
-            Object::U8(val) => assert_eq!(
+            Value::Integer(Integer::U8(val)) => assert_eq!(
                 val, expected_val,
                 "wrong value for input: {input}\n  got: {val}\n  want: {expected_val}"
             ),
             _ => panic!("expected U8, got: {stack_elem:?} for input: {input}"),
         },
         TestValue::Bool(expected_val) => match stack_elem {
-            Object::Bool(val) => assert_eq!(
+            Value::Bool(val) => assert_eq!(
                 val, expected_val,
                 "wrong value for input: {input}\n  got: {val}\n  want: {expected_val}"
             ),
@@ -123,21 +123,21 @@ fn constant_folding() {
         bytecode.constants.len()
     );
     match &bytecode.constants[0] {
-        Object::I64(val) => assert_eq!(*val, 3),
+        Value::Integer(Integer::I64(val)) => assert_eq!(*val, 3),
         other => panic!("expected I64(3), got: {other:?}"),
     }
     // Nested addition
     let bytecode = maat_tests::compile("1 + 2 + 3");
     assert_eq!(bytecode.constants.len(), 1);
     match &bytecode.constants[0] {
-        Object::I64(val) => assert_eq!(*val, 6),
+        Value::Integer(Integer::I64(val)) => assert_eq!(*val, 6),
         other => panic!("expected I64(6), got: {other:?}"),
     }
     // Multiplication
     let bytecode = maat_tests::compile("3 * 7");
     assert_eq!(bytecode.constants.len(), 1);
     match &bytecode.constants[0] {
-        Object::I64(val) => assert_eq!(*val, 21),
+        Value::Integer(Integer::I64(val)) => assert_eq!(*val, 21),
         other => panic!("expected I64(21), got: {other:?}"),
     }
     // Boolean comparison
@@ -145,7 +145,7 @@ fn constant_folding() {
     let mut vm = VM::new(bytecode);
     vm.run().expect("vm error");
     let result = vm.last_popped_stack_elem().expect("no value").clone();
-    assert_eq!(result, Object::Bool(true));
+    assert_eq!(result, Value::Bool(true));
 }
 
 #[test]

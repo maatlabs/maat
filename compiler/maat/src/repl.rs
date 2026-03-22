@@ -16,7 +16,7 @@ use maat_errors::Error;
 use maat_eval::{define_macros, expand_macros};
 use maat_lexer::MaatLexer;
 use maat_parser::MaatParser;
-use maat_runtime::{Env, Object};
+use maat_runtime::{Env, Value};
 use maat_types::TypeChecker;
 use maat_vm::VM;
 use rustyline::completion::Completer;
@@ -225,8 +225,8 @@ pub fn start_interactive() {
     let _ = editor.load_history(history_file);
 
     let mut symbols_table = SymbolsTable::new();
-    let mut constants: Vec<Object> = Vec::new();
-    let mut globals: Vec<Object> = Vec::new();
+    let mut constants: Vec<Value> = Vec::new();
+    let mut globals: Vec<Value> = Vec::new();
     let macro_env = Env::default();
 
     loop {
@@ -322,7 +322,7 @@ pub fn start_interactive() {
         constants = next_constants;
 
         match vm.last_popped_stack_elem() {
-            Some(val) if !only_let_stmts && !matches!(val, Object::Null) => {
+            Some(val) if !only_let_stmts && !matches!(val, Value::Null) => {
                 println!("{val}");
             }
             _ => println!(),
@@ -352,8 +352,8 @@ mod tests {
     fn start<R: BufRead, W: Write>(mut reader: R, writer: &mut W) -> io::Result<()> {
         let mut source = String::new();
         let mut symbols_table = SymbolsTable::new();
-        let mut constants: Vec<Object> = Vec::new();
-        let mut globals: Vec<Object> = Vec::new();
+        let mut constants: Vec<Value> = Vec::new();
+        let mut globals: Vec<Value> = Vec::new();
         let macro_env = Env::default();
 
         loop {
@@ -434,7 +434,7 @@ mod tests {
             symbols_table = next_symbols;
             constants = next_constants;
             match vm.last_popped_stack_elem() {
-                Some(val) if !only_let_stmts && !matches!(val, Object::Null) => {
+                Some(val) if !only_let_stmts && !matches!(val, Value::Null) => {
                     writeln!(writer, "{val}")?;
                 }
                 _ => writeln!(writer)?,

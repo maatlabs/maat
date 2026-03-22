@@ -2,7 +2,7 @@ use std::fs;
 
 use maat_bytecode::Bytecode;
 use maat_module::{ModuleId, ModuleResult, check_and_compile, check_exports, resolve_module_graph};
-use maat_runtime::Object;
+use maat_runtime::{Integer, Value};
 use maat_vm::VM;
 
 /// Creates a temporary directory tree from a list of `(relative_path, content)` pairs.
@@ -26,11 +26,11 @@ fn compile_project(pairs: &[(&str, &str)]) -> ModuleResult<Bytecode> {
 }
 
 /// Compiles and runs a multi-file project, returning the VM's last result.
-fn run_project(pairs: &[(&str, &str)]) -> Object {
+fn run_project(pairs: &[(&str, &str)]) -> Value {
     let bytecode = compile_project(pairs).expect("compilation failed");
     let mut vm = VM::new(bytecode);
     vm.run().expect("vm error");
-    vm.last_popped_stack_elem().cloned().unwrap_or(Object::Null)
+    vm.last_popped_stack_elem().cloned().unwrap_or(Value::Null)
 }
 
 #[test]
@@ -57,7 +57,7 @@ fn import_pub_function_executes() {
         ("main.maat", "mod math;\nuse math::add;\nadd(10, 32)"),
         ("math.maat", "pub fn add(a: i64, b: i64) -> i64 { a + b }"),
     ]);
-    assert_eq!(result, Object::I64(42));
+    assert_eq!(result, Value::Integer(Integer::I64(42)));
 }
 
 #[test]
@@ -84,7 +84,7 @@ fn import_grouped_pub_items() {
             "pub fn add(a: i64, b: i64) -> i64 { a + b }\npub fn sub(a: i64, b: i64) -> i64 { a - b }",
         ),
     ]);
-    assert_eq!(result, Object::I64(5));
+    assert_eq!(result, Value::Integer(Integer::I64(5)));
 }
 
 #[test]
@@ -125,7 +125,7 @@ fn import_pub_struct() {
             "pub struct Point {\n    pub x: i64,\n    pub y: i64,\n}",
         ),
     ]);
-    assert_eq!(result, Object::I64(30));
+    assert_eq!(result, Value::Integer(Integer::I64(30)));
 }
 
 #[test]
@@ -168,7 +168,7 @@ fn diamond_dependency_compiles() {
         ("a.maat", "pub fn from_a() -> i64 { 1 }"),
         ("b.maat", "pub fn from_b() -> i64 { 2 }"),
     ]);
-    assert_eq!(result, Object::I64(3));
+    assert_eq!(result, Value::Integer(Integer::I64(3)));
 }
 
 #[test]
@@ -178,7 +178,7 @@ fn reexport_pub_use() {
         ("facade.maat", "mod utils;\npub use utils::helper;"),
         ("facade/utils.maat", "pub fn helper() -> i64 { 42 }"),
     ]);
-    assert_eq!(result, Object::I64(42));
+    assert_eq!(result, Value::Integer(Integer::I64(42)));
 }
 
 #[test]
@@ -234,7 +234,7 @@ fn nested_module_import() {
         ),
         ("outer/inner.maat", "pub fn value() -> i64 { 99 }"),
     ]);
-    assert_eq!(result, Object::I64(99));
+    assert_eq!(result, Value::Integer(Integer::I64(99)));
 }
 
 #[test]
@@ -248,7 +248,10 @@ fn linked_bytecode_serialization_roundtrip() {
     let deserialized = Bytecode::deserialize(&serialized).expect("deserialization failed");
     let mut vm = VM::new(deserialized);
     vm.run().expect("vm error");
-    assert_eq!(vm.last_popped_stack_elem(), Some(&Object::I64(42)));
+    assert_eq!(
+        vm.last_popped_stack_elem(),
+        Some(&Value::Integer(Integer::I64(42)))
+    );
 }
 
 #[test]
@@ -263,7 +266,7 @@ fn module_with_struct_method_call() {
             "pub struct Point {\n    pub x: i64,\n    pub y: i64,\n}\n\nimpl Point {\n    pub fn sum(self) -> i64 { self.x + self.y }\n}",
         ),
     ]);
-    assert_eq!(result, Object::I64(7));
+    assert_eq!(result, Value::Integer(Integer::I64(7)));
 }
 
 #[test]
@@ -278,70 +281,70 @@ fn multiple_modules_with_internal_state() {
             "let base: i64 = 100;\npub fn make_value() -> i64 { base + 42 }",
         ),
     ]);
-    assert_eq!(result, Object::I64(142));
+    assert_eq!(result, Value::Integer(Integer::I64(142)));
 }
 
 #[test]
 fn std_math() {
     // abs()
     let result = run_project(&[("main.maat", "use std::math::abs;\nabs(7)")]);
-    assert_eq!(result, Object::I64(7));
+    assert_eq!(result, Value::Integer(Integer::I64(7)));
     let result = run_project(&[("main.maat", "use std::math::abs;\nabs(-42)")]);
-    assert_eq!(result, Object::I64(42));
+    assert_eq!(result, Value::Integer(Integer::I64(42)));
 
     // min()
     let result = run_project(&[("main.maat", "use std::math::min;\nmin(3, 7)")]);
-    assert_eq!(result, Object::I64(3));
+    assert_eq!(result, Value::Integer(Integer::I64(3)));
     // max()
     let result = run_project(&[("main.maat", "use std::math::max;\nmax(3, 7)")]);
-    assert_eq!(result, Object::I64(7));
+    assert_eq!(result, Value::Integer(Integer::I64(7)));
 
     // pow()
     let result = run_project(&[("main.maat", "use std::math::pow;\npow(2, 10)")]);
-    assert_eq!(result, Object::I64(1024));
+    assert_eq!(result, Value::Integer(Integer::I64(1024)));
     let result = run_project(&[("main.maat", "use std::math::pow;\npow(5, 0)")]);
-    assert_eq!(result, Object::I64(1));
+    assert_eq!(result, Value::Integer(Integer::I64(1)));
 
     // gcd()
     let result = run_project(&[("main.maat", "use std::math::gcd;\ngcd(12, 8)")]);
-    assert_eq!(result, Object::I64(4));
+    assert_eq!(result, Value::Integer(Integer::I64(4)));
 
     // lcm()
     let result = run_project(&[("main.maat", "use std::math::lcm;\nlcm(4, 6)")]);
-    assert_eq!(result, Object::I64(12));
+    assert_eq!(result, Value::Integer(Integer::I64(12)));
 }
 
 #[test]
 fn std_string() {
     // trim()
     let result = run_project(&[("main.maat", "use std::string::trim;\ntrim(\"  hello  \")")]);
-    assert_eq!(result, Object::Str("hello".to_string()));
+    assert_eq!(result, Value::Str("hello".to_string()));
 
     // contains()
     let result = run_project(&[(
         "main.maat",
         "use std::string::contains;\ncontains(\"hello world\", \"world\")",
     )]);
-    assert_eq!(result, Object::Bool(true));
+    assert_eq!(result, Value::Bool(true));
     let result = run_project(&[(
         "main.maat",
         "use std::string::contains;\ncontains(\"hello\", \"xyz\")",
     )]);
-    assert_eq!(result, Object::Bool(false));
+    assert_eq!(result, Value::Bool(false));
 
     // starts_with()
     let result = run_project(&[(
         "main.maat",
         "use std::string::starts_with;\nstarts_with(\"hello world\", \"hello\")",
     )]);
-    assert_eq!(result, Object::Bool(true));
+    assert_eq!(result, Value::Bool(true));
 
     // ends_with()
     let result = run_project(&[(
         "main.maat",
         "use std::string::ends_with;\nends_with(\"hello world\", \"world\")",
     )]);
-    assert_eq!(result, Object::Bool(true));
+    assert_eq!(result, Value::Bool(true));
 
     // split()
     let result = run_project(&[(
@@ -350,10 +353,10 @@ fn std_string() {
     )]);
     assert_eq!(
         result,
-        Object::Vector(vec![
-            Object::Str("a".to_string()),
-            Object::Str("b".to_string()),
-            Object::Str("c".to_string()),
+        Value::Vector(vec![
+            Value::Str("a".to_string()),
+            Value::Str("b".to_string()),
+            Value::Str("c".to_string()),
         ])
     );
 
@@ -362,14 +365,14 @@ fn std_string() {
         "main.maat",
         "use std::string::join;\njoin([\"a\", \"b\", \"c\"], \"-\")",
     )]);
-    assert_eq!(result, Object::Str("a-b-c".to_string()));
+    assert_eq!(result, Value::Str("a-b-c".to_string()));
 
     // parse_int()
     let result = run_project(&[(
         "main.maat",
         "use std::string::parse_int;\nparse_int(\"42\")",
     )]);
-    assert_eq!(result, Object::I64(42));
+    assert_eq!(result, Value::Integer(Integer::I64(42)));
 }
 
 // #[test]
@@ -379,71 +382,71 @@ fn std_string() {
 //         "main.maat",
 //         "use std::set::{new, len};\nlet s = new();\nlen(s)",
 //     )]);
-//     assert_eq!(result, Object::Usize(0));
+//     assert_eq!(result, Value::Usize(0));
 
 //     // insert(), contains()
 //     let result = run_project(&[(
 //         "main.maat",
 //         "use std::set::{new, insert, contains};\nlet s = new();\nlet s = insert(s, 42);\ncontains(s, 42)",
 //     )]);
-//     assert_eq!(result, Object::Bool(true));
+//     assert_eq!(result, Value::Bool(true));
 
 //     // remove()
 //     let result = run_project(&[(
 //         "main.maat",
 //         "use std::set::{new, insert, remove, contains};\nlet s = new();\nlet s = insert(s, 1);\nlet s = remove(s, 1);\ncontains(s, 1)",
 //     )]);
-//     assert_eq!(result, Object::Bool(false));
+//     assert_eq!(result, Value::Bool(false));
 
 //     // uniqueness
 //     let result = run_project(&[(
 //         "main.maat",
 //         "use std::set::{new, insert, len};\nlet s = new();\nlet s = insert(s, 1);\nlet s = insert(s, 1);\nlet s = insert(s, 2);\nlen(s)",
 //     )]);
-//     assert_eq!(result, Object::Usize(2));
+//     assert_eq!(result, Value::Usize(2));
 // }
 
 #[test]
 fn str_methods() {
     // s.trim()
     let result = run_project(&[("main.maat", "let s: str = \"  hello  \";\ns.trim()")]);
-    assert_eq!(result, Object::Str("hello".to_string()));
+    assert_eq!(result, Value::Str("hello".to_string()));
 
     // s.contains()
     let result = run_project(&[(
         "main.maat",
         "let s: str = \"hello world\";\ns.contains(\"world\")",
     )]);
-    assert_eq!(result, Object::Bool(true));
+    assert_eq!(result, Value::Bool(true));
 
     // s.starts_with()
     let result = run_project(&[(
         "main.maat",
         "let s: str = \"hello world\";\ns.starts_with(\"hello\")",
     )]);
-    assert_eq!(result, Object::Bool(true));
+    assert_eq!(result, Value::Bool(true));
 
     // s.ends_with()
     let result = run_project(&[(
         "main.maat",
         "let s: str = \"hello world\";\ns.ends_with(\"world\")",
     )]);
-    assert_eq!(result, Object::Bool(true));
+    assert_eq!(result, Value::Bool(true));
 
     // s.split()
     let result = run_project(&[("main.maat", "let s: str = \"a,b,c\";\ns.split(\",\")")]);
     assert_eq!(
         result,
-        Object::Vector(vec![
-            Object::Str("a".to_string()),
-            Object::Str("b".to_string()),
-            Object::Str("c".to_string()),
+        Value::Vector(vec![
+            Value::Str("a".to_string()),
+            Value::Str("b".to_string()),
+            Value::Str("c".to_string()),
         ])
     );
 
     // s.parse_int()
     let result = run_project(&[("main.maat", "let s: str = \"123\";\ns.parse_int()")]);
-    assert_eq!(result, Object::I64(123));
+    assert_eq!(result, Value::Integer(Integer::I64(123)));
 }
 
 #[test]
@@ -452,7 +455,7 @@ fn array_join_method() {
         "main.maat",
         "let arr = [\"x\", \"y\", \"z\"];\narr.join(\", \")",
     )]);
-    assert_eq!(result, Object::Str("x, y, z".to_string()));
+    assert_eq!(result, Value::Str("x, y, z".to_string()));
 }
 
 #[test]
@@ -464,5 +467,5 @@ fn stdlib_combined_with_user_modules() {
         ),
         ("helpers.maat", "pub fn double(x: i64) -> i64 { x * 2 }"),
     ]);
-    assert_eq!(result, Object::I64(10));
+    assert_eq!(result, Value::Integer(Integer::I64(10)));
 }
