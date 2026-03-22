@@ -11,7 +11,7 @@ mod num;
 use std::fmt;
 use std::rc::Rc;
 
-pub use builtins::{BUILTIN_COUNT, BUILTINS, QUOTE, UNQUOTE, get_builtin};
+pub use builtins::{BUILTIN_COUNT, BUILTINS, get_builtin};
 pub use env::Env;
 use indexmap::{IndexMap, IndexSet};
 pub use maat_ast::NumberKind;

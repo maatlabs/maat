@@ -1,14 +1,14 @@
-//! Implements a tree-walking interpreter that evaluates the AST nodes
-//! into runtime objects. It supports integers, booleans, functions, conditionals,
-//! and lexically-scoped environments.
+//! Implements a tree-walking interpreter that evaluates the AST nodes into runtime values.
 
 use indexmap::IndexMap;
 use maat_ast::*;
 use maat_errors::{EvalError, Result};
 use maat_runtime::{
-    Env, FALSE, Function, Hashable, Integer, MacroVal, MapVal, NULL, QUOTE, Quote, TRUE, UNQUOTE,
-    Value, get_builtin,
+    Env, FALSE, Function, Hashable, Integer, MacroVal, MapVal, NULL, Quote, TRUE, Value,
+    get_builtin,
 };
+
+use crate::{QUOTE, UNQUOTE};
 
 /// Evaluates an AST node in the given environment.
 ///
@@ -165,7 +165,7 @@ fn eval_program(prog: Program, env: &Env) -> Result<Value> {
     Ok(result)
 }
 
-pub(crate) fn eval_block_statement(block: &BlockStmt, env: &Env) -> Result<Value> {
+pub fn eval_block_statement(block: &BlockStmt, env: &Env) -> Result<Value> {
     let block_env = Env::new_enclosed(env);
     let mut result = NULL;
     for stmt in &block.statements {
@@ -239,7 +239,7 @@ fn eval_for_statement(stmt: ForStmt, env: &Env) -> Result<Value> {
 /// Evaluates an expression in the given environment.
 ///
 /// This is a convenience wrapper around `eval` for macro system use.
-pub(crate) fn eval_expression(expr: &Expr, env: &Env) -> Result<Value> {
+fn eval_expression(expr: &Expr, env: &Env) -> Result<Value> {
     eval(Node::Expr(expr.clone()), env)
 }
 

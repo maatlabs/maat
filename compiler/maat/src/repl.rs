@@ -13,7 +13,7 @@ use std::borrow::Cow;
 use maat_ast::{Node, Stmt, fold_constants};
 use maat_codegen::{Compiler, SymbolsTable};
 use maat_errors::Error;
-use maat_eval::{define_macros, expand_macros};
+use maat_eval::{expand_macros, extract_macros};
 use maat_lexer::MaatLexer;
 use maat_parser::MaatParser;
 use maat_runtime::{Env, Value};
@@ -258,7 +258,7 @@ pub fn start_interactive() {
             continue;
         }
 
-        let program = define_macros(program, &macro_env);
+        let program = extract_macros(program, &macro_env);
         let expanded = expand_macros(Node::Program(program), &macro_env);
         let mut program = match expanded {
             Node::Program(p) => p,
@@ -376,7 +376,7 @@ mod tests {
                 writeln!(writer)?;
                 continue;
             }
-            let program = define_macros(program, &macro_env);
+            let program = extract_macros(program, &macro_env);
             let expanded = expand_macros(Node::Program(program), &macro_env);
             let mut program = match expanded {
                 Node::Program(p) => p,

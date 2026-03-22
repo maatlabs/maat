@@ -3,18 +3,6 @@ use maat_errors::{EvalError, Result};
 
 use crate::{BuiltinFn, Hashable, Integer, MapVal, NULL, Value};
 
-/// The name of the `quote` special form for AST quoting.
-///
-/// Used to capture AST nodes without evaluation, enabling metaprogramming.
-/// This is a special form handled directly in the evaluator, not a regular builtin.
-pub const QUOTE: &str = "quote";
-
-/// The name of the `unquote` special form for splicing evaluated expressions into quotes.
-///
-/// Used within `quote` to evaluate and splice expressions into the quoted AST.
-/// This is a special form handled during quote evaluation, not a regular builtin.
-pub const UNQUOTE: &str = "unquote";
-
 /// Declares the builtin function registry.
 ///
 /// Generates three items:

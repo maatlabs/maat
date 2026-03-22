@@ -1,11 +1,11 @@
 use maat_ast::{Expr, Node};
-use maat_eval::{define_macros, eval, expand_macros};
+use maat_eval::{eval, expand_macros, extract_macros};
 use maat_runtime::{Env, Value};
 
 fn test_macros(input: &str, expected: &str) {
     let program = maat_tests::parse(input);
     let env = Env::default();
-    let program = define_macros(program, &env);
+    let program = extract_macros(program, &env);
     let expanded = expand_macros(Node::Program(program), &env);
 
     let expected_prog = maat_tests::parse(expected);
@@ -41,7 +41,7 @@ fn test_define_macros() {
     "#;
     let program = maat_tests::parse(input);
     let env = Env::default();
-    let modified = define_macros(program, &env);
+    let modified = extract_macros(program, &env);
     assert_eq!(modified.statements.len(), 2);
     assert!(env.get("mymacro").is_some());
 
@@ -61,8 +61,8 @@ fn test_quote_builtin() {
     let program = maat_tests::parse(input);
     let env = Env::default();
     let result = eval(Node::Program(program), &env).unwrap();
-    if let Value::Quote(quote_obj) = result {
-        if let Node::Expr(Expr::Infix(infix)) = &quote_obj.node {
+    if let Value::Quote(q) = result {
+        if let Node::Expr(Expr::Infix(infix)) = &q.node {
             assert_eq!(infix.operator, "+");
             assert_eq!(format!("{infix}"), "(5 + 5)");
         } else {
