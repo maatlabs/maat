@@ -32,6 +32,71 @@ pub enum WideInt {
     Unsigned(u128),
 }
 
+/// Dispatches a checked binary method over same-variant pairs.
+///
+/// Both operands must be the same `Integer` variant; mismatched pairs
+/// return `None`.
+macro_rules! checked_binop {
+    ($lhs:expr, $rhs:expr, $method:ident) => {
+        match ($lhs, $rhs) {
+            (Integer::I8(l), Integer::I8(r)) => l.$method(r).map(Integer::I8),
+            (Integer::I16(l), Integer::I16(r)) => l.$method(r).map(Integer::I16),
+            (Integer::I32(l), Integer::I32(r)) => l.$method(r).map(Integer::I32),
+            (Integer::I64(l), Integer::I64(r)) => l.$method(r).map(Integer::I64),
+            (Integer::I128(l), Integer::I128(r)) => l.$method(r).map(Integer::I128),
+            (Integer::Isize(l), Integer::Isize(r)) => l.$method(r).map(Integer::Isize),
+            (Integer::U8(l), Integer::U8(r)) => l.$method(r).map(Integer::U8),
+            (Integer::U16(l), Integer::U16(r)) => l.$method(r).map(Integer::U16),
+            (Integer::U32(l), Integer::U32(r)) => l.$method(r).map(Integer::U32),
+            (Integer::U64(l), Integer::U64(r)) => l.$method(r).map(Integer::U64),
+            (Integer::U128(l), Integer::U128(r)) => l.$method(r).map(Integer::U128),
+            (Integer::Usize(l), Integer::Usize(r)) => l.$method(r).map(Integer::Usize),
+            _ => None,
+        }
+    };
+}
+
+/// Dispatches an infallible binary operator over same-variant pairs.
+macro_rules! bitwise_binop {
+    ($lhs:expr, $rhs:expr, $op:tt) => {
+        match ($lhs, $rhs) {
+            (Integer::I8(l), Integer::I8(r)) => Some(Integer::I8(l $op r)),
+            (Integer::I16(l), Integer::I16(r)) => Some(Integer::I16(l $op r)),
+            (Integer::I32(l), Integer::I32(r)) => Some(Integer::I32(l $op r)),
+            (Integer::I64(l), Integer::I64(r)) => Some(Integer::I64(l $op r)),
+            (Integer::I128(l), Integer::I128(r)) => Some(Integer::I128(l $op r)),
+            (Integer::Isize(l), Integer::Isize(r)) => Some(Integer::Isize(l $op r)),
+            (Integer::U8(l), Integer::U8(r)) => Some(Integer::U8(l $op r)),
+            (Integer::U16(l), Integer::U16(r)) => Some(Integer::U16(l $op r)),
+            (Integer::U32(l), Integer::U32(r)) => Some(Integer::U32(l $op r)),
+            (Integer::U64(l), Integer::U64(r)) => Some(Integer::U64(l $op r)),
+            (Integer::U128(l), Integer::U128(r)) => Some(Integer::U128(l $op r)),
+            (Integer::Usize(l), Integer::Usize(r)) => Some(Integer::Usize(l $op r)),
+            _ => None,
+        }
+    };
+}
+
+/// Dispatches a checked method taking one fixed argument over all variants.
+macro_rules! checked_unary {
+    ($self:expr, $arg:expr, $method:ident) => {
+        match $self {
+            Integer::I8(v) => v.$method($arg).map(Integer::I8),
+            Integer::I16(v) => v.$method($arg).map(Integer::I16),
+            Integer::I32(v) => v.$method($arg).map(Integer::I32),
+            Integer::I64(v) => v.$method($arg).map(Integer::I64),
+            Integer::I128(v) => v.$method($arg).map(Integer::I128),
+            Integer::Isize(v) => v.$method($arg).map(Integer::Isize),
+            Integer::U8(v) => v.$method($arg).map(Integer::U8),
+            Integer::U16(v) => v.$method($arg).map(Integer::U16),
+            Integer::U32(v) => v.$method($arg).map(Integer::U32),
+            Integer::U64(v) => v.$method($arg).map(Integer::U64),
+            Integer::U128(v) => v.$method($arg).map(Integer::U128),
+            Integer::Usize(v) => v.$method($arg).map(Integer::Usize),
+        }
+    };
+}
+
 impl Integer {
     pub fn cast_to(self, target: NumberKind) -> Result<Self, String> {
         Self::from_wide(self.to_wide(), target)
@@ -88,7 +153,7 @@ impl Integer {
         }
     }
 
-    /// Convert to `i128` for cross‑type comparison (fails for `U128` > `i128::MAX`).
+    /// Convert to `i128` for cross-type comparison (fails for `U128` > `i128::MAX`).
     pub fn to_i128(&self) -> Option<i128> {
         match *self {
             Integer::I8(v) => Some(v as i128),
@@ -124,7 +189,7 @@ impl Integer {
         }
     }
 
-    /// Return the static type name (e.g., "I8").
+    /// Returns the static type name (e.g., "I8").
     pub fn type_name(&self) -> &'static str {
         match self {
             Integer::I8(_) => "I8",
@@ -142,7 +207,7 @@ impl Integer {
         }
     }
 
-    /// Convert to an AST `NumberKind` + `i128` for splicing into quoted code.
+    /// Converts to an AST `NumberKind` + `i128` for splicing into quoted code.
     /// Returns `None` if the value is a `U128` that does not fit in `i128`.
     pub fn to_ast_literal(&self) -> Option<(NumberKind, i128)> {
         match *self {
@@ -163,97 +228,27 @@ impl Integer {
 
     /// Checked addition.
     pub fn checked_add(self, rhs: Self) -> Option<Self> {
-        match (self, rhs) {
-            (Integer::I8(l), Integer::I8(r)) => l.checked_add(r).map(Integer::I8),
-            (Integer::I16(l), Integer::I16(r)) => l.checked_add(r).map(Integer::I16),
-            (Integer::I32(l), Integer::I32(r)) => l.checked_add(r).map(Integer::I32),
-            (Integer::I64(l), Integer::I64(r)) => l.checked_add(r).map(Integer::I64),
-            (Integer::I128(l), Integer::I128(r)) => l.checked_add(r).map(Integer::I128),
-            (Integer::Isize(l), Integer::Isize(r)) => l.checked_add(r).map(Integer::Isize),
-            (Integer::U8(l), Integer::U8(r)) => l.checked_add(r).map(Integer::U8),
-            (Integer::U16(l), Integer::U16(r)) => l.checked_add(r).map(Integer::U16),
-            (Integer::U32(l), Integer::U32(r)) => l.checked_add(r).map(Integer::U32),
-            (Integer::U64(l), Integer::U64(r)) => l.checked_add(r).map(Integer::U64),
-            (Integer::U128(l), Integer::U128(r)) => l.checked_add(r).map(Integer::U128),
-            (Integer::Usize(l), Integer::Usize(r)) => l.checked_add(r).map(Integer::Usize),
-            _ => None,
-        }
+        checked_binop!(self, rhs, checked_add)
     }
 
     /// Checked subtraction.
     pub fn checked_sub(self, rhs: Self) -> Option<Self> {
-        match (self, rhs) {
-            (Integer::I8(l), Integer::I8(r)) => l.checked_sub(r).map(Integer::I8),
-            (Integer::I16(l), Integer::I16(r)) => l.checked_sub(r).map(Integer::I16),
-            (Integer::I32(l), Integer::I32(r)) => l.checked_sub(r).map(Integer::I32),
-            (Integer::I64(l), Integer::I64(r)) => l.checked_sub(r).map(Integer::I64),
-            (Integer::I128(l), Integer::I128(r)) => l.checked_sub(r).map(Integer::I128),
-            (Integer::Isize(l), Integer::Isize(r)) => l.checked_sub(r).map(Integer::Isize),
-            (Integer::U8(l), Integer::U8(r)) => l.checked_sub(r).map(Integer::U8),
-            (Integer::U16(l), Integer::U16(r)) => l.checked_sub(r).map(Integer::U16),
-            (Integer::U32(l), Integer::U32(r)) => l.checked_sub(r).map(Integer::U32),
-            (Integer::U64(l), Integer::U64(r)) => l.checked_sub(r).map(Integer::U64),
-            (Integer::U128(l), Integer::U128(r)) => l.checked_sub(r).map(Integer::U128),
-            (Integer::Usize(l), Integer::Usize(r)) => l.checked_sub(r).map(Integer::Usize),
-            _ => None,
-        }
+        checked_binop!(self, rhs, checked_sub)
     }
 
     /// Checked multiplication.
     pub fn checked_mul(self, rhs: Self) -> Option<Self> {
-        match (self, rhs) {
-            (Integer::I8(l), Integer::I8(r)) => l.checked_mul(r).map(Integer::I8),
-            (Integer::I16(l), Integer::I16(r)) => l.checked_mul(r).map(Integer::I16),
-            (Integer::I32(l), Integer::I32(r)) => l.checked_mul(r).map(Integer::I32),
-            (Integer::I64(l), Integer::I64(r)) => l.checked_mul(r).map(Integer::I64),
-            (Integer::I128(l), Integer::I128(r)) => l.checked_mul(r).map(Integer::I128),
-            (Integer::Isize(l), Integer::Isize(r)) => l.checked_mul(r).map(Integer::Isize),
-            (Integer::U8(l), Integer::U8(r)) => l.checked_mul(r).map(Integer::U8),
-            (Integer::U16(l), Integer::U16(r)) => l.checked_mul(r).map(Integer::U16),
-            (Integer::U32(l), Integer::U32(r)) => l.checked_mul(r).map(Integer::U32),
-            (Integer::U64(l), Integer::U64(r)) => l.checked_mul(r).map(Integer::U64),
-            (Integer::U128(l), Integer::U128(r)) => l.checked_mul(r).map(Integer::U128),
-            (Integer::Usize(l), Integer::Usize(r)) => l.checked_mul(r).map(Integer::Usize),
-            _ => None,
-        }
+        checked_binop!(self, rhs, checked_mul)
     }
 
     /// Checked division.
     pub fn checked_div(self, rhs: Self) -> Option<Self> {
-        match (self, rhs) {
-            (Integer::I8(l), Integer::I8(r)) => l.checked_div(r).map(Integer::I8),
-            (Integer::I16(l), Integer::I16(r)) => l.checked_div(r).map(Integer::I16),
-            (Integer::I32(l), Integer::I32(r)) => l.checked_div(r).map(Integer::I32),
-            (Integer::I64(l), Integer::I64(r)) => l.checked_div(r).map(Integer::I64),
-            (Integer::I128(l), Integer::I128(r)) => l.checked_div(r).map(Integer::I128),
-            (Integer::Isize(l), Integer::Isize(r)) => l.checked_div(r).map(Integer::Isize),
-            (Integer::U8(l), Integer::U8(r)) => l.checked_div(r).map(Integer::U8),
-            (Integer::U16(l), Integer::U16(r)) => l.checked_div(r).map(Integer::U16),
-            (Integer::U32(l), Integer::U32(r)) => l.checked_div(r).map(Integer::U32),
-            (Integer::U64(l), Integer::U64(r)) => l.checked_div(r).map(Integer::U64),
-            (Integer::U128(l), Integer::U128(r)) => l.checked_div(r).map(Integer::U128),
-            (Integer::Usize(l), Integer::Usize(r)) => l.checked_div(r).map(Integer::Usize),
-            _ => None,
-        }
+        checked_binop!(self, rhs, checked_div)
     }
 
     /// Checked Euclidean remainder.
     pub fn checked_rem_euclid(self, rhs: Self) -> Option<Self> {
-        match (self, rhs) {
-            (Integer::I8(l), Integer::I8(r)) => l.checked_rem_euclid(r).map(Integer::I8),
-            (Integer::I16(l), Integer::I16(r)) => l.checked_rem_euclid(r).map(Integer::I16),
-            (Integer::I32(l), Integer::I32(r)) => l.checked_rem_euclid(r).map(Integer::I32),
-            (Integer::I64(l), Integer::I64(r)) => l.checked_rem_euclid(r).map(Integer::I64),
-            (Integer::I128(l), Integer::I128(r)) => l.checked_rem_euclid(r).map(Integer::I128),
-            (Integer::Isize(l), Integer::Isize(r)) => l.checked_rem_euclid(r).map(Integer::Isize),
-            (Integer::U8(l), Integer::U8(r)) => l.checked_rem_euclid(r).map(Integer::U8),
-            (Integer::U16(l), Integer::U16(r)) => l.checked_rem_euclid(r).map(Integer::U16),
-            (Integer::U32(l), Integer::U32(r)) => l.checked_rem_euclid(r).map(Integer::U32),
-            (Integer::U64(l), Integer::U64(r)) => l.checked_rem_euclid(r).map(Integer::U64),
-            (Integer::U128(l), Integer::U128(r)) => l.checked_rem_euclid(r).map(Integer::U128),
-            (Integer::Usize(l), Integer::Usize(r)) => l.checked_rem_euclid(r).map(Integer::Usize),
-            _ => None,
-        }
+        checked_binop!(self, rhs, checked_rem_euclid)
     }
 
     /// Compares two integers of the same variant.
@@ -278,95 +273,27 @@ impl Integer {
 
     /// Bitwise AND.
     pub fn bitwise_and(self, rhs: Self) -> Option<Self> {
-        match (self, rhs) {
-            (Integer::I8(l), Integer::I8(r)) => Some(Integer::I8(l & r)),
-            (Integer::I16(l), Integer::I16(r)) => Some(Integer::I16(l & r)),
-            (Integer::I32(l), Integer::I32(r)) => Some(Integer::I32(l & r)),
-            (Integer::I64(l), Integer::I64(r)) => Some(Integer::I64(l & r)),
-            (Integer::I128(l), Integer::I128(r)) => Some(Integer::I128(l & r)),
-            (Integer::Isize(l), Integer::Isize(r)) => Some(Integer::Isize(l & r)),
-            (Integer::U8(l), Integer::U8(r)) => Some(Integer::U8(l & r)),
-            (Integer::U16(l), Integer::U16(r)) => Some(Integer::U16(l & r)),
-            (Integer::U32(l), Integer::U32(r)) => Some(Integer::U32(l & r)),
-            (Integer::U64(l), Integer::U64(r)) => Some(Integer::U64(l & r)),
-            (Integer::U128(l), Integer::U128(r)) => Some(Integer::U128(l & r)),
-            (Integer::Usize(l), Integer::Usize(r)) => Some(Integer::Usize(l & r)),
-            _ => None,
-        }
+        bitwise_binop!(self, rhs, &)
     }
 
     /// Bitwise OR.
     pub fn bitwise_or(self, rhs: Self) -> Option<Self> {
-        match (self, rhs) {
-            (Integer::I8(l), Integer::I8(r)) => Some(Integer::I8(l | r)),
-            (Integer::I16(l), Integer::I16(r)) => Some(Integer::I16(l | r)),
-            (Integer::I32(l), Integer::I32(r)) => Some(Integer::I32(l | r)),
-            (Integer::I64(l), Integer::I64(r)) => Some(Integer::I64(l | r)),
-            (Integer::I128(l), Integer::I128(r)) => Some(Integer::I128(l | r)),
-            (Integer::Isize(l), Integer::Isize(r)) => Some(Integer::Isize(l | r)),
-            (Integer::U8(l), Integer::U8(r)) => Some(Integer::U8(l | r)),
-            (Integer::U16(l), Integer::U16(r)) => Some(Integer::U16(l | r)),
-            (Integer::U32(l), Integer::U32(r)) => Some(Integer::U32(l | r)),
-            (Integer::U64(l), Integer::U64(r)) => Some(Integer::U64(l | r)),
-            (Integer::U128(l), Integer::U128(r)) => Some(Integer::U128(l | r)),
-            (Integer::Usize(l), Integer::Usize(r)) => Some(Integer::Usize(l | r)),
-            _ => None,
-        }
+        bitwise_binop!(self, rhs, |)
     }
 
     /// Bitwise XOR.
     pub fn bitwise_xor(self, rhs: Self) -> Option<Self> {
-        match (self, rhs) {
-            (Integer::I8(l), Integer::I8(r)) => Some(Integer::I8(l ^ r)),
-            (Integer::I16(l), Integer::I16(r)) => Some(Integer::I16(l ^ r)),
-            (Integer::I32(l), Integer::I32(r)) => Some(Integer::I32(l ^ r)),
-            (Integer::I64(l), Integer::I64(r)) => Some(Integer::I64(l ^ r)),
-            (Integer::I128(l), Integer::I128(r)) => Some(Integer::I128(l ^ r)),
-            (Integer::Isize(l), Integer::Isize(r)) => Some(Integer::Isize(l ^ r)),
-            (Integer::U8(l), Integer::U8(r)) => Some(Integer::U8(l ^ r)),
-            (Integer::U16(l), Integer::U16(r)) => Some(Integer::U16(l ^ r)),
-            (Integer::U32(l), Integer::U32(r)) => Some(Integer::U32(l ^ r)),
-            (Integer::U64(l), Integer::U64(r)) => Some(Integer::U64(l ^ r)),
-            (Integer::U128(l), Integer::U128(r)) => Some(Integer::U128(l ^ r)),
-            (Integer::Usize(l), Integer::Usize(r)) => Some(Integer::Usize(l ^ r)),
-            _ => None,
-        }
+        bitwise_binop!(self, rhs, ^)
     }
 
     /// Checked left shift.
     pub fn checked_shl(self, rhs: u32) -> Option<Self> {
-        match self {
-            Integer::I8(v) => v.checked_shl(rhs).map(Integer::I8),
-            Integer::I16(v) => v.checked_shl(rhs).map(Integer::I16),
-            Integer::I32(v) => v.checked_shl(rhs).map(Integer::I32),
-            Integer::I64(v) => v.checked_shl(rhs).map(Integer::I64),
-            Integer::I128(v) => v.checked_shl(rhs).map(Integer::I128),
-            Integer::Isize(v) => v.checked_shl(rhs).map(Integer::Isize),
-            Integer::U8(v) => v.checked_shl(rhs).map(Integer::U8),
-            Integer::U16(v) => v.checked_shl(rhs).map(Integer::U16),
-            Integer::U32(v) => v.checked_shl(rhs).map(Integer::U32),
-            Integer::U64(v) => v.checked_shl(rhs).map(Integer::U64),
-            Integer::U128(v) => v.checked_shl(rhs).map(Integer::U128),
-            Integer::Usize(v) => v.checked_shl(rhs).map(Integer::Usize),
-        }
+        checked_unary!(self, rhs, checked_shl)
     }
 
     /// Checked right shift.
     pub fn checked_shr(self, rhs: u32) -> Option<Self> {
-        match self {
-            Integer::I8(v) => v.checked_shr(rhs).map(Integer::I8),
-            Integer::I16(v) => v.checked_shr(rhs).map(Integer::I16),
-            Integer::I32(v) => v.checked_shr(rhs).map(Integer::I32),
-            Integer::I64(v) => v.checked_shr(rhs).map(Integer::I64),
-            Integer::I128(v) => v.checked_shr(rhs).map(Integer::I128),
-            Integer::Isize(v) => v.checked_shr(rhs).map(Integer::Isize),
-            Integer::U8(v) => v.checked_shr(rhs).map(Integer::U8),
-            Integer::U16(v) => v.checked_shr(rhs).map(Integer::U16),
-            Integer::U32(v) => v.checked_shr(rhs).map(Integer::U32),
-            Integer::U64(v) => v.checked_shr(rhs).map(Integer::U64),
-            Integer::U128(v) => v.checked_shr(rhs).map(Integer::U128),
-            Integer::Usize(v) => v.checked_shr(rhs).map(Integer::Usize),
-        }
+        checked_unary!(self, rhs, checked_shr)
     }
 
     /// Checked negation (only for signed types).
@@ -380,19 +307,6 @@ impl Integer {
             Integer::Isize(v) => v.checked_neg().map(Integer::Isize),
             _ => None,
         }
-    }
-
-    /// Returns `true` if this integer is a signed type.
-    pub fn is_signed(&self) -> bool {
-        matches!(
-            self,
-            Integer::I8(_)
-                | Integer::I16(_)
-                | Integer::I32(_)
-                | Integer::I64(_)
-                | Integer::I128(_)
-                | Integer::Isize(_)
-        )
     }
 }
 
