@@ -1211,30 +1211,39 @@ fn parse_single_pattern<'src>(
 
         TokenKind::Ident | TokenKind::SelfType => {
             let tok: Token<'src> = any.parse_next(input)?;
-            let name = tok.literal.to_string();
-            let span = tok.span;
+            let mut name = tok.literal.to_string();
+            let start = tok.span;
+            let mut end = start;
+
+            while peek(input) == TokenKind::PathSep {
+                any.parse_next(input)?; // consume `::`
+                let seg = parse(input, TokenKind::Ident)?;
+                end = seg.span;
+                name.push_str("::");
+                name.push_str(seg.literal);
+            }
 
             match peek(input) {
                 TokenKind::LParen => {
                     any.parse_next(input)?; // consume `(`
                     let fields = parse_pattern_list(input, TokenKind::RParen, depth)?;
-                    let end = fields.1;
+                    let close = fields.1;
                     Ok(Pattern::TupleStruct {
                         path: name,
                         fields: fields.0,
-                        span: span.merge(end),
+                        span: start.merge(close),
                     })
                 }
                 TokenKind::LBrace => {
                     any.parse_next(input)?; // consume `{`
-                    let (fields, end) = parse_pattern_fields(input, depth)?;
+                    let (fields, close) = parse_pattern_fields(input, depth)?;
                     Ok(Pattern::Struct {
                         path: name,
                         fields,
-                        span: span.merge(end),
+                        span: start.merge(close),
                     })
                 }
-                _ => Ok(Pattern::Ident(name, span)),
+                _ => Ok(Pattern::Ident(name, start.merge(end))),
             }
         }
 

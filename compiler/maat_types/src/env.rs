@@ -224,15 +224,37 @@ impl TypeEnv {
                     ret: Box::new(Type::Vector(Box::new(Type::String))),
                 }),
             ),
-            (
-                "str::parse_int",
-                Type::Function(FnType {
-                    params: vec![],
-                    ret: Box::new(Type::I64),
-                }),
-            ),
         ];
-        for (name, fn_type) in str_methods {
+        let parse_error_ty = Type::Enum(Rc::from("ParseIntError"), vec![]);
+        let parse_result = |int_ty: Type| -> Type {
+            Type::Enum(Rc::from("Result"), vec![int_ty, parse_error_ty.clone()])
+        };
+        let parse_methods: [(&str, Type); 12] = [
+            ("str::parse_int", parse_result(Type::I64)),
+            ("str::parse_i8", parse_result(Type::I8)),
+            ("str::parse_i16", parse_result(Type::I16)),
+            ("str::parse_i32", parse_result(Type::I32)),
+            ("str::parse_i64", parse_result(Type::I64)),
+            ("str::parse_i128", parse_result(Type::I128)),
+            ("str::parse_u8", parse_result(Type::U8)),
+            ("str::parse_u16", parse_result(Type::U16)),
+            ("str::parse_u32", parse_result(Type::U32)),
+            ("str::parse_u64", parse_result(Type::U64)),
+            ("str::parse_u128", parse_result(Type::U128)),
+            ("str::parse_usize", parse_result(Type::Usize)),
+        ];
+        let all_str_methods = str_methods
+            .into_iter()
+            .chain(parse_methods.map(|(name, ret)| {
+                (
+                    name,
+                    Type::Function(FnType {
+                        params: vec![],
+                        ret: Box::new(ret),
+                    }),
+                )
+            }));
+        for (name, fn_type) in all_str_methods {
             self.builtin_method_schemes.insert(
                 name.to_string(),
                 BuiltinMethodScheme {
@@ -379,7 +401,8 @@ impl TypeEnv {
         }
     }
 
-    /// Registers `Option<T>` and `Result<T, E>` as language-level enum types.
+    /// Registers `Option<T>`, `Result<T, E>`, and `ParseIntError` as
+    /// language-level enum types.
     fn register_builtin_enums(&mut self) {
         self.register_enum(EnumDef {
             name: "Option".to_string(),
@@ -406,6 +429,24 @@ impl TypeEnv {
                 VariantDef {
                     name: "Err".to_string(),
                     kind: VariantKind::Tuple(vec![Type::Generic(Rc::from("E"), vec![])]),
+                },
+            ],
+        });
+        self.register_enum(EnumDef {
+            name: "ParseIntError".to_string(),
+            generic_params: vec![],
+            variants: vec![
+                VariantDef {
+                    name: "Empty".to_string(),
+                    kind: VariantKind::Unit,
+                },
+                VariantDef {
+                    name: "InvalidDigit".to_string(),
+                    kind: VariantKind::Unit,
+                },
+                VariantDef {
+                    name: "Overflow".to_string(),
+                    kind: VariantKind::Unit,
                 },
             ],
         });

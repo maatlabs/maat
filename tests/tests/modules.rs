@@ -356,7 +356,10 @@ fn std_string_methods() {
     )]);
     assert_eq!(result, Value::Str("a-b-c".to_string()));
 
-    let result = run_project(&[("main.maat", "let s: str = \"42\";\ns.parse_int()")]);
+    let result = run_project(&[(
+        "main.maat",
+        "let s: str = \"42\";\nmatch s.parse_int() { Ok(v) => v, Err(e) => -1 }",
+    )]);
     assert_eq!(result, Value::Integer(Integer::I64(42)));
 }
 
@@ -507,8 +510,84 @@ fn str_methods() {
     );
 
     // s.parse_int()
-    let result = run_project(&[("main.maat", "let s: str = \"123\";\ns.parse_int()")]);
+    let result = run_project(&[(
+        "main.maat",
+        "let s: str = \"123\";\nmatch s.parse_int() { Ok(v) => v, Err(e) => -1 }",
+    )]);
     assert_eq!(result, Value::Integer(Integer::I64(123)));
+}
+
+#[test]
+fn str_parse_typed() {
+    // test that parse succeeds and returns true
+    fn is_ok(source: &str) -> String {
+        format!("match {source} {{ Ok(v) => true, Err(e) => false }}")
+    }
+
+    let cases = [
+        "\"127\".parse_i8()",
+        "\"30000\".parse_i16()",
+        "\"2000000\".parse_i32()",
+        "\"42\".parse_i64()",
+        "\"999999999999\".parse_i128()",
+        "\"255\".parse_u8()",
+        "\"65535\".parse_u16()",
+        "\"4000000000\".parse_u32()",
+        "\"18000000000000000000\".parse_u64()",
+        "\"340282366920938463463\".parse_u128()",
+        "\"42\".parse_usize()",
+    ];
+    for case in cases {
+        let result = run_project(&[("main.maat", &is_ok(case))]);
+        assert_eq!(result, Value::Bool(true), "expected Ok for: {case}");
+    }
+
+    // Verify concrete unwrapped values for representative types
+    let result = run_project(&[(
+        "main.maat",
+        "match \"42\".parse_i64() { Ok(v) => v, Err(e) => -1 }",
+    )]);
+    assert_eq!(result, Value::Integer(Integer::I64(42)));
+
+    let result = run_project(&[(
+        "main.maat",
+        "match \"255\".parse_u8() { Ok(v) => v, Err(e) => 0u8 }",
+    )]);
+    assert_eq!(result, Value::Integer(Integer::U8(255)));
+
+    let result = run_project(&[(
+        "main.maat",
+        "match \"  42  \".parse_i32() { Ok(v) => v, Err(e) => 0i32 }",
+    )]);
+    assert_eq!(result, Value::Integer(Integer::I32(42)));
+
+    // Out-of-range returns Err(ParseIntError::Overflow)
+    let result = run_project(&[(
+        "main.maat",
+        "match \"256\".parse_u8() { Ok(v) => false, Err(ParseIntError::Overflow) => true, Err(e) => false }",
+    )]);
+    assert_eq!(result, Value::Bool(true));
+
+    // Invalid input returns Err(ParseIntError::InvalidDigit)
+    let result = run_project(&[(
+        "main.maat",
+        "match \"abc\".parse_i32() { Ok(v) => false, Err(ParseIntError::InvalidDigit) => true, Err(e) => false }",
+    )]);
+    assert_eq!(result, Value::Bool(true));
+
+    // Negative value in unsigned returns Err(ParseIntError::InvalidDigit)
+    let result = run_project(&[(
+        "main.maat",
+        "match \"-1\".parse_u64() { Ok(v) => false, Err(ParseIntError::InvalidDigit) => true, Err(e) => false }",
+    )]);
+    assert_eq!(result, Value::Bool(true));
+
+    // Empty/whitespace-only string returns Err(ParseIntError::Empty)
+    let result = run_project(&[(
+        "main.maat",
+        "match \"  \".parse_i32() { Ok(v) => false, Err(ParseIntError::Empty) => true, Err(e) => false }",
+    )]);
+    assert_eq!(result, Value::Bool(true));
 }
 
 #[test]

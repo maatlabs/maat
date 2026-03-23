@@ -1,7 +1,47 @@
 use indexmap::{IndexMap, IndexSet};
 use maat_errors::{EvalError, Result};
 
-use crate::{BuiltinFn, Hashable, Integer, MapVal, NULL, Value};
+use crate::{BuiltinFn, EnumVariantVal, Hashable, Integer, MapVal, NULL, Value};
+
+/// Describes why a string-to-integer parse operation failed.
+///
+/// This is a language-level type, registered as a builtin enum in the
+/// type system so that user code can pattern-match on `Result<T, ParseIntError>`
+/// values returned by the `str::parse_*` family of methods.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ParseIntError {
+    /// The input string was empty (or contained only whitespace).
+    Empty,
+    /// The input contained a character that is not a valid digit.
+    InvalidDigit,
+    /// The parsed value exceeds the representable range of the target type.
+    Overflow,
+}
+
+impl ParseIntError {
+    /// Maps a [`std::num::IntErrorKind`] to the corresponding Maat variant.
+    pub fn from_std(err: &std::num::ParseIntError) -> Self {
+        match err.kind() {
+            std::num::IntErrorKind::Empty => Self::Empty,
+            std::num::IntErrorKind::InvalidDigit => Self::InvalidDigit,
+            std::num::IntErrorKind::PosOverflow | std::num::IntErrorKind::NegOverflow => {
+                Self::Overflow
+            }
+            _ => Self::InvalidDigit,
+        }
+    }
+
+    /// Returns the variant tag used in the runtime type registry.
+    ///
+    /// Must match the order in `builtin_type_registry` in `maat_codegen`.
+    pub const fn tag(self) -> u16 {
+        match self {
+            Self::Empty => 0,
+            Self::InvalidDigit => 1,
+            Self::Overflow => 2,
+        }
+    }
+}
 
 /// Declares the builtin function registry.
 ///
@@ -69,7 +109,17 @@ define_builtins! {
     "str::starts_with" => str_starts_with,
     "str::ends_with" => str_ends_with,
     "str::split" => str_split,
-    "str::parse_int" => str_parse_int,
+    "str::parse_int" | "str::parse_i64" => str_parse_i64,
+    "str::parse_i8" => str_parse_i8,
+    "str::parse_i16" => str_parse_i16,
+    "str::parse_i32" => str_parse_i32,
+    "str::parse_i128" => str_parse_i128,
+    "str::parse_u8" => str_parse_u8,
+    "str::parse_u16" => str_parse_u16,
+    "str::parse_u32" => str_parse_u32,
+    "str::parse_u64" => str_parse_u64,
+    "str::parse_u128" => str_parse_u128,
+    "str::parse_usize" => str_parse_usize,
 }
 
 /// Prints arguments to stdout, separated by spaces.
@@ -419,17 +469,64 @@ fn str_split(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Parses a string as a base-10 integer. Returns `null` on failure.
-fn str_parse_int(args: &[Value]) -> Result<Value> {
-    expect_arg_count("str::parse_int", args, 1)?;
-    match &args[0] {
-        Value::Str(s) => Ok(s
-            .trim()
-            .parse::<i64>()
-            .map_or(NULL, |v| Value::Integer(Integer::I64(v)))),
-        other => method_type_error(other, "parse_int", "str"),
-    }
+/// Type registry index for `Result` (must match `builtin_type_registry` order).
+const RESULT_TYPE_INDEX: u16 = 1;
+/// Type registry index for `ParseIntError` (must match `builtin_type_registry` order).
+const PARSE_INT_ERROR_TYPE_INDEX: u16 = 2;
+
+/// Wraps a successfully parsed integer in `Ok(value)`.
+fn parse_ok(value: Value) -> Value {
+    Value::EnumVariant(EnumVariantVal {
+        type_index: RESULT_TYPE_INDEX,
+        tag: 0,
+        fields: vec![value],
+    })
 }
+
+/// Wraps a parse failure in `Err(ParseIntError::variant)`.
+fn parse_err(error: ParseIntError) -> Value {
+    Value::EnumVariant(EnumVariantVal {
+        type_index: RESULT_TYPE_INDEX,
+        tag: 1,
+        fields: vec![Value::EnumVariant(EnumVariantVal {
+            type_index: PARSE_INT_ERROR_TYPE_INDEX,
+            tag: error.tag(),
+            fields: vec![],
+        })],
+    })
+}
+
+/// Generates a typed string-to-integer parse function.
+/// Each generated function trims the input string, attempts to parse it as the
+/// target integer type.
+///
+/// Returns `Ok(value)` on success or `Err(ParseIntError)` on failure.
+macro_rules! define_str_parse {
+    ($fn_name:ident, $method:literal, $rust_ty:ty, $variant:ident) => {
+        fn $fn_name(args: &[Value]) -> Result<Value> {
+            expect_arg_count(concat!("str::", $method), args, 1)?;
+            match &args[0] {
+                Value::Str(s) => Ok(s.trim().parse::<$rust_ty>().map_or_else(
+                    |e| parse_err(ParseIntError::from_std(&e)),
+                    |v| parse_ok(Value::Integer(Integer::$variant(v))),
+                )),
+                other => method_type_error(other, $method, "str"),
+            }
+        }
+    };
+}
+
+define_str_parse!(str_parse_i8, "parse_i8", i8, I8);
+define_str_parse!(str_parse_i16, "parse_i16", i16, I16);
+define_str_parse!(str_parse_i32, "parse_i32", i32, I32);
+define_str_parse!(str_parse_i64, "parse_i64", i64, I64);
+define_str_parse!(str_parse_i128, "parse_i128", i128, I128);
+define_str_parse!(str_parse_u8, "parse_u8", u8, U8);
+define_str_parse!(str_parse_u16, "parse_u16", u16, U16);
+define_str_parse!(str_parse_u32, "parse_u32", u32, U32);
+define_str_parse!(str_parse_u64, "parse_u64", u64, U64);
+define_str_parse!(str_parse_u128, "parse_u128", u128, U128);
+define_str_parse!(str_parse_usize, "parse_usize", usize, Usize);
 
 /// Converts a `Hashable` back to an `Value`.
 fn hashable_to_object(h: &Hashable) -> Value {

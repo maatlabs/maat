@@ -1,2 +1,28 @@
 // String methods are available directly on `str` values via method syntax.
-// For example: "hello".trim(), "abc".contains("b"), "42".parse_int().
+//
+// General methods:
+//   "hello".len()             -> usize
+//   "  hi  ".trim()           -> str
+//   "abc".contains("b")       -> bool
+//   "abc".starts_with("a")    -> bool
+//   "abc".ends_with("c")      -> bool
+//   "a,b,c".split(",")        -> Vector<str>
+//
+// Parsing methods return Result<T, ParseIntError>:
+//   "42".parse_int()          -> Result<i64, ParseIntError>  (alias for parse_i64)
+//   "42".parse_i8()           -> Result<i8, ParseIntError>
+//   "42".parse_i16()          -> Result<i16, ParseIntError>
+//   "42".parse_i32()          -> Result<i32, ParseIntError>
+//   "42".parse_i64()          -> Result<i64, ParseIntError>
+//   "42".parse_i128()         -> Result<i128, ParseIntError>
+//   "42".parse_u8()           -> Result<u8, ParseIntError>
+//   "42".parse_u16()          -> Result<u16, ParseIntError>
+//   "42".parse_u32()          -> Result<u32, ParseIntError>
+//   "42".parse_u64()          -> Result<u64, ParseIntError>
+//   "42".parse_u128()         -> Result<u128, ParseIntError>
+//   "42".parse_usize()        -> Result<usize, ParseIntError>
+//
+// ParseIntError variants (see `std::num`):
+//   ParseIntError::Empty        - input was empty or whitespace-only
+//   ParseIntError::InvalidDigit - input contained a non-digit character
+//   ParseIntError::Overflow     - value exceeds the target type's range

@@ -1,0 +1,18 @@
+// Numeric error types for the Maat standard library.
+//
+// ParseIntError
+// =============
+// Returned by the `str::parse_*` family of methods when string-to-integer
+// conversion fails. Variants must be matched with qualified paths:
+//
+//   match "abc".parse_i32() {
+//       Ok(v) => v,
+//       Err(ParseIntError::InvalidDigit) => -1,
+//       Err(ParseIntError::Overflow) => -2,
+//       Err(ParseIntError::Empty) => -3,
+//   }
+//
+// Variants:
+//   ParseIntError::Empty        - input was empty or whitespace-only
+//   ParseIntError::InvalidDigit - input contained a non-digit character
+//   ParseIntError::Overflow     - value exceeds the target type's range

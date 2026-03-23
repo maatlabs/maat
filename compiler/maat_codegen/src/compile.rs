@@ -16,6 +16,16 @@ use maat_span::{SourceMap, Span};
 
 use crate::{Symbol, SymbolScope, SymbolsTable};
 
+/// Built-in type prefixes for method dispatch fallback.
+const BUILTIN_METHOD_PREFIXES: &[&str] = &["Vector", "str", "Set", "Map"];
+
+/// Enum types whose variants are available as bare names in patterns.
+///
+/// Mirrors Rust's prelude: `Option` (`Some`, `None`) and `Result`
+/// (`Ok`, `Err`) are directly accessible. All other enum variants
+/// require a qualified path (e.g., `ParseIntError::InvalidDigit`).
+const PRELUDE_ENUMS: &[&str] = &["Option", "Result"];
+
 /// Tracks jump targets for break/continue within a loop.
 #[derive(Debug, Clone)]
 struct LoopContext {
@@ -130,8 +140,19 @@ impl Compiler {
     /// boundaries.
     pub fn register_type(&mut self, typedef: TypeDef) {
         let registry_index = self.type_registry.len();
-        if let TypeDef::Enum { ref variants, .. } = typedef {
-            Self::index_variants(&mut self.variant_index, registry_index, variants);
+        if let TypeDef::Enum {
+            ref name,
+            ref variants,
+        } = typedef
+        {
+            // User-defined enums always get bare variant names in scope.
+            Self::index_variants(
+                &mut self.variant_index,
+                registry_index,
+                variants,
+                name,
+                true,
+            );
         }
         self.type_registry.push(typedef);
     }
@@ -172,6 +193,23 @@ impl Compiler {
                     },
                 ],
             },
+            TypeDef::Enum {
+                name: "ParseIntError".to_string(),
+                variants: vec![
+                    VariantInfo {
+                        name: "Empty".to_string(),
+                        field_count: 0,
+                    },
+                    VariantInfo {
+                        name: "InvalidDigit".to_string(),
+                        field_count: 0,
+                    },
+                    VariantInfo {
+                        name: "Overflow".to_string(),
+                        field_count: 0,
+                    },
+                ],
+            },
         ]
     }
 
@@ -179,28 +217,36 @@ impl Compiler {
     fn build_variant_index(registry: &[TypeDef]) -> HashMap<String, VariantEntry> {
         let mut index = HashMap::new();
         for (registry_index, td) in registry.iter().enumerate() {
-            if let TypeDef::Enum { variants, .. } = td {
-                Self::index_variants(&mut index, registry_index, variants);
+            if let TypeDef::Enum { name, variants } = td {
+                let in_prelude = PRELUDE_ENUMS.contains(&name.as_str());
+                Self::index_variants(&mut index, registry_index, variants, name, in_prelude);
             }
         }
         index
     }
 
     /// Inserts entries for each variant of an enum at the given registry index.
+    ///
+    /// Qualified keys (`EnumName::VariantName`) are always registered. Bare
+    /// keys (`VariantName`) are only registered when `include_bare` is true,
+    /// which is the case for prelude enums like `Option` and `Result`.
     fn index_variants(
         index: &mut HashMap<String, VariantEntry>,
         registry_index: usize,
         variants: &[VariantInfo],
+        enum_name: &str,
+        include_bare: bool,
     ) {
         for (tag, v) in variants.iter().enumerate() {
-            index.insert(
-                v.name.clone(),
-                VariantEntry {
-                    registry_index,
-                    tag,
-                    field_count: v.field_count as usize,
-                },
-            );
+            let entry = VariantEntry {
+                registry_index,
+                tag,
+                field_count: v.field_count as usize,
+            };
+            if include_bare {
+                index.insert(v.name.clone(), entry);
+            }
+            index.insert(format!("{enum_name}::{}", v.name), entry);
         }
     }
 
@@ -1115,15 +1161,38 @@ impl Compiler {
                         let match_tag_pos =
                             self.emit(Opcode::MatchTag, &[variant_tag, Self::JUMP], span);
 
-                        self.bind_variant_fields(fields, span)?;
+                        let (nested_positions, scrutinee_var) =
+                            self.bind_variant_fields(fields, span)?;
                         self.compile_expression(&arm.body)?;
                         if self.last_instruction_is(Opcode::Pop) {
                             self.remove_last_pop();
                         }
                         let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
                         end_jumps.push(end_jump);
-                        let next_arm = self.current_instructions().len();
-                        self.replace_match_tag_target(match_tag_pos, next_arm)?;
+
+                        if nested_positions.is_empty() {
+                            let next_arm = self.current_instructions().len();
+                            self.replace_match_tag_target(match_tag_pos, next_arm)?;
+                        } else {
+                            let cleanup = self.current_instructions().len();
+                            for nested_pos in nested_positions {
+                                self.replace_match_tag_target(nested_pos, cleanup)?;
+                            }
+                            self.emit(Opcode::Pop, &[], span);
+                            if let Some(ref var_name) = scrutinee_var {
+                                let sym = self.symbols_table.resolve_symbol(var_name).ok_or_else(
+                                    || {
+                                        CompileErrorKind::UndefinedVariable {
+                                            name: var_name.clone(),
+                                        }
+                                        .at(span)
+                                    },
+                                )?;
+                                self.load_symbol(&sym, span);
+                            }
+                            let next_arm = self.current_instructions().len();
+                            self.replace_match_tag_target(match_tag_pos, next_arm)?;
+                        }
                     }
                 }
                 Pattern::Ident(name, _) if name != "_" => {
@@ -1199,32 +1268,53 @@ impl Compiler {
     }
 
     /// Binds variant payload fields to local variables via `GetField`.
-    fn bind_variant_fields(&mut self, fields: &[Pattern], span: Span) -> Result<()> {
+    ///
+    /// Returns `(nested_match_positions, scrutinee_var)` where:
+    /// - `nested_match_positions` are bytecode offsets of inner `MatchTag`
+    ///   instructions whose jump targets must be patched to cleanup code
+    /// - `scrutinee_var` is the hidden variable name storing the outer
+    ///   scrutinee, needed to restore the stack on inner match failure
+    fn bind_variant_fields(
+        &mut self,
+        fields: &[Pattern],
+        span: Span,
+    ) -> Result<(Vec<usize>, Option<String>)> {
+        let mut nested_match_positions = Vec::new();
+        let mut scrutinee_var = None;
         for (i, field) in fields.iter().enumerate() {
             if let Pattern::Ident(name, _) = field {
-                // For enum variants with payloads, the scrutinee is on top of stack.
                 if i == 0 {
                     let hidden = format!("__match_scrutinee_{}", self.for_loop_counter);
                     self.for_loop_counter += 1;
                     let hidden_sym = self.define_and_set(&hidden, false, span)?;
+                    scrutinee_var = Some(hidden.clone());
                     self.load_symbol(&hidden_sym, span);
                     self.emit(Opcode::GetField, &[i], span);
-                    self.define_and_set(name, false, span)?;
-                    continue;
+                } else {
+                    let hidden = format!("__match_scrutinee_{}", self.for_loop_counter - 1);
+                    let hidden_sym =
+                        self.symbols_table.resolve_symbol(&hidden).ok_or_else(|| {
+                            CompileErrorKind::UndefinedVariable {
+                                name: hidden.clone(),
+                            }
+                            .at(span)
+                        })?;
+                    self.load_symbol(&hidden_sym, span);
+                    self.emit(Opcode::GetField, &[i], span);
                 }
-                let hidden = format!("__match_scrutinee_{}", self.for_loop_counter - 1);
-                let hidden_sym = self.symbols_table.resolve_symbol(&hidden).ok_or_else(|| {
-                    CompileErrorKind::UndefinedVariable {
-                        name: hidden.clone(),
-                    }
-                    .at(span)
-                })?;
-                self.load_symbol(&hidden_sym, span);
-                self.emit(Opcode::GetField, &[i], span);
-                self.define_and_set(name, false, span)?;
+
+                if name == "_" {
+                    self.emit(Opcode::Pop, &[], span);
+                } else if let Some((_, variant_tag, _)) = self.find_variant_in_registry(name) {
+                    let pos = self.emit(Opcode::MatchTag, &[variant_tag, Self::JUMP], span);
+                    self.emit(Opcode::Pop, &[], span);
+                    nested_match_positions.push(pos);
+                } else {
+                    self.define_and_set(name, false, span)?;
+                }
             }
         }
-        Ok(())
+        Ok((nested_match_positions, scrutinee_var))
     }
 
     /// Replaces the jump-on-mismatch target of a `MatchTag` instruction.
@@ -1291,9 +1381,6 @@ impl Compiler {
 
     /// Resolves the fully-qualified builtin name for a method call.
     fn resolve_method_name(&mut self, mc: &MethodCallExpr) -> Option<String> {
-        // Built-in type prefixes for method dispatch fallback.
-        const BUILTIN_METHOD_PREFIXES: &[&str] = &["Vector", "str", "Set", "Map"];
-
         if let Some(ref receiver) = mc.receiver {
             let candidate = format!("{receiver}::{}", mc.method);
             if self.symbols_table.resolve_symbol(&candidate).is_some() {
