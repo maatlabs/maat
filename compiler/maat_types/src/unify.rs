@@ -99,6 +99,16 @@ impl Substitution {
     }
 
     /// Applies this substitution to a type, recursively resolving all type variables.
+    ///
+    /// # Stack depth
+    ///
+    /// The `Type::Var` branch recurses through chained variable bindings
+    /// (`?0 -> ?1 -> ?2 -> ... -> T`). In well-formed substitutions produced by
+    /// `unify`, chain depth is bounded by the number of distinct type variables
+    /// in the program. However, pathologically deep chains could exhaust the
+    /// call stack in debug builds (where frames are larger and tail-call
+    /// optimization is absent). This is acceptable for the current compiler
+    /// because real Maat programs produce substitution chains of trivial depth.
     pub fn apply(&self, ty: &Type) -> Type {
         match ty {
             Type::Var(id) => match self.get(id) {

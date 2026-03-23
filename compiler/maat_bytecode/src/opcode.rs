@@ -136,17 +136,27 @@ pub enum Opcode {
     Convert = 31,
 
     /// Construct a struct or enum variant from the top N stack elements.
-    /// Operands: [u16] - type registry index, [u8] - number of fields
+    ///
+    /// Operands: `[u16, u8]`
+    /// - `u16`: packed type index encoding `(registry_index << 8) | variant_tag`.
+    ///   The high 8 bits select the entry in the type registry; the low 8 bits
+    ///   carry the variant tag (0 for structs, 0..255 for enum variants).
+    /// - `u8`: number of field values to pop from the stack.
     Construct = 32,
 
     /// Read a field from a struct on top of the stack.
     /// Operands: [u16] - field index
     GetField = 33,
 
-    /// Read the variant tag from an enum on top of the stack.
-    /// If the tag matches, jump over the operand's target address;
-    /// otherwise jump to the target.
-    /// Operands: [u16] - expected variant tag, [u16] - jump target on mismatch
+    /// Read the variant tag from an enum on top of the stack (peek, no pop).
+    /// If the tag matches, execution continues to the next instruction;
+    /// otherwise the instruction pointer jumps to the mismatch target.
+    ///
+    /// Operands: `[u16, u16]`
+    /// - `u16`: expected variant tag. Tags are limited to 0..255 by
+    ///   [`MAX_ENUM_VARIANTS`](crate::MAX_ENUM_VARIANTS) but encoded as
+    ///   `u16` for operand-width uniformity with other two-byte operands.
+    /// - `u16`: jump target address on mismatch.
     MatchTag = 34,
 
     /// Compute the remainder of two values from the stack.
