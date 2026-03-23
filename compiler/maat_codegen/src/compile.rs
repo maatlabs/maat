@@ -3,8 +3,8 @@ use std::rc::Rc;
 
 use maat_ast::{
     BlockStmt, BreakExpr, CondExpr, ContinueExpr, EnumVariantKind, Expr, FieldAccessExpr, ForStmt,
-    ImplBlock, InfixExpr, MatchExpr, MethodCallExpr, Node, NumberKind, PathExpr, Pattern, Program,
-    Stmt, StructLitExpr, TypeExpr,
+    ImplBlock, InfixExpr, LoopStmt, MatchExpr, MethodCallExpr, Node, NumberKind, PathExpr, Pattern,
+    Program, ReAssignStmt, Stmt, StructLitExpr, TypeExpr, WhileStmt,
 };
 use maat_bytecode::{
     Bytecode, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, MAX_ENUM_VARIANTS, Opcode,
@@ -328,56 +328,10 @@ impl Compiler {
                 } else {
                     self.compile_expression(&let_stmt.value)?;
                 }
-                let symbol = match self
-                    .symbols_table
-                    .define_symbol(&let_stmt.ident, let_stmt.mutable)
-                {
-                    Ok(s) => s,
-                    Err(e) => return Err(self.attach_span(e, span)),
-                };
-                let (scope, index) = (symbol.scope, symbol.index);
-                match scope {
-                    SymbolScope::Global => self.emit(Opcode::SetGlobal, &[index], span),
-                    SymbolScope::Local => self.emit(Opcode::SetLocal, &[index], span),
-                    SymbolScope::Builtin | SymbolScope::Free | SymbolScope::Function => {
-                        unreachable!("define_symbol never produces this scope")
-                    }
-                };
+                self.define_and_set(&let_stmt.ident, let_stmt.mutable, span)?;
                 Ok(())
             }
-            Stmt::ReAssign(assign_stmt) => {
-                let span = assign_stmt.span;
-                let symbol = self
-                    .symbols_table
-                    .resolve_symbol(&assign_stmt.ident)
-                    .ok_or_else(|| {
-                        CompileErrorKind::UndefinedVariable {
-                            name: assign_stmt.ident.clone(),
-                        }
-                        .at(span)
-                    })?;
-                if !symbol.mutable {
-                    return Err(CompileErrorKind::ImmutableAssignment {
-                        name: assign_stmt.ident.clone(),
-                    }
-                    .at(span)
-                    .into());
-                }
-                self.compile_expression(&assign_stmt.value)?;
-                match symbol.scope {
-                    SymbolScope::Global => self.emit(Opcode::SetGlobal, &[symbol.index], span),
-                    SymbolScope::Local => self.emit(Opcode::SetLocal, &[symbol.index], span),
-                    SymbolScope::Free => self.emit(Opcode::SetLocal, &[symbol.index], span),
-                    SymbolScope::Builtin | SymbolScope::Function => {
-                        return Err(CompileErrorKind::ImmutableAssignment {
-                            name: assign_stmt.ident.clone(),
-                        }
-                        .at(span)
-                        .into());
-                    }
-                };
-                Ok(())
-            }
+            Stmt::ReAssign(assign_stmt) => self.compile_reassign(assign_stmt),
             Stmt::Return(ret_stmt) => {
                 self.compile_expression(&ret_stmt.value)?;
                 self.emit(Opcode::ReturnValue, &[], ret_stmt.span);
@@ -392,64 +346,11 @@ impl Compiler {
                     &fn_item.body,
                     span,
                 )?;
-                let symbol = match self.symbols_table.define_symbol(&fn_item.name, false) {
-                    Ok(s) => s,
-                    Err(e) => return Err(self.attach_span(e, span)),
-                };
-                let (scope, index) = (symbol.scope, symbol.index);
-                match scope {
-                    SymbolScope::Global => self.emit(Opcode::SetGlobal, &[index], span),
-                    SymbolScope::Local => self.emit(Opcode::SetLocal, &[index], span),
-                    SymbolScope::Builtin | SymbolScope::Free | SymbolScope::Function => {
-                        unreachable!("define_symbol never produces this scope")
-                    }
-                };
+                self.define_and_set(&fn_item.name, false, span)?;
                 Ok(())
             }
-            Stmt::Loop(loop_stmt) => {
-                let start = self.current_instructions().len();
-                self.loop_contexts.push(LoopContext {
-                    label: loop_stmt.label.clone(),
-                    continue_target: Some(start),
-                    break_jumps: Vec::new(),
-                    continue_jumps: Vec::new(),
-                });
-                self.compile_block_statement(&loop_stmt.body)?;
-                self.emit(Opcode::Jump, &[start], loop_stmt.span);
-                let exit = self.current_instructions().len();
-                let ctx = self
-                    .loop_contexts
-                    .pop()
-                    .expect("loop context was just pushed");
-                for jump_pos in ctx.break_jumps {
-                    self.replace_operand(jump_pos, exit)?;
-                }
-                Ok(())
-            }
-
-            Stmt::While(while_stmt) => {
-                let start = self.current_instructions().len();
-                self.loop_contexts.push(LoopContext {
-                    label: while_stmt.label.clone(),
-                    continue_target: Some(start),
-                    break_jumps: Vec::new(),
-                    continue_jumps: Vec::new(),
-                });
-                self.compile_expression(&while_stmt.condition)?;
-                let exit_jump = self.emit(Opcode::CondJump, &[Self::JUMP], while_stmt.span);
-                self.compile_block_statement(&while_stmt.body)?;
-                self.emit(Opcode::Jump, &[start], while_stmt.span);
-                let loop_exit = self.current_instructions().len();
-                self.replace_operand(exit_jump, loop_exit)?;
-                let ctx = self
-                    .loop_contexts
-                    .pop()
-                    .expect("loop context was just pushed");
-                for jump_pos in ctx.break_jumps {
-                    self.replace_operand(jump_pos, loop_exit)?;
-                }
-                Ok(())
-            }
+            Stmt::Loop(loop_stmt) => self.compile_loop(loop_stmt),
+            Stmt::While(while_stmt) => self.compile_while(while_stmt),
             Stmt::StructDecl(decl) => {
                 self.register_type(TypeDef::Struct {
                     name: decl.name.clone(),
@@ -514,6 +415,81 @@ impl Compiler {
                 Ok(())
             }
         }
+    }
+
+    /// Compiles a variable reassignment (`x = expr`).
+    fn compile_reassign(&mut self, assign_stmt: &ReAssignStmt) -> Result<()> {
+        let span = assign_stmt.span;
+        let symbol = self.resolve_or_error(&assign_stmt.ident, span)?;
+        if !symbol.mutable {
+            return Err(CompileErrorKind::ImmutableAssignment {
+                name: assign_stmt.ident.clone(),
+            }
+            .at(span)
+            .into());
+        }
+        self.compile_expression(&assign_stmt.value)?;
+        match symbol.scope {
+            SymbolScope::Global => self.emit(Opcode::SetGlobal, &[symbol.index], span),
+            SymbolScope::Local | SymbolScope::Free => {
+                self.emit(Opcode::SetLocal, &[symbol.index], span)
+            }
+            SymbolScope::Builtin | SymbolScope::Function => {
+                return Err(CompileErrorKind::ImmutableAssignment {
+                    name: assign_stmt.ident.clone(),
+                }
+                .at(span)
+                .into());
+            }
+        };
+        Ok(())
+    }
+
+    /// Compiles an infinite `loop { body }`.
+    fn compile_loop(&mut self, loop_stmt: &LoopStmt) -> Result<()> {
+        let start = self.current_instructions().len();
+        self.loop_contexts.push(LoopContext {
+            label: loop_stmt.label.clone(),
+            continue_target: Some(start),
+            break_jumps: Vec::new(),
+            continue_jumps: Vec::new(),
+        });
+        self.compile_block_statement(&loop_stmt.body)?;
+        self.emit(Opcode::Jump, &[start], loop_stmt.span);
+        let exit = self.current_instructions().len();
+        let ctx = self
+            .loop_contexts
+            .pop()
+            .expect("loop context was just pushed");
+        for jump_pos in ctx.break_jumps {
+            self.replace_operand(jump_pos, exit)?;
+        }
+        Ok(())
+    }
+
+    /// Compiles a `while condition { body }` loop.
+    fn compile_while(&mut self, while_stmt: &WhileStmt) -> Result<()> {
+        let start = self.current_instructions().len();
+        self.loop_contexts.push(LoopContext {
+            label: while_stmt.label.clone(),
+            continue_target: Some(start),
+            break_jumps: Vec::new(),
+            continue_jumps: Vec::new(),
+        });
+        self.compile_expression(&while_stmt.condition)?;
+        let exit_jump = self.emit(Opcode::CondJump, &[Self::JUMP], while_stmt.span);
+        self.compile_block_statement(&while_stmt.body)?;
+        self.emit(Opcode::Jump, &[start], while_stmt.span);
+        let loop_exit = self.current_instructions().len();
+        self.replace_operand(exit_jump, loop_exit)?;
+        let ctx = self
+            .loop_contexts
+            .pop()
+            .expect("loop context was just pushed");
+        for jump_pos in ctx.break_jumps {
+            self.replace_operand(jump_pos, loop_exit)?;
+        }
+        Ok(())
     }
 
     /// Compiles a `for x in start..end` or `for x in start..=end` loop.
@@ -610,16 +586,7 @@ impl Compiler {
         let iter_sym = self.define_and_set(&iter_name, false, span)?;
 
         // __len_N = Vector::len(__iter_N)
-        let len_builtin = self
-            .symbols_table
-            .resolve_symbol("Vector::len")
-            .ok_or_else(|| {
-                CompileErrorKind::UndefinedVariable {
-                    name: "Vector::len".to_string(),
-                }
-                .at(span)
-            })?
-            .clone();
+        let len_builtin = self.resolve_or_error("Vector::len", span)?;
         self.load_symbol(&len_builtin, span);
         self.load_symbol(&iter_sym, span);
         self.emit(Opcode::Call, &[1], span);
@@ -1074,10 +1041,7 @@ impl Compiler {
             }
         }
         let full_name = path.segments.join("::");
-        let symbol = self
-            .symbols_table
-            .resolve_symbol(&full_name)
-            .ok_or_else(|| CompileErrorKind::UndefinedVariable { name: full_name }.at(span))?;
+        let symbol = self.resolve_or_error(&full_name, span)?;
         self.load_symbol(&symbol, span);
         Ok(())
     }
@@ -1104,9 +1068,7 @@ impl Compiler {
                 param_names.push(name);
             }
             for name in &param_names {
-                let sym = self.symbols_table.resolve_symbol(name).ok_or_else(|| {
-                    CompileErrorKind::UndefinedVariable { name: name.clone() }.at(span)
-                })?;
+                let sym = self.resolve_or_error(name, span)?;
                 self.load_symbol(&sym, span);
             }
             self.emit(Opcode::Construct, &[type_index, field_count], span);
@@ -1153,7 +1115,7 @@ impl Compiler {
         let span = match_expr.span;
         self.compile_expression(&match_expr.scrutinee)?;
 
-        let mut end_jumps = Vec::new();
+        let mut end_jumps = Vec::with_capacity(match_expr.arms.len());
         for arm in &match_expr.arms {
             match &arm.pattern {
                 Pattern::TupleStruct { path, fields, .. } => {
@@ -1163,12 +1125,7 @@ impl Compiler {
 
                         let (nested_positions, scrutinee_var) =
                             self.bind_variant_fields(fields, span)?;
-                        self.compile_expression(&arm.body)?;
-                        if self.last_instruction_is(Opcode::Pop) {
-                            self.remove_last_pop();
-                        }
-                        let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
-                        end_jumps.push(end_jump);
+                        end_jumps.push(self.compile_match_arm_body(&arm.body, span)?);
 
                         if nested_positions.is_empty() {
                             let next_arm = self.current_instructions().len();
@@ -1180,14 +1137,7 @@ impl Compiler {
                             }
                             self.emit(Opcode::Pop, &[], span);
                             if let Some(ref var_name) = scrutinee_var {
-                                let sym = self.symbols_table.resolve_symbol(var_name).ok_or_else(
-                                    || {
-                                        CompileErrorKind::UndefinedVariable {
-                                            name: var_name.clone(),
-                                        }
-                                        .at(span)
-                                    },
-                                )?;
+                                let sym = self.resolve_or_error(var_name, span)?;
                                 self.load_symbol(&sym, span);
                             }
                             let next_arm = self.current_instructions().len();
@@ -1199,55 +1149,31 @@ impl Compiler {
                     if let Some((_, variant_tag, _)) = self.find_variant_in_registry(name) {
                         let match_tag_pos =
                             self.emit(Opcode::MatchTag, &[variant_tag, Self::JUMP], span);
-
                         self.emit(Opcode::Pop, &[], span);
-
-                        self.compile_expression(&arm.body)?;
-                        if self.last_instruction_is(Opcode::Pop) {
-                            self.remove_last_pop();
-                        }
-                        let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
-                        end_jumps.push(end_jump);
+                        end_jumps.push(self.compile_match_arm_body(&arm.body, span)?);
                         let next_arm = self.current_instructions().len();
                         self.replace_match_tag_target(match_tag_pos, next_arm)?;
                     } else {
                         self.define_and_set(name, false, span)?;
-                        self.compile_expression(&arm.body)?;
-                        if self.last_instruction_is(Opcode::Pop) {
-                            self.remove_last_pop();
-                        }
-                        let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
-                        end_jumps.push(end_jump);
+                        end_jumps.push(self.compile_match_arm_body(&arm.body, span)?);
                     }
                 }
                 Pattern::Wildcard(_) | Pattern::Ident(_, _) => {
                     self.emit(Opcode::Pop, &[], span);
-                    self.compile_expression(&arm.body)?;
-                    if self.last_instruction_is(Opcode::Pop) {
-                        self.remove_last_pop();
-                    }
-                    let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
-                    end_jumps.push(end_jump);
+                    end_jumps.push(self.compile_match_arm_body(&arm.body, span)?);
                 }
                 Pattern::Literal(lit_expr) => {
                     self.compile_expression(lit_expr)?;
                     self.emit(Opcode::Equal, &[], span);
                     let cond_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
-
-                    self.compile_expression(&arm.body)?;
-                    if self.last_instruction_is(Opcode::Pop) {
-                        self.remove_last_pop();
-                    }
-                    let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
-                    end_jumps.push(end_jump);
+                    end_jumps.push(self.compile_match_arm_body(&arm.body, span)?);
                     let next_arm = self.current_instructions().len();
                     self.replace_operand(cond_jump, next_arm)?;
                 }
                 _ => {
                     self.emit(Opcode::Pop, &[], span);
                     self.emit(Opcode::Null, &[], span);
-                    let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
-                    end_jumps.push(end_jump);
+                    end_jumps.push(self.emit(Opcode::Jump, &[Self::JUMP], span));
                 }
             }
         }
@@ -1258,6 +1184,17 @@ impl Compiler {
             self.replace_operand(jump_pos, exit)?;
         }
         Ok(())
+    }
+
+    /// Compiles a match arm body and emits the end-jump.
+    ///
+    /// Returns the jump position for later back-patching.
+    fn compile_match_arm_body(&mut self, body: &Expr, span: Span) -> Result<usize> {
+        self.compile_expression(body)?;
+        if self.last_instruction_is(Opcode::Pop) {
+            self.remove_last_pop();
+        }
+        Ok(self.emit(Opcode::Jump, &[Self::JUMP], span))
     }
 
     /// Looks up an enum variant by name in the pre-built variant index.
@@ -1292,13 +1229,7 @@ impl Compiler {
                     self.emit(Opcode::GetField, &[i], span);
                 } else {
                     let hidden = format!("__match_scrutinee_{}", self.for_loop_counter - 1);
-                    let hidden_sym =
-                        self.symbols_table.resolve_symbol(&hidden).ok_or_else(|| {
-                            CompileErrorKind::UndefinedVariable {
-                                name: hidden.clone(),
-                            }
-                            .at(span)
-                        })?;
+                    let hidden_sym = self.resolve_or_error(&hidden, span)?;
                     self.load_symbol(&hidden_sym, span);
                     self.emit(Opcode::GetField, &[i], span);
                 }
@@ -1360,15 +1291,7 @@ impl Compiler {
             }
             .at(span)
         })?;
-        let symbol = self
-            .symbols_table
-            .resolve_symbol(&qualified_name)
-            .ok_or_else(|| {
-                CompileErrorKind::UndefinedVariable {
-                    name: qualified_name,
-                }
-                .at(span)
-            })?;
+        let symbol = self.resolve_or_error(&qualified_name, span)?;
         self.load_symbol(&symbol, span);
         self.compile_expression(&mc.object)?;
         for arg in &mc.arguments {
@@ -1399,6 +1322,17 @@ impl Compiler {
                     .resolve_symbol(&candidate)
                     .map(|_| candidate)
             })
+    }
+
+    /// Resolves a symbol by name, returning an error if undefined.
+    fn resolve_or_error(&mut self, name: &str, span: Span) -> Result<Symbol> {
+        self.symbols_table.resolve_symbol(name).ok_or_else(|| {
+            CompileErrorKind::UndefinedVariable {
+                name: name.to_string(),
+            }
+            .at(span)
+            .into()
+        })
     }
 
     /// Attaches a span to a compile error that lacks one.
@@ -1500,18 +1434,7 @@ impl Compiler {
                 &method.body,
                 span,
             )?;
-            let symbol = match self.symbols_table.define_symbol(&qualified_name, false) {
-                Ok(s) => s,
-                Err(e) => return Err(self.attach_span(e, span)),
-            };
-            let (scope, index) = (symbol.scope, symbol.index);
-            match scope {
-                SymbolScope::Global => self.emit(Opcode::SetGlobal, &[index], span),
-                SymbolScope::Local => self.emit(Opcode::SetLocal, &[index], span),
-                SymbolScope::Builtin | SymbolScope::Free | SymbolScope::Function => {
-                    unreachable!("define_symbol never produces this scope")
-                }
-            };
+            self.define_and_set(&qualified_name, false, span)?;
         }
         Ok(())
     }
@@ -1593,9 +1516,7 @@ impl Compiler {
     fn add_instruction(&mut self, instruction: &[u8]) -> usize {
         let scope = &mut self.scopes[self.scope_index];
         let pos = scope.instructions.len();
-        scope
-            .instructions
-            .extend(&Instructions::from(instruction.to_vec()));
+        scope.instructions.extend_from_bytes(instruction);
         pos
     }
 

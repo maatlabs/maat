@@ -59,6 +59,11 @@ impl Instructions {
         self.0.extend_from_slice(&other.0);
     }
 
+    /// Appends raw bytes to this instruction sequence.
+    pub fn extend_from_bytes(&mut self, bytes: &[u8]) {
+        self.0.extend_from_slice(bytes);
+    }
+
     /// Replaces bytes in the instruction stream starting at `pos`.
     ///
     /// Used by the compiler to patch forward jump targets after

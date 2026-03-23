@@ -315,15 +315,16 @@ impl SymbolsTable {
     fn define_free(&mut self, original: Symbol) -> Symbol {
         let index = self.free_vars.len();
         let mutable = original.mutable;
+        let name = original.name.clone();
         self.free_vars.push(original);
 
         let symbol = Symbol {
-            name: self.free_vars[index].name.clone(),
+            name: name.clone(),
             scope: SymbolScope::Free,
             index,
             mutable,
         };
-        self.store.insert(symbol.name.clone(), symbol.clone());
+        self.store.insert(name, symbol.clone());
         symbol
     }
 }
