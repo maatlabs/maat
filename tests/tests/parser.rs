@@ -1026,3 +1026,61 @@ fn doc_comments() {
         "regular comments should not become doc comments"
     );
 }
+
+#[test]
+fn reserved_type_names() {
+    let cases = [
+        ("struct Option { x: i64 }", "Option"),
+        ("struct Result { x: i64 }", "Result"),
+        ("struct Vector { x: i64 }", "Vector"),
+        ("struct bool { x: i64 }", "bool"),
+        ("enum i64 { A, B }", "i64"),
+        ("enum Map { A, B }", "Map"),
+        ("trait str {}", "str"),
+        ("trait ParseIntError {}", "ParseIntError"),
+    ];
+    for (input, name) in cases {
+        let errs = maat_tests::parse_errors(input);
+        assert!(
+            errs.iter().any(|e| e.contains("reserved type name")),
+            "{name}: expected reserved type name error, got: {errs:?}"
+        );
+    }
+    // Valid user-defined types must still parse successfully.
+    let _ = parse("struct Foo { x: i64 }");
+    let _ = parse("enum Color { Red, Green }");
+    let _ = parse("trait Drawable {}");
+}
+
+#[test]
+fn reserved_keywords() {
+    let keyword_cases = [
+        ("let type = 5;", "type", "let binding"),
+        ("let const = 5;", "const", "let binding"),
+        ("let async = 5;", "async", "let binding"),
+        ("let static = true;", "static", "let binding"),
+        ("let yield = 1;", "yield", "let binding"),
+        ("fn type() { 1 }", "type", "function name"),
+        ("fn const() { 1 }", "const", "function name"),
+        ("fn await() { 1 }", "await", "function name"),
+        ("struct Foo { type: i64 }", "type", "struct field"),
+        ("struct Foo { static: bool }", "static", "struct field"),
+        ("for type in 0..5 { 1; }", "type", "for-loop variable"),
+        (
+            "fn foo(type: i64) -> i64 { type }",
+            "type",
+            "function parameter",
+        ),
+    ];
+    for (input, kw, ctx) in keyword_cases {
+        let errs = maat_tests::parse_errors(input);
+        assert!(
+            errs.iter().any(|e| e.contains("reserved keyword")),
+            "`{kw}` in {ctx}: expected reserved keyword error, got: {errs:?}"
+        );
+    }
+    // Valid identifiers must still work.
+    let _ = parse("let x = 5;");
+    let _ = parse("fn foo() { 1 }");
+    let _ = parse("for i in 0..5 { 1; }");
+}

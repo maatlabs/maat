@@ -9,7 +9,6 @@ mod transform;
 
 pub use fold::fold_constants;
 use maat_span::Span;
-use strum::{Display, EnumString, IntoStaticStr};
 pub use transform::{TransformFn, transform};
 
 /// Top-level AST node wrapper for all language items.
@@ -278,38 +277,58 @@ pub enum Radix {
 }
 
 /// Target integer type of a numeric literal.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, EnumString, IntoStaticStr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NumberKind {
-    #[strum(serialize = "i8")]
     I8,
-    #[strum(serialize = "i16")]
     I16,
-    #[strum(serialize = "i32")]
     I32,
-    #[strum(serialize = "i64")]
     I64,
-    #[strum(serialize = "i128")]
     I128,
-    #[strum(serialize = "isize")]
     Isize,
-    #[strum(serialize = "u8")]
     U8,
-    #[strum(serialize = "u16")]
     U16,
-    #[strum(serialize = "u32")]
     U32,
-    #[strum(serialize = "u64")]
     U64,
-    #[strum(serialize = "u128")]
     U128,
-    #[strum(serialize = "usize")]
     Usize,
 }
 
 impl NumberKind {
     /// Returns the type name as it appears in source code.
     pub fn as_str(self) -> &'static str {
-        self.into()
+        match self {
+            Self::I8 => "i8",
+            Self::I16 => "i16",
+            Self::I32 => "i32",
+            Self::I64 => "i64",
+            Self::I128 => "i128",
+            Self::Isize => "isize",
+            Self::U8 => "u8",
+            Self::U16 => "u16",
+            Self::U32 => "u32",
+            Self::U64 => "u64",
+            Self::U128 => "u128",
+            Self::Usize => "usize",
+        }
+    }
+
+    /// Parses a type suffix string into `Self`.
+    pub fn from_suffix(s: &str) -> Option<Self> {
+        match s {
+            "i8" => Some(Self::I8),
+            "i16" => Some(Self::I16),
+            "i32" => Some(Self::I32),
+            "i64" => Some(Self::I64),
+            "i128" => Some(Self::I128),
+            "isize" => Some(Self::Isize),
+            "u8" => Some(Self::U8),
+            "u16" => Some(Self::U16),
+            "u32" => Some(Self::U32),
+            "u64" => Some(Self::U64),
+            "u128" => Some(Self::U128),
+            "usize" => Some(Self::Usize),
+            _ => None,
+        }
     }
 
     /// Returns `true` if this is a signed integer kind.

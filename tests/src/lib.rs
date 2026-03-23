@@ -68,6 +68,16 @@ pub fn compile_raw(input: &str) -> Bytecode {
     compiler.bytecode().expect("bytecode extraction failed")
 }
 
+/// Parses the given source string, expecting parse errors.
+///
+/// Returns the error messages for assertion.
+pub fn parse_errors(input: &str) -> Vec<String> {
+    let lexer = MaatLexer::new(input);
+    let mut parser = MaatParser::new(lexer);
+    let _ = parser.parse();
+    parser.errors().iter().map(|e| e.message.clone()).collect()
+}
+
 /// Compiles the given source string, expecting type errors.
 ///
 /// Returns the type error messages for assertion.

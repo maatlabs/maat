@@ -22,8 +22,10 @@
 //! ```
 #![forbid(unsafe_code)]
 
-/// Implements Pratt-style perator precedence
+/// Implements Pratt-style operator precedence.
 mod prec;
+/// Reserved identifiers and type names.
+mod reserved;
 
 use std::cell::Cell;
 
@@ -32,7 +34,7 @@ use maat_errors::ParseError;
 use maat_lexer::{MaatLexer, Token, TokenKind};
 use maat_span::Span;
 use prec::{MIN_BP, Precedence};
-use winnow::error::{ContextError, ErrMode};
+use winnow::error::{ContextError, ErrMode, StrContext};
 use winnow::token::any;
 use winnow::{ModalResult, Parser as _};
 
@@ -97,6 +99,34 @@ fn collect_doc_comments<'src>(input: &mut &'src [Token<'src>]) -> Option<String>
         lines.push(tok.literal);
     }
     Some(lines.join("\n"))
+}
+
+/// Rejects an identifier if it collides with a reserved keyword.
+///
+/// Uses `ErrMode::Cut` so the parser surfaces the error immediately
+/// rather than attempting to backtrack.
+fn reject_reserved_ident(name: &str) -> ParseResult<()> {
+    if reserved::is_reserved_keyword(name) {
+        let mut err = ContextError::new();
+        err.push(StrContext::Label("reserved keyword"));
+        Err(ErrMode::Cut(err))
+    } else {
+        Ok(())
+    }
+}
+
+/// Rejects a type name if it collides with a builtin type.
+///
+/// Uses `ErrMode::Cut` so the parser surfaces the error immediately
+/// rather than attempting to backtrack.
+fn reject_reserved_type_name(name: &str) -> ParseResult<()> {
+    if reserved::is_reserved_type_name(name) {
+        let mut err = ContextError::new();
+        err.push(StrContext::Label("reserved type name"));
+        Err(ErrMode::Cut(err))
+    } else {
+        Ok(())
+    }
 }
 
 /// A combinator-based parser that builds an AST from a token stream.
@@ -379,6 +409,7 @@ fn parse_let_stmt<'src>(
     let start = parse(input, TokenKind::Let)?.span;
     let mutable = parse_peek(input, TokenKind::Mut).is_some();
     let ident_tok = parse(input, TokenKind::Ident)?;
+    reject_reserved_ident(ident_tok.literal)?;
     let ident = ident_tok.literal.to_string();
 
     let type_annotation = if peek(input) == TokenKind::Colon {
@@ -1064,10 +1095,8 @@ fn parse_cast_expression<'src>(input: &mut &'src [Token<'src>], lhs: Expr) -> Pa
     let start = lhs.span();
     let type_tok = parse(input, TokenKind::Ident)?;
     let end = type_tok.span;
-    let target: NumberKind = type_tok
-        .literal
-        .parse()
-        .map_err(|_| ErrMode::Backtrack(ContextError::new()))?;
+    let target: NumberKind = NumberKind::from_suffix(type_tok.literal)
+        .ok_or_else(|| ErrMode::Backtrack(ContextError::new()))?;
 
     Ok(Expr::Cast(CastExpr {
         expr: Box::new(lhs),
@@ -1376,7 +1405,9 @@ fn parse_for_stmt<'src>(
     label: Option<String>,
 ) -> ParseResult<ForStmt> {
     let start = parse(input, TokenKind::For)?.span;
-    let ident = parse(input, TokenKind::Ident)?.literal.to_string();
+    let ident_tok = parse(input, TokenKind::Ident)?;
+    reject_reserved_ident(ident_tok.literal)?;
+    let ident = ident_tok.literal.to_string();
     parse(input, TokenKind::In)?;
     let iterable = Box::new(parse_expression(input, MIN_BP, depth)?);
     parse(input, TokenKind::LBrace)?;
@@ -1400,7 +1431,9 @@ fn parse_struct_decl<'src>(
 ) -> ParseResult<StructDecl> {
     let _ = depth;
     let start = parse(input, TokenKind::Struct)?.span;
-    let name = parse(input, TokenKind::Ident)?.literal.to_string();
+    let name_tok = parse(input, TokenKind::Ident)?;
+    reject_reserved_type_name(name_tok.literal)?;
+    let name = name_tok.literal.to_string();
 
     let generic_params = if peek(input) == TokenKind::Less {
         any.parse_next(input)?; // consume `<`
@@ -1437,7 +1470,9 @@ fn parse_struct_field<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<Stru
         .ok_or(ErrMode::Backtrack(ContextError::new()))?;
     let start = start_tok.span;
     let is_public = parse_peek(input, TokenKind::Pub).is_some();
-    let name = parse(input, TokenKind::Ident)?.literal.to_string();
+    let name_tok = parse(input, TokenKind::Ident)?;
+    reject_reserved_ident(name_tok.literal)?;
+    let name = name_tok.literal.to_string();
     parse(input, TokenKind::Colon)?;
     let ty = parse_type_expr(input)?;
     let end = ty.span();
@@ -1459,7 +1494,9 @@ fn parse_enum_decl<'src>(
     doc: Option<String>,
 ) -> ParseResult<EnumDecl> {
     let start = parse(input, TokenKind::Enum)?.span;
-    let name = parse(input, TokenKind::Ident)?.literal.to_string();
+    let name_tok = parse(input, TokenKind::Ident)?;
+    reject_reserved_type_name(name_tok.literal)?;
+    let name = name_tok.literal.to_string();
 
     let generic_params = if peek(input) == TokenKind::Less {
         any.parse_next(input)?;
@@ -1541,7 +1578,9 @@ fn parse_trait_decl<'src>(
     doc: Option<String>,
 ) -> ParseResult<TraitDecl> {
     let start = parse(input, TokenKind::Trait)?.span;
-    let name = parse(input, TokenKind::Ident)?.literal.to_string();
+    let name_tok = parse(input, TokenKind::Ident)?;
+    reject_reserved_type_name(name_tok.literal)?;
+    let name = name_tok.literal.to_string();
 
     let generic_params = if peek(input) == TokenKind::Less {
         any.parse_next(input)?;
@@ -1718,7 +1757,9 @@ fn parse_fn_declaration<'src>(
     doc: Option<String>,
 ) -> ParseResult<FuncDef> {
     let start = parse(input, TokenKind::Fn)?.span;
-    let name = parse(input, TokenKind::Ident)?.literal.to_string();
+    let name_tok = parse(input, TokenKind::Ident)?;
+    reject_reserved_ident(name_tok.literal)?;
+    let name = name_tok.literal.to_string();
 
     let generic_params = if peek(input) == TokenKind::Less {
         any.parse_next(input)?;
@@ -1783,14 +1824,18 @@ fn parse_parameters<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<Vec<St
         return Ok(identifiers);
     }
 
-    identifiers.push(parse(input, TokenKind::Ident)?.literal.to_string());
+    let tok = parse(input, TokenKind::Ident)?;
+    reject_reserved_ident(tok.literal)?;
+    identifiers.push(tok.literal.to_string());
 
     while peek(input) == TokenKind::Comma {
         any.parse_next(input)?; // consume `,`
         if peek(input) == TokenKind::RParen {
             break;
         }
-        identifiers.push(parse(input, TokenKind::Ident)?.literal.to_string());
+        let tok = parse(input, TokenKind::Ident)?;
+        reject_reserved_ident(tok.literal)?;
+        identifiers.push(tok.literal.to_string());
     }
 
     parse(input, TokenKind::RParen)?;
@@ -1824,6 +1869,7 @@ fn parse_typed_parameters<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<
 /// Parses a single typed parameter: `name[: Type]`.
 fn parse_typed_param<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<TypedParam> {
     let tok = parse(input, TokenKind::Ident)?;
+    reject_reserved_ident(tok.literal)?;
     let start = tok.span;
     let name = tok.literal.to_string();
 

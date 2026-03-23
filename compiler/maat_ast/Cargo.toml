@@ -6,6 +6,5 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-strum = { version = "0.28", features = ["derive"] }
 maat_span = { path = "../maat_span" }
 maat_errors = { path = "../maat_errors" }

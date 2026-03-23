@@ -141,13 +141,15 @@ fn structs() {
 
 #[test]
 fn enums() {
-    assert_type_error_contains(
-        "duplicate type definition",
-        "enum Option<T> { Some(T), None }",
+    let errs = maat_tests::parse_errors("enum Option<T> { Some(T), None }");
+    assert!(
+        errs.iter().any(|e| e.contains("reserved type name")),
+        "expected reserved type name error for Option, got: {errs:?}"
     );
-    assert_type_error_contains(
-        "duplicate type definition",
-        "enum Result<T, E> { Ok(T), Err(E) }",
+    let errs = maat_tests::parse_errors("enum Result<T, E> { Ok(T), Err(E) }");
+    assert!(
+        errs.iter().any(|e| e.contains("reserved type name")),
+        "expected reserved type name error for Result, got: {errs:?}"
     );
     run_i64(
         "enum Color { Red, Green, Blue }
