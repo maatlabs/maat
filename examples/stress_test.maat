@@ -3,13 +3,15 @@
 
 use std::math::gcd;
 
-// Graph node with adjacency list representation
+/// An undirected graph stored as an adjacency list.
 struct Graph {
+    /// The number of nodes in the graph.
     size: i64,
+    /// Adjacency lists indexed by node.
     edges: [[i64]],
 }
 
-// Build an adjacency list from a list of (from, to) edge pairs
+/// Builds an adjacency list from a list of [from, to] edge pairs.
 fn build_graph(size: i64, edge_pairs: [[i64]]) -> Graph {
     fn init_adj(n: i64, acc: [[i64]]) -> [[i64]] {
         if (n == 0) {
@@ -40,12 +42,15 @@ fn build_graph(size: i64, edge_pairs: [[i64]]) -> Graph {
     Graph { size: size, edges: adj }
 }
 
-// Depth-first search: returns visited set and traversal order
+/// The result of a depth-first traversal.
 struct DfsResult {
+    /// The set of visited node indices.
     visited: Set,
+    /// The nodes in the order they were first visited.
     order: [i64],
 }
 
+/// Performs a depth-first search starting from the given node.
 fn dfs(graph: Graph, start: i64) -> DfsResult {
     fn go(graph: Graph, node: i64, visited: Set, order: [i64]) -> DfsResult {
         if (visited.contains(node)) {
@@ -144,14 +149,19 @@ fn chain_ops(values: [i64]) -> Result<i64, str> {
 print(match chain_ops([100, 5, 3, 2]) { Ok(v) => v, Err(e) => -1 });
 print(match chain_ops([100, 0, 3]) { Ok(v) => v, Err(e) => -1 });
 
-// Enum-based expression evaluator (mini calculator)
+/// A simple arithmetic expression for the mini calculator.
 enum CalcExpr {
+    /// A literal number.
     Num(i64),
+    /// Addition of two operands.
     Add(i64, i64),
+    /// Multiplication of two operands.
     Mul(i64, i64),
+    /// Negation of a single operand.
     Neg(i64),
 }
 
+/// Evaluates a CalcExpr and returns the result.
 fn eval_calc(expr: CalcExpr) -> i64 {
     match expr {
         Num(n) => n,
@@ -186,12 +196,13 @@ let batch = [5, 3, 8, 3, 1, 5, 9, 1, 8, 7];
 let stats = process_batch(batch);
 print(stats);
 
-// Nested struct with complex match
+/// A pair of optional integer values.
 struct Pair {
     left: Option<i64>,
     right: Option<i64>,
 }
 
+/// Sums the two optional values, defaulting absent values to zero.
 fn combine_pair(p: Pair) -> i64 {
     let l = match p.left { Some(v) => v, None => 0 };
     let r = match p.right { Some(v) => v, None => 0 };
@@ -211,7 +222,7 @@ print(combine_pair(Pair {
     right: None,
 }));
 
-// Deep recursion: compute Collatz sequence length
+/// Returns the number of steps in the Collatz sequence starting from `n`.
 fn collatz_length(n: i64) -> i64 {
     fn go(n: i64, steps: i64) -> i64 {
         if (n == 1) {

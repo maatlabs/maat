@@ -11,7 +11,7 @@
 mod num;
 mod token;
 
-use logos::{Lexer, Logos, Skip};
+use logos::{Filter, Lexer, Logos, Skip};
 use maat_span::Span;
 use num::{NumSuffix, NumToken};
 pub use token::{Token, TokenKind};
@@ -117,6 +117,7 @@ impl<'src> MaatLexer<'src> {
             }
             RawToken::Ident => Token::new(TokenKind::Ident, cur_tok, maat_span),
             RawToken::Label => Token::new(TokenKind::Label, &cur_tok[1..], maat_span),
+            RawToken::DocComment => Token::new(TokenKind::DocComment, &cur_tok[3..], maat_span),
             other => Token::new(other.to_token_kind(), cur_tok, maat_span),
         }
     }
@@ -267,7 +268,9 @@ enum RawToken {
     #[token("]")]
     RBracket,
 
-    #[regex(r"//[^\n]*", |_| Skip, allow_greedy = true)]
+    #[regex(r"//[^\n]*", lex_line_comment, allow_greedy = true)]
+    DocComment,
+
     #[token("/*", skip_block_comment)]
     Comment,
 
@@ -362,10 +365,25 @@ impl RawToken {
             Self::LBracket => TokenKind::LBracket,
             Self::RBracket => TokenKind::RBracket,
 
-            Self::Comment | Self::String | Self::Number(_) | Self::Ident | Self::Label => {
+            Self::Comment
+            | Self::DocComment
+            | Self::String
+            | Self::Number(_)
+            | Self::Ident
+            | Self::Label => {
                 unreachable!()
             }
         }
+    }
+}
+
+/// Distinguishes documentation comments (`///`) from regular line comments (`//`).
+fn lex_line_comment(src: &mut Lexer<'_, RawToken>) -> Filter<()> {
+    let slice = src.slice();
+    if slice.starts_with("///") && !slice.starts_with("////") {
+        Filter::Emit(())
+    } else {
+        Filter::Skip
     }
 }
 

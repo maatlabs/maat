@@ -361,6 +361,7 @@ fn function_display() {
             span: span(),
         },
         is_public: false,
+        doc: None,
         span: span(),
     };
     assert_eq!(

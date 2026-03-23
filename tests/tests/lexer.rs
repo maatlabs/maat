@@ -536,3 +536,62 @@ fn range_tokens() {
         assert_eq!(token.literal, *literal, "tests[{i}]: literal mismatch");
     }
 }
+
+#[test]
+fn doc_comments() {
+    // simple doc comment
+    let source = "/// A documented function\nfn foo() {}";
+    let mut lexer = MaatLexer::new(source);
+
+    let comment = lexer.next_token();
+    assert_eq!(comment.kind, TokenKind::DocComment);
+    assert_eq!(comment.literal, " A documented function");
+    assert_eq!(lexer.next_token().kind, TokenKind::Fn);
+    assert_eq!(lexer.next_token().kind, TokenKind::Ident);
+
+    // consecutive
+    let source = "/// Line one\n/// Line two\nlet x = 1;";
+    let mut lexer = MaatLexer::new(source);
+
+    let first = lexer.next_token();
+    assert_eq!(first.kind, TokenKind::DocComment);
+    assert_eq!(first.literal, " Line one");
+
+    let second = lexer.next_token();
+    assert_eq!(second.kind, TokenKind::DocComment);
+    assert_eq!(second.literal, " Line two");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Let);
+
+    // empty line
+    let source = "///\nfn foo() {}";
+    let mut lexer = MaatLexer::new(source);
+
+    let doc = lexer.next_token();
+    assert_eq!(doc.kind, TokenKind::DocComment);
+    assert_eq!(doc.literal, "");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Fn);
+
+    // four forward slashes is a regular comment
+    let source = "//// not a doc comment\nfn foo() {}";
+    let mut lexer = MaatLexer::new(source);
+
+    let tok = lexer.next_token();
+    assert_eq!(
+        tok.kind,
+        TokenKind::Fn,
+        "four slashes should be skipped as a regular comment"
+    );
+
+    // regular comment are still skipped
+    let source = "// regular comment\nlet x = 1;";
+    let mut lexer = MaatLexer::new(source);
+
+    let tok = lexer.next_token();
+    assert_eq!(
+        tok.kind,
+        TokenKind::Let,
+        "regular comments should be skipped"
+    );
+}

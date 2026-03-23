@@ -1,14 +1,14 @@
-// Absolute value. Returns the non-negative magnitude of `x`.
+/// Returns the non-negative magnitude of `x`.
 pub fn abs(x: i64) -> i64 {
     if (x < 0) { -x } else { x }
 }
 
-// Returns the smaller of two values.
+/// Returns the smaller of two values.
 pub fn min(a: i64, b: i64) -> i64 {
     if (a < b) { a } else { b }
 }
 
-// Returns the larger of two values.
+/// Returns the larger of two values.
 pub fn max(a: i64, b: i64) -> i64 {
     if (a > b) { a } else { b }
 }
@@ -26,8 +26,8 @@ fn pow_helper(acc: i64, b: i64, e: i64) -> i64 {
     }
 }
 
-// Raises `base` to the power of `exp` using binary exponentiation.
-// Returns 0 for negative exponents (integer division truncates toward zero).
+/// Raises `base` to the power of `exp` using binary exponentiation.
+/// Returns 0 for negative exponents (integer division truncates toward zero).
 pub fn pow(base: i64, exp: i64) -> i64 {
     if (exp < 0) {
         0
@@ -44,12 +44,12 @@ fn gcd_helper(x: i64, y: i64) -> i64 {
     }
 }
 
-// Greatest common divisor via the Euclidean algorithm.
+/// Greatest common divisor via the Euclidean algorithm.
 pub fn gcd(a: i64, b: i64) -> i64 {
     gcd_helper(abs(a), abs(b))
 }
 
-// Least common multiple. Returns 0 if either argument is 0.
+/// Least common multiple. Returns 0 if either argument is 0.
 pub fn lcm(a: i64, b: i64) -> i64 {
     if (a == 0) {
         0

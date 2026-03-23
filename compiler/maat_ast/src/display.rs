@@ -195,6 +195,7 @@ impl fmt::Display for CondExpr {
 
 impl fmt::Display for FuncDef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_doc_comment(f, &self.doc)?;
         let params = self
             .params
             .iter()
@@ -339,6 +340,7 @@ impl fmt::Display for ContinueExpr {
 
 impl fmt::Display for StructDecl {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_doc_comment(f, &self.doc)?;
         let vis = visibility_modifier(self.is_public);
         let generics = fmt_generic_params(&self.generic_params);
         write!(f, "{vis}struct {}{generics}", self.name)?;
@@ -356,6 +358,7 @@ impl fmt::Display for StructDecl {
 
 impl fmt::Display for StructField {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_doc_comment(f, &self.doc)?;
         let vis = visibility_modifier(self.is_public);
         write!(f, "{vis}{}: {}", self.name, self.ty)
     }
@@ -363,6 +366,7 @@ impl fmt::Display for StructField {
 
 impl fmt::Display for EnumDecl {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_doc_comment(f, &self.doc)?;
         let vis = visibility_modifier(self.is_public);
         let generics = fmt_generic_params(&self.generic_params);
         write!(f, "{vis}enum {}{generics}", self.name)?;
@@ -380,6 +384,7 @@ impl fmt::Display for EnumDecl {
 
 impl fmt::Display for EnumVariant {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_doc_comment(f, &self.doc)?;
         write!(f, "{}{}", self.name, self.kind)
     }
 }
@@ -411,6 +416,7 @@ impl fmt::Display for EnumVariantKind {
 
 impl fmt::Display for TraitDecl {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_doc_comment(f, &self.doc)?;
         let vis = visibility_modifier(self.is_public);
         let generics = fmt_generic_params(&self.generic_params);
         write!(f, "{vis}trait {}{generics}", self.name)?;
@@ -428,6 +434,7 @@ impl fmt::Display for TraitDecl {
 
 impl fmt::Display for TraitMethod {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_doc_comment(f, &self.doc)?;
         let generics = fmt_generic_params(&self.generic_params);
         let params = self
             .params
@@ -449,6 +456,7 @@ impl fmt::Display for TraitMethod {
 
 impl fmt::Display for ImplBlock {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_doc_comment(f, &self.doc)?;
         let generics = fmt_generic_params(&self.generic_params);
         match &self.trait_name {
             Some(t) => write!(f, "impl{generics} {t} for {}", self.self_type)?,
@@ -588,6 +596,7 @@ impl fmt::Display for UseStmt {
 
 impl fmt::Display for ModStmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt_doc_comment(f, &self.doc)?;
         let vis = visibility_modifier(self.is_public);
         match &self.body {
             Some(body) => {
@@ -665,6 +674,19 @@ impl fmt::Display for TraitBound {
 #[inline]
 fn visibility_modifier(vis: bool) -> &'static str {
     if vis { "pub " } else { "" }
+}
+
+/// Renders documentation comment lines (`///`) above the item.
+///
+/// Each line of the stored doc string is emitted as a separate `///` line,
+/// reconstructing the original source form.
+fn fmt_doc_comment(f: &mut fmt::Formatter<'_>, doc: &Option<String>) -> fmt::Result {
+    if let Some(text) = doc {
+        for line in text.lines() {
+            writeln!(f, "///{line}")?;
+        }
+    }
+    Ok(())
 }
 
 /// Formats a generic parameter list as `<T, U: Bound>`, or an empty string if empty.

@@ -104,6 +104,7 @@ pub struct FuncDef {
     pub return_type: Option<TypeExpr>,
     pub body: BlockStmt,
     pub is_public: bool,
+    pub doc: Option<String>,
     pub span: Span,
 }
 
@@ -459,6 +460,7 @@ pub struct StructDecl {
     pub generic_params: Vec<GenericParam>,
     pub fields: Vec<StructField>,
     pub is_public: bool,
+    pub doc: Option<String>,
     pub span: Span,
 }
 
@@ -469,6 +471,7 @@ pub struct StructField {
     pub name: String,
     pub ty: TypeExpr,
     pub is_public: bool,
+    pub doc: Option<String>,
     pub span: Span,
 }
 
@@ -479,6 +482,7 @@ pub struct EnumDecl {
     pub generic_params: Vec<GenericParam>,
     pub variants: Vec<EnumVariant>,
     pub is_public: bool,
+    pub doc: Option<String>,
     pub span: Span,
 }
 
@@ -487,6 +491,7 @@ pub struct EnumDecl {
 pub struct EnumVariant {
     pub name: String,
     pub kind: EnumVariantKind,
+    pub doc: Option<String>,
     pub span: Span,
 }
 
@@ -508,6 +513,7 @@ pub struct TraitDecl {
     pub generic_params: Vec<GenericParam>,
     pub methods: Vec<TraitMethod>,
     pub is_public: bool,
+    pub doc: Option<String>,
     pub span: Span,
 }
 
@@ -519,6 +525,7 @@ pub struct TraitMethod {
     pub params: Vec<TypedParam>,
     pub return_type: Option<TypeExpr>,
     pub default_body: Option<BlockStmt>,
+    pub doc: Option<String>,
     pub span: Span,
 }
 
@@ -530,6 +537,7 @@ pub struct ImplBlock {
     pub self_type: TypeExpr,
     pub generic_params: Vec<GenericParam>,
     pub methods: Vec<FuncDef>,
+    pub doc: Option<String>,
     pub span: Span,
 }
 
@@ -558,6 +566,7 @@ pub struct ModStmt {
     /// The inline body, if present. `None` means an external file module (`mod foo;`).
     pub body: Option<Vec<Stmt>>,
     pub is_public: bool,
+    pub doc: Option<String>,
     pub span: Span,
 }
 

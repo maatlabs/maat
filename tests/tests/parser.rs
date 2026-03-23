@@ -969,3 +969,60 @@ fn parse_struct_update_syntax() {
     assert_eq!(lit.fields.len(), 2);
     assert!(lit.base.is_none());
 }
+
+#[test]
+fn doc_comments() {
+    // on functions
+    let program = parse("/// Adds two numbers\npub fn add(x: i64, y: i64) -> i64 { x + y }");
+    let Stmt::FuncDef(func) = expect_single_stmt(&program) else {
+        panic!("expected FuncDef");
+    };
+    assert_eq!(func.doc.as_deref(), Some(" Adds two numbers"));
+    assert_eq!(func.name, "add");
+
+    // multi-line
+    let program = parse("/// Line one\n/// Line two\nfn foo() { 1 }");
+    let Stmt::FuncDef(func) = expect_single_stmt(&program) else {
+        panic!("expected FuncDef");
+    };
+    assert_eq!(func.doc.as_deref(), Some(" Line one\n Line two"));
+
+    // on structs
+    let program = parse("/// A point in 2D space\nstruct Point { x: i64, y: i64 }");
+    let Stmt::StructDecl(decl) = expect_single_stmt(&program) else {
+        panic!("expected StructDecl");
+    };
+    assert_eq!(decl.doc.as_deref(), Some(" A point in 2D space"));
+    assert_eq!(decl.name, "Point");
+
+    // on enums
+    let program = parse("/// Represents a color\nenum Color { Red, Green, Blue }");
+    let Stmt::EnumDecl(decl) = expect_single_stmt(&program) else {
+        panic!("expected EnumDecl");
+    };
+    assert_eq!(decl.doc.as_deref(), Some(" Represents a color"));
+
+    // on traits
+    let program = parse("/// A printable trait\ntrait Display { fn display(self) -> str; }");
+    let Stmt::TraitDecl(decl) = expect_single_stmt(&program) else {
+        panic!("expected TraitDecl");
+    };
+    assert_eq!(decl.doc.as_deref(), Some(" A printable trait"));
+
+    // no doc comment
+    let program = parse("fn bare() { 1 }");
+    let Stmt::FuncDef(func) = expect_single_stmt(&program) else {
+        panic!("expected FuncDef");
+    };
+    assert!(func.doc.is_none());
+
+    // regular comment
+    let program = parse("// just a comment\nfn bare() { 1 }");
+    let Stmt::FuncDef(func) = expect_single_stmt(&program) else {
+        panic!("expected FuncDef");
+    };
+    assert!(
+        func.doc.is_none(),
+        "regular comments should not become doc comments"
+    );
+}

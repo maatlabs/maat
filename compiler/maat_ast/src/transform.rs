@@ -16,7 +16,7 @@ pub type TransformFn<'a> = &'a mut dyn FnMut(Node) -> Node;
 /// # Examples
 ///
 /// ```
-/// use maat_ast::{ast::*, transform};
+/// use maat_ast::*;
 /// use maat_span::Span;
 ///
 /// // Double all i64 integer values

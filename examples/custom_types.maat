@@ -1,16 +1,21 @@
 // Structs, methods, enums, Option/Result, match, and traits.
 
-// Struct with methods
+/// A two-dimensional vector with integer components.
 struct Vec2 {
+    /// The horizontal component.
     x: i64,
+    /// The vertical component.
     y: i64,
 }
 
+/// Methods for two-dimensional vector arithmetic.
 impl Vec2 {
+    /// Returns the squared Euclidean magnitude.
     fn magnitude_squared(self) -> i64 {
         self.x * self.x + self.y * self.y
     }
 
+    /// Returns the component-wise sum of two vectors.
     fn add(self, other: Vec2) -> Vec2 {
         Vec2 {
             x: self.x + other.x,
@@ -18,6 +23,7 @@ impl Vec2 {
         }
     }
 
+    /// Multiplies each component by the given scalar.
     fn scale(self, factor: i64) -> Vec2 {
         Vec2 {
             x: self.x * factor,
@@ -37,13 +43,17 @@ let scaled = v1.scale(3);
 print(scaled.x);
 print(scaled.y);
 
-// Enum with tuple variants
+/// A geometric shape.
 enum Shape {
+    /// A circle defined by its radius.
     Circle(i64),
+    /// A rectangle defined by width and height.
     Rect(i64, i64),
+    /// A triangle defined by three side lengths.
     Triangle(i64, i64, i64),
 }
 
+/// Computes the perimeter of a shape.
 fn perimeter(s: Shape) -> i64 {
     match s {
         Circle(r) => 2 * 314 * r / 100,
@@ -100,27 +110,35 @@ fn add_opt(a: Option<i64>, b: Option<i64>) -> Option<i64> {
 print(match add_opt(Some(10), Some(20)) { Some(v) => v, None => -1 });
 print(match add_opt(Some(10), None) { Some(v) => v, None => -1 });
 
-// Trait definition and implementation
+/// A trait for types that can produce a numeric description.
 trait Describable {
+    /// Returns a numeric descriptor (e.g., area) for this value.
     fn describe(self) -> i64;
 }
 
+/// A circle defined by its radius.
 struct Circle {
+    /// The radius of the circle.
     radius: i64,
 }
 
+/// A rectangle defined by width and height.
 struct Rectangle {
+    /// The horizontal extent.
     width: i64,
+    /// The vertical extent.
     height: i64,
 }
 
 impl Describable for Circle {
+    /// Returns the approximate area (314 * r^2 / 100).
     fn describe(self) -> i64 {
         self.radius * self.radius * 314 / 100
     }
 }
 
 impl Describable for Rectangle {
+    /// Returns the area (width * height).
     fn describe(self) -> i64 {
         self.width * self.height
     }

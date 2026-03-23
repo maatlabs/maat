@@ -232,6 +232,9 @@ pub enum TokenKind {
     /// The inclusive range operator `..=` for closed ranges.
     DotDotEqual,
 
+    /// A documentation comment (`///`).
+    DocComment,
+
     /// An invalid or unrecognized token.
     Invalid,
     /// End of file marker.

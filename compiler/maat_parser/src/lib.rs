@@ -83,6 +83,22 @@ fn is_compound_assign(kind: TokenKind) -> bool {
     )
 }
 
+/// Collects consecutive documentation comment tokens into a single doc string.
+///
+/// Each `///` line becomes one line in the resulting string. Returns `None`
+/// if no doc comment tokens are present at the current position.
+fn collect_doc_comments<'src>(input: &mut &'src [Token<'src>]) -> Option<String> {
+    if peek(input) != TokenKind::DocComment {
+        return None;
+    }
+    let mut lines = Vec::new();
+    while peek(input) == TokenKind::DocComment {
+        let tok = any::<_, ContextError>.parse_next(input).ok()?;
+        lines.push(tok.literal);
+    }
+    Some(lines.join("\n"))
+}
+
 /// A combinator-based parser that builds an AST from a token stream.
 ///
 /// Tokens are eagerly collected from the [`MaatLexer`] into a contiguous slice,
@@ -202,14 +218,16 @@ fn parse_statement<'src>(
     input: &mut &'src [Token<'src>],
     depth: &Cell<usize>,
 ) -> ParseResult<Stmt> {
+    let doc = collect_doc_comments(input);
+
     match peek(input) {
-        TokenKind::Pub => parse_pub_item(input, depth),
+        TokenKind::Pub => parse_pub_item(input, depth, doc),
         TokenKind::Use => parse_use_stmt(input, false).map(Stmt::Use),
-        TokenKind::Mod => parse_mod_stmt(input, depth, false).map(Stmt::Mod),
+        TokenKind::Mod => parse_mod_stmt(input, depth, false, doc).map(Stmt::Mod),
         TokenKind::Let => parse_let_stmt(input, depth).map(Stmt::Let),
         TokenKind::Return => parse_return_stmt(input, depth).map(Stmt::Return),
         TokenKind::Fn if peek_at(input, 1) == TokenKind::Ident => {
-            parse_fn_declaration(input, depth, false).map(Stmt::FuncDef)
+            parse_fn_declaration(input, depth, false, doc).map(Stmt::FuncDef)
         }
         TokenKind::Label
             if matches!(peek_at(input, 1), TokenKind::Colon)
@@ -223,10 +241,10 @@ fn parse_statement<'src>(
         TokenKind::Loop => parse_loop_stmt(input, depth, None).map(Stmt::Loop),
         TokenKind::While => parse_while_stmt(input, depth, None).map(Stmt::While),
         TokenKind::For => parse_for_stmt(input, depth, None).map(Stmt::For),
-        TokenKind::Struct => parse_struct_decl(input, depth, false).map(Stmt::StructDecl),
-        TokenKind::Enum => parse_enum_decl(input, depth, false).map(Stmt::EnumDecl),
-        TokenKind::Trait => parse_trait_decl(input, depth, false).map(Stmt::TraitDecl),
-        TokenKind::Impl => parse_impl_block(input, depth).map(Stmt::ImplBlock),
+        TokenKind::Struct => parse_struct_decl(input, depth, false, doc).map(Stmt::StructDecl),
+        TokenKind::Enum => parse_enum_decl(input, depth, false, doc).map(Stmt::EnumDecl),
+        TokenKind::Trait => parse_trait_decl(input, depth, false, doc).map(Stmt::TraitDecl),
+        TokenKind::Impl => parse_impl_block(input, depth, doc).map(Stmt::ImplBlock),
         TokenKind::Ident if is_compound_assign(peek_at(input, 1)) => {
             parse_compound_assignment(input, depth).map(Stmt::ReAssign)
         }
@@ -238,16 +256,20 @@ fn parse_statement<'src>(
 }
 
 /// Parses a `pub`-prefixed item.
-fn parse_pub_item<'src>(input: &mut &'src [Token<'src>], depth: &Cell<usize>) -> ParseResult<Stmt> {
+fn parse_pub_item<'src>(
+    input: &mut &'src [Token<'src>],
+    depth: &Cell<usize>,
+    doc: Option<String>,
+) -> ParseResult<Stmt> {
     any.parse_next(input)?; // consume `pub`
     match peek(input) {
         TokenKind::Fn if peek_at(input, 1) == TokenKind::Ident => {
-            parse_fn_declaration(input, depth, true).map(Stmt::FuncDef)
+            parse_fn_declaration(input, depth, true, doc).map(Stmt::FuncDef)
         }
-        TokenKind::Struct => parse_struct_decl(input, depth, true).map(Stmt::StructDecl),
-        TokenKind::Enum => parse_enum_decl(input, depth, true).map(Stmt::EnumDecl),
-        TokenKind::Trait => parse_trait_decl(input, depth, true).map(Stmt::TraitDecl),
-        TokenKind::Mod => parse_mod_stmt(input, depth, true).map(Stmt::Mod),
+        TokenKind::Struct => parse_struct_decl(input, depth, true, doc).map(Stmt::StructDecl),
+        TokenKind::Enum => parse_enum_decl(input, depth, true, doc).map(Stmt::EnumDecl),
+        TokenKind::Trait => parse_trait_decl(input, depth, true, doc).map(Stmt::TraitDecl),
+        TokenKind::Mod => parse_mod_stmt(input, depth, true, doc).map(Stmt::Mod),
         TokenKind::Use => parse_use_stmt(input, true).map(Stmt::Use),
         _ => Err(ErrMode::Backtrack(ContextError::new())),
     }
@@ -316,6 +338,7 @@ fn parse_mod_stmt<'src>(
     input: &mut &'src [Token<'src>],
     depth: &Cell<usize>,
     is_public: bool,
+    doc: Option<String>,
 ) -> ParseResult<ModStmt> {
     let start = parse(input, TokenKind::Mod)?.span;
     let name_tok = parse(input, TokenKind::Ident)?;
@@ -332,6 +355,7 @@ fn parse_mod_stmt<'src>(
             name,
             body: Some(body),
             is_public,
+            doc,
             span: start.merge(end),
         })
     } else {
@@ -341,6 +365,7 @@ fn parse_mod_stmt<'src>(
             name,
             body: None,
             is_public,
+            doc,
             span: start.merge(end),
         })
     }
@@ -1362,6 +1387,7 @@ fn parse_struct_decl<'src>(
     input: &mut &'src [Token<'src>],
     depth: &Cell<usize>,
     is_public: bool,
+    doc: Option<String>,
 ) -> ParseResult<StructDecl> {
     let _ = depth;
     let start = parse(input, TokenKind::Struct)?.span;
@@ -1389,12 +1415,14 @@ fn parse_struct_decl<'src>(
         generic_params,
         fields,
         is_public,
+        doc,
         span: start.merge(end),
     })
 }
 
-/// Parses a single struct field: `[pub] name: Type`.
+/// Parses a single struct field: `[/// doc] [pub] name: Type`.
 fn parse_struct_field<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<StructField> {
+    let doc = collect_doc_comments(input);
     let start_tok = input
         .first()
         .ok_or(ErrMode::Backtrack(ContextError::new()))?;
@@ -1409,6 +1437,7 @@ fn parse_struct_field<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<Stru
         name,
         ty,
         is_public,
+        doc,
         span: start.merge(end),
     })
 }
@@ -1418,6 +1447,7 @@ fn parse_enum_decl<'src>(
     input: &mut &'src [Token<'src>],
     _depth: &Cell<usize>,
     is_public: bool,
+    doc: Option<String>,
 ) -> ParseResult<EnumDecl> {
     let start = parse(input, TokenKind::Enum)?.span;
     let name = parse(input, TokenKind::Ident)?.literal.to_string();
@@ -1444,12 +1474,14 @@ fn parse_enum_decl<'src>(
         generic_params,
         variants,
         is_public,
+        doc,
         span: start.merge(end),
     })
 }
 
-/// Parses a single enum variant: `Name`, `Name(T)`, or `Name { field: T }`.
+/// Parses a single enum variant: `[/// doc] Name`, `Name(T)`, or `Name { field: T }`.
 fn parse_enum_variant<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<EnumVariant> {
+    let doc = collect_doc_comments(input);
     let name_tok = parse(input, TokenKind::Ident)?;
     let start = name_tok.span;
     let name = name_tok.literal.to_string();
@@ -1487,6 +1519,7 @@ fn parse_enum_variant<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<Enum
     Ok(EnumVariant {
         name,
         kind,
+        doc,
         span: start.merge(end),
     })
 }
@@ -1496,6 +1529,7 @@ fn parse_trait_decl<'src>(
     input: &mut &'src [Token<'src>],
     depth: &Cell<usize>,
     is_public: bool,
+    doc: Option<String>,
 ) -> ParseResult<TraitDecl> {
     let start = parse(input, TokenKind::Trait)?.span;
     let name = parse(input, TokenKind::Ident)?.literal.to_string();
@@ -1510,8 +1544,9 @@ fn parse_trait_decl<'src>(
     parse(input, TokenKind::LBrace)?;
     let mut methods = Vec::new();
     while peek(input) != TokenKind::RBrace && peek(input) != TokenKind::Eof {
+        let method_doc = collect_doc_comments(input);
         parse(input, TokenKind::Fn)?;
-        methods.push(parse_trait_method(input, depth)?);
+        methods.push(parse_trait_method(input, depth, method_doc)?);
     }
 
     let end = parse(input, TokenKind::RBrace)?.span;
@@ -1520,6 +1555,7 @@ fn parse_trait_decl<'src>(
         generic_params,
         methods,
         is_public,
+        doc,
         span: start.merge(end),
     })
 }
@@ -1529,6 +1565,7 @@ fn parse_trait_decl<'src>(
 fn parse_trait_method<'src>(
     input: &mut &'src [Token<'src>],
     depth: &Cell<usize>,
+    doc: Option<String>,
 ) -> ParseResult<TraitMethod> {
     let name_tok = parse(input, TokenKind::Ident)?;
     let start = name_tok.span;
@@ -1569,6 +1606,7 @@ fn parse_trait_method<'src>(
         params,
         return_type,
         default_body,
+        doc,
         span: start.merge(end),
     })
 }
@@ -1577,6 +1615,7 @@ fn parse_trait_method<'src>(
 fn parse_impl_block<'src>(
     input: &mut &'src [Token<'src>],
     depth: &Cell<usize>,
+    doc: Option<String>,
 ) -> ParseResult<ImplBlock> {
     let start = parse(input, TokenKind::Impl)?.span;
 
@@ -1600,9 +1639,10 @@ fn parse_impl_block<'src>(
     parse(input, TokenKind::LBrace)?;
     let mut methods = Vec::new();
     while peek(input) != TokenKind::RBrace && peek(input) != TokenKind::Eof {
+        let method_doc = collect_doc_comments(input);
         let is_public = parse_peek(input, TokenKind::Pub).is_some();
         parse(input, TokenKind::Fn)?;
-        methods.push(parse_impl_method(input, depth, is_public)?);
+        methods.push(parse_impl_method(input, depth, is_public, method_doc)?);
     }
 
     let end = parse(input, TokenKind::RBrace)?.span;
@@ -1611,6 +1651,7 @@ fn parse_impl_block<'src>(
         self_type,
         generic_params,
         methods,
+        doc,
         span: start.merge(end),
     })
 }
@@ -1621,6 +1662,7 @@ fn parse_impl_method<'src>(
     input: &mut &'src [Token<'src>],
     depth: &Cell<usize>,
     is_public: bool,
+    doc: Option<String>,
 ) -> ParseResult<FuncDef> {
     let name_tok = parse(input, TokenKind::Ident)?;
     let start = name_tok.span;
@@ -1654,6 +1696,7 @@ fn parse_impl_method<'src>(
         return_type,
         body,
         is_public,
+        doc,
         span: start.merge(end),
     })
 }
@@ -1663,6 +1706,7 @@ fn parse_fn_declaration<'src>(
     input: &mut &'src [Token<'src>],
     depth: &Cell<usize>,
     is_public: bool,
+    doc: Option<String>,
 ) -> ParseResult<FuncDef> {
     let start = parse(input, TokenKind::Fn)?.span;
     let name = parse(input, TokenKind::Ident)?.literal.to_string();
@@ -1695,6 +1739,7 @@ fn parse_fn_declaration<'src>(
         return_type,
         body,
         is_public,
+        doc,
         span: start.merge(end),
     })
 }
