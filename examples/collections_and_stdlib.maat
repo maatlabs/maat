@@ -1,4 +1,4 @@
-// Standard library usage: math, string, vec/set/map. Vector/string methods and Set operations.
+// Standard library usage: math, string methods, vec/set/map methods.
 
 use std::math::abs;
 use std::math::min;
@@ -6,13 +6,6 @@ use std::math::max;
 use std::math::pow;
 use std::math::gcd;
 use std::math::lcm;
-use std::string::trim;
-use std::string::contains;
-use std::string::starts_with;
-use std::string::ends_with;
-use std::string::split;
-use std::string::join;
-use std::string::parse_int;
 
 // std::math
 print(abs(-42));
@@ -22,19 +15,19 @@ print(pow(2, 16));
 print(gcd(48, 18));
 print(lcm(12, 8));
 
-// std::string
+// String methods (called directly on `str` values)
 let msg = "  Hello, Maat!  ";
-print(trim(msg));
-print(contains(msg, "Maat"));
-print(starts_with(msg, "  Hello"));
-print(ends_with(msg, "!  "));
+print(msg.trim());
+print(msg.contains("Maat"));
+print(msg.starts_with("  Hello"));
+print(msg.ends_with("!  "));
 
 let csv = "alpha,beta,gamma,delta";
-let parts = split(csv, ",");
+let parts = csv.split(",");
 print(parts);
-print(join(parts, " | "));
+print(parts.join(" | "));
 
-let n = parse_int("12345");
+let n = "12345".parse_int();
 print(n * 2);
 
 // Vector methods

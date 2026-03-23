@@ -15,12 +15,13 @@ use crate::{FnType, Type};
 /// - `null` -> [`Type::Null`]
 /// - Unknown names are treated as generic type references.
 ///
-/// Compound types ([`TypeExpr::Vector`], [`TypeExpr::Map`], [`TypeExpr::Fn`],
-/// [`TypeExpr::Generic`]) are resolved recursively.
+/// Compound types ([`TypeExpr::Vector`], [`TypeExpr::Set`], [`TypeExpr::Map`],
+/// [`TypeExpr::Fn`], [`TypeExpr::Generic`]) are resolved recursively.
 pub fn resolve_type_expr(expr: &TypeExpr) -> Type {
     match expr {
         TypeExpr::Named(named) => resolve_named(&named.name),
         TypeExpr::Vector(elem, _) => Type::Vector(Box::new(resolve_type_expr(elem))),
+        TypeExpr::Set(elem, _) => Type::Set(Box::new(resolve_type_expr(elem))),
         TypeExpr::Map(k, v, _) => Type::Map(
             Box::new(resolve_type_expr(k)),
             Box::new(resolve_type_expr(v)),

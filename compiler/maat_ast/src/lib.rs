@@ -694,6 +694,7 @@ pub struct RangeExpr {
 /// - `Named` — a simple named type like `i64`, `bool`, or a user-defined
 ///   type like `Point`.
 /// - `Vector` — `Vector<T>`, a vector of element type `T`.
+/// - `Set` — `Set<T>`, a hash set of element type `T`.
 /// - `Map` — `{K: V}`, a hash map from key type `K` to value type `V`.
 /// - `Fn` — `fn(A, B) -> R`, a function type.
 /// - `Generic` — a parameterized type like `Option<T>` or `Result<T, E>`.
@@ -701,6 +702,7 @@ pub struct RangeExpr {
 pub enum TypeExpr {
     Named(NamedType),
     Vector(Box<TypeExpr>, Span),
+    Set(Box<TypeExpr>, Span),
     Map(Box<TypeExpr>, Box<TypeExpr>, Span),
     Fn(Vec<TypeExpr>, Box<TypeExpr>, Span),
     Generic(String, Vec<TypeExpr>, Span),
@@ -712,6 +714,7 @@ impl TypeExpr {
         match self {
             Self::Named(n) => n.span,
             Self::Vector(_, s)
+            | Self::Set(_, s)
             | Self::Map(_, _, s)
             | Self::Fn(_, _, s)
             | Self::Generic(_, _, s) => *s,

@@ -607,6 +607,7 @@ impl fmt::Display for TypeExpr {
         match self {
             Self::Named(n) => f.write_str(&n.name),
             Self::Vector(elem, _) => write!(f, "[{elem}]"),
+            Self::Set(elem, _) => write!(f, "Set<{elem}>"),
             Self::Map(k, v, _) => write!(f, "{{{k}: {v}}}"),
             Self::Fn(params, ret, _) => {
                 let params = params

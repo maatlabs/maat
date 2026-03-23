@@ -4,7 +4,7 @@
   <img src="./assets/maat-lang-transparent-logo.png" alt="Logo" width="200">
 </p>
 
-_Maat_ is a Turing-complete programming language designed to encourage proof-driven development.
+Turing-complete programming language for writing zero-knowledge proofs (ZKPs).
 
 **WARNING:** This is a research project. It has not been audited and may contain bugs and security flaws. This implementation is NOT ready for production use.
 

@@ -315,42 +315,32 @@ fn std_math() {
 }
 
 #[test]
-fn std_string() {
-    // trim()
-    let result = run_project(&[("main.maat", "use std::string::trim;\ntrim(\"  hello  \")")]);
+fn std_string_methods() {
+    let result = run_project(&[("main.maat", "let s: str = \"  hello  \";\ns.trim()")]);
     assert_eq!(result, Value::Str("hello".to_string()));
 
-    // contains()
     let result = run_project(&[(
         "main.maat",
-        "use std::string::contains;\ncontains(\"hello world\", \"world\")",
+        "let s: str = \"hello world\";\ns.contains(\"world\")",
     )]);
     assert_eq!(result, Value::Bool(true));
-    let result = run_project(&[(
-        "main.maat",
-        "use std::string::contains;\ncontains(\"hello\", \"xyz\")",
-    )]);
+
+    let result = run_project(&[("main.maat", "let s: str = \"hello\";\ns.contains(\"xyz\")")]);
     assert_eq!(result, Value::Bool(false));
 
-    // starts_with()
     let result = run_project(&[(
         "main.maat",
-        "use std::string::starts_with;\nstarts_with(\"hello world\", \"hello\")",
+        "let s: str = \"hello world\";\ns.starts_with(\"hello\")",
     )]);
     assert_eq!(result, Value::Bool(true));
 
-    // ends_with()
     let result = run_project(&[(
         "main.maat",
-        "use std::string::ends_with;\nends_with(\"hello world\", \"world\")",
+        "let s: str = \"hello world\";\ns.ends_with(\"world\")",
     )]);
     assert_eq!(result, Value::Bool(true));
 
-    // split()
-    let result = run_project(&[(
-        "main.maat",
-        "use std::string::split;\nsplit(\"a,b,c\", \",\")",
-    )]);
+    let result = run_project(&[("main.maat", "let s: str = \"a,b,c\";\ns.split(\",\")")]);
     assert_eq!(
         result,
         Value::Vector(vec![
@@ -360,51 +350,123 @@ fn std_string() {
         ])
     );
 
-    // join()
     let result = run_project(&[(
         "main.maat",
-        "use std::string::join;\njoin([\"a\", \"b\", \"c\"], \"-\")",
+        "let parts = [\"a\", \"b\", \"c\"];\nparts.join(\"-\")",
     )]);
     assert_eq!(result, Value::Str("a-b-c".to_string()));
 
-    // parse_int()
-    let result = run_project(&[(
-        "main.maat",
-        "use std::string::parse_int;\nparse_int(\"42\")",
-    )]);
+    let result = run_project(&[("main.maat", "let s: str = \"42\";\ns.parse_int()")]);
     assert_eq!(result, Value::Integer(Integer::I64(42)));
 }
 
-// #[test]
-// fn std_set() {
-//     // new(), len()
-//     let result = run_project(&[(
-//         "main.maat",
-//         "use std::set::{new, len};\nlet s = new();\nlen(s)",
-//     )]);
-//     assert_eq!(result, Value::Usize(0));
+#[test]
+fn std_set() {
+    let result = run_project(&[("main.maat", "let s = Set::new();\ns.len()")]);
+    assert_eq!(result, Value::Integer(Integer::Usize(0)));
 
-//     // insert(), contains()
-//     let result = run_project(&[(
-//         "main.maat",
-//         "use std::set::{new, insert, contains};\nlet s = new();\nlet s = insert(s, 42);\ncontains(s, 42)",
-//     )]);
-//     assert_eq!(result, Value::Bool(true));
+    let result = run_project(&[(
+        "main.maat",
+        "let s = Set::new().insert(42);\ns.contains(42)",
+    )]);
+    assert_eq!(result, Value::Bool(true));
 
-//     // remove()
-//     let result = run_project(&[(
-//         "main.maat",
-//         "use std::set::{new, insert, remove, contains};\nlet s = new();\nlet s = insert(s, 1);\nlet s = remove(s, 1);\ncontains(s, 1)",
-//     )]);
-//     assert_eq!(result, Value::Bool(false));
+    let result = run_project(&[(
+        "main.maat",
+        "let s = Set::new().insert(1).remove(1);\ns.contains(1)",
+    )]);
+    assert_eq!(result, Value::Bool(false));
 
-//     // uniqueness
-//     let result = run_project(&[(
-//         "main.maat",
-//         "use std::set::{new, insert, len};\nlet s = new();\nlet s = insert(s, 1);\nlet s = insert(s, 1);\nlet s = insert(s, 2);\nlen(s)",
-//     )]);
-//     assert_eq!(result, Value::Usize(2));
-// }
+    let result = run_project(&[(
+        "main.maat",
+        "let s = Set::new().insert(1).insert(1).insert(2);\ns.len()",
+    )]);
+    assert_eq!(result, Value::Integer(Integer::Usize(2)));
+
+    let result = run_project(&[(
+        "main.maat",
+        "let s = Set::new().insert(10).insert(20);\ns.to_vector().len()",
+    )]);
+    assert_eq!(result, Value::Integer(Integer::Usize(2)));
+}
+
+#[test]
+fn std_map() {
+    let result = run_project(&[("main.maat", "let m = Map::new();\nm.len()")]);
+    assert_eq!(result, Value::Integer(Integer::Usize(0)));
+
+    let result = run_project(&[(
+        "main.maat",
+        "let m = Map::new().insert(\"key\", 42);\nm.get(\"key\")",
+    )]);
+    assert_eq!(result, Value::Integer(Integer::I64(42)));
+
+    let result = run_project(&[(
+        "main.maat",
+        "let m = Map::new().insert(\"a\", 1);\nm.contains_key(\"a\")",
+    )]);
+    assert_eq!(result, Value::Bool(true));
+
+    let result = run_project(&[(
+        "main.maat",
+        "let m = Map::new().insert(\"a\", 1).remove(\"a\");\nm.contains_key(\"a\")",
+    )]);
+    assert_eq!(result, Value::Bool(false));
+
+    let result = run_project(&[(
+        "main.maat",
+        "let m = Map::new().insert(\"x\", 1).insert(\"y\", 2);\nm.len()",
+    )]);
+    assert_eq!(result, Value::Integer(Integer::Usize(2)));
+
+    let result = run_project(&[(
+        "main.maat",
+        "let m = Map::new().insert(\"a\", 1).insert(\"b\", 2);\nm.keys().len()",
+    )]);
+    assert_eq!(result, Value::Integer(Integer::Usize(2)));
+
+    let result = run_project(&[(
+        "main.maat",
+        "let m = Map::new().insert(\"a\", 10).insert(\"b\", 20);\nm.values().len()",
+    )]);
+    assert_eq!(result, Value::Integer(Integer::Usize(2)));
+}
+
+#[test]
+fn std_vec() {
+    let result = run_project(&[("main.maat", "let v = Vector::new();\nv.len()")]);
+    assert_eq!(result, Value::Integer(Integer::Usize(0)));
+
+    let result = run_project(&[(
+        "main.maat",
+        "let v = Vector::new().push(10).push(20);\nv.len()",
+    )]);
+    assert_eq!(result, Value::Integer(Integer::Usize(2)));
+
+    let result = run_project(&[(
+        "main.maat",
+        "let v = Vector::new().push(10).push(20).push(30);\nv.first()",
+    )]);
+    assert_eq!(result, Value::Integer(Integer::I64(10)));
+
+    let result = run_project(&[(
+        "main.maat",
+        "let v = Vector::new().push(10).push(20).push(30);\nv.last()",
+    )]);
+    assert_eq!(result, Value::Integer(Integer::I64(30)));
+
+    let result = run_project(&[(
+        "main.maat",
+        "let v = Vector::new().push(10).push(20).push(30);\nv.rest().len()",
+    )]);
+    assert_eq!(result, Value::Integer(Integer::Usize(2)));
+
+    let result = run_project(&[(
+        "main.maat",
+        "let v = [\"a\", \"b\", \"c\"];\nv.join(\", \")",
+    )]);
+    assert_eq!(result, Value::Str("a, b, c".to_string()));
+}
 
 #[test]
 fn str_methods() {

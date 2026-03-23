@@ -578,12 +578,6 @@ impl TypeEnv {
                         .next()
                         .unwrap_or_else(|| self.fresh_var());
                     Type::Vector(Box::new(elem))
-                } else if name == "Set" {
-                    let elem = resolved_args
-                        .into_iter()
-                        .next()
-                        .unwrap_or_else(|| self.fresh_var());
-                    Type::Set(Box::new(elem))
                 } else if name == "Map" {
                     let mut args = resolved_args.into_iter();
                     let k = args.next().unwrap_or_else(|| self.fresh_var());

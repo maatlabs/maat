@@ -1885,7 +1885,12 @@ fn parse_type_expr<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<TypeExp
             let start = tok.span;
             let name = tok.literal.to_string();
 
-            if peek(input) == TokenKind::Less {
+            if name == "Set" && peek(input) == TokenKind::Less {
+                any.parse_next(input)?; // consume `<`
+                let elem = parse_type_expr(input)?;
+                let end = parse(input, TokenKind::Greater)?.span;
+                Ok(TypeExpr::Set(Box::new(elem), start.merge(end)))
+            } else if peek(input) == TokenKind::Less {
                 any.parse_next(input)?; // consume `<`
                 let mut args = vec![parse_type_expr(input)?];
                 while peek(input) == TokenKind::Comma {

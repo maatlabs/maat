@@ -6,11 +6,7 @@ use maat_bytecode::Bytecode;
 use maat_codegen::Compiler;
 use maat_lexer::{MaatLexer, TokenKind};
 use maat_parser::MaatParser;
-use maat_tests::benchmark_programs::{
-    ARITHMETIC_BASELINE, BITWISE_SOURCE, CLOSURE_SOURCE, EMPTY_PROGRAM, ENUM_MATCH_SOURCE,
-    METHOD_DISPATCH_SOURCE, OPTION_SOURCE, RANGE_LOOP_10, RANGE_LOOP_100, RANGE_LOOP_1000,
-    STRING_SOURCE, STRUCT_SOURCE, VECTOR_SOURCE, WHILE_LOOP_1000, fib_source,
-};
+use maat_tests::benchmark_programs::*;
 use maat_tests::compile;
 use maat_types::TypeChecker;
 use maat_vm::VM;
