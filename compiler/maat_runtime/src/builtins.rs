@@ -3,6 +3,23 @@ use maat_errors::{EvalError, Result};
 
 use crate::{BuiltinFn, EnumVariantVal, Hashable, Integer, MapVal, NULL, Value};
 
+/// Type registry index for `Option`.
+const OPTION_TYPE_INDEX: u16 = 0;
+/// Variant tag for `Some` within `Option`.
+const SOME_TAG: u16 = 0;
+/// Variant tag for `None` within `Option`.
+const NONE_TAG: u16 = 1;
+
+/// Type registry index for `Result`.
+const RESULT_TYPE_INDEX: u16 = 1;
+/// Variant tag for `Ok` within `Result`.
+const OK_TAG: u16 = 0;
+/// Variant tag for `Err` within `Result`.
+const ERR_TAG: u16 = 1;
+
+/// Type registry index for `ParseIntError`.
+const PARSE_INT_ERROR_TYPE_INDEX: u16 = 2;
+
 /// Describes why a string-to-integer parse operation failed.
 ///
 /// This is a language-level type, registered as a builtin enum in the
@@ -120,6 +137,14 @@ define_builtins! {
     "str::parse_u64" => str_parse_u64,
     "str::parse_u128" => str_parse_u128,
     "str::parse_usize" => str_parse_usize,
+    "Option::unwrap" => option_unwrap,
+    "Option::unwrap_or" => option_unwrap_or,
+    "Option::is_some" => option_is_some,
+    "Option::is_none" => option_is_none,
+    "Result::unwrap" => result_unwrap,
+    "Result::unwrap_or" => result_unwrap_or,
+    "Result::is_ok" => result_is_ok,
+    "Result::is_err" => result_is_err,
 }
 
 /// Prints arguments to stdout, separated by spaces.
@@ -469,11 +494,6 @@ fn str_split(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Type registry index for `Result` (must match `builtin_type_registry` order).
-const RESULT_TYPE_INDEX: u16 = 1;
-/// Type registry index for `ParseIntError` (must match `builtin_type_registry` order).
-const PARSE_INT_ERROR_TYPE_INDEX: u16 = 2;
-
 /// Wraps a successfully parsed integer in `Ok(value)`.
 fn parse_ok(value: Value) -> Value {
     Value::EnumVariant(EnumVariantVal {
@@ -527,6 +547,113 @@ define_str_parse!(str_parse_u32, "parse_u32", u32, U32);
 define_str_parse!(str_parse_u64, "parse_u64", u64, U64);
 define_str_parse!(str_parse_u128, "parse_u128", u128, U128);
 define_str_parse!(str_parse_usize, "parse_usize", usize, Usize);
+
+/// Extracts the inner value from `Some(x)`, or produces a runtime error on `None`.
+fn option_unwrap(args: &[Value]) -> Result<Value> {
+    expect_arg_count("Option::unwrap", args, 1)?;
+    match &args[0] {
+        Value::EnumVariant(v) if v.type_index == OPTION_TYPE_INDEX && v.tag == SOME_TAG => {
+            Ok(v.fields[0].clone())
+        }
+        Value::EnumVariant(v) if v.type_index == OPTION_TYPE_INDEX && v.tag == NONE_TAG => Err(
+            EvalError::Builtin("called `Option::unwrap()` on a `None` value".to_string()).into(),
+        ),
+        other => method_type_error(other, "unwrap", "Option"),
+    }
+}
+
+/// Extracts the inner value from `Some(x)`, or returns the provided default on `None`.
+fn option_unwrap_or(args: &[Value]) -> Result<Value> {
+    expect_arg_count("Option::unwrap_or", args, 2)?;
+    match &args[0] {
+        Value::EnumVariant(v) if v.type_index == OPTION_TYPE_INDEX && v.tag == SOME_TAG => {
+            Ok(v.fields[0].clone())
+        }
+        Value::EnumVariant(v) if v.type_index == OPTION_TYPE_INDEX && v.tag == NONE_TAG => {
+            Ok(args[1].clone())
+        }
+        other => method_type_error(other, "unwrap_or", "Option"),
+    }
+}
+
+/// Returns `true` if the `Option` is `Some`.
+fn option_is_some(args: &[Value]) -> Result<Value> {
+    expect_arg_count("Option::is_some", args, 1)?;
+    match &args[0] {
+        Value::EnumVariant(v) if v.type_index == OPTION_TYPE_INDEX => {
+            Ok(Value::Bool(v.tag == SOME_TAG))
+        }
+        other => method_type_error(other, "is_some", "Option"),
+    }
+}
+
+/// Returns `true` if the `Option` is `None`.
+fn option_is_none(args: &[Value]) -> Result<Value> {
+    expect_arg_count("Option::is_none", args, 1)?;
+    match &args[0] {
+        Value::EnumVariant(v) if v.type_index == OPTION_TYPE_INDEX => {
+            Ok(Value::Bool(v.tag == NONE_TAG))
+        }
+        other => method_type_error(other, "is_none", "Option"),
+    }
+}
+
+/// Extracts the `Ok` value, or produces a runtime error on `Err`.
+fn result_unwrap(args: &[Value]) -> Result<Value> {
+    expect_arg_count("Result::unwrap", args, 1)?;
+    match &args[0] {
+        Value::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX && v.tag == OK_TAG => {
+            Ok(v.fields[0].clone())
+        }
+        Value::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX && v.tag == ERR_TAG => {
+            let err_val = v
+                .fields
+                .first()
+                .map_or("unknown".to_string(), |e| format!("{e}"));
+            Err(EvalError::Builtin(format!(
+                "called `Result::unwrap()` on an `Err` value: {err_val}"
+            ))
+            .into())
+        }
+        other => method_type_error(other, "unwrap", "Result"),
+    }
+}
+
+/// Extracts the `Ok` value, or returns the provided default on `Err`.
+fn result_unwrap_or(args: &[Value]) -> Result<Value> {
+    expect_arg_count("Result::unwrap_or", args, 2)?;
+    match &args[0] {
+        Value::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX && v.tag == OK_TAG => {
+            Ok(v.fields[0].clone())
+        }
+        Value::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX && v.tag == ERR_TAG => {
+            Ok(args[1].clone())
+        }
+        other => method_type_error(other, "unwrap_or", "Result"),
+    }
+}
+
+/// Returns `true` if the `Result` is `Ok`.
+fn result_is_ok(args: &[Value]) -> Result<Value> {
+    expect_arg_count("Result::is_ok", args, 1)?;
+    match &args[0] {
+        Value::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX => {
+            Ok(Value::Bool(v.tag == OK_TAG))
+        }
+        other => method_type_error(other, "is_ok", "Result"),
+    }
+}
+
+/// Returns `true` if the `Result` is `Err`.
+fn result_is_err(args: &[Value]) -> Result<Value> {
+    expect_arg_count("Result::is_err", args, 1)?;
+    match &args[0] {
+        Value::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX => {
+            Ok(Value::Bool(v.tag == ERR_TAG))
+        }
+        other => method_type_error(other, "is_err", "Result"),
+    }
+}
 
 /// Converts a `Hashable` back to an `Value`.
 fn hashable_to_object(h: &Hashable) -> Value {

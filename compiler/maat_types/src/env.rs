@@ -65,6 +65,7 @@ impl TypeEnv {
     pub fn register_builtins(&mut self) {
         self.register_builtin_methods();
         self.register_builtin_enums();
+        self.register_option_result_methods();
         self.register_builtin_ctors();
     }
 
@@ -401,6 +402,170 @@ impl TypeEnv {
         }
     }
 
+    /// Registers inherent methods on `Option<T>` and `Result<T, E>`.
+    fn register_option_result_methods(&mut self) {
+        // impl Option<T>
+        let t_id = self.next_var;
+        self.next_var += 1;
+        let t = Type::Var(t_id);
+        let option_ty = Type::Enum(Rc::from("Option"), vec![t.clone()]);
+        let option_forall = vec![t_id];
+
+        let u_id = self.next_var;
+        self.next_var += 1;
+        let u = Type::Var(u_id);
+        let option_u = Type::Enum(Rc::from("Option"), vec![u.clone()]);
+
+        let option_methods: Vec<(&str, Vec<TypeVarId>, Type)> = vec![
+            (
+                "Option::unwrap",
+                option_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(t.clone()),
+                }),
+            ),
+            (
+                "Option::unwrap_or",
+                option_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![t.clone()],
+                    ret: Box::new(t.clone()),
+                }),
+            ),
+            (
+                "Option::is_some",
+                option_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Bool),
+                }),
+            ),
+            (
+                "Option::is_none",
+                option_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Bool),
+                }),
+            ),
+            (
+                "Option::map",
+                vec![t_id, u_id],
+                Type::Function(FnType {
+                    params: vec![Type::Function(FnType {
+                        params: vec![t.clone()],
+                        ret: Box::new(u.clone()),
+                    })],
+                    ret: Box::new(option_u.clone()),
+                }),
+            ),
+            (
+                "Option::and_then",
+                vec![t_id, u_id],
+                Type::Function(FnType {
+                    params: vec![Type::Function(FnType {
+                        params: vec![t.clone()],
+                        ret: Box::new(option_u.clone()),
+                    })],
+                    ret: Box::new(option_u),
+                }),
+            ),
+        ];
+        for (name, forall, fn_type) in option_methods {
+            self.builtin_method_schemes.insert(
+                name.to_string(),
+                BuiltinMethodScheme {
+                    forall,
+                    self_type: option_ty.clone(),
+                    fn_type,
+                },
+            );
+        }
+
+        // impl Result<T, E>
+        let rt_id = self.next_var;
+        self.next_var += 1;
+        let rt = Type::Var(rt_id);
+        let re_id = self.next_var;
+        self.next_var += 1;
+        let re = Type::Var(re_id);
+        let result_ty = Type::Enum(Rc::from("Result"), vec![rt.clone(), re.clone()]);
+        let result_forall = vec![rt_id, re_id];
+
+        let ru_id = self.next_var;
+        self.next_var += 1;
+        let ru = Type::Var(ru_id);
+        let result_u = Type::Enum(Rc::from("Result"), vec![ru.clone(), re.clone()]);
+
+        let result_methods: Vec<(&str, Vec<TypeVarId>, Type)> = vec![
+            (
+                "Result::unwrap",
+                result_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(rt.clone()),
+                }),
+            ),
+            (
+                "Result::unwrap_or",
+                result_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![rt.clone()],
+                    ret: Box::new(rt.clone()),
+                }),
+            ),
+            (
+                "Result::is_ok",
+                result_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Bool),
+                }),
+            ),
+            (
+                "Result::is_err",
+                result_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Bool),
+                }),
+            ),
+            (
+                "Result::map",
+                vec![rt_id, re_id, ru_id],
+                Type::Function(FnType {
+                    params: vec![Type::Function(FnType {
+                        params: vec![rt.clone()],
+                        ret: Box::new(ru.clone()),
+                    })],
+                    ret: Box::new(result_u.clone()),
+                }),
+            ),
+            (
+                "Result::and_then",
+                vec![rt_id, re_id, ru_id],
+                Type::Function(FnType {
+                    params: vec![Type::Function(FnType {
+                        params: vec![rt],
+                        ret: Box::new(result_u.clone()),
+                    })],
+                    ret: Box::new(result_u),
+                }),
+            ),
+        ];
+        for (name, forall, fn_type) in result_methods {
+            self.builtin_method_schemes.insert(
+                name.to_string(),
+                BuiltinMethodScheme {
+                    forall,
+                    self_type: result_ty.clone(),
+                    fn_type,
+                },
+            );
+        }
+    }
+
     /// Registers `Option<T>`, `Result<T, E>`, and `ParseIntError` as
     /// language-level enum types.
     fn register_builtin_enums(&mut self) {
@@ -565,6 +730,8 @@ impl TypeEnv {
             Type::String => "str",
             Type::Map(..) => "Map",
             Type::Set(_) => "Set",
+            Type::Enum(name, _) if &**name == "Option" => "Option",
+            Type::Enum(name, _) if &**name == "Result" => "Result",
             _ => return None,
         };
         let key = format!("{prefix}::{method_name}");

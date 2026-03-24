@@ -432,3 +432,151 @@ fn roundtrip_result() {
         other => panic!("expected I64(99), got {other:?}"),
     }
 }
+
+#[test]
+fn option_unwrap_some() {
+    run_i64("Some(42).unwrap()", 42);
+}
+
+#[test]
+#[should_panic(expected = "vm error")]
+fn option_unwrap_none() {
+    run_i64("let x: Option<i64> = None; x.unwrap()", 0);
+}
+
+#[test]
+fn option_unwrap_or() {
+    run_i64("Some(10).unwrap_or(0)", 10);
+    run_i64("let x: Option<i64> = None; x.unwrap_or(99)", 99);
+}
+
+#[test]
+fn option_is_some() {
+    run_bool("Some(1).is_some()", true);
+    run_bool("let x: Option<i64> = None; x.is_some()", false);
+}
+
+#[test]
+fn option_is_none() {
+    run_bool("Some(1).is_none()", false);
+    run_bool("let x: Option<i64> = None; x.is_none()", true);
+}
+
+#[test]
+fn option_map_some() {
+    run_i64(
+        "let x = Some(5);
+         match x.map(fn(v) { v * 2 }) { Some(v) => v, None => 0 }",
+        10,
+    );
+}
+
+#[test]
+fn option_map_none() {
+    run_i64(
+        "let x: Option<i64> = None;
+         match x.map(fn(v) { v * 2 }) { Some(v) => v, None => -1 }",
+        -1,
+    );
+}
+
+#[test]
+fn option_and_then_some() {
+    run_i64(
+        "let x = Some(5);
+         match x.and_then(fn(v) { Some(v + 10) }) { Some(v) => v, None => 0 }",
+        15,
+    );
+}
+
+#[test]
+fn option_and_then_none_input() {
+    run_i64(
+        "let x: Option<i64> = None;
+         match x.and_then(fn(v) { Some(v + 10) }) { Some(v) => v, None => -1 }",
+        -1,
+    );
+}
+
+#[test]
+fn option_and_then_returns_none() {
+    run_i64(
+        "let x = Some(5);
+         match x.and_then(fn(v: i64) -> Option<i64> { None }) { Some(v) => v, None => -1 }",
+        -1,
+    );
+}
+
+#[test]
+fn result_unwrap_ok() {
+    run_i64("Ok(42).unwrap()", 42);
+}
+
+#[test]
+#[should_panic(expected = "vm error")]
+fn result_unwrap_err() {
+    run_i64("Err(-1).unwrap()", 0);
+}
+
+#[test]
+fn result_unwrap_or() {
+    run_i64("Ok(10).unwrap_or(0)", 10);
+    run_i64("Err(-1).unwrap_or(99)", 99);
+}
+
+#[test]
+fn result_is_ok() {
+    run_bool("Ok(1).is_ok()", true);
+    run_bool("Err(-1).is_ok()", false);
+}
+
+#[test]
+fn result_is_err() {
+    run_bool("Ok(1).is_err()", false);
+    run_bool("Err(-1).is_err()", true);
+}
+
+#[test]
+fn result_map_ok() {
+    run_i64(
+        "let r = Ok(5);
+         match r.map(fn(v) { v * 3 }) { Ok(v) => v, Err(e) => 0 }",
+        15,
+    );
+}
+
+#[test]
+fn result_map_err() {
+    run_i64(
+        "let r: Result<i64, i64> = Err(-1);
+         match r.map(fn(v) { v * 3 }) { Ok(v) => v, Err(e) => e }",
+        -1,
+    );
+}
+
+#[test]
+fn result_and_then_ok() {
+    run_i64(
+        "let r = Ok(5);
+         match r.and_then(fn(v) { Ok(v + 100) }) { Ok(v) => v, Err(e) => 0 }",
+        105,
+    );
+}
+
+#[test]
+fn result_and_then_err_input() {
+    run_i64(
+        "let r: Result<i64, i64> = Err(-1);
+         match r.and_then(fn(v) { Ok(v + 100) }) { Ok(v) => v, Err(e) => e }",
+        -1,
+    );
+}
+
+#[test]
+fn result_and_then_returns_err() {
+    run_i64(
+        "let r = Ok(5);
+         match r.and_then(fn(v: i64) -> Result<i64, i64> { Err(-99) }) { Ok(v) => v, Err(e) => e }",
+        -99,
+    );
+}

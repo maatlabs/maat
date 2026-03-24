@@ -1,0 +1,16 @@
+// Option<T> represents an optional value: either Some(T) or None.
+//
+// Construction:
+//   let x = Some(42);
+//   let y: Option<i64> = None;
+//
+// Pattern matching:
+//   match opt { Some(v) => v, None => default }
+//
+// Methods:
+//   opt.unwrap()              -> T       (panics if None)
+//   opt.unwrap_or(default)    -> T       (returns default if None)
+//   opt.is_some()             -> bool
+//   opt.is_none()             -> bool
+//   opt.map(fn(T) -> U)       -> Option<U>
+//   opt.and_then(fn(T) -> Option<U>) -> Option<U>

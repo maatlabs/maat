@@ -17,7 +17,7 @@ use maat_span::{SourceMap, Span};
 use crate::{Symbol, SymbolScope, SymbolsTable};
 
 /// Built-in type prefixes for method dispatch fallback.
-const BUILTIN_METHOD_PREFIXES: &[&str] = &["Vector", "str", "Set", "Map"];
+const BUILTIN_METHOD_PREFIXES: &[&str] = &["Vector", "str", "Set", "Map", "Option", "Result"];
 
 /// Enum types whose variants are available as bare names in patterns.
 ///
@@ -1285,6 +1285,9 @@ impl Compiler {
     /// Compiles a method call expression (e.g., `point.distance(other)`).
     fn compile_method_call(&mut self, mc: &MethodCallExpr) -> Result<()> {
         let span = mc.span;
+        if self.is_desugared_higher_order(mc) {
+            return self.compile_desugared_higher_order(mc);
+        }
         let qualified_name = self.resolve_method_name(mc).ok_or_else(|| {
             CompileErrorKind::UndefinedVariable {
                 name: format!("unknown method `{}`", mc.method),
@@ -1299,6 +1302,83 @@ impl Compiler {
         }
         let total_args = 1 + mc.arguments.len();
         self.emit(Opcode::Call, &[total_args], span);
+        Ok(())
+    }
+
+    /// Returns `true` if this method call should be desugared into inline
+    /// bytecode rather than dispatched as a builtin call.
+    ///
+    /// `Option::map`, `Option::and_then`, `Result::map`, and `Result::and_then`
+    /// accept closures that require VM-level invocation. These are compiled
+    /// as inline match + call sequences instead of builtin function calls.
+    fn is_desugared_higher_order(&self, mc: &MethodCallExpr) -> bool {
+        matches!(
+            (mc.receiver.as_deref(), mc.method.as_str()),
+            (Some("Option" | "Result"), "map" | "and_then")
+        )
+    }
+
+    /// Compiles `Option::map`, `Option::and_then`, `Result::map`, or
+    /// `Result::and_then` as inline bytecode equivalent to a match expression.
+    ///
+    /// For `opt.map(f)`:
+    /// ```text
+    /// match opt { Some(x) => Some(f(x)), None => None }
+    /// ```
+    ///
+    /// For `opt.and_then(f)`:
+    /// ```text
+    /// match opt { Some(x) => f(x), None => None }
+    /// ```
+    ///
+    /// Result variants follow the same pattern with Ok/Err.
+    fn compile_desugared_higher_order(&mut self, mc: &MethodCallExpr) -> Result<()> {
+        let span = mc.span;
+        let is_option = mc.receiver.as_deref() == Some("Option");
+        let is_map = mc.method == "map";
+
+        let success_tag: usize = 0;
+        let type_index: usize = if is_option { 0 } else { 1 };
+        let some_or_ok = type_index << 8;
+        let none_or_err = (type_index << 8) | 1;
+
+        // Unique temp local names.
+        let id = self.for_loop_counter;
+        self.for_loop_counter += 1;
+        let fn_name = format!("__hof_fn_{id}");
+        let val_name = format!("__hof_val_{id}");
+
+        self.compile_expression(&mc.arguments[0])?;
+        let fn_sym = self.define_and_set(&fn_name, false, span)?;
+
+        self.compile_expression(&mc.object)?;
+
+        let match_tag_pos = self.emit(Opcode::MatchTag, &[success_tag, Self::JUMP], span);
+
+        self.emit(Opcode::GetField, &[0], span);
+        let val_sym = self.define_and_set(&val_name, false, span)?;
+
+        self.load_symbol(&fn_sym, span);
+        self.load_symbol(&val_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+
+        if is_map {
+            self.emit(Opcode::Construct, &[some_or_ok, 1], span);
+        }
+        let jump_to_end = self.emit(Opcode::Jump, &[Self::JUMP], span);
+
+        let fail_arm = self.current_instructions().len();
+        self.replace_match_tag_target(match_tag_pos, fail_arm)?;
+
+        if is_option {
+            self.emit(Opcode::Pop, &[], span);
+            self.emit(Opcode::Construct, &[none_or_err, 0], span);
+        } else {
+            // `Result::Err`:  the scrutinee is already the Err variant; keep it.
+            // Nothing to do: the Err value stays on the stack as-is.
+        }
+        let end = self.current_instructions().len();
+        self.replace_operand(jump_to_end, end)?;
         Ok(())
     }
 
