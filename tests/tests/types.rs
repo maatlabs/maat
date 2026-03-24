@@ -150,9 +150,11 @@ fn constant_folding() {
 
 #[test]
 fn numeric_promotion_i8_to_i16() {
-    run_vm_test(
-        "let x: i8 = 5i8; let y: i16 = 10i16; x + y",
-        TestValue::I16(15),
+    let errs = maat_tests::compile_type_errors("let x = 5i8; let y = 10i16; x + y");
+    assert!(!errs.is_empty(), "expected type error for i8 + i16");
+    assert!(
+        errs.iter().any(|e| e.contains("i8") || e.contains("i16")),
+        "error should mention mismatched types: {errs:?}"
     );
 }
 

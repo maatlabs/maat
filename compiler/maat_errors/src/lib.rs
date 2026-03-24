@@ -95,6 +95,11 @@ pub enum TypeErrorKind {
     #[error("type mismatch: expected `{expected}`, found `{found}`")]
     Mismatch { expected: String, found: String },
 
+    #[error(
+        "type mismatch: expected `{expected}`, found `{found}`\n  help: consider using `as {expected}` for explicit numeric conversion"
+    )]
+    NumericMismatch { expected: String, found: String },
+
     #[error("infinite type: `{0}` occurs in its own definition")]
     OccursCheck(String),
 

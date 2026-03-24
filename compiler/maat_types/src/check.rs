@@ -8,7 +8,6 @@ use maat_errors::{
 };
 use maat_span::Span;
 
-use crate::promote::{self, PromotionError};
 use crate::unify::{Substitution, UnifyError};
 use crate::{
     EnumDef, FnType, ImplDef, MethodSig, StructDef, TraitDef, Type, TypeEnv, VariantDef,
@@ -674,13 +673,6 @@ impl TypeChecker {
                     for (param, arg) in fn_ty.params.iter().zip(arg_types.iter()) {
                         let p = self.subst.apply(param);
                         let a = self.subst.apply(arg);
-                        if p.is_integer()
-                            && a.is_integer()
-                            && p != a
-                            && promote::common_numeric_type(&p, &a).is_ok()
-                        {
-                            continue;
-                        }
                         if let Err(e) = self.subst.unify(&p, &a) {
                             self.report_unify_error(e, call.span);
                         }
@@ -1420,33 +1412,24 @@ impl TypeChecker {
         {
             return Type::Bool;
         }
-        // Numeric operations
+        // Numeric operations: both operands must be the same integer type.
         if lhs_resolved.is_integer() && rhs_resolved.is_integer() {
-            if lhs_resolved == rhs_resolved {
-                return if is_comparison {
-                    Type::Bool
-                } else {
-                    lhs_resolved
-                };
+            if lhs_resolved != rhs_resolved {
+                self.errors.push(
+                    TypeErrorKind::NumericMismatch {
+                        expected: lhs_resolved.to_string(),
+                        found: rhs_resolved.to_string(),
+                    }
+                    .at(infix.span),
+                );
             }
-            match promote::common_numeric_type(&lhs_resolved, &rhs_resolved) {
-                Ok(promoted) => {
-                    self.maybe_insert_cast(&mut infix.lhs, &lhs_resolved, &promoted);
-                    self.maybe_insert_cast(&mut infix.rhs, &rhs_resolved, &promoted);
-                    if is_comparison { Type::Bool } else { promoted }
-                }
-                Err(PromotionError::NonNumeric(ty)) => {
-                    self.errors.push(
-                        TypeErrorKind::Mismatch {
-                            expected: "numeric".to_string(),
-                            found: ty.to_string(),
-                        }
-                        .at(infix.span),
-                    );
-                    self.env.fresh_var()
-                }
-            }
-        } else if matches!(lhs_resolved, Type::Var(_)) || matches!(rhs_resolved, Type::Var(_)) {
+            return if is_comparison {
+                Type::Bool
+            } else {
+                lhs_resolved
+            };
+        }
+        if matches!(lhs_resolved, Type::Var(_)) || matches!(rhs_resolved, Type::Var(_)) {
             if let Err(e) = self.subst.unify(&lhs_resolved, &rhs_resolved) {
                 self.report_unify_error(e, infix.span);
             }
@@ -1464,28 +1447,6 @@ impl TypeChecker {
             } else {
                 lhs_resolved
             }
-        }
-    }
-
-    /// Wraps an expression in a `Cast` node if it needs promotion.
-    fn maybe_insert_cast(&self, expr: &mut Box<Expr>, current: &Type, target: &Type) {
-        if current == target {
-            return;
-        }
-        if let Some(ann) = target.to_number_kind() {
-            let span = expr.span();
-            let inner = std::mem::replace(
-                expr.as_mut(),
-                Expr::Bool(Bool {
-                    value: false,
-                    span: Span::ZERO,
-                }),
-            );
-            *expr.as_mut() = Expr::Cast(CastExpr {
-                expr: Box::new(inner),
-                target: ann,
-                span,
-            });
         }
     }
 
@@ -2000,16 +1961,19 @@ mod tests {
             None,
         )]);
 
-        // i8 + i16 should promote to i16
-        check_ok(vec![let_stmt(
-            "x",
-            infix(
-                int_expr(1, NumberKind::I8),
-                "+",
-                int_expr(2, NumberKind::I16),
-            ),
-            None,
-        )]);
+        // i8 + i16 is a type mismatch (no implicit promotion)
+        {
+            let errs = check(vec![let_stmt(
+                "x",
+                infix(
+                    int_expr(1, NumberKind::I8),
+                    "+",
+                    int_expr(2, NumberKind::I16),
+                ),
+                None,
+            )]);
+            assert!(!errs.is_empty());
+        }
 
         // comparison should return bool
         check_ok(vec![let_stmt(
@@ -2482,9 +2446,9 @@ mod tests {
     }
 
     #[test]
-    fn numeric_promotion_same_sign_widening() {
-        // i8 + i32 should succeed (widened to i32)
-        check_ok(vec![let_stmt(
+    fn mixed_integer_types_rejected() {
+        // i8 + i32 is a type mismatch
+        let errs = check(vec![let_stmt(
             "x",
             infix(
                 int_expr(1, NumberKind::I8),
@@ -2493,12 +2457,14 @@ mod tests {
             ),
             None,
         )]);
+        assert!(!errs.is_empty());
+        assert!(errs.iter().any(|e| e.contains("i8") && e.contains("i32")));
     }
 
     #[test]
-    fn numeric_promotion_cross_sign() {
-        // u8 + i8 should succeed (promoted to i16)
-        check_ok(vec![let_stmt(
+    fn mixed_sign_integers_rejected() {
+        // u8 + i8 is a type mismatch
+        let errs = check(vec![let_stmt(
             "x",
             infix(
                 int_expr(1, NumberKind::U8),
@@ -2507,12 +2473,12 @@ mod tests {
             ),
             None,
         )]);
+        assert!(!errs.is_empty());
     }
 
     #[test]
-    fn numeric_promotion_inserts_cast_node() {
-        // Verify that the AST is mutated to insert a Cast node for promotion.
-        // i8 + i16 -> both should be i16; lhs gets a cast inserted.
+    fn mixed_integer_no_cast_insertion() {
+        // Verify that mismatched integers produce errors, not Cast nodes.
         let mut program = Program {
             statements: vec![let_stmt(
                 "x",
@@ -2525,27 +2491,21 @@ mod tests {
             )],
         };
         let errs = TypeChecker::new().check_program(&mut program);
-        assert!(errs.is_empty(), "expected no errors, got: {errs:?}");
-        // The let statement's value should now contain a cast on the lhs
-        if let Stmt::Let(ref ls) = program.statements[0] {
-            if let Expr::Infix(ref inf) = ls.value {
-                assert!(
-                    matches!(inf.lhs.as_ref(), Expr::Cast(_)),
-                    "expected Cast on lhs, got {:?}",
-                    inf.lhs
-                );
-            } else {
-                panic!("expected infix expression");
-            }
-        } else {
-            panic!("expected let statement");
+        assert!(!errs.is_empty(), "expected type errors for i8 + i16");
+        if let Stmt::Let(ref ls) = program.statements[0]
+            && let Expr::Infix(ref inf) = ls.value
+        {
+            assert!(
+                !matches!(inf.lhs.as_ref(), Expr::Cast(_)),
+                "should not insert Cast node for mismatched types",
+            );
         }
     }
 
     #[test]
-    fn numeric_promotion_u64_plus_i128() {
-        // u64 + i128 -> i128
-        check_ok(vec![let_stmt(
+    fn mixed_width_u64_i128_rejected() {
+        // u64 + i128 is a type mismatch
+        let errs = check(vec![let_stmt(
             "x",
             infix(
                 int_expr(1, NumberKind::U64),
@@ -2554,20 +2514,22 @@ mod tests {
             ),
             None,
         )]);
+        assert!(!errs.is_empty());
     }
 
     #[test]
-    fn numeric_promotion_comparison_cross_sign() {
-        // u8 < i16 should succeed and return bool
-        check_ok(vec![let_stmt(
+    fn mixed_width_comparison_rejected() {
+        // u8 < i16 is a type mismatch
+        let errs = check(vec![let_stmt(
             "x",
             infix(
                 int_expr(1, NumberKind::U8),
                 "<",
                 int_expr(2, NumberKind::I16),
             ),
-            Some(named_type("bool")),
+            None,
         )]);
+        assert!(!errs.is_empty());
     }
 
     #[test]

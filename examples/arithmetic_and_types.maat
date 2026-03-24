@@ -35,10 +35,10 @@ print(a * b);
 print(a / b);
 print(a % b);
 
-// Type promotion: i8 + i16 promotes to i16
+// Explicit casting for cross-type arithmetic
 let x = 10i8;
 let y = 20i16;
-print(x + y);
+print(x as i16 + y);
 
 // Explicit casting
 let narrow = 200u8;

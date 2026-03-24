@@ -688,10 +688,10 @@ fn cast_expressions() {
 #[test]
 fn cross_type_integer_comparison() {
     let cases = vec![
-        ("5 == [1, 2, 3, 4, 5].len()", TestValue::Bool(true)),
-        ("5 != [1, 2, 3, 4, 5].len()", TestValue::Bool(false)),
-        ("10 > [1, 2, 3].len()", TestValue::Bool(true)),
-        ("1 < [1, 2, 3].len()", TestValue::Bool(true)),
+        ("5usize == [1, 2, 3, 4, 5].len()", TestValue::Bool(true)),
+        ("5usize != [1, 2, 3, 4, 5].len()", TestValue::Bool(false)),
+        ("10usize > [1, 2, 3].len()", TestValue::Bool(true)),
+        ("1usize < [1, 2, 3].len()", TestValue::Bool(true)),
     ];
     for (input, expected) in cases {
         run_vm_test(input, expected);
