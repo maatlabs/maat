@@ -5,68 +5,68 @@ let tiny: i8 = -128;
 let small: i16 = 30000;
 let medium: i32 = 2000000;
 let large: i64 = 9223372036854775807;
-print(tiny);
-print(small);
-print(medium);
-print(large);
+println!("{tiny}");
+println!("{small}");
+println!("{medium}");
+println!("{large}");
 
 // Unsigned integers
 let byte: u8 = 255;
 let word: u16 = 65535;
 let idx: usize = 42;
-print(byte);
-print(word);
-print(idx);
+println!("{byte}");
+println!("{word}");
+println!("{idx}");
 
 // Hex, binary, and octal literals
 let hex_val = 0xDEADu16;
 let bin_val = 0b11001100u8;
 let oct_val = 0o755u16;
-print(hex_val);
-print(bin_val);
-print(oct_val);
+println!("{hex_val}");
+println!("{bin_val}");
+println!("{oct_val}");
 
 // Arithmetic operators
 let a: i64 = 17;
 let b: i64 = 5;
-print(a + b);
-print(a - b);
-print(a * b);
-print(a / b);
-print(a % b);
+println!("{}", a + b);
+println!("{}", a - b);
+println!("{}", a * b);
+println!("{}", a / b);
+println!("{}", a % b);
 
 // Explicit casting for cross-type arithmetic
 let x = 10i8;
 let y = 20i16;
-print(x as i16 + y);
+println!("{}", x as i16 + y);
 
 // Explicit casting
 let narrow = 200u8;
 let wide = narrow as i64;
-print(wide);
+println!("{}", wide);
 
 let big: i64 = 42;
 let truncated = big as i8;
-print(truncated);
+println!("{}", truncated);
 
 // Bitwise operators
 let mask: i64 = 0xFF;
 let value: i64 = 0xABCD;
-print(value & mask);
-print(value | 0xFF00);
-print(value ^ 0xFFFF);
-print(mask << 8);
-print(value >> 4);
+println!("{}", value & mask);
+println!("{}", value | 0xFF00);
+println!("{}", value ^ 0xFFFF);
+println!("{}", mask << 8);
+println!("{}", value >> 4);
 
 // Compound assignment
 let mut acc: i64 = 100;
 acc += 50;
-print(acc);
+println!("{}", acc);
 acc -= 25;
-print(acc);
+println!("{}", acc);
 acc *= 2;
-print(acc);
+println!("{}", acc);
 acc /= 5;
-print(acc);
+println!("{}", acc);
 acc %= 7;
-print(acc);
+println!("{}", acc);

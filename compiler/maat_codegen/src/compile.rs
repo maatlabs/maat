@@ -3,8 +3,8 @@ use std::rc::Rc;
 
 use maat_ast::{
     BlockStmt, BreakExpr, CondExpr, ContinueExpr, EnumVariantKind, Expr, FieldAccessExpr, ForStmt,
-    ImplBlock, InfixExpr, LoopStmt, MatchExpr, MethodCallExpr, Node, NumberKind, PathExpr, Pattern,
-    Program, ReAssignStmt, Stmt, StructLitExpr, TypeExpr, WhileStmt,
+    Ident, ImplBlock, InfixExpr, LoopStmt, MacroCallExpr, MatchExpr, MethodCallExpr, Node,
+    NumberKind, PathExpr, Pattern, Program, ReAssignStmt, Stmt, StructLitExpr, TypeExpr, WhileStmt,
 };
 use maat_bytecode::{
     Bytecode, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, MAX_ENUM_VARIANTS, Opcode,
@@ -25,6 +25,16 @@ const BUILTIN_METHOD_PREFIXES: &[&str] = &["Vector", "str", "Set", "Map", "Optio
 /// (`Ok`, `Err`) are directly accessible. All other enum variants
 /// require a qualified path (e.g., `ParseIntError::InvalidDigit`).
 const PRELUDE_ENUMS: &[&str] = &["Option", "Result"];
+
+/// A segment of a parsed format string.
+enum FmtSegment {
+    /// A literal text segment (between `{}` placeholders).
+    Literal(String),
+    /// A `{}` placeholder to be replaced by a positional argument.
+    Arg,
+    /// A `{name}` placeholder resolved as a variable capture.
+    Capture(String),
+}
 
 /// Tracks jump targets for break/continue within a loop.
 #[derive(Debug, Clone)]
@@ -775,6 +785,7 @@ impl Compiler {
             }
             Expr::Break(break_expr) => self.compile_break(break_expr),
             Expr::Continue(cont_expr) => self.compile_continue(cont_expr),
+            Expr::MacroCall(mc) => self.compile_macro_call(mc),
             Expr::Macro(_) => Err(CompileErrorKind::UnsupportedExpr {
                 expr_type: "macro literal".to_string(),
             }
@@ -1656,6 +1667,287 @@ impl Compiler {
         scope.instructions.replace_bytes(op_pos, &new_inst);
         Ok(())
     }
+
+    /// Dispatches a builtin macro call to the appropriate expansion routine.
+    fn compile_macro_call(&mut self, mc: &MacroCallExpr) -> Result<()> {
+        let span = mc.span;
+        match mc.name.as_str() {
+            "print" => self.compile_print_macro(&mc.arguments, false, span),
+            "println" => self.compile_print_macro(&mc.arguments, true, span),
+            "assert" => self.compile_assert_macro(&mc.arguments, span),
+            "assert_eq" => self.compile_assert_eq_macro(&mc.arguments, span),
+            _ => Err(CompileErrorKind::UnknownMacro {
+                name: mc.name.clone(),
+            }
+            .at(span)
+            .into()),
+        }
+    }
+
+    /// Compiles `print!(fmt, args...)` or `println!(fmt, args...)`.
+    fn compile_print_macro(&mut self, args: &[Expr], newline: bool, span: Span) -> Result<()> {
+        let macro_name = if newline { "println" } else { "print" };
+
+        if args.is_empty() {
+            if newline {
+                return self.emit_builtin_call(
+                    "__print_str_ln",
+                    &[Value::Str(String::new())],
+                    span,
+                );
+            }
+            return self.emit_builtin_call("__print_str", &[Value::Str(String::new())], span);
+        }
+        let fmt = match &args[0] {
+            Expr::Str(s) => maat_ast::unescape_string(&s.value),
+            _ => {
+                return Err(CompileErrorKind::MacroExpectsFormatString {
+                    macro_name: macro_name.to_string(),
+                }
+                .at(span)
+                .into());
+            }
+        };
+        let segments = parse_format_string(&fmt);
+        let placeholder_count = segments
+            .iter()
+            .filter(|s| matches!(s, FmtSegment::Arg))
+            .count();
+        let value_args = &args[1..];
+        if placeholder_count != value_args.len() {
+            return Err(CompileErrorKind::FormatArgCountMismatch {
+                placeholders: placeholder_count,
+                arguments: value_args.len(),
+            }
+            .at(span)
+            .into());
+        }
+
+        // Each builtin call pushes a Null result. We pop all intermediate
+        // results and keep only the final call's result as the expression value.
+        let mut arg_idx = 0;
+        let mut emitted_calls = 0usize;
+
+        for segment in &segments {
+            if emitted_calls > 0 {
+                self.emit(Opcode::Pop, &[], span);
+            }
+            match segment {
+                FmtSegment::Literal(text) => {
+                    self.emit_builtin_call("__print_str", &[Value::Str(text.clone())], span)?;
+                    emitted_calls += 1;
+                }
+                FmtSegment::Arg => {
+                    self.emit_builtin_call_expr("__to_string", &value_args[arg_idx], span)?;
+                    self.emit_builtin_call_stack("__print_str", span)?;
+                    arg_idx += 1;
+                    emitted_calls += 1;
+                }
+                FmtSegment::Capture(name) => {
+                    let ident_expr = Expr::Ident(Ident {
+                        value: name.clone(),
+                        span,
+                    });
+                    self.emit_builtin_call_expr("__to_string", &ident_expr, span)?;
+                    self.emit_builtin_call_stack("__print_str", span)?;
+                    emitted_calls += 1;
+                }
+            }
+        }
+        if newline {
+            if emitted_calls > 0 {
+                self.emit(Opcode::Pop, &[], span);
+            }
+            self.emit_builtin_call("__print_str_ln", &[Value::Str(String::new())], span)?;
+        }
+        Ok(())
+    }
+
+    /// Compiles `assert!(condition)` or `assert!(condition, message)`.
+    fn compile_assert_macro(&mut self, args: &[Expr], span: Span) -> Result<()> {
+        if args.is_empty() || args.len() > 2 {
+            return Err(CompileErrorKind::FormatArgCountMismatch {
+                placeholders: 1,
+                arguments: args.len(),
+            }
+            .at(span)
+            .into());
+        }
+
+        self.compile_expression(&args[0])?;
+        let cond_jump_pos = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+        let skip_pos = self.emit(Opcode::Jump, &[Self::JUMP], span);
+
+        let panic_start = self.current_instructions().len();
+        self.replace_operand(cond_jump_pos, panic_start)?;
+
+        if args.len() == 2 {
+            self.compile_expression(&args[1])?;
+            self.emit_builtin_call_stack("__panic", span)?;
+        } else {
+            self.emit_builtin_call(
+                "__panic",
+                &[Value::Str("assertion failed".to_string())],
+                span,
+            )?;
+        }
+        self.emit(Opcode::Pop, &[], span);
+
+        let after = self.current_instructions().len();
+        self.replace_operand(skip_pos, after)?;
+        self.emit(Opcode::Null, &[], span);
+        Ok(())
+    }
+
+    /// Compiles `assert_eq!(left, right)`.
+    fn compile_assert_eq_macro(&mut self, args: &[Expr], span: Span) -> Result<()> {
+        if args.len() != 2 {
+            return Err(CompileErrorKind::FormatArgCountMismatch {
+                placeholders: 2,
+                arguments: args.len(),
+            }
+            .at(span)
+            .into());
+        }
+
+        self.compile_expression(&args[0])?;
+        self.compile_expression(&args[1])?;
+        self.emit(Opcode::Equal, &[], span);
+
+        let cond_jump_pos = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+        let skip_pos = self.emit(Opcode::Jump, &[Self::JUMP], span);
+
+        let panic_start = self.current_instructions().len();
+        self.replace_operand(cond_jump_pos, panic_start)?;
+        self.emit_builtin_call(
+            "__panic",
+            &[Value::Str("assertion `left == right` failed".to_string())],
+            span,
+        )?;
+        self.emit(Opcode::Pop, &[], span);
+
+        let after = self.current_instructions().len();
+        self.replace_operand(skip_pos, after)?;
+        self.emit(Opcode::Null, &[], span);
+        Ok(())
+    }
+
+    /// Emits a call to a builtin function with constant arguments.
+    fn emit_builtin_call(&mut self, name: &str, const_args: &[Value], span: Span) -> Result<()> {
+        let builtin_idx = resolve_builtin_index(name);
+        self.emit(Opcode::GetBuiltin, &[builtin_idx], span);
+        for arg in const_args {
+            let idx = self.add_constant(arg.clone())?;
+            self.emit(Opcode::Constant, &[idx], span);
+        }
+        self.emit(Opcode::Call, &[const_args.len()], span);
+        Ok(())
+    }
+
+    /// Emits a call to a builtin function where the single argument is an
+    /// expression to be compiled (pushed onto the stack).
+    fn emit_builtin_call_expr(&mut self, name: &str, arg: &Expr, span: Span) -> Result<()> {
+        let builtin_idx = resolve_builtin_index(name);
+        self.emit(Opcode::GetBuiltin, &[builtin_idx], span);
+        self.compile_expression(arg)?;
+        self.emit(Opcode::Call, &[1], span);
+        Ok(())
+    }
+
+    /// Emits a call to a builtin function where the single argument is
+    /// already on the stack (from a prior call's return value).
+    fn emit_builtin_call_stack(&mut self, name: &str, span: Span) -> Result<()> {
+        let temp_name = format!("__macro_tmp_{}", self.current_instructions().len());
+        let symbol = self.define_and_set(&temp_name, false, span)?;
+        let builtin_idx = resolve_builtin_index(name);
+        self.emit(Opcode::GetBuiltin, &[builtin_idx], span);
+        self.load_symbol(&symbol, span);
+        self.emit(Opcode::Call, &[1], span);
+        Ok(())
+    }
+}
+
+/// Resolves a builtin function name to its index in the [`BUILTINS`] registry.
+///
+/// Panics if the name is not found. Internal builtins are guaranteed
+/// to be present at compile time.
+fn resolve_builtin_index(name: &str) -> usize {
+    BUILTINS
+        .iter()
+        .position(|(n, _)| *n == name)
+        .unwrap_or_else(|| panic!("internal builtin `{name}` not found in registry"))
+}
+
+/// Parses a format string into a sequence of literal, positional, and capture segments.
+///
+/// Handles `{{` and `}}` as escaped braces. `{}` is a positional placeholder,
+/// `{name}` is a variable capture (where `name` matches `[a-zA-Z_][a-zA-Z0-9_]*`).
+fn parse_format_string(fmt: &str) -> Vec<FmtSegment> {
+    let mut segments = Vec::new();
+    let mut buf = String::new();
+    let mut chars = fmt.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '{' => {
+                if chars.peek() == Some(&'{') {
+                    chars.next();
+                    buf.push('{');
+                } else if chars.peek() == Some(&'}') {
+                    chars.next();
+                    if !buf.is_empty() {
+                        segments.push(FmtSegment::Literal(std::mem::take(&mut buf)));
+                    }
+                    segments.push(FmtSegment::Arg);
+                } else {
+                    // Try to parse `{identifier}`.
+                    let mut name = String::new();
+                    while let Some(&c) = chars.peek() {
+                        if c == '}' {
+                            break;
+                        }
+                        name.push(c);
+                        chars.next();
+                    }
+                    if chars.peek() == Some(&'}') && is_identifier(&name) {
+                        chars.next();
+                        if !buf.is_empty() {
+                            segments.push(FmtSegment::Literal(std::mem::take(&mut buf)));
+                        }
+                        segments.push(FmtSegment::Capture(name));
+                    } else {
+                        // Not a valid capture; emit as literal text.
+                        buf.push('{');
+                        buf.push_str(&name);
+                    }
+                }
+            }
+            '}' => {
+                if chars.peek() == Some(&'}') {
+                    chars.next();
+                    buf.push('}');
+                } else {
+                    buf.push('}');
+                }
+            }
+            _ => buf.push(ch),
+        }
+    }
+
+    if !buf.is_empty() {
+        segments.push(FmtSegment::Literal(buf));
+    }
+    segments
+}
+
+/// Returns `true` if `s` is a valid Maat identifier (`[a-zA-Z_][a-zA-Z0-9_]*`).
+fn is_identifier(s: &str) -> bool {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) if c.is_alphabetic() || c == '_' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_alphanumeric() || c == '_')
 }
 
 /// Maps a source-level type annotation to a bytecode type tag.

@@ -502,6 +502,7 @@ impl TypeChecker {
                 lambda.span,
             ),
             Expr::Call(call) => self.check_call_expr(call),
+            Expr::MacroCall(mc) => self.check_macro_call(mc),
             Expr::Cast(cast) => {
                 self.infer_expression(&mut cast.expr);
                 Type::from_number_kind(&cast.target)
@@ -697,6 +698,14 @@ impl TypeChecker {
                 self.env.fresh_var()
             }
         }
+    }
+
+    /// Type-checks a builtin macro invocation.
+    fn check_macro_call(&mut self, mc: &mut MacroCallExpr) -> Type {
+        for arg in &mut mc.arguments {
+            self.infer_expression(arg);
+        }
+        Type::Null
     }
 
     /// Type-checks a struct literal expression (e.g., `Point { x: 1, y: 2 }`)

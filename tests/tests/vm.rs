@@ -477,8 +477,6 @@ fn builtin_methods() {
         (r#""hello".len()"#, TestValue::Usize(5)),
         // len with cast
         ("[1, 2, 3].len() as i64", TestValue::I64(3)),
-        // print remains a free function
-        (r#"print("hello", "world!")"#, TestValue::Null),
     ];
     for (input, expected) in cases {
         run_vm_test(input, expected);

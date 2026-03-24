@@ -94,8 +94,8 @@ let edges = [[0, 1], [0, 2], [1, 3], [1, 4], [2, 4], [4, 5]];
 let graph = build_graph(6, edges);
 
 let result = dfs(graph, 0);
-print(result.order);
-print(result.visited.len());
+println!("{}", result.order);
+println!("{}", result.visited.len());
 
 // Verify all nodes were visited
 let mut all_visited = true;
@@ -104,7 +104,7 @@ for i in 0..6 {
         all_visited = false;
     }
 }
-print(all_visited);
+println!("{}", all_visited);
 
 // Mathematical computations using stdlib
 // Compute Euler's totient function: count integers 1..n coprime to n
@@ -118,8 +118,8 @@ fn euler_totient(n: i64) -> i64 {
     count
 }
 
-print(euler_totient(12));
-print(euler_totient(30));
+println!("{}", euler_totient(12));
+println!("{}", euler_totient(30));
 
 // Result-based safe operations pipeline
 fn safe_div(a: i64, b: i64) -> Result<i64, str> {
@@ -146,8 +146,8 @@ fn chain_ops(values: [i64]) -> Result<i64, str> {
     Ok(acc)
 }
 
-print(match chain_ops([100, 5, 3, 2]) { Ok(v) => v, Err(e) => -1 });
-print(match chain_ops([100, 0, 3]) { Ok(v) => v, Err(e) => -1 });
+println!("{}", match chain_ops([100, 5, 3, 2]) { Ok(v) => v, Err(e) => -1 });
+println!("{}", match chain_ops([100, 0, 3]) { Ok(v) => v, Err(e) => -1 });
 
 /// A simple arithmetic expression for the mini calculator.
 enum CalcExpr {
@@ -171,10 +171,10 @@ fn eval_calc(expr: CalcExpr) -> i64 {
     }
 }
 
-print(eval_calc(CalcExpr::Num(42)));
-print(eval_calc(CalcExpr::Add(10, 20)));
-print(eval_calc(CalcExpr::Mul(6, 7)));
-print(eval_calc(CalcExpr::Neg(99)));
+println!("{}", eval_calc(CalcExpr::Num(42)));
+println!("{}", eval_calc(CalcExpr::Add(10, 20)));
+println!("{}", eval_calc(CalcExpr::Mul(6, 7)));
+println!("{}", eval_calc(CalcExpr::Neg(99)));
 
 // Closure-based accumulator with Set tracking
 let process_batch = fn(data: [i64]) {
@@ -194,7 +194,7 @@ let process_batch = fn(data: [i64]) {
 
 let batch = [5, 3, 8, 3, 1, 5, 9, 1, 8, 7];
 let stats = process_batch(batch);
-print(stats);
+println!("{}", stats);
 
 /// A pair of optional integer values.
 struct Pair {
@@ -209,15 +209,15 @@ fn combine_pair(p: Pair) -> i64 {
     l + r
 }
 
-print(combine_pair(Pair {
+println!("{}", combine_pair(Pair {
     left: Some(10),
     right: Some(20),
 }));
-print(combine_pair(Pair {
+println!("{}", combine_pair(Pair {
     left: Some(10),
     right: None,
 }));
-print(combine_pair(Pair {
+println!("{}", combine_pair(Pair {
     left: None,
     right: None,
 }));
@@ -236,13 +236,13 @@ fn collatz_length(n: i64) -> i64 {
     go(n, 0)
 }
 
-print(collatz_length(27));
-print(collatz_length(1));
-print(collatz_length(1000));
+println!("{}", collatz_length(27));
+println!("{}", collatz_length(1));
+println!("{}", collatz_length(1000));
 
 // Final: compute sum of collatz lengths for 1..=20 using range + accumulator
 let mut total_steps: i64 = 0;
 for n in 1..=20 {
     total_steps += collatz_length(n);
 }
-print(total_steps);
+println!("{}", total_steps);

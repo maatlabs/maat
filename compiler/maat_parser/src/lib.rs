@@ -621,7 +621,8 @@ fn parse_expression_inner<'src>(
     Ok(expr)
 }
 
-/// Parses an identifier, path expression (`Enum::Variant`), or struct literal (`Name { ... }`).
+/// Parses an identifier, macro call (`ident!(...)`), path expression (`Enum::Variant`),
+/// or struct literal (`Name { ... }`).
 fn parse_identifier<'src>(
     input: &mut &'src [Token<'src>],
     depth: &Cell<usize>,
@@ -630,10 +631,12 @@ fn parse_identifier<'src>(
     let name = tok.literal.to_string();
     let start = tok.span;
 
+    if peek(input) == TokenKind::Bang && peek_at(input, 1) == TokenKind::LParen {
+        return parse_macro_call(input, name, start, depth);
+    }
     if peek(input) == TokenKind::PathSep {
         return parse_path_expression(input, name, start);
     }
-
     if peek(input) == TokenKind::LBrace && name.starts_with(char::is_uppercase) {
         return parse_struct_literal(input, name, start, depth);
     }
@@ -641,6 +644,26 @@ fn parse_identifier<'src>(
     Ok(Expr::Ident(Ident {
         value: name,
         span: start,
+    }))
+}
+
+/// Parses a builtin macro invocation: `name!(args...)`.
+///
+/// Called after the identifier has been consumed. Consumes the `!` and
+/// parenthesized argument list, producing a [`MacroCallExpr`] node.
+fn parse_macro_call<'src>(
+    input: &mut &'src [Token<'src>],
+    name: String,
+    start: Span,
+    depth: &Cell<usize>,
+) -> ParseResult<Expr> {
+    parse(input, TokenKind::Bang)?;
+    parse(input, TokenKind::LParen)?;
+    let (arguments, end) = parse_delimited_exprs(input, TokenKind::RParen, depth)?;
+    Ok(Expr::MacroCall(MacroCallExpr {
+        name,
+        arguments,
+        span: start.merge(end),
     }))
 }
 

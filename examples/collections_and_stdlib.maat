@@ -8,37 +8,37 @@ use std::math::gcd;
 use std::math::lcm;
 
 // std::math
-print(abs(-42));
-print(min(10, 20));
-print(max(10, 20));
-print(pow(2, 16));
-print(gcd(48, 18));
-print(lcm(12, 8));
+println!("{}", abs(-42));
+println!("{}", min(10, 20));
+println!("{}", max(10, 20));
+println!("{}", pow(2, 16));
+println!("{}", gcd(48, 18));
+println!("{}", lcm(12, 8));
 
 // String methods (called directly on `str` values)
 let msg = "  Hello, Maat!  ";
-print(msg.trim());
-print(msg.contains("Maat"));
-print(msg.starts_with("  Hello"));
-print(msg.ends_with("!  "));
+println!("{}", msg.trim());
+println!("{}", msg.contains("Maat"));
+println!("{}", msg.starts_with("  Hello"));
+println!("{}", msg.ends_with("!  "));
 
 let csv = "alpha,beta,gamma,delta";
 let parts = csv.split(",");
-print(parts);
-print(parts.join(" | "));
+println!("{}", parts);
+println!("{}", parts.join(" | "));
 
 let n = match "12345".parse_int() { Ok(v) => v, Err(e) => 0 };
-print(n * 2);
+println!("{}", n * 2);
 
 // Typed parse methods return Result<T, ParseIntError>
 let a = match "127".parse_i8() { Ok(v) => v, Err(e) => 0i8 };
 let b = match "255".parse_u8() { Ok(v) => v, Err(e) => 0u8 };
 let c = match "42".parse_i32() { Ok(v) => v, Err(e) => 0i32 };
 let d = match "42".parse_usize() { Ok(v) => v, Err(e) => 0usize };
-print(a);
-print(b);
-print(c);
-print(d);
+println!("{}", a);
+println!("{}", b);
+println!("{}", c);
+println!("{}", d);
 
 // Error handling with `ParseIntError` variants
 let result = match "not_a_number".parse_i64() {
@@ -47,35 +47,35 @@ let result = match "not_a_number".parse_i64() {
     Err(ParseIntError::Overflow) => -2,
     Err(ParseIntError::Empty) => -3,
 };
-print(result);
+println!("{}", result);
 
 // Vector methods
 let arr = [10, 20, 30, 40, 50];
-print(arr.len());
-print(arr.first());
-print(arr.last());
-print(arr.rest());
-print(arr.push(60));
-print(arr[2]);
+println!("{}", arr.len());
+println!("{}", arr.first());
+println!("{}", arr.last());
+println!("{}", arr.rest());
+println!("{}", arr.push(60));
+println!("{}", arr[2]);
 
 // Build array with push in a loop
 let mut squares = [];
 for i in 1..=10 {
     squares = squares.push(i * i);
 }
-print(squares);
+println!("{}", squares);
 
 // String methods
 let s = "Hello, World!";
-print(s.len());
-print(s.contains("World"));
-print(s.starts_with("Hello"));
-print(s.ends_with("!"));
-print(s.trim());
+println!("{}", s.len());
+println!("{}", s.contains("World"));
+println!("{}", s.starts_with("Hello"));
+println!("{}", s.ends_with("!"));
+println!("{}", s.trim());
 
 let words = s.split(" ");
-print(words);
-print(words.join("-"));
+println!("{}", words);
+println!("{}", words.join("-"));
 
 // Set operations via direct method calls
 let mut visited = Set::new();
@@ -83,16 +83,16 @@ visited = visited.insert(10);
 visited = visited.insert(20);
 visited = visited.insert(30);
 visited = visited.insert(10);
-print(visited.len());
-print(visited.contains(20));
-print(visited.contains(99));
+println!("{}", visited.len());
+println!("{}", visited.contains(20));
+println!("{}", visited.contains(99));
 
 visited = visited.remove(20);
-print(visited.len());
-print(visited.to_vector());
+println!("{}", visited.len());
+println!("{}", visited.to_vector());
 
 // Method chaining on Set values directly
 let s1 = Set::new().insert(1).insert(2).insert(3);
-print(s1.len());
-print(s1.contains(2));
-print(s1.to_vector());
+println!("{}", s1.len());
+println!("{}", s1.contains(2));
+println!("{}", s1.to_vector());

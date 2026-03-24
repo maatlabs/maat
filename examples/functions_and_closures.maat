@@ -9,7 +9,7 @@ fn fib(n: i64) -> i64 {
     }
 }
 
-print(fib(10));
+println!("{}", fib(10));
 
 // Tail-recursive factorial via accumulator
 fn factorial(n: i64) -> i64 {
@@ -23,14 +23,14 @@ fn factorial(n: i64) -> i64 {
     go(n, 1)
 }
 
-print(factorial(12));
+println!("{}", factorial(12));
 
 // Closures capturing variables
 let base = 100;
 let offset = fn(x: i64) -> i64 {
     base + x;
 };
-print(offset(42));
+println!("{}", offset(42));
 
 // Closure factory
 let make_multiplier = fn(factor: i64) {
@@ -41,8 +41,8 @@ let make_multiplier = fn(factor: i64) {
 
 let double = make_multiplier(2);
 let triple = make_multiplier(3);
-print(double(21));
-print(triple(14));
+println!("{}", double(21));
+println!("{}", triple(14));
 
 // Higher-order: map
 let map = fn(arr, f) {
@@ -91,17 +91,17 @@ let data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 let squares = map(data, fn(x: i64) -> i64 {
     x * x;
 });
-print(squares);
+println!("{squares}");
 
 let evens = filter(data, fn(x) {
     x % 2 == 0;
 });
-print(evens);
+println!("{evens}");
 
 let sum = reduce(data, 0, fn(a: i64, b: i64) -> i64 {
     a + b;
 });
-print(sum);
+println!("{sum}");
 
 // Mutual recursion: is_even / is_odd
 fn is_even(n: i64) -> bool {
@@ -120,8 +120,8 @@ fn is_odd(n: i64) -> bool {
     }
 }
 
-print(is_even(10));
-print(is_odd(7));
+println!("{}", is_even(10));
+println!("{}", is_odd(7));
 
 // Function composition
 let compose = fn(f, g) {
@@ -133,4 +133,4 @@ let compose = fn(f, g) {
 let add1 = fn(x: i64) -> i64 { x + 1; };
 let mul2 = fn(x: i64) -> i64 { x * 2; };
 let add1_then_mul2 = compose(mul2, add1);
-print(add1_then_mul2(5));
+println!("{}", add1_then_mul2(5));

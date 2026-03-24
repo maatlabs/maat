@@ -116,7 +116,8 @@ pub fn eval(node: Node, env: &Env) -> Result<Value> {
                     _ => Err(EvalError::Builtin("range bounds must be i64".to_string()).into()),
                 }
             }
-            Expr::Match(_)
+            Expr::MacroCall(_)
+            | Expr::Match(_)
             | Expr::FieldAccess(_)
             | Expr::MethodCall(_)
             | Expr::StructLit(_)

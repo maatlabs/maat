@@ -47,16 +47,16 @@ fn is_probable_prime(n: i64) -> bool {
     all_pass
 }
 
-print(is_probable_prime(2));
-print(is_probable_prime(17));
-print(is_probable_prime(97));
-print(is_probable_prime(100));
-print(is_probable_prime(561));
+println!("{}", is_probable_prime(2));
+println!("{}", is_probable_prime(17));
+println!("{}", is_probable_prime(97));
+println!("{}", is_probable_prime(100));
+println!("{}", is_probable_prime(561));
 
 // 2^10 mod 1000 = 1024 mod 1000 = 24
-print(mod_pow(2, 10, 1000));
+println!("{}", mod_pow(2, 10, 1000));
 // 3^13 mod 50 = 1594323 mod 50 = 23
-print(mod_pow(3, 13, 50));
+println!("{}", mod_pow(3, 13, 50));
 
 /// Result of the extended GCD algorithm: gcd, x, y such that a*x + b*y = gcd(a, b).
 struct GcdResult {
@@ -83,11 +83,11 @@ fn extended_gcd(a: i64, b: i64) -> GcdResult {
 }
 
 let eg = extended_gcd(35, 15);
-print(eg.gcd);
-print(eg.x);
-print(eg.y);
+println!("{}", eg.gcd);
+println!("{}", eg.x);
+println!("{}", eg.y);
 // Verify: 35 * x + 15 * y == gcd
-print(35 * eg.x + 15 * eg.y);
+println!("{}", 35 * eg.x + 15 * eg.y);
 
 /// Computes the modular inverse a^(-1) mod m, if it exists.
 fn mod_inverse(a: i64, m: i64) -> Option<i64> {
@@ -106,9 +106,9 @@ fn mod_inverse(a: i64, m: i64) -> Option<i64> {
 }
 
 // 3^(-1) mod 11 = 4  (because 3*4 = 12 ~= 1 mod 11)
-print(match mod_inverse(3, 11) { Some(v) => v, None => -1 });
+println!("{}", match mod_inverse(3, 11) { Some(v) => v, None => -1 });
 // 6 has no inverse mod 9 (gcd = 3)
-print(match mod_inverse(6, 9) { Some(v) => v, None => -1 });
+println!("{}", match mod_inverse(6, 9) { Some(v) => v, None => -1 });
 
 /// Encrypts or decrypts data by XOR-ing each element with a key.
 fn xor_cipher(data, key: i64) {
@@ -125,10 +125,10 @@ fn xor_cipher(data, key: i64) {
 let plaintext = [72, 101, 108, 108, 111];
 let key: i64 = 42;
 let ciphertext = xor_cipher(plaintext, key);
-print(ciphertext);
+println!("{}", ciphertext);
 // Decrypt: XOR again with same key recovers plaintext
 let decrypted = xor_cipher(ciphertext, key);
-print(decrypted);
+println!("{}", decrypted);
 
 /// Counts the number of set bits (population count) in `n`.
 fn popcount(n: i64) -> i64 {
@@ -141,19 +141,19 @@ fn popcount(n: i64) -> i64 {
     count
 }
 
-print(popcount(0));
-print(popcount(1));
-print(popcount(255));
-print(popcount(1023));
+println!("{}", popcount(0));
+println!("{}", popcount(1));
+println!("{}", popcount(255));
+println!("{}", popcount(1023));
 
 /// Returns true if `n` is a power of two (exactly one bit set).
 fn is_power_of_two(n: i64) -> bool {
     n > 0 && (n & (n - 1)) == 0
 }
 
-print(is_power_of_two(1));
-print(is_power_of_two(64));
-print(is_power_of_two(100));
+println!("{}", is_power_of_two(1));
+println!("{}", is_power_of_two(64));
+println!("{}", is_power_of_two(100));
 
 /// Left-rotates `value` by `shift` bits within a 64-bit word.
 fn rotate_left(value: i64, shift: i64) -> i64 {
@@ -161,4 +161,4 @@ fn rotate_left(value: i64, shift: i64) -> i64 {
 }
 
 let rotated = rotate_left(1, 10);
-print(rotated);
+println!("{}", rotated);

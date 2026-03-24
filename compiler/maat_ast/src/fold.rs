@@ -112,6 +112,11 @@ fn fold_expression(expr: &mut Expr, errors: &mut Vec<TypeError>) {
                 fold_expression(arg, errors);
             }
         }
+        Expr::MacroCall(e) => {
+            for arg in &mut e.arguments {
+                fold_expression(arg, errors);
+            }
+        }
         Expr::Cast(e) => fold_expression(&mut e.expr, errors),
         Expr::Break(e) => {
             if let Some(val) = &mut e.value {

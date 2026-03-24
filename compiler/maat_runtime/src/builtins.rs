@@ -98,7 +98,10 @@ macro_rules! define_builtins {
 }
 
 define_builtins! {
-    "print" => print,
+    "__print_str" => __print_str,
+    "__print_str_ln" => __print_str_ln,
+    "__to_string" => __to_string,
+    "__panic" => __panic,
     "Vector::len" => vector_len,
     "Vector::first" => vector_first,
     "Vector::last" => vector_last,
@@ -147,20 +150,39 @@ define_builtins! {
     "Result::is_err" => result_is_err,
 }
 
-/// Prints arguments to stdout, separated by spaces.
-pub fn print(args: &[Value]) -> Result<Value> {
-    if args.is_empty() {
-        println!();
-    } else {
-        for (i, arg) in args.iter().enumerate() {
-            if i > 0 {
-                print!(" ");
-            }
-            print!("{arg}");
-        }
-        println!();
-    }
+/// Prints a single value to stdout without a trailing newline.
+///
+/// Internal builtin emitted by `print!` and `println!` macro expansion.
+fn __print_str(args: &[Value]) -> Result<Value> {
+    expect_arg_count("__print_str", args, 1)?;
+    print!("{}", args[0]);
     Ok(NULL)
+}
+
+/// Prints a single value to stdout followed by a newline.
+///
+/// Internal builtin emitted by `println!()`.
+fn __print_str_ln(args: &[Value]) -> Result<Value> {
+    expect_arg_count("__print_str_ln", args, 1)?;
+    println!("{}", args[0]);
+    Ok(NULL)
+}
+
+/// Converts any value to its string representation.
+///
+/// Internal builtin emitted by `print!` / `println!` format string expansion
+/// for `{}` placeholder interpolation.
+fn __to_string(args: &[Value]) -> Result<Value> {
+    expect_arg_count("__to_string", args, 1)?;
+    Ok(Value::Str(format!("{}", args[0])))
+}
+
+/// Terminates execution with a runtime error.
+///
+/// Internal builtin emitted by `assert!` and `assert_eq!` macro expansion.
+fn __panic(args: &[Value]) -> Result<Value> {
+    expect_arg_count("__panic", args, 1)?;
+    Err(EvalError::Builtin(format!("{}", args[0])).into())
 }
 
 /// Returns the number of elements in a vec. Receiver: `self` at `args[0]`.

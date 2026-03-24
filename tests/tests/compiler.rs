@@ -698,23 +698,23 @@ fn compile_let_statement_scopes() {
 #[test]
 fn compile_builtins() {
     let cases: Vec<ConstantTestCase<'_>> = vec![
-        // Method calls: Vector::len (builtin index 1)
+        // Method calls: Vector::len (builtin index 4)
         (
             "[].len();",
             vec![],
             vec![
-                encode(Opcode::GetBuiltin, &[1]),
+                encode(Opcode::GetBuiltin, &[4]),
                 encode(Opcode::Vector, &[0]),
                 encode(Opcode::Call, &[1]),
                 encode(Opcode::Pop, &[]),
             ],
         ),
-        // Method calls: Vector::push (builtin index 5)
+        // Method calls: Vector::push (builtin index 8)
         (
             "[].push(1);",
             vec![Constant::Int(1)],
             vec![
-                encode(Opcode::GetBuiltin, &[5]),
+                encode(Opcode::GetBuiltin, &[8]),
                 encode(Opcode::Vector, &[0]),
                 encode(Opcode::Constant, &[0]),
                 encode(Opcode::Call, &[2]),

@@ -164,6 +164,7 @@ pub enum Expr {
     Lambda(Lambda),
     Macro(Macro),
     Call(CallExpr),
+    MacroCall(MacroCallExpr),
     Cast(CastExpr),
     Break(BreakExpr),
     Continue(ContinueExpr),
@@ -193,6 +194,7 @@ impl Expr {
             Self::Lambda(v) => v.span,
             Self::Macro(v) => v.span,
             Self::Call(v) => v.span,
+            Self::MacroCall(v) => v.span,
             Self::Cast(v) => v.span,
             Self::Break(v) => v.span,
             Self::Continue(v) => v.span,
@@ -436,6 +438,20 @@ pub struct Macro {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CallExpr {
     pub function: Box<Expr>,
+    pub arguments: Vec<Expr>,
+    pub span: Span,
+}
+
+/// Built-in macro invocation: `print!(...)`, `println!(...)`, `assert!(...)`, `assert_eq!(...)`.
+///
+/// Distinguished from regular [`CallExpr`] because macros accept special argument
+/// syntax (format strings, variadic arguments) and expand to inline bytecode
+/// rather than dispatching through a function value.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct MacroCallExpr {
+    /// The macro name without the trailing `!` (e.g., `"println"`).
+    pub name: String,
+    /// Arguments passed to the macro.
     pub arguments: Vec<Expr>,
     pub span: Span,
 }

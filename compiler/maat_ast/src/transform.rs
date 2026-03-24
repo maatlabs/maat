@@ -323,6 +323,18 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                     Expr::Call(call)
                 }
 
+                Expr::MacroCall(mut mc) => {
+                    mc.arguments = mc
+                        .arguments
+                        .into_iter()
+                        .map(|arg| match transform(Node::Expr(arg), transformer) {
+                            Node::Expr(e) => e,
+                            _ => unreachable!("Expr transformation returned non-expression"),
+                        })
+                        .collect();
+                    Expr::MacroCall(mc)
+                }
+
                 Expr::Cast(mut cast) => {
                     cast.expr = Box::new(match transform(Node::Expr(*cast.expr), transformer) {
                         Node::Expr(e) => e,

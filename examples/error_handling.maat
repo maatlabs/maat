@@ -27,9 +27,9 @@ fn validate(n: i64) -> Result<i64, str> {
     }
 }
 
-print(match validate(50) { Ok(v) => v, Err(e) => -1 });
-print(match validate(-5) { Ok(v) => v, Err(e) => -1 });
-print(match validate(200) { Ok(v) => v, Err(e) => -1 });
+println!("{}", match validate(50) { Ok(v) => v, Err(e) => -1 });
+println!("{}", match validate(-5) { Ok(v) => v, Err(e) => -1 });
+println!("{}", match validate(200) { Ok(v) => v, Err(e) => -1 });
 
 // Deeply nested Result chaining: safe arithmetic pipeline
 fn safe_div(a: i64, b: i64) -> Result<i64, str> {
@@ -60,11 +60,11 @@ fn pipeline(a: i64, b: i64, c: i64, d: i64) -> Result<i64, str> {
 }
 
 // 100 / 5 = 20, 20 - 8 = 12, 12 / 3 = 4
-print(match pipeline(100, 5, 8, 3) { Ok(v) => v, Err(e) => -1 });
+println!("{}", match pipeline(100, 5, 8, 3) { Ok(v) => v, Err(e) => -1 });
 // Division by zero at first step
-print(match pipeline(100, 0, 8, 3) { Ok(v) => v, Err(e) => -1 });
+println!("{}", match pipeline(100, 0, 8, 3) { Ok(v) => v, Err(e) => -1 });
 // Underflow at second step
-print(match pipeline(100, 50, 10, 3) { Ok(v) => v, Err(e) => -1 });
+println!("{}", match pipeline(100, 50, 10, 3) { Ok(v) => v, Err(e) => -1 });
 
 // Error accumulation pattern: validate multiple fields
 struct Config {
@@ -89,8 +89,8 @@ fn validate_config(c: Config) -> Result<i64, str> {
 let valid = Config { width: 5, height: 10, depth: 3 };
 let invalid = Config { width: 5, height: -2, depth: 3 };
 
-print(match validate_config(valid) { Ok(v) => v, Err(e) => -1 });
-print(match validate_config(invalid) { Ok(v) => v, Err(e) => -1 });
+println!("{}", match validate_config(valid) { Ok(v) => v, Err(e) => -1 });
+println!("{}", match validate_config(invalid) { Ok(v) => v, Err(e) => -1 });
 
 // Option-to-Result conversion pattern
 fn lookup(arr, idx: i64) -> Option<i64> {
@@ -111,5 +111,5 @@ fn require(opt: Option<i64>, msg: str) -> Result<i64, str> {
 }
 
 let data = [10, 20, 30, 40, 50];
-print(match require(lookup(data, 2), "not found") { Ok(v) => v, Err(e) => -1 });
-print(match require(lookup(data, 99), "not found") { Ok(v) => v, Err(e) => -1 });
+println!("{}", match require(lookup(data, 2), "not found") { Ok(v) => v, Err(e) => -1 });
+println!("{}", match require(lookup(data, 99), "not found") { Ok(v) => v, Err(e) => -1 });

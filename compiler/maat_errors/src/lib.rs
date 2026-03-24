@@ -234,6 +234,20 @@ pub enum CompileErrorKind {
     #[error("cannot re-assign to immutable variable `{name}`")]
     ImmutableAssignment { name: String },
 
+    #[error("unknown builtin macro `{name}!`")]
+    UnknownMacro { name: String },
+
+    #[error(
+        "format string has {placeholders} placeholder(s) but {arguments} argument(s) were supplied"
+    )]
+    FormatArgCountMismatch {
+        placeholders: usize,
+        arguments: usize,
+    },
+
+    #[error("`{macro_name}!` requires a format string literal as its first argument")]
+    MacroExpectsFormatString { macro_name: String },
+
     #[error(
         "enum `{name}` has {count} variants, exceeding the maximum of {max} (variant tags must fit in 8 bits)"
     )]

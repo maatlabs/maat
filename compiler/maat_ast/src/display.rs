@@ -124,6 +124,7 @@ impl fmt::Display for Expr {
             Self::Lambda(e) => e.fmt(f),
             Self::Macro(e) => e.fmt(f),
             Self::Call(e) => e.fmt(f),
+            Self::MacroCall(e) => e.fmt(f),
             Self::Cast(e) => e.fmt(f),
             Self::Break(e) => e.fmt(f),
             Self::Continue(e) => e.fmt(f),
@@ -276,6 +277,21 @@ impl fmt::Display for CallExpr {
             self.arguments
                 .iter()
                 .map(|call| format!("{call}"))
+                .collect::<Vec<String>>()
+                .join(", ")
+        )
+    }
+}
+
+impl fmt::Display for MacroCallExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}!({})",
+            self.name,
+            self.arguments
+                .iter()
+                .map(|arg| format!("{arg}"))
                 .collect::<Vec<String>>()
                 .join(", ")
         )

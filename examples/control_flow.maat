@@ -11,9 +11,9 @@ fn classify(n: i64) -> str {
     }
 }
 
-print(classify(-5));
-print(classify(0));
-print(classify(42));
+println!("{}", classify(-5));
+println!("{}", classify(0));
+println!("{}", classify(42));
 
 // while loop: compute sum 1..100
 let mut sum: i64 = 0;
@@ -22,28 +22,28 @@ while (i <= 100) {
     sum += i;
     i += 1;
 }
-print(sum);
+println!("{}", sum);
 
 // for..in over a vector
 let mut product: i64 = 1;
 for x in [2, 3, 5, 7] {
     product *= x;
 }
-print(product);
+println!("{}", product);
 
 // for..in over a half-open range
 let mut range_sum: i64 = 0;
 for j in 0..10 {
     range_sum += j;
 }
-print(range_sum);
+println!("{}", range_sum);
 
 // for..in over an inclusive range
 let mut inclusive_sum: i64 = 0;
 for k in 1..=10 {
     inclusive_sum += k;
 }
-print(inclusive_sum);
+println!("{}", inclusive_sum);
 
 // loop with break
 let mut count: i64 = 0;
@@ -53,7 +53,7 @@ loop {
         break;
     }
 }
-print(count);
+println!("{}", count);
 
 // continue to skip odd numbers
 let mut even_sum: i64 = 0;
@@ -63,7 +63,7 @@ for n in 1..=20 {
     }
     even_sum += n;
 }
-print(even_sum);
+println!("{}", even_sum);
 
 // Nested loops: multiplication table checksum
 let mut checksum: i64 = 0;
@@ -72,7 +72,7 @@ for row in 1..=5 {
         checksum += row * col;
     }
 }
-print(checksum);
+println!("{}", checksum);
 
 // Variable shadowing across blocks
 let x: i64 = 10;
@@ -82,5 +82,5 @@ let result = if (true) {
 } else {
     x
 };
-print(result);
-print(x);
+println!("{}", result);
+println!("{}", x);

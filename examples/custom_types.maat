@@ -35,13 +35,13 @@ impl Vec2 {
 let v1 = Vec2 { x: 3, y: 4 };
 let v2 = Vec2 { x: 1, y: 2 };
 let v3 = v1.add(v2);
-print(v3.x);
-print(v3.y);
-print(v1.magnitude_squared());
+println!("{}", v3.x);
+println!("{}", v3.y);
+println!("{}", v1.magnitude_squared());
 
 let scaled = v1.scale(3);
-print(scaled.x);
-print(scaled.y);
+println!("{}", scaled.x);
+println!("{}", scaled.y);
 
 /// A geometric shape.
 enum Shape {
@@ -62,9 +62,9 @@ fn perimeter(s: Shape) -> i64 {
     }
 }
 
-print(perimeter(Shape::Circle(10)));
-print(perimeter(Shape::Rect(5, 8)));
-print(perimeter(Shape::Triangle(3, 4, 5)));
+println!("{}", perimeter(Shape::Circle(10)));
+println!("{}", perimeter(Shape::Rect(5, 8)));
+println!("{}", perimeter(Shape::Triangle(3, 4, 5)));
 
 // Option: safe division
 fn safe_div(a: i64, b: i64) -> Option<i64> {
@@ -77,8 +77,8 @@ fn safe_div(a: i64, b: i64) -> Option<i64> {
 
 let r1 = safe_div(100, 7);
 let r2 = safe_div(100, 0);
-print(match r1 { Some(v) => v, None => -1 });
-print(match r2 { Some(v) => v, None => -1 });
+println!("{}", match r1 { Some(v) => v, None => -1 });
+println!("{}", match r2 { Some(v) => v, None => -1 });
 
 // Result: checked square root (integer)
 fn isqrt(n: i64) -> Result<i64, str> {
@@ -93,8 +93,8 @@ fn isqrt(n: i64) -> Result<i64, str> {
     }
 }
 
-print(match isqrt(144) { Ok(v) => v, Err(e) => -1 });
-print(match isqrt(-4) { Ok(v) => v, Err(e) => -1 });
+println!("{}", match isqrt(144) { Ok(v) => v, Err(e) => -1 });
+println!("{}", match isqrt(-4) { Ok(v) => v, Err(e) => -1 });
 
 // Chained Option matching
 fn add_opt(a: Option<i64>, b: Option<i64>) -> Option<i64> {
@@ -107,8 +107,8 @@ fn add_opt(a: Option<i64>, b: Option<i64>) -> Option<i64> {
     }
 }
 
-print(match add_opt(Some(10), Some(20)) { Some(v) => v, None => -1 });
-print(match add_opt(Some(10), None) { Some(v) => v, None => -1 });
+println!("{}", match add_opt(Some(10), Some(20)) { Some(v) => v, None => -1 });
+println!("{}", match add_opt(Some(10), None) { Some(v) => v, None => -1 });
 
 /// A trait for types that can produce a numeric description.
 trait Describable {
@@ -146,5 +146,5 @@ impl Describable for Rectangle {
 
 let c = Circle { radius: 5 };
 let r = Rectangle { width: 6, height: 8 };
-print(c.describe());
-print(r.describe());
+println!("{}", c.describe());
+println!("{}", r.describe());
