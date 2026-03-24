@@ -107,6 +107,7 @@ impl fmt::Display for Instructions {
         let mut ip = 0;
 
         while ip < self.0.len() {
+            let prev_ip = ip;
             let opcode = match Opcode::from_byte(self.0[ip]) {
                 Some(op) => op,
                 None => {
@@ -130,6 +131,13 @@ impl fmt::Display for Instructions {
             }
             writeln!(f)?;
             ip += 1 + bytes_read;
+            if ip <= prev_ip {
+                writeln!(
+                    f,
+                    "ERROR: instruction pointer did not advance at offset {prev_ip}, aborting disassembly"
+                )?;
+                break;
+            }
         }
 
         Ok(())
@@ -356,6 +364,13 @@ mod tests {
             }
             other => panic!("expected UnexpectedEndOfBytecode, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn display_unknown_opcode() {
+        let bytecode = Instructions::from_bytes(vec![255]);
+        let output = bytecode.to_string();
+        assert!(output.contains("ERROR: unknown opcode 255"));
     }
 
     #[test]

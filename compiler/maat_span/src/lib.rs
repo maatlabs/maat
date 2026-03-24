@@ -70,7 +70,16 @@ impl SourceMap {
     }
 
     /// Records a mapping from an instruction byte offset to a source span.
+    ///
+    /// Entries must be added in non-decreasing offset order. Out-of-order
+    /// insertion would cause [`lookup`](Self::lookup) to return incorrect
+    /// results due to its binary-search implementation.
     pub fn add(&mut self, offset: usize, span: Span) {
+        debug_assert!(
+            self.entries.last().is_none_or(|&(prev, _)| offset >= prev),
+            "SourceMap::add: offset {offset} is less than previous entry offset {}",
+            self.entries.last().map_or(0, |&(prev, _)| prev),
+        );
         self.entries.push((offset, span));
     }
 
@@ -126,5 +135,21 @@ mod tests {
     fn source_map_empty() {
         let sm = SourceMap::new();
         assert_eq!(sm.lookup(0), None);
+    }
+
+    #[test]
+    fn source_map_accepts_equal_offsets() {
+        let mut sm = SourceMap::new();
+        sm.add(5, Span::new(0, 3));
+        sm.add(5, Span::new(4, 7));
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "SourceMap::add: offset 2 is less than previous entry offset 5")]
+    fn source_map_rejects_out_of_order() {
+        let mut sm = SourceMap::new();
+        sm.add(5, Span::new(0, 3));
+        sm.add(2, Span::new(4, 7));
     }
 }

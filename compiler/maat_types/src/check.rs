@@ -364,6 +364,11 @@ impl TypeChecker {
 
     fn check_impl_block(&mut self, impl_block: &mut ImplBlock) {
         let self_type = self.env.resolve_type(&impl_block.self_type);
+        if let Type::Generic(ref name, _) = self_type {
+            self.errors
+                .push(TypeErrorKind::UnknownType(name.to_string()).at(impl_block.span));
+            return;
+        }
         let trait_name = impl_block.trait_name.as_ref().and_then(|te| match te {
             TypeExpr::Named(n) => Some(n.name.clone()),
             TypeExpr::Generic(name, _, _) => Some(name.clone()),
@@ -2673,6 +2678,22 @@ mod tests {
             impl_block(named_type("Bot"), Some(named_type("Nonexistent")), vec![]),
         ]);
         assert!(!errs.is_empty());
+    }
+
+    #[test]
+    fn impl_unknown_self_type() {
+        let errs = check(vec![impl_block(
+            named_type("Nonexistent"),
+            None,
+            vec![method_def(
+                "foo",
+                vec![("self", None)],
+                Some(named_type("i64")),
+                vec![],
+            )],
+        )]);
+        assert!(!errs.is_empty());
+        assert!(errs.iter().any(|e| e.contains("Nonexistent")));
     }
 
     #[test]
