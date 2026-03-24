@@ -4,8 +4,16 @@ use maat_vm::VM;
 
 #[derive(Debug)]
 enum TestValue {
-    I64(i64),
+    I8(i8),
+    I16(i16),
     I32(i32),
+    I64(i64),
+    I128(i128),
+    U8(u8),
+    U16(u16),
+    U32(u32),
+    U64(u64),
+    U128(u128),
     Usize(usize),
     Bool(bool),
     Str(String),
@@ -26,6 +34,24 @@ fn run_vm_test(input: &str, expected: TestValue) {
         .expect("no value on stack")
         .clone();
     match expected {
+        TestValue::I8(exp) => match stack_elem {
+            Value::Integer(Integer::I8(val)) => {
+                assert_eq!(val, exp, "wrong I8 value for input: {input}")
+            }
+            _ => panic!("expected I8, got: {stack_elem:?}"),
+        },
+        TestValue::I16(exp) => match stack_elem {
+            Value::Integer(Integer::I16(val)) => {
+                assert_eq!(val, exp, "wrong I16 value for input: {input}")
+            }
+            _ => panic!("expected I16, got: {stack_elem:?}"),
+        },
+        TestValue::I32(exp) => match stack_elem {
+            Value::Integer(Integer::I32(val)) => {
+                assert_eq!(val, exp, "wrong I32 value for input: {input}")
+            }
+            _ => panic!("expected I32, got: {stack_elem:?}"),
+        },
         TestValue::I64(exp) => match stack_elem {
             Value::Integer(Integer::I64(val)) => {
                 assert_eq!(val, exp, "wrong integer value for input: {input}")
@@ -33,19 +59,49 @@ fn run_vm_test(input: &str, expected: TestValue) {
             Value::Integer(Integer::Usize(val)) => {
                 assert_eq!(val as i64, exp, "wrong integer value for input: {input}")
             }
-            _ => panic!("expected integer, got: {:?}", stack_elem),
+            _ => panic!("expected integer, got: {stack_elem:?}"),
         },
-        TestValue::I32(exp) => match stack_elem {
-            Value::Integer(Integer::I32(val)) => {
-                assert_eq!(val, exp, "wrong I32 value for input: {input}")
+        TestValue::I128(exp) => match stack_elem {
+            Value::Integer(Integer::I128(val)) => {
+                assert_eq!(val, exp, "wrong I128 value for input: {input}")
             }
-            _ => panic!("expected I32, got: {:?}", stack_elem),
+            _ => panic!("expected I128, got: {stack_elem:?}"),
+        },
+        TestValue::U8(exp) => match stack_elem {
+            Value::Integer(Integer::U8(val)) => {
+                assert_eq!(val, exp, "wrong U8 value for input: {input}")
+            }
+            _ => panic!("expected U8, got: {stack_elem:?}"),
+        },
+        TestValue::U16(exp) => match stack_elem {
+            Value::Integer(Integer::U16(val)) => {
+                assert_eq!(val, exp, "wrong U16 value for input: {input}")
+            }
+            _ => panic!("expected U16, got: {stack_elem:?}"),
+        },
+        TestValue::U32(exp) => match stack_elem {
+            Value::Integer(Integer::U32(val)) => {
+                assert_eq!(val, exp, "wrong U32 value for input: {input}")
+            }
+            _ => panic!("expected U32, got: {stack_elem:?}"),
+        },
+        TestValue::U64(exp) => match stack_elem {
+            Value::Integer(Integer::U64(val)) => {
+                assert_eq!(val, exp, "wrong U64 value for input: {input}")
+            }
+            _ => panic!("expected U64, got: {stack_elem:?}"),
+        },
+        TestValue::U128(exp) => match stack_elem {
+            Value::Integer(Integer::U128(val)) => {
+                assert_eq!(val, exp, "wrong U128 value for input: {input}")
+            }
+            _ => panic!("expected U128, got: {stack_elem:?}"),
         },
         TestValue::Usize(exp) => match stack_elem {
             Value::Integer(Integer::Usize(val)) => {
                 assert_eq!(val, exp, "wrong Usize value for input: {input}")
             }
-            _ => panic!("expected Usize, got: {:?}", stack_elem),
+            _ => panic!("expected Usize, got: {stack_elem:?}"),
         },
         TestValue::Bool(exp) => match stack_elem {
             Value::Bool(val) => {
@@ -1758,4 +1814,65 @@ fn generic_set() {
         "#,
         TestValue::Usize(3),
     );
+}
+
+#[test]
+fn numeric_from_conversions() {
+    // Signed widening chain
+    run_vm_test("let x: i8 = 42; i16::from(x)", TestValue::I16(42));
+    run_vm_test("let x: i16 = 1000; i32::from(x)", TestValue::I32(1000));
+    run_vm_test("let x: i32 = 100000; i64::from(x)", TestValue::I64(100000));
+    run_vm_test(
+        "let x: i64 = 9223372036854775807; i128::from(x)",
+        TestValue::I128(9223372036854775807),
+    );
+
+    // Unsigned widening chain
+    run_vm_test("let x: u8 = 200; u16::from(x)", TestValue::U16(200));
+    run_vm_test("let x: u16 = 50000; u32::from(x)", TestValue::U32(50000));
+    run_vm_test(
+        "let x: u32 = 3000000000; u64::from(x)",
+        TestValue::U64(3000000000),
+    );
+    run_vm_test(
+        "let x: u64 = 10000000000; u128::from(x)",
+        TestValue::U128(10000000000),
+    );
+
+    // Cross-sign widening (unsigned --> larger signed)
+    run_vm_test("let x: u8 = 255; i16::from(x)", TestValue::I16(255));
+    run_vm_test("let x: u16 = 65535; i32::from(x)", TestValue::I32(65535));
+    run_vm_test(
+        "let x: u32 = 4294967295; i64::from(x)",
+        TestValue::I64(4294967295),
+    );
+}
+
+#[test]
+fn default_values() {
+    run_vm_test("i8::default()", TestValue::I8(0));
+    run_vm_test("i16::default()", TestValue::I16(0));
+    run_vm_test("i32::default()", TestValue::I32(0));
+    run_vm_test("i64::default()", TestValue::I64(0));
+    run_vm_test("u8::default()", TestValue::U8(0));
+    run_vm_test("u16::default()", TestValue::U16(0));
+    run_vm_test("u32::default()", TestValue::U32(0));
+    run_vm_test("u64::default()", TestValue::U64(0));
+    run_vm_test("bool::default()", TestValue::Bool(false));
+    run_vm_test("str::default()", TestValue::Str(String::new()));
+}
+
+#[test]
+fn cmp_min_max_clamp() {
+    run_vm_test("cmp::min(10, 20)", TestValue::I64(10));
+    run_vm_test("cmp::min(20, 10)", TestValue::I64(10));
+    run_vm_test("cmp::max(10, 20)", TestValue::I64(20));
+    run_vm_test("cmp::max(20, 10)", TestValue::I64(20));
+    run_vm_test("cmp::clamp(25, 0, 20)", TestValue::I64(20));
+    run_vm_test("cmp::clamp(5, 0, 20)", TestValue::I64(5));
+    run_vm_test("cmp::clamp(-5, 0, 20)", TestValue::I64(0));
+
+    // Typed variants
+    run_vm_test("cmp::min(10i32, 20i32)", TestValue::I32(10));
+    run_vm_test("cmp::max(10i32, 20i32)", TestValue::I32(20));
 }

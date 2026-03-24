@@ -67,6 +67,9 @@ impl TypeEnv {
         self.register_builtin_enums();
         self.register_option_result_methods();
         self.register_builtin_ctors();
+        self.register_numeric_conversions();
+        self.register_default_fns();
+        self.register_cmp_builtins();
     }
 
     /// Registers constructor functions and opaque types for built-in types.
@@ -114,6 +117,115 @@ impl TypeEnv {
                 ty: Type::Function(FnType {
                     params: vec![],
                     ret: Box::new(map_ty),
+                }),
+            },
+        );
+    }
+
+    /// Registers lossless numeric widening conversions as associated functions.
+    ///
+    /// Each conversion is registered as `Target::from(Source) -> Target`,
+    /// following Rust's `From` trait pattern. Only safe (lossless) widenings
+    /// are provided; lossy narrowing conversions remain explicit `as` casts.
+    fn register_numeric_conversions(&mut self) {
+        let targets: &[(&str, Type)] = &[
+            ("i16::from", Type::I16),
+            ("i32::from", Type::I32),
+            ("i64::from", Type::I64),
+            ("i128::from", Type::I128),
+            ("u16::from", Type::U16),
+            ("u32::from", Type::U32),
+            ("u64::from", Type::U64),
+            ("u128::from", Type::U128),
+        ];
+        for &(name, ref ret) in targets {
+            let param_id = self.next_var;
+            self.next_var += 1;
+            self.define_scheme(
+                name,
+                TypeScheme {
+                    forall: vec![param_id],
+                    ty: Type::Function(FnType {
+                        params: vec![Type::Var(param_id)],
+                        ret: Box::new(ret.clone()),
+                    }),
+                },
+            );
+        }
+    }
+
+    /// Registers `Type::default()` associated functions for primitive types.
+    ///
+    /// Returns the zero value for numeric types, `false` for `bool`,
+    /// and `""` for `str`.
+    fn register_default_fns(&mut self) {
+        let defaults: &[(&str, Type)] = &[
+            ("i8::default", Type::I8),
+            ("i16::default", Type::I16),
+            ("i32::default", Type::I32),
+            ("i64::default", Type::I64),
+            ("i128::default", Type::I128),
+            ("u8::default", Type::U8),
+            ("u16::default", Type::U16),
+            ("u32::default", Type::U32),
+            ("u64::default", Type::U64),
+            ("u128::default", Type::U128),
+            ("usize::default", Type::Usize),
+            ("isize::default", Type::Isize),
+            ("bool::default", Type::Bool),
+            ("str::default", Type::String),
+        ];
+        for &(name, ref ret) in defaults {
+            self.define_scheme(
+                name,
+                TypeScheme {
+                    forall: vec![],
+                    ty: Type::Function(FnType {
+                        params: vec![],
+                        ret: Box::new(ret.clone()),
+                    }),
+                },
+            );
+        }
+    }
+
+    /// Registers polymorphic comparison utility functions.
+    ///
+    /// `min` and `max` accept two values of the same integer type and return
+    /// the lesser or greater. `clamp` restricts a value to a `[min, max]` range.
+    fn register_cmp_builtins(&mut self) {
+        let t_id = self.next_var;
+        self.next_var += 1;
+        let t = Type::Var(t_id);
+        let forall = vec![t_id];
+
+        self.define_scheme(
+            "cmp::min",
+            TypeScheme {
+                forall: forall.clone(),
+                ty: Type::Function(FnType {
+                    params: vec![t.clone(), t.clone()],
+                    ret: Box::new(t.clone()),
+                }),
+            },
+        );
+        self.define_scheme(
+            "cmp::max",
+            TypeScheme {
+                forall: forall.clone(),
+                ty: Type::Function(FnType {
+                    params: vec![t.clone(), t.clone()],
+                    ret: Box::new(t.clone()),
+                }),
+            },
+        );
+        self.define_scheme(
+            "cmp::clamp",
+            TypeScheme {
+                forall,
+                ty: Type::Function(FnType {
+                    params: vec![t.clone(), t.clone(), t.clone()],
+                    ret: Box::new(t),
                 }),
             },
         );

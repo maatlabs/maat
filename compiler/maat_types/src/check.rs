@@ -679,7 +679,9 @@ impl TypeChecker {
                         }
                     }
                 }
-                self.subst.apply(&fn_ty.ret)
+                let ret = self.subst.apply(&fn_ty.ret);
+                self.validate_from_conversion(call, &arg_types, &ret);
+                ret
             }
             Type::Var(_) => {
                 let ret = self.env.fresh_var();
@@ -697,6 +699,28 @@ impl TypeChecker {
                     .push(TypeErrorKind::NotCallable(resolved.to_string()).at(call.span));
                 self.env.fresh_var()
             }
+        }
+    }
+
+    /// Validates that a `Type::from(value)` call is a lossless conversion.
+    fn validate_from_conversion(&mut self, call: &CallExpr, arg_types: &[Type], ret: &Type) {
+        let is_from_path = matches!(
+            call.function.as_ref(),
+            Expr::PathExpr(p) if p.segments.len() == 2 && p.segments[1] == "from"
+        );
+        if !is_from_path || arg_types.len() != 1 {
+            return;
+        }
+        let source = self.subst.apply(&arg_types[0]);
+        let target = self.subst.apply(ret);
+        if source.is_integer() && target.is_integer() && !is_lossless_conversion(&source, &target) {
+            self.errors.push(
+                TypeErrorKind::Mismatch {
+                    expected: format!("a type safely convertible to `{target}`"),
+                    found: source.to_string(),
+                }
+                .at(call.span),
+            );
         }
     }
 
@@ -1564,6 +1588,53 @@ impl TypeChecker {
         };
         self.errors.push(kind.at(span));
     }
+}
+
+/// Returns `true` if converting `source` to `target` is a lossless widening.
+///
+/// Accepted conversions mirror Rust's `From` impls for integer types:
+/// - Signed widening: `i8-->i16-->i32-->i64-->i128`
+/// - Unsigned widening: `u8-->u16-->u32-->u64-->u128`
+/// - Unsigned-->signed where the target is strictly wider:
+///   `u8-->i16`, `u16-->i32`, `u32-->i64`, `u64-->i128`
+fn is_lossless_conversion(source: &Type, target: &Type) -> bool {
+    use Type::*;
+    matches!(
+        (source, target),
+        // Signed widening chain
+        (I8, I16)
+            | (I8, I32)
+            | (I8, I64)
+            | (I8, I128)
+            | (I16, I32)
+            | (I16, I64)
+            | (I16, I128)
+            | (I32, I64)
+            | (I32, I128)
+            | (I64, I128)
+            // Unsigned widening chain
+            | (U8, U16)
+            | (U8, U32)
+            | (U8, U64)
+            | (U8, U128)
+            | (U16, U32)
+            | (U16, U64)
+            | (U16, U128)
+            | (U32, U64)
+            | (U32, U128)
+            | (U64, U128)
+            // Safe cross-sign (unsigned --> strictly wider signed)
+            | (U8, I16)
+            | (U8, I32)
+            | (U8, I64)
+            | (U8, I128)
+            | (U16, I32)
+            | (U16, I64)
+            | (U16, I128)
+            | (U32, I64)
+            | (U32, I128)
+            | (U64, I128)
+    )
 }
 
 #[cfg(test)]

@@ -1,5 +1,5 @@
 use indexmap::{IndexMap, IndexSet};
-use maat_errors::{EvalError, Result};
+use maat_errors::{Error, EvalError, Result};
 
 use crate::{BuiltinFn, EnumVariantVal, Hashable, Integer, MapVal, NULL, Value};
 
@@ -102,6 +102,7 @@ define_builtins! {
     "__print_str_ln" => __print_str_ln,
     "__to_string" => __to_string,
     "__panic" => __panic,
+
     "Vector::len" => vector_len,
     "Vector::first" => vector_first,
     "Vector::last" => vector_last,
@@ -109,6 +110,7 @@ define_builtins! {
     "Vector::push" => vector_push,
     "Vector::new" => vector_new,
     "Vector::join" => vector_join,
+
     "Map::new" => map_new,
     "Map::insert" => map_insert,
     "Map::get" => map_get,
@@ -117,12 +119,14 @@ define_builtins! {
     "Map::len" => map_len,
     "Map::keys" => map_keys,
     "Map::values" => map_values,
+
     "Set::new" => set_new,
     "Set::insert" => set_insert,
     "Set::contains" => set_contains,
     "Set::remove" => set_remove,
     "Set::len" => set_len,
     "Set::to_vector" => set_to_vector,
+
     "str::len" => str_len,
     "str::trim" => str_trim,
     "str::contains" => str_contains,
@@ -140,14 +144,44 @@ define_builtins! {
     "str::parse_u64" => str_parse_u64,
     "str::parse_u128" => str_parse_u128,
     "str::parse_usize" => str_parse_usize,
+
     "Option::unwrap" => option_unwrap,
     "Option::unwrap_or" => option_unwrap_or,
     "Option::is_some" => option_is_some,
     "Option::is_none" => option_is_none,
+
     "Result::unwrap" => result_unwrap,
     "Result::unwrap_or" => result_unwrap_or,
     "Result::is_ok" => result_is_ok,
     "Result::is_err" => result_is_err,
+
+    "i16::from" => i16_from,
+    "i32::from" => i32_from,
+    "i64::from" => i64_from,
+    "i128::from" => i128_from,
+    "u16::from" => u16_from,
+    "u32::from" => u32_from,
+    "u64::from" => u64_from,
+    "u128::from" => u128_from,
+
+    "i8::default" => i8_default,
+    "i16::default" => i16_default,
+    "i32::default" => i32_default,
+    "i64::default" => i64_default,
+    "i128::default" => i128_default,
+    "u8::default" => u8_default,
+    "u16::default" => u16_default,
+    "u32::default" => u32_default,
+    "u64::default" => u64_default,
+    "u128::default" => u128_default,
+    "usize::default" => usize_default,
+    "isize::default" => isize_default,
+    "bool::default" => bool_default,
+    "str::default" => str_default,
+
+    "cmp::min" => cmp_min,
+    "cmp::max" => cmp_max,
+    "cmp::clamp" => cmp_clamp,
 }
 
 /// Prints a single value to stdout without a trailing newline.
@@ -702,4 +736,175 @@ fn method_type_error(val: &Value, method: &str, expected_type: &str) -> Result<V
         val.type_name()
     ))
     .into())
+}
+
+/// Generates a lossless numeric widening conversion builtin.
+///
+/// Each generated function extracts the source integer, widens it via
+/// `to_i128()`, range-checks against the target, and wraps the result.
+macro_rules! define_from_signed {
+    ($fn_name:ident, $target_name:expr, $target_ty:ty, $variant:ident) => {
+        fn $fn_name(args: &[Value]) -> Result<Value> {
+            expect_arg_count($target_name, args, 1)?;
+            match &args[0] {
+                Value::Integer(n) => {
+                    let wide = n
+                        .to_i128()
+                        .ok_or_else(|| conversion_error(n, $target_name))?;
+                    let val = <$target_ty>::try_from(wide)
+                        .map_err(|_| conversion_error(n, $target_name))?;
+                    Ok(Value::Integer(Integer::$variant(val)))
+                }
+                other => Err(EvalError::Builtin(format!(
+                    "{}: expected integer, got {}",
+                    $target_name,
+                    other.type_name()
+                ))
+                .into()),
+            }
+        }
+    };
+}
+
+macro_rules! define_from_unsigned {
+    ($fn_name:ident, $target_name:expr, $target_ty:ty, $variant:ident) => {
+        fn $fn_name(args: &[Value]) -> Result<Value> {
+            expect_arg_count($target_name, args, 1)?;
+            match &args[0] {
+                Value::Integer(n) => {
+                    let wide = n
+                        .to_i128()
+                        .ok_or_else(|| conversion_error(n, $target_name))?;
+                    let val = <$target_ty>::try_from(wide)
+                        .map_err(|_| conversion_error(n, $target_name))?;
+                    Ok(Value::Integer(Integer::$variant(val)))
+                }
+                other => Err(EvalError::Builtin(format!(
+                    "{}: expected integer, got {}",
+                    $target_name,
+                    other.type_name()
+                ))
+                .into()),
+            }
+        }
+    };
+}
+
+define_from_signed!(i16_from, "i16::from", i16, I16);
+define_from_signed!(i32_from, "i32::from", i32, I32);
+define_from_signed!(i64_from, "i64::from", i64, I64);
+define_from_signed!(i128_from, "i128::from", i128, I128);
+define_from_unsigned!(u16_from, "u16::from", u16, U16);
+define_from_unsigned!(u32_from, "u32::from", u32, U32);
+define_from_unsigned!(u64_from, "u64::from", u64, U64);
+define_from_unsigned!(u128_from, "u128::from", u128, U128);
+
+fn conversion_error(n: &Integer, target: &str) -> Error {
+    EvalError::Builtin(format!("{target}: value {n} out of range")).into()
+}
+
+/// Generates a zero-arg `Type::default()` builtin returning the zero value.
+macro_rules! define_default {
+    ($fn_name:ident, $name:expr, $value:expr) => {
+        fn $fn_name(args: &[Value]) -> Result<Value> {
+            expect_arg_count($name, args, 0)?;
+            Ok($value)
+        }
+    };
+}
+
+define_default!(i8_default, "i8::default", Value::Integer(Integer::I8(0)));
+define_default!(i16_default, "i16::default", Value::Integer(Integer::I16(0)));
+define_default!(i32_default, "i32::default", Value::Integer(Integer::I32(0)));
+define_default!(i64_default, "i64::default", Value::Integer(Integer::I64(0)));
+define_default!(
+    i128_default,
+    "i128::default",
+    Value::Integer(Integer::I128(0))
+);
+define_default!(u8_default, "u8::default", Value::Integer(Integer::U8(0)));
+define_default!(u16_default, "u16::default", Value::Integer(Integer::U16(0)));
+define_default!(u32_default, "u32::default", Value::Integer(Integer::U32(0)));
+define_default!(u64_default, "u64::default", Value::Integer(Integer::U64(0)));
+define_default!(
+    u128_default,
+    "u128::default",
+    Value::Integer(Integer::U128(0))
+);
+define_default!(
+    usize_default,
+    "usize::default",
+    Value::Integer(Integer::Usize(0))
+);
+define_default!(
+    isize_default,
+    "isize::default",
+    Value::Integer(Integer::Isize(0))
+);
+define_default!(bool_default, "bool::default", Value::Bool(false));
+define_default!(str_default, "str::default", Value::Str(String::new()));
+
+/// Compares two integers of the same type, returning the smaller.
+fn cmp_min(args: &[Value]) -> Result<Value> {
+    expect_arg_count("cmp::min", args, 2)?;
+    match (&args[0], &args[1]) {
+        (Value::Integer(a), Value::Integer(b)) => {
+            let ord = a
+                .to_i128()
+                .zip(b.to_i128())
+                .ok_or_else(|| cmp_error("min"))?;
+            Ok(if ord.0 <= ord.1 {
+                args[0].clone()
+            } else {
+                args[1].clone()
+            })
+        }
+        _ => Err(cmp_error("min")),
+    }
+}
+
+/// Compares two integers of the same type, returning the larger.
+fn cmp_max(args: &[Value]) -> Result<Value> {
+    expect_arg_count("cmp::max", args, 2)?;
+    match (&args[0], &args[1]) {
+        (Value::Integer(a), Value::Integer(b)) => {
+            let ord = a
+                .to_i128()
+                .zip(b.to_i128())
+                .ok_or_else(|| cmp_error("max"))?;
+            Ok(if ord.0 >= ord.1 {
+                args[0].clone()
+            } else {
+                args[1].clone()
+            })
+        }
+        _ => Err(cmp_error("max")),
+    }
+}
+
+/// Restricts a value to the range `[min, max]`.
+fn cmp_clamp(args: &[Value]) -> Result<Value> {
+    expect_arg_count("cmp::clamp", args, 3)?;
+    match (&args[0], &args[1], &args[2]) {
+        (Value::Integer(val), Value::Integer(lo), Value::Integer(hi)) => {
+            let (v, l, h) = val
+                .to_i128()
+                .zip(lo.to_i128())
+                .zip(hi.to_i128())
+                .map(|((v, l), h)| (v, l, h))
+                .ok_or_else(|| cmp_error("clamp"))?;
+            Ok(if v < l {
+                args[1].clone()
+            } else if v > h {
+                args[2].clone()
+            } else {
+                args[0].clone()
+            })
+        }
+        _ => Err(cmp_error("clamp")),
+    }
+}
+
+fn cmp_error(name: &str) -> Error {
+    EvalError::Builtin(format!("cmp::{name}: expected integer arguments")).into()
 }

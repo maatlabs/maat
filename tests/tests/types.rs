@@ -362,3 +362,25 @@ fn builtin_type_methods() {
         "#,
     );
 }
+
+#[test]
+fn from_conversion_rejects_narrowing() {
+    let errors = maat_tests::compile_type_errors("let x: i64 = 42; i16::from(x)");
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("safely convertible") || e.contains("mismatch")),
+        "expected rejection of i64->i16 narrowing, got: {errors:?}"
+    );
+}
+
+#[test]
+fn from_conversion_rejects_unsigned_to_same_width_signed() {
+    let errors = maat_tests::compile_type_errors("let x: u16 = 1000; i16::from(x)");
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("safely convertible") || e.contains("mismatch")),
+        "expected rejection of u16->i16, got: {errors:?}"
+    );
+}

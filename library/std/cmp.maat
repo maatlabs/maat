@@ -1,0 +1,33 @@
+// Comparison utility functions, available via the `cmp::` qualified path.
+// These are polymorphic over all integer types.
+//
+// Functions:
+//   cmp::min(a, b)            -> T   (returns the smaller of two values)
+//   cmp::max(a, b)            -> T   (returns the larger of two values)
+//   cmp::clamp(value, lo, hi) -> T   (restricts value to [lo, hi] range)
+//
+// Examples:
+//   let smaller = cmp::min(10, 20);          // 10
+//   let larger  = cmp::max(10i32, 20i32);    // 20i32
+//   let clamped = cmp::clamp(100, 0, 50);    // 50
+//
+// Numeric conversions are available as associated functions on target types.
+// Only lossless widenings are supported; narrowing requires `as` casts.
+//
+// From conversions (T::from):
+//   i16::from(x: i8)   -> i16       i32::from(x: i16)  -> i32
+//   i64::from(x: i32)  -> i64       i128::from(x: i64) -> i128
+//   u16::from(x: u8)   -> u16       u32::from(x: u16)  -> u32
+//   u64::from(x: u32)  -> u64       u128::from(x: u64) -> u128
+//
+//   Cross-sign (unsigned -> larger signed):
+//   i16::from(x: u8)   -> i16       i32::from(x: u16)  -> i32
+//   i64::from(x: u32)  -> i64       i128::from(x: u64) -> i128
+//
+// Default values (T::default):
+//   i8::default()  -> 0i8            u8::default()  -> 0u8
+//   i16::default() -> 0i16           u16::default() -> 0u16
+//   i32::default() -> 0i32           u32::default() -> 0u32
+//   i64::default() -> 0              u64::default() -> 0u64
+//   i128::default() -> 0i128         u128::default() -> 0u128
+//   bool::default() -> false         str::default()  -> ""
