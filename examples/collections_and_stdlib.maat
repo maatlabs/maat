@@ -52,9 +52,9 @@ println!("{}", result);
 // Vector methods
 let arr = [10, 20, 30, 40, 50];
 println!("{}", arr.len());
-println!("{}", arr.first());
-println!("{}", arr.last());
-println!("{}", arr.rest());
+println!("{}", arr.first().unwrap());
+println!("{}", arr.last().unwrap());
+println!("{}", arr.split_first());
 println!("{}", arr.push(60));
 println!("{}", arr[2]);
 

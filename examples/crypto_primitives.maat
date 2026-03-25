@@ -116,7 +116,7 @@ fn xor_cipher(data, key: i64) {
         if data.len() == 0usize {
             acc
         } else {
-            go(data.rest(), acc.push(data.first() ^ key));
+            go(data.split_first(), acc.push(data.first().unwrap() ^ key));
         }
     };
     go(data, []);

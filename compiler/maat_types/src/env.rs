@@ -251,18 +251,18 @@ impl TypeEnv {
                 "Vector::first",
                 Type::Function(FnType {
                     params: vec![],
-                    ret: Box::new(elem.clone()),
+                    ret: Box::new(Type::Enum(Rc::from("Option"), vec![elem.clone()])),
                 }),
             ),
             (
                 "Vector::last",
                 Type::Function(FnType {
                     params: vec![],
-                    ret: Box::new(elem.clone()),
+                    ret: Box::new(Type::Enum(Rc::from("Option"), vec![elem.clone()])),
                 }),
             ),
             (
-                "Vector::rest",
+                "Vector::split_first",
                 Type::Function(FnType {
                     params: vec![],
                     ret: Box::new(vector_ty.clone()),
@@ -288,6 +288,81 @@ impl TypeEnv {
                 name.to_string(),
                 BuiltinMethodScheme {
                     forall: forall.clone(),
+                    self_type: vector_ty.clone(),
+                    fn_type,
+                },
+            );
+        }
+        // Higher-order Vector<T> methods requiring an additional type variable.
+        let out_id = self.next_var;
+        self.next_var += 1;
+        let out = Type::Var(out_id);
+        let vector_out = Type::Vector(Box::new(out.clone()));
+        let vec_ho_methods: Vec<(&str, Vec<TypeVarId>, Type)> = vec![
+            (
+                "Vector::map",
+                vec![elem_id, out_id],
+                Type::Function(FnType {
+                    params: vec![Type::Function(FnType {
+                        params: vec![Type::Var(elem_id)],
+                        ret: Box::new(out.clone()),
+                    })],
+                    ret: Box::new(vector_out),
+                }),
+            ),
+            (
+                "Vector::filter",
+                forall.clone(),
+                Type::Function(FnType {
+                    params: vec![Type::Function(FnType {
+                        params: vec![Type::Var(elem_id)],
+                        ret: Box::new(Type::Bool),
+                    })],
+                    ret: Box::new(vector_ty.clone()),
+                }),
+            ),
+            (
+                "Vector::fold",
+                vec![elem_id, out_id],
+                Type::Function(FnType {
+                    params: vec![
+                        out.clone(),
+                        Type::Function(FnType {
+                            params: vec![out.clone(), Type::Var(elem_id)],
+                            ret: Box::new(out),
+                        }),
+                    ],
+                    ret: Box::new(Type::Var(out_id)),
+                }),
+            ),
+            (
+                "Vector::any",
+                forall.clone(),
+                Type::Function(FnType {
+                    params: vec![Type::Function(FnType {
+                        params: vec![Type::Var(elem_id)],
+                        ret: Box::new(Type::Bool),
+                    })],
+                    ret: Box::new(Type::Bool),
+                }),
+            ),
+            (
+                "Vector::all",
+                forall.clone(),
+                Type::Function(FnType {
+                    params: vec![Type::Function(FnType {
+                        params: vec![Type::Var(elem_id)],
+                        ret: Box::new(Type::Bool),
+                    })],
+                    ret: Box::new(Type::Bool),
+                }),
+            ),
+        ];
+        for (name, ho_forall, fn_type) in vec_ho_methods {
+            self.builtin_method_schemes.insert(
+                name.to_string(),
+                BuiltinMethodScheme {
+                    forall: ho_forall,
                     self_type: vector_ty.clone(),
                     fn_type,
                 },
@@ -492,7 +567,7 @@ impl TypeEnv {
                 map_forall.clone(),
                 Type::Function(FnType {
                     params: vec![map_k.clone()],
-                    ret: Box::new(map_v),
+                    ret: Box::new(Type::Enum(Rc::from("Option"), vec![map_v])),
                 }),
             ),
             (
@@ -1237,7 +1312,11 @@ mod tests {
             .expect("unification should succeed");
         match subst.apply(&inst_fn) {
             Type::Function(fn_ty) => {
-                assert_eq!(*fn_ty.ret, Type::I64, "return type should resolve to i64");
+                let expected = Type::Enum(Rc::from("Option"), vec![Type::I64]);
+                assert_eq!(
+                    *fn_ty.ret, expected,
+                    "return type should resolve to Option<i64>"
+                );
             }
             _ => panic!("expected Function type"),
         }

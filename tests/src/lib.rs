@@ -181,8 +181,8 @@ match r { Some(v) => v, None => -1 }
     pub const METHOD_DISPATCH_SOURCE: &str = r#"
 let arr = [1, 2, 3, 4, 5];
 let a = arr.len();
-let b = arr.first();
-let c = arr.last();
+let b = arr.first().unwrap();
+let c = arr.last().unwrap();
 let s = "  hello  ";
 let t = s.trim();
 let u = s.len();

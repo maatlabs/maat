@@ -1402,7 +1402,18 @@ impl Compiler {
         matches!(
             (mc.receiver.as_deref(), mc.method.as_str()),
             (Some("Option" | "Result"), "map" | "and_then")
+                | (Some("Vector"), "map" | "filter" | "fold" | "any" | "all")
         )
+    }
+
+    /// Dispatches a higher-order method call to the appropriate inline
+    /// desugaring (Option/Result or Vector iterators).
+    fn compile_desugared_higher_order(&mut self, mc: &MethodCallExpr) -> Result<()> {
+        match mc.receiver.as_deref() {
+            Some("Option" | "Result") => self.compile_option_result_higher_order(mc),
+            Some("Vector") => self.compile_vector_iterator(mc),
+            _ => unreachable!("is_desugared_higher_order already validated receiver"),
+        }
     }
 
     /// Compiles `Option::map`, `Option::and_then`, `Result::map`, or
@@ -1419,7 +1430,7 @@ impl Compiler {
     /// ```
     ///
     /// Result variants follow the same pattern with Ok/Err.
-    fn compile_desugared_higher_order(&mut self, mc: &MethodCallExpr) -> Result<()> {
+    fn compile_option_result_higher_order(&mut self, mc: &MethodCallExpr) -> Result<()> {
         let span = mc.span;
         let is_option = mc.receiver.as_deref() == Some("Option");
         let is_map = mc.method == "map";
@@ -1429,7 +1440,6 @@ impl Compiler {
         let some_or_ok = type_index << 8;
         let none_or_err = (type_index << 8) | 1;
 
-        // Unique temp local names.
         let id = self.for_loop_counter;
         self.for_loop_counter += 1;
         let fn_name = format!("__hof_fn_{id}");
@@ -1461,11 +1471,425 @@ impl Compiler {
             self.emit(Opcode::Pop, &[], span);
             self.emit(Opcode::Construct, &[none_or_err, 0], span);
         } else {
-            // `Result::Err`:  the scrutinee is already the Err variant; keep it.
-            // Nothing to do: the Err value stays on the stack as-is.
+            // `Result::Err`: the scrutinee is already the Err variant; keep it.
         }
         let end = self.current_instructions().len();
         self.replace_operand(jump_to_end, end)?;
+        Ok(())
+    }
+
+    /// Compiles `Vector::map`, `Vector::filter`, `Vector::fold`, `Vector::any`,
+    /// and `Vector::all` as inline loop desugaring.
+    ///
+    /// Each method desugars to a counting loop over the source vector:
+    ///
+    /// - `map(f)`:   builds a new vector by applying `f` to each element
+    /// - `filter(f)`: builds a new vector of elements where `f` returns true
+    /// - `fold(init, f)`: accumulates a single value via `f(acc, elem)`
+    /// - `any(f)`:   short-circuits to `true` when `f(elem)` is true
+    /// - `all(f)`:   short-circuits to `false` when `f(elem)` is false
+    fn compile_vector_iterator(&mut self, mc: &MethodCallExpr) -> Result<()> {
+        match mc.method.as_str() {
+            "map" => self.compile_vector_map(mc),
+            "filter" => self.compile_vector_filter(mc),
+            "fold" => self.compile_vector_fold(mc),
+            "any" => self.compile_vector_any_all(mc, true),
+            "all" => self.compile_vector_any_all(mc, false),
+            _ => unreachable!("is_desugared_higher_order already validated method"),
+        }
+    }
+
+    /// Compiles `vec.map(f)` as a loop that builds a new vector.
+    ///
+    /// ```text
+    /// let __fn = f;
+    /// let __iter = vec;
+    /// let __len = Vector::len(__iter);
+    /// let __result = [];
+    /// let __i = 0;
+    /// loop_start:
+    ///   if __i >= __len: jump exit
+    ///   let __elem = __iter[__i]
+    ///   __result = Vector::push(__result, __fn(__elem))
+    ///   __i += 1
+    ///   jump loop_start
+    /// exit:
+    ///   __result
+    /// ```
+    fn compile_vector_map(&mut self, mc: &MethodCallExpr) -> Result<()> {
+        let span = mc.span;
+        let id = self.for_loop_counter;
+        self.for_loop_counter += 1;
+
+        let fn_name = format!("__vmap_fn_{id}");
+        let iter_name = format!("__vmap_iter_{id}");
+        let len_name = format!("__vmap_len_{id}");
+        let result_name = format!("__vmap_result_{id}");
+        let i_name = format!("__vmap_i_{id}");
+        let elem_name = format!("__vmap_elem_{id}");
+
+        // Store the closure
+        self.compile_expression(&mc.arguments[0])?;
+        let fn_sym = self.define_and_set(&fn_name, false, span)?;
+
+        // Store the source vector
+        self.compile_expression(&mc.object)?;
+        let iter_sym = self.define_and_set(&iter_name, false, span)?;
+
+        // __len = Vector::len(__iter)
+        let len_builtin = self.resolve_or_error("Vector::len", span)?;
+        self.load_symbol(&len_builtin, span);
+        self.load_symbol(&iter_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+        let len_sym = self.define_and_set(&len_name, false, span)?;
+
+        // __result = [] (empty vector)
+        self.emit(Opcode::Vector, &[0], span);
+        let result_sym = self.define_and_set(&result_name, true, span)?;
+
+        // __i = 0
+        let zero_idx = self.add_constant(Value::Integer(Integer::I64(0)))?;
+        self.emit(Opcode::Constant, &[zero_idx], span);
+        let i_sym = self.define_and_set(&i_name, true, span)?;
+
+        // loop_start: __i < __len
+        let loop_start = self.current_instructions().len();
+        self.load_symbol(&i_sym, span);
+        self.load_symbol(&len_sym, span);
+        self.emit(Opcode::LessThan, &[], span);
+        let exit_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+
+        // let __elem = __iter[__i]
+        self.load_symbol(&iter_sym, span);
+        self.load_symbol(&i_sym, span);
+        self.emit(Opcode::Index, &[], span);
+        let elem_sym = self.define_and_set(&elem_name, false, span)?;
+
+        // __result = Vector::push(__result, __fn(__elem))
+        let push_builtin = self.resolve_or_error("Vector::push", span)?;
+        self.load_symbol(&push_builtin, span);
+        self.load_symbol(&result_sym, span);
+        self.load_symbol(&fn_sym, span);
+        self.load_symbol(&elem_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+        self.emit(Opcode::Call, &[2], span);
+        self.emit_set_symbol(&result_sym, span);
+
+        // __i += 1
+        self.load_symbol(&i_sym, span);
+        let one_idx = self.add_constant(Value::Integer(Integer::I64(1)))?;
+        self.emit(Opcode::Constant, &[one_idx], span);
+        self.emit(Opcode::Add, &[], span);
+        self.emit_set_symbol(&i_sym, span);
+
+        self.emit(Opcode::Jump, &[loop_start], span);
+
+        // exit: push __result
+        let loop_exit = self.current_instructions().len();
+        self.replace_operand(exit_jump, loop_exit)?;
+        self.load_symbol(&result_sym, span);
+        Ok(())
+    }
+
+    /// Compiles `vec.filter(f)` as a loop that conditionally appends elements.
+    ///
+    /// ```text
+    /// let __fn = f;
+    /// let __iter = vec;
+    /// let __len = Vector::len(__iter);
+    /// let __result = [];
+    /// let __i = 0;
+    /// loop_start:
+    ///   if __i >= __len: jump exit
+    ///   let __elem = __iter[__i]
+    ///   if !__fn(__elem): jump skip
+    ///   __result = Vector::push(__result, __elem)
+    /// skip:
+    ///   __i += 1
+    ///   jump loop_start
+    /// exit:
+    ///   __result
+    /// ```
+    fn compile_vector_filter(&mut self, mc: &MethodCallExpr) -> Result<()> {
+        let span = mc.span;
+        let id = self.for_loop_counter;
+        self.for_loop_counter += 1;
+
+        let fn_name = format!("__vfilt_fn_{id}");
+        let iter_name = format!("__vfilt_iter_{id}");
+        let len_name = format!("__vfilt_len_{id}");
+        let result_name = format!("__vfilt_result_{id}");
+        let i_name = format!("__vfilt_i_{id}");
+        let elem_name = format!("__vfilt_elem_{id}");
+
+        self.compile_expression(&mc.arguments[0])?;
+        let fn_sym = self.define_and_set(&fn_name, false, span)?;
+
+        self.compile_expression(&mc.object)?;
+        let iter_sym = self.define_and_set(&iter_name, false, span)?;
+
+        let len_builtin = self.resolve_or_error("Vector::len", span)?;
+        self.load_symbol(&len_builtin, span);
+        self.load_symbol(&iter_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+        let len_sym = self.define_and_set(&len_name, false, span)?;
+
+        self.emit(Opcode::Vector, &[0], span);
+        let result_sym = self.define_and_set(&result_name, true, span)?;
+
+        let zero_idx = self.add_constant(Value::Integer(Integer::I64(0)))?;
+        self.emit(Opcode::Constant, &[zero_idx], span);
+        let i_sym = self.define_and_set(&i_name, true, span)?;
+
+        let loop_start = self.current_instructions().len();
+        self.load_symbol(&i_sym, span);
+        self.load_symbol(&len_sym, span);
+        self.emit(Opcode::LessThan, &[], span);
+        let exit_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+
+        // let __elem = __iter[__i]
+        self.load_symbol(&iter_sym, span);
+        self.load_symbol(&i_sym, span);
+        self.emit(Opcode::Index, &[], span);
+        let elem_sym = self.define_and_set(&elem_name, false, span)?;
+
+        // if __fn(__elem) => push
+        self.load_symbol(&fn_sym, span);
+        self.load_symbol(&elem_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+        let skip_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+
+        // __result = Vector::push(__result, __elem)
+        let push_builtin = self.resolve_or_error("Vector::push", span)?;
+        self.load_symbol(&push_builtin, span);
+        self.load_symbol(&result_sym, span);
+        self.load_symbol(&elem_sym, span);
+        self.emit(Opcode::Call, &[2], span);
+        self.emit_set_symbol(&result_sym, span);
+
+        // skip:
+        let skip_target = self.current_instructions().len();
+        self.replace_operand(skip_jump, skip_target)?;
+
+        // __i += 1
+        self.load_symbol(&i_sym, span);
+        let one_idx = self.add_constant(Value::Integer(Integer::I64(1)))?;
+        self.emit(Opcode::Constant, &[one_idx], span);
+        self.emit(Opcode::Add, &[], span);
+        self.emit_set_symbol(&i_sym, span);
+
+        self.emit(Opcode::Jump, &[loop_start], span);
+
+        let loop_exit = self.current_instructions().len();
+        self.replace_operand(exit_jump, loop_exit)?;
+        self.load_symbol(&result_sym, span);
+        Ok(())
+    }
+
+    /// Compiles `vec.fold(init, f)` as a loop that accumulates a value.
+    ///
+    /// ```text
+    /// let __fn = f;
+    /// let __acc = init;
+    /// let __iter = vec;
+    /// let __len = Vector::len(__iter);
+    /// let __i = 0;
+    /// loop_start:
+    ///   if __i >= __len: jump exit
+    ///   let __elem = __iter[__i]
+    ///   __acc = __fn(__acc, __elem)
+    ///   __i += 1
+    ///   jump loop_start
+    /// exit:
+    ///   __acc
+    /// ```
+    fn compile_vector_fold(&mut self, mc: &MethodCallExpr) -> Result<()> {
+        let span = mc.span;
+        let id = self.for_loop_counter;
+        self.for_loop_counter += 1;
+
+        let fn_name = format!("__vfold_fn_{id}");
+        let acc_name = format!("__vfold_acc_{id}");
+        let iter_name = format!("__vfold_iter_{id}");
+        let len_name = format!("__vfold_len_{id}");
+        let i_name = format!("__vfold_i_{id}");
+        let elem_name = format!("__vfold_elem_{id}");
+
+        // Store the closure (second arg)
+        self.compile_expression(&mc.arguments[1])?;
+        let fn_sym = self.define_and_set(&fn_name, false, span)?;
+
+        // Store the initial accumulator (first arg)
+        self.compile_expression(&mc.arguments[0])?;
+        let acc_sym = self.define_and_set(&acc_name, true, span)?;
+
+        // Store the source vector
+        self.compile_expression(&mc.object)?;
+        let iter_sym = self.define_and_set(&iter_name, false, span)?;
+
+        let len_builtin = self.resolve_or_error("Vector::len", span)?;
+        self.load_symbol(&len_builtin, span);
+        self.load_symbol(&iter_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+        let len_sym = self.define_and_set(&len_name, false, span)?;
+
+        let zero_idx = self.add_constant(Value::Integer(Integer::I64(0)))?;
+        self.emit(Opcode::Constant, &[zero_idx], span);
+        let i_sym = self.define_and_set(&i_name, true, span)?;
+
+        let loop_start = self.current_instructions().len();
+        self.load_symbol(&i_sym, span);
+        self.load_symbol(&len_sym, span);
+        self.emit(Opcode::LessThan, &[], span);
+        let exit_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+
+        // let __elem = __iter[__i]
+        self.load_symbol(&iter_sym, span);
+        self.load_symbol(&i_sym, span);
+        self.emit(Opcode::Index, &[], span);
+        let elem_sym = self.define_and_set(&elem_name, false, span)?;
+
+        // __acc = __fn(__acc, __elem)
+        self.load_symbol(&fn_sym, span);
+        self.load_symbol(&acc_sym, span);
+        self.load_symbol(&elem_sym, span);
+        self.emit(Opcode::Call, &[2], span);
+        self.emit_set_symbol(&acc_sym, span);
+
+        // __i += 1
+        self.load_symbol(&i_sym, span);
+        let one_idx = self.add_constant(Value::Integer(Integer::I64(1)))?;
+        self.emit(Opcode::Constant, &[one_idx], span);
+        self.emit(Opcode::Add, &[], span);
+        self.emit_set_symbol(&i_sym, span);
+
+        self.emit(Opcode::Jump, &[loop_start], span);
+
+        let loop_exit = self.current_instructions().len();
+        self.replace_operand(exit_jump, loop_exit)?;
+        self.load_symbol(&acc_sym, span);
+        Ok(())
+    }
+
+    /// Compiles `vec.any(f)` and `vec.all(f)` as short-circuiting loops.
+    ///
+    /// For `any`: returns `true` as soon as `f(elem)` is `true`, else `false`.
+    /// For `all`: returns `false` as soon as `f(elem)` is `false`, else `true`.
+    ///
+    /// ```text
+    /// let __fn = f;
+    /// let __iter = vec;
+    /// let __len = Vector::len(__iter);
+    /// let __i = 0;
+    /// loop_start:
+    ///   if __i >= __len: jump default_result
+    ///   let __elem = __iter[__i]
+    ///   let __test = __fn(__elem)
+    ///   // any: if __test => jump early_result
+    ///   // all: if !__test => jump early_result
+    ///   __i += 1
+    ///   jump loop_start
+    /// early_result:
+    ///   push <early_value>  // any: true, all: false
+    ///   jump end
+    /// default_result:
+    ///   push <default_value>  // any: false, all: true
+    /// end:
+    /// ```
+    fn compile_vector_any_all(&mut self, mc: &MethodCallExpr, is_any: bool) -> Result<()> {
+        let span = mc.span;
+        let id = self.for_loop_counter;
+        self.for_loop_counter += 1;
+
+        let fn_name = format!("__vaa_fn_{id}");
+        let iter_name = format!("__vaa_iter_{id}");
+        let len_name = format!("__vaa_len_{id}");
+        let i_name = format!("__vaa_i_{id}");
+        let elem_name = format!("__vaa_elem_{id}");
+
+        self.compile_expression(&mc.arguments[0])?;
+        let fn_sym = self.define_and_set(&fn_name, false, span)?;
+
+        self.compile_expression(&mc.object)?;
+        let iter_sym = self.define_and_set(&iter_name, false, span)?;
+
+        let len_builtin = self.resolve_or_error("Vector::len", span)?;
+        self.load_symbol(&len_builtin, span);
+        self.load_symbol(&iter_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+        let len_sym = self.define_and_set(&len_name, false, span)?;
+
+        let zero_idx = self.add_constant(Value::Integer(Integer::I64(0)))?;
+        self.emit(Opcode::Constant, &[zero_idx], span);
+        let i_sym = self.define_and_set(&i_name, true, span)?;
+
+        let loop_start = self.current_instructions().len();
+        self.load_symbol(&i_sym, span);
+        self.load_symbol(&len_sym, span);
+        self.emit(Opcode::LessThan, &[], span);
+        let exit_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+
+        // let __elem = __iter[__i]
+        self.load_symbol(&iter_sym, span);
+        self.load_symbol(&i_sym, span);
+        self.emit(Opcode::Index, &[], span);
+        let elem_sym = self.define_and_set(&elem_name, false, span)?;
+
+        // let __test = __fn(__elem)
+        self.load_symbol(&fn_sym, span);
+        self.load_symbol(&elem_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+
+        let (early_value, default_value) = if is_any { (true, false) } else { (false, true) };
+
+        if is_any {
+            let continue_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+
+            let early_idx = self.add_constant(Value::Bool(early_value))?;
+            self.emit(Opcode::Constant, &[early_idx], span);
+            let early_exit = self.emit(Opcode::Jump, &[Self::JUMP], span);
+
+            let continue_target = self.current_instructions().len();
+            self.replace_operand(continue_jump, continue_target)?;
+
+            self.load_symbol(&i_sym, span);
+            let one_idx = self.add_constant(Value::Integer(Integer::I64(1)))?;
+            self.emit(Opcode::Constant, &[one_idx], span);
+            self.emit(Opcode::Add, &[], span);
+            self.emit_set_symbol(&i_sym, span);
+            self.emit(Opcode::Jump, &[loop_start], span);
+
+            let default_target = self.current_instructions().len();
+            self.replace_operand(exit_jump, default_target)?;
+            let default_idx = self.add_constant(Value::Bool(default_value))?;
+            self.emit(Opcode::Constant, &[default_idx], span);
+
+            let end = self.current_instructions().len();
+            self.replace_operand(early_exit, end)?;
+        } else {
+            let early_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+
+            self.load_symbol(&i_sym, span);
+            let one_idx = self.add_constant(Value::Integer(Integer::I64(1)))?;
+            self.emit(Opcode::Constant, &[one_idx], span);
+            self.emit(Opcode::Add, &[], span);
+            self.emit_set_symbol(&i_sym, span);
+            self.emit(Opcode::Jump, &[loop_start], span);
+
+            let early_target = self.current_instructions().len();
+            self.replace_operand(early_jump, early_target)?;
+            let early_idx = self.add_constant(Value::Bool(early_value))?;
+            self.emit(Opcode::Constant, &[early_idx], span);
+            let early_exit = self.emit(Opcode::Jump, &[Self::JUMP], span);
+
+            let default_target = self.current_instructions().len();
+            self.replace_operand(exit_jump, default_target)?;
+            let default_idx = self.add_constant(Value::Bool(default_value))?;
+            self.emit(Opcode::Constant, &[default_idx], span);
+
+            let end = self.current_instructions().len();
+            self.replace_operand(early_exit, end)?;
+        }
         Ok(())
     }
 

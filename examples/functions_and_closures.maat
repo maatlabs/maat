@@ -50,7 +50,7 @@ let map = fn(arr, f) {
         if arr.len() == 0usize {
             acc
         } else {
-            go(arr.rest(), acc.push(f(arr.first())));
+            go(arr.split_first(), acc.push(f(arr.first().unwrap())));
         }
     };
     go(arr, []);
@@ -62,8 +62,8 @@ let filter = fn(arr, pred) {
         if arr.len() == 0usize {
             acc
         } else {
-            let head = arr.first();
-            let tail = arr.rest();
+            let head = arr.first().unwrap();
+            let tail = arr.split_first();
             if pred(head) {
                 go(tail, acc.push(head));
             } else {
@@ -80,7 +80,7 @@ let reduce = fn(arr, init, f) {
         if arr.len() == 0usize {
             acc
         } else {
-            go(arr.rest(), f(acc, arr.first()));
+            go(arr.split_first(), f(acc, arr.first().unwrap()));
         }
     };
     go(arr, init);

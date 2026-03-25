@@ -107,7 +107,7 @@ define_builtins! {
     "Vector::len" => vector_len,
     "Vector::first" => vector_first,
     "Vector::last" => vector_last,
-    "Vector::rest" => vector_rest,
+    "Vector::split_first" => vector_split_first,
     "Vector::push" => vector_push,
     "Vector::new" => vector_new,
     "Vector::join" => vector_join,
@@ -246,32 +246,33 @@ fn vector_len(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns the first element of a vec, or `null` if empty.
+/// Returns the first element of a vector, wrapped in `Some`, or `None` if empty.
 fn vector_first(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::first", args, 1)?;
     match &args[0] {
-        Value::Vector(arr) => Ok(arr.first().cloned().unwrap_or(NULL)),
+        Value::Vector(arr) => Ok(option_wrap(arr.first().cloned())),
         other => method_type_error(other, "first", "Vector"),
     }
 }
 
-/// Returns the last element of a vec, or `null` if empty.
+/// Returns the last element of a vector, wrapped in `Some`, or `None` if empty.
 fn vector_last(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::last", args, 1)?;
     match &args[0] {
-        Value::Vector(arr) => Ok(arr.last().cloned().unwrap_or(NULL)),
+        Value::Vector(arr) => Ok(option_wrap(arr.last().cloned())),
         other => method_type_error(other, "last", "Vector"),
     }
 }
 
-/// Returns all elements after the first, or `null` if empty.
-fn vector_rest(args: &[Value]) -> Result<Value> {
-    expect_arg_count("Vector::rest", args, 1)?;
+/// Returns all elements of a vector after the first, or an empty vector if empty.
+fn vector_split_first(args: &[Value]) -> Result<Value> {
+    expect_arg_count("Vector::split_first", args, 1)?;
     match &args[0] {
-        Value::Vector(arr) => arr
-            .split_first()
-            .map_or(Ok(NULL), |(_, tail)| Ok(Value::Vector(tail.to_vec()))),
-        other => method_type_error(other, "rest", "Vector"),
+        Value::Vector(arr) => Ok(arr.split_first().map_or_else(
+            || Value::Vector(vec![]),
+            |(_, tail)| Value::Vector(tail.to_vec()),
+        )),
+        other => method_type_error(other, "split_first", "Vector"),
     }
 }
 
@@ -338,14 +339,14 @@ fn map_insert(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns the value associated with the given key, or `null` if not present.
-/// Receiver at `args[0]`, key at `args[1]`.
+/// Returns the value associated with the given key wrapped in `Some`, or
+/// `None` if not present. Receiver at `args[0]`, key at `args[1]`.
 fn map_get(args: &[Value]) -> Result<Value> {
     expect_arg_count("Map::get", args, 2)?;
     match &args[0] {
         Value::Map(map) => {
             let key = Hashable::try_from(args[1].clone())?;
-            Ok(map.pairs.get(&key).cloned().unwrap_or(NULL))
+            Ok(option_wrap(map.pairs.get(&key).cloned()))
         }
         other => method_type_error(other, "get", "Map"),
     }
@@ -593,6 +594,22 @@ fn char_to_string(args: &[Value]) -> Result<Value> {
     match &args[0] {
         Value::Char(c) => Ok(Value::Str(c.to_string())),
         other => method_type_error(other, "to_string", "char"),
+    }
+}
+
+/// Wraps a Rust `std::option::Option<Value>` into a Maat `Option<T>` enum variant.
+fn option_wrap(opt: Option<Value>) -> Value {
+    match opt {
+        Some(val) => Value::EnumVariant(EnumVariantVal {
+            type_index: OPTION_TYPE_INDEX,
+            tag: SOME_TAG,
+            fields: vec![val],
+        }),
+        None => Value::EnumVariant(EnumVariantVal {
+            type_index: OPTION_TYPE_INDEX,
+            tag: NONE_TAG,
+            fields: vec![],
+        }),
     }
 }
 

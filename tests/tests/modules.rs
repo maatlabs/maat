@@ -400,7 +400,7 @@ fn std_map() {
 
     let result = run_project(&[(
         "main.maat",
-        "let m = Map::new().insert(\"key\", 42);\nm.get(\"key\")",
+        "let m = Map::new().insert(\"key\", 42);\nm.get(\"key\").unwrap()",
     )]);
     assert_eq!(result, Value::Integer(Integer::I64(42)));
 
@@ -448,19 +448,19 @@ fn std_vec() {
 
     let result = run_project(&[(
         "main.maat",
-        "let v = Vector::new().push(10).push(20).push(30);\nv.first()",
+        "let v = Vector::new().push(10).push(20).push(30);\nv.first().unwrap()",
     )]);
     assert_eq!(result, Value::Integer(Integer::I64(10)));
 
     let result = run_project(&[(
         "main.maat",
-        "let v = Vector::new().push(10).push(20).push(30);\nv.last()",
+        "let v = Vector::new().push(10).push(20).push(30);\nv.last().unwrap()",
     )]);
     assert_eq!(result, Value::Integer(Integer::I64(30)));
 
     let result = run_project(&[(
         "main.maat",
-        "let v = Vector::new().push(10).push(20).push(30);\nv.rest().len()",
+        "let v = Vector::new().push(10).push(20).push(30);\nv.split_first().len()",
     )]);
     assert_eq!(result, Value::Integer(Integer::Usize(2)));
 

@@ -520,12 +520,13 @@ fn builtin_methods() {
         // Vector methods
         ("[1, 2, 3].len()", TestValue::Usize(3)),
         ("[].len()", TestValue::Usize(0)),
-        ("[1, 2, 3].first()", TestValue::I64(1)),
-        ("[].first()", TestValue::Null),
-        ("[1, 2, 3].last()", TestValue::I64(3)),
-        ("[].last()", TestValue::Null),
-        ("[1, 2, 3].rest()", TestValue::IntVector(vec![2, 3])),
-        ("[].rest()", TestValue::Null),
+        ("[1, 2, 3].first().unwrap()", TestValue::I64(1)),
+        ("[1, 2, 3].first().is_some()", TestValue::Bool(true)),
+        ("[].first().is_none()", TestValue::Bool(true)),
+        ("[1, 2, 3].last().unwrap()", TestValue::I64(3)),
+        ("[].last().is_none()", TestValue::Bool(true)),
+        ("[1, 2, 3].split_first()", TestValue::IntVector(vec![2, 3])),
+        ("[].split_first()", TestValue::IntVector(vec![])),
         ("[].push(1)", TestValue::IntVector(vec![1])),
         // str methods
         (r#""".len()"#, TestValue::Usize(0)),
@@ -543,19 +544,22 @@ fn builtin_methods() {
 fn builtin_method_chaining() {
     // `push` returns a new vector, so chaining is possible
     run_vm_test("[1, 2].push(3).len()", TestValue::Usize(3));
-    // `rest` returns a new vector
-    run_vm_test("[1, 2, 3].rest().first()", TestValue::I64(2));
-    run_vm_test("[1, 2, 3].rest().last()", TestValue::I64(3));
+    // `split_first` returns the tail as a new vector
+    run_vm_test(
+        "[1, 2, 3].split_first().first().unwrap()",
+        TestValue::I64(2),
+    );
+    run_vm_test("[1, 2, 3].split_first().last().unwrap()", TestValue::I64(3));
     run_vm_test(
         "let vector = [10, 20, 30]; vector.len()",
         TestValue::Usize(3),
     );
     run_vm_test(
-        "let vector = [10, 20, 30]; vector.first()",
+        "let vector = [10, 20, 30]; vector.first().unwrap()",
         TestValue::I64(10),
     );
     run_vm_test(
-        "let vector = [10, 20, 30]; vector.last()",
+        "let vector = [10, 20, 30]; vector.last().unwrap()",
         TestValue::I64(30),
     );
     run_vm_test(r#"let s = "hello world"; s.len()"#, TestValue::Usize(11));
@@ -564,7 +568,7 @@ fn builtin_method_chaining() {
         TestValue::I64(4),
     );
     run_vm_test(
-        "let vector = [1, 2, 3]; vector.rest().len()",
+        "let vector = [1, 2, 3]; vector.split_first().len()",
         TestValue::Usize(2),
     );
 }
@@ -1598,7 +1602,7 @@ fn map_type() {
             let m = Map::new();
             let m = m.insert(1, 100);
             let m = m.insert(2, 200);
-            m.get(1) + m.get(2)
+            m.get(1).unwrap() + m.get(2).unwrap()
         }
         test()
         "#,
@@ -1698,7 +1702,7 @@ fn map_type() {
             let m = Map::new();
             let m = m.insert("x", 10);
             let m = m.insert("y", 20);
-            m.get("x") + m.get("y")
+            m.get("x").unwrap() + m.get("y").unwrap()
         }
         test()
         "#,

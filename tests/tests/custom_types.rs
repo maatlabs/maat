@@ -111,11 +111,7 @@ fn structs() {
         "struct Stack { items: [i64] }
          impl Stack {
              fn peek(self) -> Option<i64> {
-                 if (self.items.len() == 0usize) {
-                     None
-                 } else {
-                     Some(self.items.first())
-                 }
+                 self.items.first()
              }
          }
          let s = Stack { items: [10, 20, 30] };
@@ -126,11 +122,7 @@ fn structs() {
         "struct Stack { items: [i64] }
          impl Stack {
              fn peek(self) -> Option<i64> {
-                 if (self.items.len() == 0usize) {
-                     None
-                 } else {
-                     Some(self.items.first())
-                 }
+                 self.items.first()
              }
          }
          let s = Stack { items: [] };

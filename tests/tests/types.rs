@@ -331,7 +331,7 @@ fn builtin_type_methods() {
     assert_no_type_errors("[1, 2, 3].len();");
     assert_no_type_errors("[1, 2, 3].first();");
     assert_no_type_errors("[1, 2, 3].last();");
-    assert_no_type_errors("[1, 2, 3].rest();");
+    assert_no_type_errors("[1, 2, 3].split_first();");
     assert_no_type_errors("[1, 2, 3].push(4);");
     assert_no_type_errors(r#""hello".len();"#);
 
@@ -351,14 +351,14 @@ fn builtin_type_methods() {
         "#,
     );
     // Method chaining
-    assert_no_type_errors("[1, 2, 3].rest().first();");
+    assert_no_type_errors("[1, 2, 3].split_first().first();");
     assert_no_type_errors("[1, 2].push(3).len();");
     assert_no_type_errors(
         r#"
         let nums = [10, 20, 30];
         let strs = ["a", "b", "c"];
-        let n = nums.rest().len();
-        let s = strs.rest().first();
+        let n = nums.split_first().len();
+        let s = strs.split_first().first();
         "#,
     );
 }

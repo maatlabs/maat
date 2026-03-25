@@ -174,7 +174,7 @@ Example session:
 ..         if (arr.len() == 0) {
 ..             acc
 ..         } else {
-..             iter(arr.rest(), acc.push(f(arr.first())))
+..             iter(arr.split_first(), acc.push(f(arr.first().unwrap())))
 ..         }
 ..     };
 ..     iter(arr, [])
