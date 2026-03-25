@@ -115,6 +115,7 @@ impl fmt::Display for Expr {
 
             Self::Bool(e) => e.value.fmt(f),
             Self::Str(e) => e.value.fmt(f),
+            Self::CharLit(e) => e.value.fmt(f),
             Self::Vector(e) => e.fmt(f),
             Self::Index(e) => e.fmt(f),
             Self::Map(e) => e.fmt(f),

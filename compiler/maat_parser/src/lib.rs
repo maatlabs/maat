@@ -563,6 +563,7 @@ fn parse_expression_inner<'src>(
         | TokenKind::U128
         | TokenKind::Usize => parse_int(input)?,
         TokenKind::String => parse_string_literal(input)?,
+        TokenKind::Char => parse_char_literal(input)?,
         TokenKind::Bang | TokenKind::Minus => parse_prefix_expression(input, depth)?,
         TokenKind::True | TokenKind::False => parse_boolean(input)?,
         TokenKind::LParen => parse_grouped_expression(input, depth)?,
@@ -801,6 +802,17 @@ fn parse_string_literal<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<Ex
     let tok: Token<'src> = any.parse_next(input)?;
     Ok(Expr::Str(Str {
         value: tok.literal.to_owned(),
+        span: tok.span,
+    }))
+}
+
+/// Parses a character literal (`'a'`, `'\n'`, `'\u{1F600}'`).
+fn parse_char_literal<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<Expr> {
+    let tok: Token<'src> = any.parse_next(input)?;
+    let ch = maat_ast::unescape_char(tok.literal)
+        .ok_or_else(|| ErrMode::Backtrack(ContextError::new()))?;
+    Ok(Expr::CharLit(CharLit {
+        value: ch,
         span: tok.span,
     }))
 }

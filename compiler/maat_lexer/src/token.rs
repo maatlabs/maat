@@ -117,6 +117,8 @@ pub enum TokenKind {
     Label,
     /// A string literal.
     String,
+    /// A character literal (`'a'`, `'\n'`, `'\u{1F600}'`).
+    Char,
 
     /// An 8-bit signed integer literal.
     I8,

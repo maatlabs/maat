@@ -39,6 +39,8 @@ pub enum Value {
     Integer(Integer),
     /// A boolean value (true or false).
     Bool(bool),
+    /// A Unicode scalar value.
+    Char(char),
     /// A string literal.
     Str(String),
     /// A vector of values.
@@ -177,6 +179,7 @@ impl Value {
             Self::Null => "Null",
             Self::Integer(n) => n.type_name(),
             Self::Bool(_) => "Bool",
+            Self::Char(_) => "Char",
             Self::Str(_) => "Str",
             Self::Vector(_) => "Vector",
             Self::Map(_) => "Map",
@@ -209,6 +212,7 @@ enum SerVal {
     Null,
     Integer(Integer),
     Bool(bool),
+    Char(char),
     Str(String),
     Vector(Vec<Value>),
     Map(MapVal),
@@ -230,6 +234,7 @@ impl Serialize for Value {
             Self::Null => SerVal::Null,
             Self::Integer(v) => SerVal::Integer(*v),
             Self::Bool(v) => SerVal::Bool(*v),
+            Self::Char(v) => SerVal::Char(*v),
             Self::Str(v) => SerVal::Str(v.clone()),
             Self::Vector(v) => SerVal::Vector(v.clone()),
             Self::Map(v) => SerVal::Map(v.clone()),
@@ -259,6 +264,7 @@ impl<'de> Deserialize<'de> for Value {
             SerVal::Null => Self::Null,
             SerVal::Integer(v) => Self::Integer(v),
             SerVal::Bool(v) => Self::Bool(v),
+            SerVal::Char(v) => Self::Char(v),
             SerVal::Str(v) => Self::Str(v),
             SerVal::Vector(v) => Self::Vector(v),
             SerVal::Map(v) => Self::Map(v),
@@ -280,6 +286,7 @@ impl PartialEq for Value {
             (Null, Null) => true,
             (Integer(n1), Integer(n2)) => n1 == n2,
             (Bool(a), Bool(b)) => a == b,
+            (Char(a), Char(b)) => a == b,
             (Str(a), Str(b)) => a == b,
             (Vector(v1), Vector(v2)) => v1 == v2,
             (Map(m1), Map(m2)) => m1 == m2,
@@ -428,6 +435,7 @@ pub struct MapVal {
 pub enum Hashable {
     Integer(Integer),
     Bool(bool),
+    Char(char),
     Str(String),
 }
 
@@ -438,6 +446,7 @@ impl TryFrom<Value> for Hashable {
         match value {
             Value::Integer(i) => Ok(Self::Integer(i)),
             Value::Bool(b) => Ok(Self::Bool(b)),
+            Value::Char(c) => Ok(Self::Char(c)),
             Value::Str(s) => Ok(Self::Str(s)),
             val => Err(EvalError::NotHashable(val.type_name().to_owned()).into()),
         }
@@ -450,6 +459,7 @@ impl fmt::Display for Value {
             Self::Null => write!(f, "null"),
             Self::Integer(v) => v.fmt(f),
             Self::Bool(v) => v.fmt(f),
+            Self::Char(v) => v.fmt(f),
             Self::Str(v) => v.fmt(f),
             Self::Vector(vector) => {
                 write!(
@@ -555,6 +565,7 @@ impl fmt::Display for Hashable {
         match self {
             Self::Integer(v) => v.fmt(f),
             Self::Bool(b) => b.fmt(f),
+            Self::Char(c) => c.fmt(f),
             Self::Str(s) => s.fmt(f),
         }
     }

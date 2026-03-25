@@ -111,6 +111,10 @@ impl<'src> MaatLexer<'src> {
                 let literal = &cur_tok[1..cur_tok.len() - 1];
                 Token::new(TokenKind::String, literal, maat_span)
             }
+            RawToken::Char => {
+                let literal = &cur_tok[1..cur_tok.len() - 1];
+                Token::new(TokenKind::Char, literal, maat_span)
+            }
             RawToken::Number(num) => {
                 let literal = &self.inner.source()[span.start..span.start + num.value_len as usize];
                 Token::new(num.kind, literal, maat_span)
@@ -286,6 +290,9 @@ enum RawToken {
     #[regex(r"[\p{L}_][\p{L}\p{N}_]*")]
     Ident,
 
+    #[regex(r"'([^'\\]|\\[nrt0\\'\x22]|\\u\{[0-9a-fA-F]{1,6}\})'")]
+    Char,
+
     #[regex(r"'[a-zA-Z_][a-zA-Z0-9_]*")]
     Label,
 }
@@ -368,6 +375,7 @@ impl RawToken {
             Self::Comment
             | Self::DocComment
             | Self::String
+            | Self::Char
             | Self::Number(_)
             | Self::Ident
             | Self::Label => {

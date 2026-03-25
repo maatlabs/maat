@@ -653,7 +653,7 @@ impl VM {
         let right = self.pop_stack()?;
         let left = self.pop_stack()?;
         // Same-type numeric comparison
-        if let Some(result) = self.compare_numeric(op, &left, &right) {
+        if let Some(result) = self.compare_ordered(op, &left, &right) {
             return self.push_stack(Value::Bool(result));
         }
         // Cross-type integer comparison via i128 widening
@@ -680,10 +680,10 @@ impl VM {
         }
     }
 
-    /// Attempts same-type numeric comparison across all integer variants.
+    /// Attempts same-type ordered comparison for integers, characters, and strings.
     ///
-    /// Returns `None` if the operands are not the same integer type.
-    fn compare_numeric(&self, op: Opcode, left: &Value, right: &Value) -> Option<bool> {
+    /// Returns `None` if the operands are not a supported same-type pair.
+    fn compare_ordered(&self, op: Opcode, left: &Value, right: &Value) -> Option<bool> {
         match (left, right) {
             (Value::Integer(l), Value::Integer(r)) => {
                 let ordering = l.partial_cmp(r)?;
@@ -695,6 +695,20 @@ impl VM {
                     _ => return None,
                 })
             }
+            (Value::Char(l), Value::Char(r)) => Some(match op {
+                Opcode::Equal => l == r,
+                Opcode::NotEqual => l != r,
+                Opcode::GreaterThan => l > r,
+                Opcode::LessThan => l < r,
+                _ => return None,
+            }),
+            (Value::Str(l), Value::Str(r)) => Some(match op {
+                Opcode::Equal => l == r,
+                Opcode::NotEqual => l != r,
+                Opcode::GreaterThan => l > r,
+                Opcode::LessThan => l < r,
+                _ => return None,
+            }),
             _ => None,
         }
     }

@@ -67,6 +67,7 @@ pub fn eval(node: Node, env: &Env) -> Result<Value> {
             Expr::Number(v) => Ok(Value::from_number_literal(&v).map_err(EvalError::Number)?),
             Expr::Bool(b) => Ok(Value::Bool(b.value)),
             Expr::Str(s) => Ok(Value::Str(maat_ast::unescape_string(&s.value))),
+            Expr::CharLit(c) => Ok(Value::Char(c.value)),
             Expr::Vector(vector) => {
                 let elements = eval_expressions(&vector.elements, env)?;
                 Ok(Value::Vector(elements))

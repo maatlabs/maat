@@ -154,6 +154,7 @@ pub enum Expr {
     Number(Number),
     Bool(Bool),
     Str(Str),
+    CharLit(CharLit),
     Vector(Vector),
     Index(IndexExpr),
     Map(Map),
@@ -185,6 +186,7 @@ impl Expr {
             Self::Number(v) => v.span,
             Self::Bool(v) => v.span,
             Self::Str(v) => v.span,
+            Self::CharLit(v) => v.span,
             Self::Vector(v) => v.span,
             Self::Index(v) => v.span,
             Self::Map(v) => v.span,
@@ -253,6 +255,14 @@ pub struct Bool {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Str {
     pub value: String,
+    pub span: Span,
+}
+
+/// A character literal (`'a'`, `'\n'`, `'\u{1F600}'`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CharLit {
+    /// The parsed character value.
+    pub value: char,
     pub span: Span,
 }
 
@@ -833,6 +843,14 @@ pub fn unescape_string(s: &str) -> String {
                 Some('r') => result.push('\r'),
                 Some('t') => result.push('\t'),
                 Some('0') => result.push('\0'),
+                Some('\'') => result.push('\''),
+                Some('u') => {
+                    if let Some(c) = parse_unicode_escape(&mut chars) {
+                        result.push(c);
+                    } else {
+                        result.push_str("\\u");
+                    }
+                }
                 Some(c) => {
                     result.push('\\');
                     result.push(c);
@@ -844,4 +862,54 @@ pub fn unescape_string(s: &str) -> String {
         }
     }
     result
+}
+
+/// Converts a character literal's inner text (without surrounding quotes)
+/// into the represented character.
+///
+/// Handles simple characters (`a`), standard escape sequences (`\n`, `\t`,
+/// `\\`, `\'`, `\0`), and Unicode escapes (`\u{XXXX}`).
+pub fn unescape_char(s: &str) -> Option<char> {
+    let mut chars = s.chars();
+    let result = match chars.next()? {
+        '\\' => match chars.next()? {
+            '\\' => '\\',
+            '\'' => '\'',
+            'n' => '\n',
+            'r' => '\r',
+            't' => '\t',
+            '0' => '\0',
+            '"' => '"',
+            'u' => parse_unicode_escape(&mut chars)?,
+            _ => return None,
+        },
+        c => c,
+    };
+    if chars.next().is_some() {
+        return None;
+    }
+    Some(result)
+}
+
+/// Parses the `{XXXX}` portion of a `\u{XXXX}` Unicode escape sequence.
+///
+/// The leading `\u` has already been consumed. Expects `{` followed by
+/// 1-6 hex digits followed by `}`. Returns the decoded character, or
+/// `None` if the sequence is malformed or the code point is invalid.
+fn parse_unicode_escape(chars: &mut std::str::Chars<'_>) -> Option<char> {
+    if chars.next() != Some('{') {
+        return None;
+    }
+    let mut hex = String::new();
+    for c in chars.by_ref() {
+        if c == '}' {
+            let code = u32::from_str_radix(&hex, 16).ok()?;
+            return char::from_u32(code);
+        }
+        if hex.len() >= 6 {
+            return None;
+        }
+        hex.push(c);
+    }
+    None
 }

@@ -17,7 +17,8 @@ use maat_span::{SourceMap, Span};
 use crate::{Symbol, SymbolScope, SymbolsTable};
 
 /// Built-in type prefixes for method dispatch fallback.
-const BUILTIN_METHOD_PREFIXES: &[&str] = &["Vector", "str", "Set", "Map", "Option", "Result"];
+const BUILTIN_METHOD_PREFIXES: &[&str] =
+    &["Vector", "str", "char", "Set", "Map", "Option", "Result"];
 
 /// Enum types whose variants are available as bare names in patterns.
 ///
@@ -731,6 +732,11 @@ impl Compiler {
                     .at(ident.span)
                     .into())
                 }
+            }
+            Expr::CharLit(c) => {
+                let index = self.add_constant(Value::Char(c.value))?;
+                self.emit(Opcode::Constant, &[index], span);
+                Ok(())
             }
             Expr::Str(s) => {
                 let constant = Value::Str(maat_ast::unescape_string(&s.value));

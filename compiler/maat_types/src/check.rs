@@ -482,6 +482,7 @@ impl TypeChecker {
                 NumberKind::Usize => Type::Usize,
             },
             Expr::Bool(_) => Type::Bool,
+            Expr::CharLit(_) => Type::Char,
             Expr::Str(_) => Type::String,
             Expr::Ident(ident) => self
                 .env
@@ -1064,6 +1065,7 @@ impl TypeChecker {
                 NumberKind::Usize => Type::Usize,
             },
             Expr::Bool(_) => Type::Bool,
+            Expr::CharLit(_) => Type::Char,
             Expr::Str(_) => Type::String,
             _ => Type::Null,
         }
@@ -1437,15 +1439,24 @@ impl TypeChecker {
             infix.operator.as_str(),
             "<" | ">" | "<=" | ">=" | "==" | "!="
         );
-        // String concatenation
-        if infix.operator == "+" && lhs_resolved == Type::String && rhs_resolved == Type::String {
-            return Type::String;
+        // String concatenation and comparison
+        if lhs_resolved == Type::String && rhs_resolved == Type::String {
+            if infix.operator == "+" {
+                return Type::String;
+            }
+            if is_comparison {
+                return Type::Bool;
+            }
         }
         // Boolean equality
         if (infix.operator == "==" || infix.operator == "!=")
             && lhs_resolved == Type::Bool
             && rhs_resolved == Type::Bool
         {
+            return Type::Bool;
+        }
+        // Char equality and comparison
+        if lhs_resolved == Type::Char && rhs_resolved == Type::Char && is_comparison {
             return Type::Bool;
         }
         // Numeric operations: both operands must be the same integer type.
@@ -1571,6 +1582,7 @@ impl TypeChecker {
     fn receiver_type_name(ty: &Type) -> Option<String> {
         match ty {
             Type::Vector(_) => Some("Vector".to_string()),
+            Type::Char => Some("char".to_string()),
             Type::String => Some("str".to_string()),
             Type::Map(..) => Some("Map".to_string()),
             Type::Set(_) => Some("Set".to_string()),

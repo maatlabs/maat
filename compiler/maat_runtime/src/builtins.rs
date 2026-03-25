@@ -180,6 +180,10 @@ define_builtins! {
     "bool::default" => bool_default,
     "str::default" => str_default,
 
+    "char::is_alphabetic" => char_is_alphabetic,
+    "char::is_numeric" => char_is_numeric,
+    "char::to_string" => char_to_string,
+
     "cmp::min" => cmp_min,
     "cmp::max" => cmp_max,
     "cmp::clamp" => cmp_clamp,
@@ -473,6 +477,7 @@ fn set_to_vector(args: &[Value]) -> Result<Value> {
                 .map(|h| match h {
                     Hashable::Integer(v) => Value::Integer(*v),
                     Hashable::Bool(v) => Value::Bool(*v),
+                    Hashable::Char(v) => Value::Char(*v),
                     Hashable::Str(v) => Value::Str(v.clone()),
                 })
                 .collect();
@@ -561,6 +566,33 @@ fn str_split(args: &[Value]) -> Result<Value> {
         ))
         .into()),
         (other, _) => method_type_error(other, "split", "str"),
+    }
+}
+
+/// Returns `true` if the character is alphabetic (Unicode `Alphabetic` property).
+fn char_is_alphabetic(args: &[Value]) -> Result<Value> {
+    expect_arg_count("char::is_alphabetic", args, 1)?;
+    match &args[0] {
+        Value::Char(c) => Ok(Value::Bool(c.is_alphabetic())),
+        other => method_type_error(other, "is_alphabetic", "char"),
+    }
+}
+
+/// Returns `true` if the character is numeric (Unicode `Numeric_Type` property).
+fn char_is_numeric(args: &[Value]) -> Result<Value> {
+    expect_arg_count("char::is_numeric", args, 1)?;
+    match &args[0] {
+        Value::Char(c) => Ok(Value::Bool(c.is_numeric())),
+        other => method_type_error(other, "is_numeric", "char"),
+    }
+}
+
+/// Converts a character to a single-character string.
+fn char_to_string(args: &[Value]) -> Result<Value> {
+    expect_arg_count("char::to_string", args, 1)?;
+    match &args[0] {
+        Value::Char(c) => Ok(Value::Str(c.to_string())),
+        other => method_type_error(other, "to_string", "char"),
     }
 }
 
@@ -730,6 +762,7 @@ fn hashable_to_object(h: &Hashable) -> Value {
     match h {
         Hashable::Integer(v) => Value::Integer(*v),
         Hashable::Bool(v) => Value::Bool(*v),
+        Hashable::Char(v) => Value::Char(*v),
         Hashable::Str(v) => Value::Str(v.clone()),
     }
 }

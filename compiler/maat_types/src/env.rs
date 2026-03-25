@@ -377,6 +377,40 @@ impl TypeEnv {
                 },
             );
         }
+        // impl char
+        let char_methods: [(&str, Type); 3] = [
+            (
+                "char::is_alphabetic",
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Bool),
+                }),
+            ),
+            (
+                "char::is_numeric",
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Bool),
+                }),
+            ),
+            (
+                "char::to_string",
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::String),
+                }),
+            ),
+        ];
+        for (name, fn_type) in char_methods {
+            self.builtin_method_schemes.insert(
+                name.to_string(),
+                BuiltinMethodScheme {
+                    forall: vec![],
+                    self_type: Type::Char,
+                    fn_type,
+                },
+            );
+        }
         // impl Set<T>
         let set_elem_id = self.next_var;
         self.next_var += 1;
@@ -839,6 +873,7 @@ impl TypeEnv {
     ) -> Option<(Type, Type)> {
         let prefix = match receiver {
             Type::Vector(_) => "Vector",
+            Type::Char => "char",
             Type::String => "str",
             Type::Map(..) => "Map",
             Type::Set(_) => "Set",

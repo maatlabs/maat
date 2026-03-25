@@ -44,6 +44,7 @@ const RESERVED_TYPE_NAMES: &[&str] = &[
     "Set",
     "Vector",
     "bool",
+    "char",
     "i128",
     "i16",
     "i32",
