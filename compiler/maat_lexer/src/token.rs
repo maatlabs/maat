@@ -233,6 +233,8 @@ pub enum TokenKind {
     DotDot,
     /// The inclusive range operator `..=` for closed ranges.
     DotDotEqual,
+    /// The try operator `?` for error propagation.
+    Question,
 
     /// A documentation comment (`///`).
     DocComment,

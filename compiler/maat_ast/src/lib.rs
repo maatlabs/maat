@@ -177,6 +177,7 @@ pub enum Expr {
     Continue(ContinueExpr),
 
     Match(MatchExpr),
+    Try(TryExpr),
     Tuple(TupleExpr),
     FieldAccess(FieldAccessExpr),
     MethodCall(MethodCallExpr),
@@ -208,6 +209,7 @@ impl Expr {
             Self::Break(v) => v.span,
             Self::Continue(v) => v.span,
             Self::Match(v) => v.span,
+            Self::Try(v) => v.span,
             Self::Tuple(v) => v.span,
             Self::FieldAccess(v) => v.span,
             Self::MethodCall(v) => v.span,
@@ -516,6 +518,31 @@ pub struct BreakExpr {
 pub struct ContinueExpr {
     pub label: Option<String>,
     pub span: Span,
+}
+
+/// A try expression: `expr?`.
+///
+/// Desugars to a match on `Option` or `Result`:
+/// - `Option<T>`: unwraps `Some(val)` or returns `None` from the enclosing function.
+/// - `Result<T, E>`: unwraps `Ok(val)` or returns `Err(e)` from the enclosing function.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TryExpr {
+    pub expr: Box<Expr>,
+    /// Set by the type checker to indicate whether the operand is Option or Result.
+    pub kind: TryKind,
+    pub span: Span,
+}
+
+/// Discriminates the wrapper type for the `?` operator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum TryKind {
+    /// Not yet resolved (pre-type-checking).
+    #[default]
+    Unknown,
+    /// Operand is `Option<T>`.
+    Option,
+    /// Operand is `Result<T, E>`.
+    Result,
 }
 
 /// A `struct` declaration: `struct Name<T> { field: Type, ... }`.

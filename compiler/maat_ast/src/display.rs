@@ -136,6 +136,7 @@ impl fmt::Display for Expr {
             Self::Break(e) => e.fmt(f),
             Self::Continue(e) => e.fmt(f),
             Self::Match(e) => e.fmt(f),
+            Self::Try(e) => write!(f, "{}?", e.expr),
             Self::Tuple(e) => e.fmt(f),
             Self::FieldAccess(e) => e.fmt(f),
             Self::MethodCall(e) => e.fmt(f),

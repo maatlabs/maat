@@ -47,6 +47,8 @@ pub enum Precedence {
     Index = 16,
     /// Field access and method calls: `expr.field`, `expr.method(args)`
     Field = 17,
+    /// Try operator: `expr?`
+    Try = 18,
 }
 
 impl Precedence {
@@ -73,6 +75,7 @@ impl Precedence {
             TokenKind::LParen => Some(Self::Call),
             TokenKind::LBracket => Some(Self::Index),
             TokenKind::Dot => Some(Self::Field),
+            TokenKind::Question => Some(Self::Try),
             _ => None,
         }
     }

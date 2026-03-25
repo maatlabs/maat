@@ -4,7 +4,8 @@ use std::rc::Rc;
 use maat_ast::{
     BlockStmt, BreakExpr, CondExpr, ContinueExpr, EnumVariantKind, Expr, FieldAccessExpr, ForStmt,
     Ident, ImplBlock, InfixExpr, LoopStmt, MacroCallExpr, MatchExpr, MethodCallExpr, Node,
-    NumberKind, PathExpr, Pattern, Program, ReAssignStmt, Stmt, StructLitExpr, TypeExpr, WhileStmt,
+    NumberKind, PathExpr, Pattern, Program, ReAssignStmt, Stmt, StructLitExpr, TryExpr, TryKind,
+    TypeExpr, WhileStmt,
 };
 use maat_bytecode::{
     Bytecode, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, MAX_ENUM_VARIANTS, Opcode,
@@ -812,6 +813,7 @@ impl Compiler {
             .into()),
             Expr::StructLit(struct_lit) => self.compile_struct_literal(struct_lit),
             Expr::PathExpr(path_expr) => self.compile_path_expression(path_expr),
+            Expr::Try(try_expr) => self.compile_try(try_expr),
             Expr::Match(match_expr) => self.compile_match(match_expr),
             Expr::FieldAccess(field_access) => self.compile_field_access(field_access),
             Expr::MethodCall(method_call) => self.compile_method_call(method_call),
@@ -1462,6 +1464,41 @@ impl Compiler {
             // `Result::Err`:  the scrutinee is already the Err variant; keep it.
             // Nothing to do: the Err value stays on the stack as-is.
         }
+        let end = self.current_instructions().len();
+        self.replace_operand(jump_to_end, end)?;
+        Ok(())
+    }
+
+    /// Compiles the try operator (`expr?`).
+    ///
+    /// Desugars to an inline match:
+    /// - `Option<T>`: `Some(val) => val`, `None => return None`
+    /// - `Result<T, E>`: `Ok(val) => val`, `Err(e) => return Err(e)`
+    fn compile_try(&mut self, try_expr: &TryExpr) -> Result<()> {
+        let span = try_expr.span;
+        let is_option = try_expr.kind == TryKind::Option;
+
+        let success_tag: usize = 0;
+        let type_index: usize = if is_option { 0 } else { 1 };
+        let none_or_err = (type_index << 8) | 1;
+
+        self.compile_expression(&try_expr.expr)?;
+
+        let match_tag_pos = self.emit(Opcode::MatchTag, &[success_tag, Self::JUMP], span);
+
+        self.emit(Opcode::GetField, &[0], span);
+        let jump_to_end = self.emit(Opcode::Jump, &[Self::JUMP], span);
+
+        let fail_arm = self.current_instructions().len();
+        self.replace_match_tag_target(match_tag_pos, fail_arm)?;
+
+        if is_option {
+            self.emit(Opcode::Pop, &[], span);
+            self.emit(Opcode::Construct, &[none_or_err, 0], span);
+        }
+        // For Result, the Err variant is already on the stack.
+        self.emit(Opcode::ReturnValue, &[], span);
+
         let end = self.current_instructions().len();
         self.replace_operand(jump_to_end, end)?;
         Ok(())

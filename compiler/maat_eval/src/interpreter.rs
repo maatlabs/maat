@@ -127,6 +127,7 @@ pub fn eval(node: Node, env: &Env) -> Result<Value> {
             }
             Expr::MacroCall(_)
             | Expr::Match(_)
+            | Expr::Try(_)
             | Expr::FieldAccess(_)
             | Expr::MethodCall(_)
             | Expr::StructLit(_)

@@ -253,6 +253,8 @@ enum RawToken {
     Caret,
     #[token(".")]
     Dot,
+    #[token("?")]
+    Question,
     #[token(",")]
     Comma,
     #[token(";")]
@@ -362,6 +364,7 @@ impl RawToken {
             Self::Pipe => TokenKind::Pipe,
             Self::Caret => TokenKind::Caret,
             Self::Dot => TokenKind::Dot,
+            Self::Question => TokenKind::Question,
             Self::Comma => TokenKind::Comma,
             Self::Semicolon => TokenKind::Semicolon,
             Self::Colon => TokenKind::Colon,

@@ -353,6 +353,15 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                     Expr::Break(break_expr)
                 }
 
+                Expr::Try(mut try_expr) => {
+                    try_expr.expr =
+                        Box::new(match transform(Node::Expr(*try_expr.expr), transformer) {
+                            Node::Expr(e) => e,
+                            _ => unreachable!("Expr transformation returned non-expression"),
+                        });
+                    Expr::Try(try_expr)
+                }
+
                 Expr::Match(mut match_expr) => {
                     match_expr.scrutinee = Box::new(
                         match transform(Node::Expr(*match_expr.scrutinee), transformer) {

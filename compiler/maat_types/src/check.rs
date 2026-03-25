@@ -528,6 +528,7 @@ impl TypeChecker {
                     .collect();
                 Type::Tuple(elem_types)
             }
+            Expr::Try(try_expr) => self.check_try_expr(try_expr),
             Expr::Match(match_expr) => self.check_match_expr(match_expr),
             Expr::FieldAccess(field_access) => self.check_field_access(field_access),
             Expr::MethodCall(method_call) => self.check_method_call(method_call),
@@ -1000,6 +1001,35 @@ impl TypeChecker {
                         method: mc.method.clone(),
                     }
                     .at(mc.span),
+                );
+                self.env.fresh_var()
+            }
+        }
+    }
+
+    /// Type-checks the try operator (`expr?`).
+    ///
+    /// Validates that the operand is `Option<T>` or `Result<T, E>` and
+    /// returns the inner success type `T`.
+    fn check_try_expr(&mut self, expr: &mut TryExpr) -> Type {
+        let inner_ty = self.infer_expression(&mut expr.expr);
+        let resolved = self.subst.apply(&inner_ty);
+        match &resolved {
+            Type::Enum(name, args) if &**name == "Option" && args.len() == 1 => {
+                expr.kind = TryKind::Option;
+                args[0].clone()
+            }
+            Type::Enum(name, args) if &**name == "Result" && args.len() == 2 => {
+                expr.kind = TryKind::Result;
+                args[0].clone()
+            }
+            _ => {
+                self.errors.push(
+                    TypeErrorKind::Mismatch {
+                        expected: "Option<T> or Result<T, E>".to_string(),
+                        found: resolved.to_string(),
+                    }
+                    .at(expr.span),
                 );
                 self.env.fresh_var()
             }

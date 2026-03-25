@@ -632,6 +632,14 @@ fn parse_expression_inner<'src>(
             TokenKind::LBracket => parse_index_expression(input, expr, depth)?,
             TokenKind::As => parse_cast_expression(input, expr)?,
             TokenKind::Dot => parse_field_or_method_call(input, expr, depth)?,
+            TokenKind::Question => {
+                let span = expr.span().merge(op_tok.span);
+                Expr::Try(TryExpr {
+                    expr: Box::new(expr),
+                    kind: TryKind::Unknown,
+                    span,
+                })
+            }
             TokenKind::DotDot => parse_range_expression(input, expr, false, depth)?,
             TokenKind::DotDotEqual => parse_range_expression(input, expr, true, depth)?,
             _ => {
