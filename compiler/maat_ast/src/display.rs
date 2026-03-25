@@ -48,10 +48,16 @@ impl fmt::Display for Stmt {
 
 impl fmt::Display for LetStmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let m = if self.mutable { "mut " } else { "" };
+        let (m, binding) = match &self.pattern {
+            Some(pat) => ("", pat.to_string()),
+            None => {
+                let m = if self.mutable { "mut " } else { "" };
+                (m, self.ident.clone())
+            }
+        };
         match &self.type_annotation {
-            Some(ty) => write!(f, "let {m}{}: {} = {};", self.ident, ty, self.value),
-            None => write!(f, "let {m}{} = {};", self.ident, self.value),
+            Some(ty) => write!(f, "let {m}{binding}: {ty} = {};", self.value),
+            None => write!(f, "let {m}{binding} = {};", self.value),
         }
     }
 }
@@ -130,6 +136,7 @@ impl fmt::Display for Expr {
             Self::Break(e) => e.fmt(f),
             Self::Continue(e) => e.fmt(f),
             Self::Match(e) => e.fmt(f),
+            Self::Tuple(e) => e.fmt(f),
             Self::FieldAccess(e) => e.fmt(f),
             Self::MethodCall(e) => e.fmt(f),
             Self::StructLit(e) => e.fmt(f),
@@ -511,11 +518,33 @@ impl fmt::Display for MatchArm {
     }
 }
 
+impl fmt::Display for TupleExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let inner = self
+            .elements
+            .iter()
+            .map(|e| e.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        if self.elements.len() == 1 {
+            write!(f, "({inner},)")
+        } else {
+            write!(f, "({inner})")
+        }
+    }
+}
+
 impl fmt::Display for Pattern {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Wildcard(_) => write!(f, "_"),
-            Self::Ident(name, _) => write!(f, "{name}"),
+            Self::Ident { name, mutable, .. } => {
+                if *mutable {
+                    write!(f, "mut {name}")
+                } else {
+                    write!(f, "{name}")
+                }
+            }
             Self::Literal(expr) => write!(f, "{expr}"),
             Self::TupleStruct { path, fields, .. } => {
                 let inner = fields
@@ -532,6 +561,18 @@ impl fmt::Display for Pattern {
                     .collect::<Vec<_>>()
                     .join(", ");
                 write!(f, "{path} {{ {inner} }}")
+            }
+            Self::Tuple(fields, _) => {
+                let inner = fields
+                    .iter()
+                    .map(|p| p.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                if fields.len() == 1 {
+                    write!(f, "({inner},)")
+                } else {
+                    write!(f, "({inner})")
+                }
             }
             Self::Or(patterns, _) => {
                 let inner = patterns
@@ -650,6 +691,18 @@ impl fmt::Display for TypeExpr {
                     .collect::<Vec<_>>()
                     .join(", ");
                 write!(f, "{name}<{args}>")
+            }
+            Self::Tuple(elems, _) => {
+                let inner = elems
+                    .iter()
+                    .map(|e| e.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                if elems.len() == 1 {
+                    write!(f, "({inner},)")
+                } else {
+                    write!(f, "({inner})")
+                }
             }
         }
     }

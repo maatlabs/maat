@@ -292,8 +292,12 @@ impl TypeChecker {
         } else {
             inferred
         };
-        let scheme = self.env.generalize(&ty, &self.subst);
-        self.env.define_scheme(&let_stmt.ident, scheme);
+        if let Some(pattern) = &let_stmt.pattern {
+            self.check_pattern(pattern, &ty);
+        } else {
+            let scheme = self.env.generalize(&ty, &self.subst);
+            self.env.define_scheme(&let_stmt.ident, scheme);
+        }
     }
 
     fn check_block(&mut self, block: &mut BlockStmt) {
@@ -516,6 +520,14 @@ impl TypeChecker {
             }
             Expr::Continue(_) => Type::Never,
             Expr::Macro(_) => self.env.fresh_var(),
+            Expr::Tuple(tuple) => {
+                let elem_types = tuple
+                    .elements
+                    .iter_mut()
+                    .map(|e| self.infer_expression(e))
+                    .collect();
+                Type::Tuple(elem_types)
+            }
             Expr::Match(match_expr) => self.check_match_expr(match_expr),
             Expr::FieldAccess(field_access) => self.check_field_access(field_access),
             Expr::MethodCall(method_call) => self.check_method_call(method_call),
@@ -898,6 +910,19 @@ impl TypeChecker {
                     }
                 }
             }
+            Type::Tuple(elems) => match fa.field.parse::<usize>() {
+                Ok(idx) if idx < elems.len() => elems[idx].clone(),
+                _ => {
+                    self.errors.push(
+                        TypeErrorKind::UnknownField {
+                            ty: resolved.to_string(),
+                            field: fa.field.clone(),
+                        }
+                        .at(fa.span),
+                    );
+                    self.env.fresh_var()
+                }
+            },
             Type::Var(_) => self.env.fresh_var(),
             _ => {
                 self.errors.push(
@@ -1018,7 +1043,7 @@ impl TypeChecker {
     fn check_pattern(&mut self, p: &Pattern, scrutinee_ty: &Type) {
         match p {
             Pattern::Wildcard(_) => {}
-            Pattern::Ident(name, _) => {
+            Pattern::Ident { name, .. } => {
                 self.env.define_var(name, scrutinee_ty.clone());
             }
             Pattern::Literal(expr) => {
@@ -1038,6 +1063,35 @@ impl TypeChecker {
             }
             Pattern::Struct { path, fields, span } => {
                 self.check_struct_pattern(path, fields, scrutinee_ty, *span);
+            }
+            Pattern::Tuple(fields, span) => {
+                let resolved = self.subst.apply(scrutinee_ty);
+                match &resolved {
+                    Type::Tuple(elem_types) => {
+                        if fields.len() != elem_types.len() {
+                            self.errors.push(
+                                TypeErrorKind::Mismatch {
+                                    expected: format!("tuple of {} elements", elem_types.len()),
+                                    found: format!("tuple pattern with {} elements", fields.len()),
+                                }
+                                .at(*span),
+                            );
+                        } else {
+                            for (pat, ty) in fields.iter().zip(elem_types.iter()) {
+                                self.check_pattern(pat, ty);
+                            }
+                        }
+                    }
+                    _ => {
+                        self.errors.push(
+                            TypeErrorKind::Mismatch {
+                                expected: resolved.to_string(),
+                                found: "tuple pattern".to_string(),
+                            }
+                            .at(*span),
+                        );
+                    }
+                }
             }
             Pattern::Or(patterns, _) => {
                 for pat in patterns {
@@ -1090,7 +1144,7 @@ impl TypeChecker {
         let Some((enum_def, type_args)) = enum_info else {
             // Not a known variant; skip checking but still bind identifiers.
             for field in fields {
-                if let Pattern::Ident(name, _) = field {
+                if let Pattern::Ident { name, .. } = field {
                     let fresh = self.env.fresh_var();
                     self.env.define_var(name, fresh);
                 }
@@ -1173,7 +1227,7 @@ impl TypeChecker {
                     .pattern
                     .as_ref()
                     .and_then(|p| match p.as_ref() {
-                        Pattern::Ident(n, _) => Some(n.clone()),
+                        Pattern::Ident { name: n, .. } => Some(n.clone()),
                         _ => None,
                     })
                     .unwrap_or_else(|| field.name.clone());
@@ -1389,7 +1443,7 @@ impl TypeChecker {
     fn pattern_is_catch_all(&self, p: &Pattern, enum_def: &Option<EnumDef>) -> bool {
         match p {
             Pattern::Wildcard(_) => true,
-            Pattern::Ident(name, _) => !enum_def
+            Pattern::Ident { name, .. } => !enum_def
                 .as_ref()
                 .is_some_and(|def| def.variants.iter().any(|v| v.name == *name)),
             _ => false,
@@ -1401,7 +1455,7 @@ impl TypeChecker {
         match p {
             Pattern::TupleStruct { path, .. } => Some(path.as_str()),
             Pattern::Struct { path, .. } => Some(path.as_str()),
-            Pattern::Ident(name, _) => {
+            Pattern::Ident { name, .. } => {
                 // Check if this identifier is actually a unit variant name.
                 if enum_def.variants.iter().any(|v| v.name == *name) {
                     Some(name.as_str())
@@ -1769,6 +1823,7 @@ mod tests {
             mutable: false,
             type_annotation: ty,
             value,
+            pattern: None,
             span: S,
         })
     }
@@ -2257,9 +2312,30 @@ mod tests {
                 match_expr(
                     ident_expr("c"),
                     vec![
-                        match_arm(Pattern::Ident("Red".to_string(), S), i64_expr(1)),
-                        match_arm(Pattern::Ident("Green".to_string(), S), i64_expr(2)),
-                        match_arm(Pattern::Ident("Blue".to_string(), S), i64_expr(3)),
+                        match_arm(
+                            Pattern::Ident {
+                                name: "Red".to_string(),
+                                mutable: false,
+                                span: S,
+                            },
+                            i64_expr(1),
+                        ),
+                        match_arm(
+                            Pattern::Ident {
+                                name: "Green".to_string(),
+                                mutable: false,
+                                span: S,
+                            },
+                            i64_expr(2),
+                        ),
+                        match_arm(
+                            Pattern::Ident {
+                                name: "Blue".to_string(),
+                                mutable: false,
+                                span: S,
+                            },
+                            i64_expr(3),
+                        ),
                     ],
                 ),
                 None,
@@ -2284,8 +2360,22 @@ mod tests {
                 match_expr(
                     ident_expr("c"),
                     vec![
-                        match_arm(Pattern::Ident("Red".to_string(), S), i64_expr(1)),
-                        match_arm(Pattern::Ident("Green".to_string(), S), i64_expr(2)),
+                        match_arm(
+                            Pattern::Ident {
+                                name: "Red".to_string(),
+                                mutable: false,
+                                span: S,
+                            },
+                            i64_expr(1),
+                        ),
+                        match_arm(
+                            Pattern::Ident {
+                                name: "Green".to_string(),
+                                mutable: false,
+                                span: S,
+                            },
+                            i64_expr(2),
+                        ),
                     ],
                 ),
                 None,
@@ -2394,7 +2484,11 @@ mod tests {
                     vec![match_arm(
                         Pattern::TupleStruct {
                             path: "Val".to_string(),
-                            fields: vec![Pattern::Ident("x".to_string(), S)],
+                            fields: vec![Pattern::Ident {
+                                name: "x".to_string(),
+                                mutable: false,
+                                span: S,
+                            }],
                             span: S,
                         },
                         ident_expr("x"),
@@ -2423,7 +2517,14 @@ mod tests {
                 match_expr(
                     ident_expr("d"),
                     vec![
-                        match_arm(Pattern::Ident("Up".to_string(), S), i64_expr(1)),
+                        match_arm(
+                            Pattern::Ident {
+                                name: "Up".to_string(),
+                                mutable: false,
+                                span: S,
+                            },
+                            i64_expr(1),
+                        ),
                         match_arm(Pattern::Wildcard(S), i64_expr(0)),
                     ],
                 ),

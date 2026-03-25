@@ -68,6 +68,14 @@ pub fn eval(node: Node, env: &Env) -> Result<Value> {
             Expr::Bool(b) => Ok(Value::Bool(b.value)),
             Expr::Str(s) => Ok(Value::Str(maat_ast::unescape_string(&s.value))),
             Expr::CharLit(c) => Ok(Value::Char(c.value)),
+            Expr::Tuple(tuple) => {
+                let elements = tuple
+                    .elements
+                    .iter()
+                    .map(|e| eval(Node::Expr(e.clone()), env))
+                    .collect::<Result<Vec<_>>>()?;
+                Ok(Value::Tuple(elements))
+            }
             Expr::Vector(vector) => {
                 let elements = eval_expressions(&vector.elements, env)?;
                 Ok(Value::Vector(elements))

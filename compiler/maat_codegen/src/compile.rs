@@ -328,19 +328,25 @@ impl Compiler {
             Stmt::Block(block) => self.compile_block_statement(block),
             Stmt::Let(let_stmt) => {
                 let span = let_stmt.span;
-                if let Expr::Lambda(lambda) = &let_stmt.value {
-                    self.compile_fn_body(
-                        Some(&let_stmt.ident),
-                        lambda.param_names(),
-                        lambda.params.len(),
-                        &lambda.body,
-                        lambda.span,
-                    )?;
-                } else {
+                if let Some(pattern) = &let_stmt.pattern {
                     self.compile_expression(&let_stmt.value)?;
+                    self.compile_let_destructure(pattern, span)?;
+                    Ok(())
+                } else {
+                    if let Expr::Lambda(lambda) = &let_stmt.value {
+                        self.compile_fn_body(
+                            Some(&let_stmt.ident),
+                            lambda.param_names(),
+                            lambda.params.len(),
+                            &lambda.body,
+                            lambda.span,
+                        )?;
+                    } else {
+                        self.compile_expression(&let_stmt.value)?;
+                    }
+                    self.define_and_set(&let_stmt.ident, let_stmt.mutable, span)?;
+                    Ok(())
                 }
-                self.define_and_set(&let_stmt.ident, let_stmt.mutable, span)?;
-                Ok(())
             }
             Stmt::ReAssign(assign_stmt) => self.compile_reassign(assign_stmt),
             Stmt::Return(ret_stmt) => {
@@ -736,6 +742,13 @@ impl Compiler {
             Expr::CharLit(c) => {
                 let index = self.add_constant(Value::Char(c.value))?;
                 self.emit(Opcode::Constant, &[index], span);
+                Ok(())
+            }
+            Expr::Tuple(tuple) => {
+                for element in &tuple.elements {
+                    self.compile_expression(element)?;
+                }
+                self.emit(Opcode::Tuple, &[tuple.elements.len()], span);
                 Ok(())
             }
             Expr::Str(s) => {
@@ -1162,7 +1175,7 @@ impl Compiler {
                         }
                     }
                 }
-                Pattern::Ident(name, _) if name != "_" => {
+                Pattern::Ident { name, mutable, .. } if name != "_" => {
                     if let Some((_, variant_tag, _)) = self.find_variant_in_registry(name) {
                         let match_tag_pos =
                             self.emit(Opcode::MatchTag, &[variant_tag, Self::JUMP], span);
@@ -1171,11 +1184,16 @@ impl Compiler {
                         let next_arm = self.current_instructions().len();
                         self.replace_match_tag_target(match_tag_pos, next_arm)?;
                     } else {
-                        self.define_and_set(name, false, span)?;
+                        self.define_and_set(name, *mutable, span)?;
                         end_jumps.push(self.compile_match_arm_body(&arm.body, span)?);
                     }
                 }
-                Pattern::Wildcard(_) | Pattern::Ident(_, _) => {
+                Pattern::Wildcard(_) | Pattern::Ident { .. } => {
+                    self.emit(Opcode::Pop, &[], span);
+                    end_jumps.push(self.compile_match_arm_body(&arm.body, span)?);
+                }
+                Pattern::Tuple(..) => {
+                    self.compile_let_destructure(&arm.pattern, span)?;
                     self.emit(Opcode::Pop, &[], span);
                     end_jumps.push(self.compile_match_arm_body(&arm.body, span)?);
                 }
@@ -1236,7 +1254,7 @@ impl Compiler {
         let mut nested_match_positions = Vec::new();
         let mut scrutinee_var = None;
         for (i, field) in fields.iter().enumerate() {
-            if let Pattern::Ident(name, _) = field {
+            if let Pattern::Ident { name, mutable, .. } = field {
                 if i == 0 {
                     let hidden = format!("__match_scrutinee_{}", self.for_loop_counter);
                     self.for_loop_counter += 1;
@@ -1258,7 +1276,7 @@ impl Compiler {
                     self.emit(Opcode::Pop, &[], span);
                     nested_match_positions.push(pos);
                 } else {
-                    self.define_and_set(name, false, span)?;
+                    self.define_and_set(name, *mutable, span)?;
                 }
             }
         }
@@ -1280,14 +1298,17 @@ impl Compiler {
     fn compile_field_access(&mut self, fa: &FieldAccessExpr) -> Result<()> {
         let span = fa.span;
         self.compile_expression(&fa.object)?;
-        let field_index = self
-            .type_registry
-            .iter()
-            .find_map(|td| match td {
-                TypeDef::Struct { field_names, .. } => {
-                    field_names.iter().position(|f| f == &fa.field)
-                }
-                _ => None,
+        let field_index = fa
+            .field
+            .parse::<usize>()
+            .ok()
+            .or_else(|| {
+                self.type_registry.iter().find_map(|td| match td {
+                    TypeDef::Struct { field_names, .. } => {
+                        field_names.iter().position(|f| f == &fa.field)
+                    }
+                    _ => None,
+                })
             })
             .ok_or_else(|| {
                 CompileErrorKind::UndefinedVariable {
@@ -1297,6 +1318,53 @@ impl Compiler {
             })?;
         self.emit(Opcode::GetField, &[field_index], span);
         Ok(())
+    }
+
+    /// Compiles a destructuring `let` binding (e.g., `let (x, y) = expr;`).
+    fn compile_let_destructure(&mut self, pattern: &Pattern, span: Span) -> Result<()> {
+        match pattern {
+            Pattern::Tuple(fields, _) => {
+                let temp = self.define_anonymous_local(span)?;
+                for (i, field) in fields.iter().enumerate() {
+                    match field {
+                        Pattern::Ident { name, mutable, .. } => {
+                            self.load_symbol(&temp, span);
+                            self.emit(Opcode::GetField, &[i], span);
+                            self.define_and_set(name, *mutable, span)?;
+                        }
+                        Pattern::Wildcard(_) => {}
+                        Pattern::Tuple(..) => {
+                            self.load_symbol(&temp, span);
+                            self.emit(Opcode::GetField, &[i], span);
+                            self.compile_let_destructure(field, span)?;
+                        }
+                        _ => {
+                            return Err(CompileErrorKind::UnsupportedExpr {
+                                expr_type: "unsupported pattern in tuple destructuring".to_string(),
+                            }
+                            .at(span)
+                            .into());
+                        }
+                    }
+                }
+                Ok(())
+            }
+            _ => Err(CompileErrorKind::UnsupportedExpr {
+                expr_type: "expected tuple pattern in let destructuring".to_string(),
+            }
+            .at(span)
+            .into()),
+        }
+    }
+
+    /// Defines an anonymous variable and sets it from the stack top.
+    fn define_anonymous_local(&mut self, span: Span) -> Result<Symbol> {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        static COUNTER: AtomicUsize = AtomicUsize::new(0);
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let name = format!("__destructure_{id}");
+        self.define_and_set(&name, false, span)
     }
 
     /// Compiles a method call expression (e.g., `point.distance(other)`).

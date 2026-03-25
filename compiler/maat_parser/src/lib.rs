@@ -401,13 +401,41 @@ fn parse_mod_stmt<'src>(
     }
 }
 
-/// Parses a `let` binding: `let [mut] <ident>[: <type>] = <expr>;`.
+/// Parses a `let` binding: `let [mut] <ident>[: <type>] = <expr>;`
+/// or a destructuring let: `let (x, y) = <expr>;`.
 fn parse_let_stmt<'src>(
     input: &mut &'src [Token<'src>],
     depth: &Cell<usize>,
 ) -> ParseResult<LetStmt> {
     let start = parse(input, TokenKind::Let)?.span;
     let mutable = parse_peek(input, TokenKind::Mut).is_some();
+
+    if peek(input) == TokenKind::LParen {
+        let pat_start = parse(input, TokenKind::LParen)?.span;
+        let (fields, pat_end) = parse_pattern_list(input, TokenKind::RParen, depth)?;
+        let pattern = Pattern::Tuple(fields, pat_start.merge(pat_end));
+
+        let type_annotation = if peek(input) == TokenKind::Colon {
+            any.parse_next(input)?;
+            Some(parse_type_expr(input)?)
+        } else {
+            None
+        };
+
+        parse(input, TokenKind::Assign)?;
+        let value = parse_expression(input, MIN_BP, depth)?;
+        let end = parse_peek(input, TokenKind::Semicolon).map_or_else(|| value.span(), |t| t.span);
+
+        return Ok(LetStmt {
+            ident: "_".to_string(),
+            mutable,
+            type_annotation,
+            value,
+            pattern: Some(pattern),
+            span: start.merge(end),
+        });
+    }
+
     let ident_tok = parse(input, TokenKind::Ident)?;
     reject_reserved_ident(ident_tok.literal)?;
     let ident = ident_tok.literal.to_string();
@@ -428,6 +456,7 @@ fn parse_let_stmt<'src>(
         mutable,
         type_annotation,
         value,
+        pattern: None,
         span: start.merge(end),
     })
 }
@@ -566,7 +595,7 @@ fn parse_expression_inner<'src>(
         TokenKind::Char => parse_char_literal(input)?,
         TokenKind::Bang | TokenKind::Minus => parse_prefix_expression(input, depth)?,
         TokenKind::True | TokenKind::False => parse_boolean(input)?,
-        TokenKind::LParen => parse_grouped_expression(input, depth)?,
+        TokenKind::LParen => parse_grouped_or_tuple_expression(input, depth)?,
         TokenKind::If => parse_conditional_expression(input, depth)?,
         TokenKind::Fn => parse_lambda(input, depth)?,
         TokenKind::Macro => parse_macro(input, depth)?,
@@ -844,14 +873,41 @@ fn parse_boolean<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<Expr> {
 }
 
 /// Parses a parenthesized expression: `(expr)`.
-fn parse_grouped_expression<'src>(
+fn parse_grouped_or_tuple_expression<'src>(
     input: &mut &'src [Token<'src>],
     depth: &Cell<usize>,
 ) -> ParseResult<Expr> {
-    any.parse_next(input)?; // consume `(`
-    let expr = parse_expression(input, MIN_BP, depth)?;
-    parse(input, TokenKind::RParen)?;
-    Ok(expr)
+    let start = any.parse_next(input)?.span; // consume `(`
+    if peek(input) == TokenKind::RParen {
+        let end = parse(input, TokenKind::RParen)?.span;
+        return Ok(Expr::Tuple(TupleExpr {
+            elements: vec![],
+            span: start.merge(end),
+        }));
+    }
+    let first = parse_expression(input, MIN_BP, depth)?;
+    if peek(input) == TokenKind::Comma {
+        any.parse_next(input)?; // consume `,`
+        let mut elements = vec![first];
+        if peek(input) != TokenKind::RParen {
+            elements.push(parse_expression(input, MIN_BP, depth)?);
+            while peek(input) == TokenKind::Comma {
+                any.parse_next(input)?;
+                if peek(input) == TokenKind::RParen {
+                    break;
+                }
+                elements.push(parse_expression(input, MIN_BP, depth)?);
+            }
+        }
+        let end = parse(input, TokenKind::RParen)?.span;
+        Ok(Expr::Tuple(TupleExpr {
+            elements,
+            span: start.merge(end),
+        }))
+    } else {
+        parse(input, TokenKind::RParen)?;
+        Ok(first)
+    }
 }
 
 /// Parses an `if` expression with optional `else` / `else if` chains.
@@ -1143,23 +1199,39 @@ fn parse_cast_expression<'src>(input: &mut &'src [Token<'src>], lhs: Expr) -> Pa
 }
 
 /// Parses a field access or method call after `.` has been consumed.
+///
+/// Accepts both named fields (`expr.field`) and positional tuple fields
+/// (`expr.0`, `expr.1`) where the index is an unsuffixed integer literal.
 fn parse_field_or_method_call<'src>(
     input: &mut &'src [Token<'src>],
     object: Expr,
     depth: &Cell<usize>,
 ) -> ParseResult<Expr> {
     let start = object.span();
-    let member_tok = any
-        .verify(|t: &Token<'_>| {
+    let next = peek(input);
+
+    // Handle chained tuple field access: when the lexer greedily consumed
+    // `N.M` as a float literal (e.g., `tuple.0.0` yields `.` then `0.0`),
+    // split it into two field accesses: `.N` then `.M`.
+    if next == TokenKind::Invalid && is_chained_field_literal(input) {
+        return try_split_chained_field_access(input, object);
+    }
+
+    let is_numeric_field = matches!(next, TokenKind::I64);
+    let member_tok = if is_numeric_field {
+        any.parse_next(input)?
+    } else {
+        any.verify(|t: &Token<'_>| {
             matches!(
                 t.kind,
                 TokenKind::Ident | TokenKind::SelfValue | TokenKind::SelfType
             )
         })
-        .parse_next(input)?;
+        .parse_next(input)?
+    };
     let member = member_tok.literal.to_string();
 
-    if peek(input) == TokenKind::LParen {
+    if !is_numeric_field && peek(input) == TokenKind::LParen {
         any.parse_next(input)?; // consume `(`
         let (arguments, end) = parse_delimited_exprs(input, TokenKind::RParen, depth)?;
         Ok(Expr::MethodCall(MethodCallExpr {
@@ -1177,6 +1249,55 @@ fn parse_field_or_method_call<'src>(
             span: start.merge(end),
         }))
     }
+}
+
+/// Checks whether the next token is a misdetected float literal that
+/// represents chained tuple field access (e.g., `0.0` from `tuple.0.0`).
+fn is_chained_field_literal(input: &[Token<'_>]) -> bool {
+    let Some(tok) = input.first() else {
+        return false;
+    };
+    let Some(dot_pos) = tok.literal.bytes().position(|b| b == b'.') else {
+        return false;
+    };
+    let left = &tok.literal[..dot_pos];
+    let right = &tok.literal[dot_pos + 1..];
+    let all_digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    all_digits(left) && all_digits(right)
+}
+
+/// Splits a misdetected float token (e.g., `0.0`) into two chained
+/// tuple field accesses. The caller must verify with [`is_chained_field_literal`]
+/// before calling this function.
+fn try_split_chained_field_access<'src>(
+    input: &mut &'src [Token<'src>],
+    object: Expr,
+) -> ParseResult<Expr> {
+    let tok = input[0];
+    let literal = tok.literal;
+    let dot_pos = literal.bytes().position(|b| b == b'.').unwrap();
+    let left = &literal[..dot_pos];
+    let right = &literal[dot_pos + 1..];
+
+    let base_span = tok.span;
+    *input = &input[1..];
+
+    let left_end = base_span.start + dot_pos;
+    let right_start = left_end + 1;
+
+    let start = object.span();
+    let first = Expr::FieldAccess(FieldAccessExpr {
+        object: Box::new(object),
+        field: left.to_string(),
+        span: start.merge(Span::new(base_span.start, left_end)),
+    });
+    let second = Expr::FieldAccess(FieldAccessExpr {
+        object: Box::new(first),
+        field: right.to_string(),
+        span: start.merge(Span::new(right_start, base_span.end)),
+    });
+
+    Ok(second)
 }
 
 /// Parses a range expression after `..` or `..=` has been consumed.
@@ -1275,6 +1396,16 @@ fn parse_single_pattern<'src>(
             Ok(Pattern::Literal(Box::new(s)))
         }
 
+        TokenKind::Mut => {
+            let mut_tok: Token<'src> = any.parse_next(input)?;
+            let ident_tok = parse(input, TokenKind::Ident)?;
+            Ok(Pattern::Ident {
+                name: ident_tok.literal.to_string(),
+                mutable: true,
+                span: mut_tok.span.merge(ident_tok.span),
+            })
+        }
+
         TokenKind::Ident | TokenKind::SelfType => {
             let tok: Token<'src> = any.parse_next(input)?;
             let mut name = tok.literal.to_string();
@@ -1309,8 +1440,18 @@ fn parse_single_pattern<'src>(
                         span: start.merge(close),
                     })
                 }
-                _ => Ok(Pattern::Ident(name, start.merge(end))),
+                _ => Ok(Pattern::Ident {
+                    name,
+                    mutable: false,
+                    span: start.merge(end),
+                }),
             }
+        }
+
+        TokenKind::LParen => {
+            let start = parse(input, TokenKind::LParen)?.span;
+            let (fields, end) = parse_pattern_list(input, TokenKind::RParen, depth)?;
+            Ok(Pattern::Tuple(fields, start.merge(end)))
         }
 
         _ => Err(ErrMode::Backtrack(ContextError::new())),
@@ -2044,6 +2185,22 @@ fn parse_type_expr<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<TypeExp
             } else {
                 Ok(TypeExpr::Named(NamedType { name, span: start }))
             }
+        }
+        TokenKind::LParen => {
+            let start = parse(input, TokenKind::LParen)?.span;
+            let mut elems = Vec::new();
+            if peek(input) != TokenKind::RParen {
+                elems.push(parse_type_expr(input)?);
+                while peek(input) == TokenKind::Comma {
+                    any.parse_next(input)?;
+                    if peek(input) == TokenKind::RParen {
+                        break;
+                    }
+                    elems.push(parse_type_expr(input)?);
+                }
+            }
+            let end = parse(input, TokenKind::RParen)?.span;
+            Ok(TypeExpr::Tuple(elems, start.merge(end)))
         }
         _ => Err(ErrMode::Backtrack(ContextError::new())),
     }

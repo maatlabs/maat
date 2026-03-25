@@ -17,6 +17,7 @@ fn statements_display() {
             radix: Radix::Dec,
             span: span(),
         }),
+        pattern: None,
         span: span(),
     };
     assert_eq!(let_stmt.to_string(), "let x = 100;");
@@ -35,6 +36,7 @@ fn statements_display() {
             radix: Radix::Hex,
             span: span(),
         }),
+        pattern: None,
         span: span(),
     };
     assert_eq!(let_typed.to_string(), "let y: i32 = 0xff;");
@@ -82,6 +84,7 @@ fn statements_display() {
                 radix: Radix::Dec,
                 span: span(),
             }),
+            pattern: None,
             span: span(),
         })],
     };
@@ -211,6 +214,7 @@ fn control_flow_display() {
                     radix: Radix::Dec,
                     span: span(),
                 }),
+                pattern: None,
                 span: span(),
             })],
             span: span(),
@@ -226,6 +230,7 @@ fn control_flow_display() {
                     radix: Radix::Dec,
                     span: span(),
                 }),
+                pattern: None,
                 span: span(),
             })],
             span: span(),

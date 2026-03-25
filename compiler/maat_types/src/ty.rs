@@ -38,6 +38,8 @@ pub enum Type {
     Set(Box<Type>),
     /// A range type parameterised by its element type (e.g., `Range<i64>`).
     Range(Box<Type>),
+    /// A tuple type with ordered element types (e.g., `(i64, bool, str)`).
+    Tuple(Vec<Type>),
     Function(FnType),
     /// A user-defined struct type, identified by name with instantiated type arguments.
     Struct(Rc<str>, Vec<Type>),
@@ -302,6 +304,19 @@ impl fmt::Display for Type {
             Self::Map(k, v) => write!(f, "{{{k}: {v}}}"),
             Self::Set(elem) => write!(f, "Set<{elem}>"),
             Self::Range(elem) => write!(f, "Range<{elem}>"),
+            Self::Tuple(elems) => {
+                f.write_str("(")?;
+                for (i, elem) in elems.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    write!(f, "{elem}")?;
+                }
+                if elems.len() == 1 {
+                    f.write_str(",")?;
+                }
+                f.write_str(")")
+            }
             Self::Function(fn_ty) => {
                 let params = fn_ty
                     .params

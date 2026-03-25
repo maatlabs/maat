@@ -34,6 +34,7 @@ pub fn resolve_type_expr(expr: &TypeExpr) -> Type {
             let _ = args;
             Type::Generic(Rc::from(name.as_str()), vec![])
         }
+        TypeExpr::Tuple(elems, _) => Type::Tuple(elems.iter().map(resolve_type_expr).collect()),
     }
 }
 

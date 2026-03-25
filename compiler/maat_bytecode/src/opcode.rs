@@ -192,6 +192,10 @@ pub enum Opcode {
     /// Pops `end` then `start`, pushes `Value::RangeInclusive(start, end)`.
     /// Operands: none
     MakeRangeInclusive = 42,
+
+    /// Build a tuple from the top N stack elements.
+    /// Operands: [u16] - number of elements
+    Tuple = 43,
 }
 
 impl Opcode {
@@ -241,6 +245,7 @@ impl Opcode {
             Self::Shr => "OpShr",
             Self::MakeRange => "OpMakeRange",
             Self::MakeRangeInclusive => "OpMakeRangeInclusive",
+            Self::Tuple => "OpTuple",
         }
     }
 
@@ -258,7 +263,8 @@ impl Opcode {
             | Self::GetGlobal
             | Self::Vector
             | Self::Map
-            | Self::GetField => &[2],
+            | Self::GetField
+            | Self::Tuple => &[2],
             Self::Closure | Self::Construct => &[2, 1],
             Self::MatchTag => &[2, 2],
             Self::Call
@@ -343,6 +349,7 @@ impl Opcode {
             40 => Some(Self::Shr),
             41 => Some(Self::MakeRange),
             42 => Some(Self::MakeRangeInclusive),
+            43 => Some(Self::Tuple),
             _ => None,
         }
     }
@@ -427,7 +434,7 @@ mod tests {
 
     #[test]
     fn opcode_roundtrip() {
-        for byte in 0..=42 {
+        for byte in 0..=43 {
             let opcode = Opcode::from_byte(byte).unwrap();
             assert_eq!(opcode.to_byte(), byte);
         }

@@ -51,6 +51,7 @@ fn transform_statements() {
                 ident: "x".to_string(),
                 type_annotation: None,
                 value: one(),
+                pattern: None,
                 span: Span::ZERO,
             }),
             Stmt::Return(ReturnStmt {
@@ -177,6 +178,7 @@ fn transform_nested_structures() {
                 ],
                 span: Span::ZERO,
             }),
+            pattern: None,
             span: Span::ZERO,
         })],
     };

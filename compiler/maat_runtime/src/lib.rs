@@ -43,6 +43,8 @@ pub enum Value {
     Char(char),
     /// A string literal.
     Str(String),
+    /// An ordered, fixed-size collection of heterogeneous values.
+    Tuple(Vec<Value>),
     /// A vector of values.
     Vector(Vec<Value>),
     /// A map (key-value collection).
@@ -181,6 +183,7 @@ impl Value {
             Self::Bool(_) => "Bool",
             Self::Char(_) => "Char",
             Self::Str(_) => "Str",
+            Self::Tuple(_) => "Tuple",
             Self::Vector(_) => "Vector",
             Self::Map(_) => "Map",
             Self::Function(_) => "Function",
@@ -214,6 +217,7 @@ enum SerVal {
     Bool(bool),
     Char(char),
     Str(String),
+    Tuple(Vec<Value>),
     Vector(Vec<Value>),
     Map(MapVal),
     CompiledFn(CompiledFn),
@@ -236,6 +240,7 @@ impl Serialize for Value {
             Self::Bool(v) => SerVal::Bool(*v),
             Self::Char(v) => SerVal::Char(*v),
             Self::Str(v) => SerVal::Str(v.clone()),
+            Self::Tuple(v) => SerVal::Tuple(v.clone()),
             Self::Vector(v) => SerVal::Vector(v.clone()),
             Self::Map(v) => SerVal::Map(v.clone()),
             Self::CompiledFn(v) => SerVal::CompiledFn(v.clone()),
@@ -266,6 +271,7 @@ impl<'de> Deserialize<'de> for Value {
             SerVal::Bool(v) => Self::Bool(v),
             SerVal::Char(v) => Self::Char(v),
             SerVal::Str(v) => Self::Str(v),
+            SerVal::Tuple(v) => Self::Tuple(v),
             SerVal::Vector(v) => Self::Vector(v),
             SerVal::Map(v) => Self::Map(v),
             SerVal::CompiledFn(v) => Self::CompiledFn(v),
@@ -288,6 +294,7 @@ impl PartialEq for Value {
             (Bool(a), Bool(b)) => a == b,
             (Char(a), Char(b)) => a == b,
             (Str(a), Str(b)) => a == b,
+            (Tuple(t1), Tuple(t2)) => t1 == t2,
             (Vector(v1), Vector(v2)) => v1 == v2,
             (Map(m1), Map(m2)) => m1 == m2,
             (Function(f1), Function(f2)) => f1 == f2,
@@ -461,6 +468,17 @@ impl fmt::Display for Value {
             Self::Bool(v) => v.fmt(f),
             Self::Char(v) => v.fmt(f),
             Self::Str(v) => v.fmt(f),
+            Self::Tuple(elems) => {
+                write!(
+                    f,
+                    "({})",
+                    elems
+                        .iter()
+                        .map(|e| format!("{e}"))
+                        .collect::<Vec<String>>()
+                        .join(", ")
+                )
+            }
             Self::Vector(vector) => {
                 write!(
                     f,

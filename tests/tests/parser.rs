@@ -882,7 +882,7 @@ fn parse_match_expressions() {
         panic!("expected Match expression");
     };
     assert_eq!(m.arms.len(), 1);
-    let Pattern::Ident(ref name, _) = m.arms[0].pattern else {
+    let Pattern::Ident { ref name, .. } = m.arms[0].pattern else {
         panic!("expected Ident pattern");
     };
     assert_eq!(name, "y");

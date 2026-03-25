@@ -52,12 +52,18 @@ pub enum Stmt {
 /// When `mutable` is `true`, the binding can be reassigned via
 /// `ident = expr;` or compound assignment (`ident += expr;`).
 /// When `false`, rebinding the same name requires a new `let`.
+///
+/// When `pattern` is `Some`, this is a destructuring let (e.g.,
+/// `let (x, y) = expr;`). In that case `ident` is set to `"_"` and
+/// the pattern's bindings are used instead.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LetStmt {
     pub ident: String,
     pub mutable: bool,
     pub type_annotation: Option<TypeExpr>,
     pub value: Expr,
+    /// Destructuring pattern for tuple bindings.
+    pub pattern: Option<Pattern>,
     pub span: Span,
 }
 
@@ -171,6 +177,7 @@ pub enum Expr {
     Continue(ContinueExpr),
 
     Match(MatchExpr),
+    Tuple(TupleExpr),
     FieldAccess(FieldAccessExpr),
     MethodCall(MethodCallExpr),
     StructLit(StructLitExpr),
@@ -201,6 +208,7 @@ impl Expr {
             Self::Break(v) => v.span,
             Self::Continue(v) => v.span,
             Self::Match(v) => v.span,
+            Self::Tuple(v) => v.span,
             Self::FieldAccess(v) => v.span,
             Self::MethodCall(v) => v.span,
             Self::StructLit(v) => v.span,
@@ -263,6 +271,18 @@ pub struct Str {
 pub struct CharLit {
     /// The parsed character value.
     pub value: char,
+    pub span: Span,
+}
+
+/// A tuple expression: `(a, b)`, `(a, b, c)`.
+///
+/// Distinguished from grouped expressions (which contain a single expression
+/// in parentheses) by the presence of at least one comma. A trailing comma
+/// after a single element, e.g. `(a,)` creates a 1-tuple.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TupleExpr {
+    /// The tuple's element expressions.
+    pub elements: Vec<Expr>,
     pub span: Span,
 }
 
@@ -637,8 +657,12 @@ pub struct MatchArm {
 pub enum Pattern {
     /// `_` — matches any value without binding.
     Wildcard(Span),
-    /// `x` — binds the matched value to a new variable.
-    Ident(String, Span),
+    /// `x` or `mut x` — binds the matched value to a new variable.
+    Ident {
+        name: String,
+        mutable: bool,
+        span: Span,
+    },
     /// `42`, `true`, `"hello"` — matches a specific literal value.
     Literal(Box<Expr>),
     /// `Some(x)`, `Err(e)`, `Point(a, b)` — matches a tuple-struct or tuple-variant.
@@ -653,6 +677,8 @@ pub enum Pattern {
         fields: Vec<PatternField>,
         span: Span,
     },
+    /// `(a, b, c)` — matches a tuple and destructures its elements.
+    Tuple(Vec<Pattern>, Span),
     /// `PatA | PatB` — matches if either alternative matches.
     Or(Vec<Pattern>, Span),
 }
@@ -674,10 +700,11 @@ impl Pattern {
     pub fn span(&self) -> Span {
         match self {
             Self::Wildcard(s) => *s,
-            Self::Ident(_, s) => *s,
+            Self::Ident { span, .. } => *span,
             Self::Literal(expr) => expr.span(),
             Self::TupleStruct { span, .. } => *span,
             Self::Struct { span, .. } => *span,
+            Self::Tuple(_, s) => *s,
             Self::Or(_, s) => *s,
         }
     }
@@ -752,6 +779,7 @@ pub struct RangeExpr {
 /// - `Map` — `{K: V}`, a hash map from key type `K` to value type `V`.
 /// - `Fn` — `fn(A, B) -> R`, a function type.
 /// - `Generic` — a parameterized type like `Option<T>` or `Result<T, E>`.
+/// - `Tuple` — a tuple type like `(i64, bool)`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TypeExpr {
     Named(NamedType),
@@ -760,6 +788,7 @@ pub enum TypeExpr {
     Map(Box<TypeExpr>, Box<TypeExpr>, Span),
     Fn(Vec<TypeExpr>, Box<TypeExpr>, Span),
     Generic(String, Vec<TypeExpr>, Span),
+    Tuple(Vec<TypeExpr>, Span),
 }
 
 impl TypeExpr {
@@ -771,7 +800,8 @@ impl TypeExpr {
             | Self::Set(_, s)
             | Self::Map(_, _, s)
             | Self::Fn(_, _, s)
-            | Self::Generic(_, _, s) => *s,
+            | Self::Generic(_, _, s)
+            | Self::Tuple(_, s) => *s,
         }
     }
 }

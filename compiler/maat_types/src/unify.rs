@@ -48,6 +48,7 @@ impl Substitution {
             Type::Function(fn_ty) => {
                 fn_ty.params.iter().any(|p| self.occurs(var, p)) || self.occurs(var, &fn_ty.ret)
             }
+            Type::Tuple(elems) => elems.iter().any(|e| self.occurs(var, e)),
             Type::Struct(_, args) | Type::Enum(_, args) => args.iter().any(|a| self.occurs(var, a)),
             _ => false,
         }
@@ -81,6 +82,15 @@ impl Substitution {
                     return Err(UnifyError::Mismatch(a, b));
                 }
                 for (pa, pb) in args_a.iter().zip(args_b.iter()) {
+                    self.unify(pa, pb)?;
+                }
+                Ok(())
+            }
+            (Type::Tuple(ea), Type::Tuple(eb)) => {
+                if ea.len() != eb.len() {
+                    return Err(UnifyError::Mismatch(a, b));
+                }
+                for (pa, pb) in ea.iter().zip(eb.iter()) {
                     self.unify(pa, pb)?;
                 }
                 Ok(())
@@ -129,6 +139,7 @@ impl Substitution {
             Type::Enum(name, args) => {
                 Type::Enum(name.clone(), args.iter().map(|a| self.apply(a)).collect())
             }
+            Type::Tuple(elems) => Type::Tuple(elems.iter().map(|e| self.apply(e)).collect()),
             _ => ty.clone(),
         }
     }

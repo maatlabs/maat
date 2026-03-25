@@ -433,6 +433,18 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                     Expr::StructLit(struct_lit)
                 }
 
+                Expr::Tuple(mut tuple) => {
+                    tuple.elements = tuple
+                        .elements
+                        .into_iter()
+                        .map(|elem| match transform(Node::Expr(elem), transformer) {
+                            Node::Expr(e) => e,
+                            _ => unreachable!("Expr transformation returned non-expression"),
+                        })
+                        .collect();
+                    Expr::Tuple(tuple)
+                }
+
                 Expr::Range(mut range) => {
                     range.start =
                         Box::new(match transform(Node::Expr(*range.start), transformer) {
@@ -446,7 +458,7 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                     Expr::Range(range)
                 }
 
-                // Leaf nodes (literals, identifiers, continue, paths) don't need transformation
+                // Leaf nodes (literals, identifiers, continue, paths) need no recursive traversal
                 expr => expr,
             };
             Node::Expr(new_expr)

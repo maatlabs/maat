@@ -306,6 +306,12 @@ impl VM {
                     let vector = self.build_vector(num_elements)?;
                     self.push_stack(vector)?;
                 }
+                Opcode::Tuple => {
+                    let num_elements = self.read_u16_operand(ip + 1)?;
+                    self.current_frame_mut()?.ip += 2;
+                    let tuple = self.build_tuple(num_elements)?;
+                    self.push_stack(tuple)?;
+                }
                 Opcode::Map => {
                     let num_elements = self.read_u16_operand(ip + 1)?;
                     self.current_frame_mut()?.ip += 2;
@@ -782,6 +788,20 @@ impl VM {
         Ok(Value::Vector(elements))
     }
 
+    /// Builds a tuple from the top `num_elements` stack values.
+    fn build_tuple(&mut self, num_elements: usize) -> Result<Value> {
+        if num_elements > self.sp {
+            return Err(self.vm_error(format!(
+                "stack underflow in tuple construction: need {num_elements} elements, stack has {}",
+                self.sp
+            )));
+        }
+        let start = self.sp - num_elements;
+        let elements = self.stack[start..self.sp].to_vec();
+        self.sp = start;
+        Ok(Value::Tuple(elements))
+    }
+
     /// Builds a map from the top `num_elements` stack values.
     ///
     /// Elements are expected in alternating key-value order on the stack.
@@ -881,6 +901,7 @@ impl VM {
         let fields = match &val {
             Value::Struct(s) => &s.fields,
             Value::EnumVariant(v) => &v.fields,
+            Value::Tuple(elems) => elems,
             _ => {
                 return Err(self.vm_error(format!("cannot access field on {}", val.type_name())));
             }
