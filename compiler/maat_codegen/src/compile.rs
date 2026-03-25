@@ -1676,6 +1676,17 @@ impl Compiler {
             "println" => self.compile_print_macro(&mc.arguments, true, span),
             "assert" => self.compile_assert_macro(&mc.arguments, span),
             "assert_eq" => self.compile_assert_eq_macro(&mc.arguments, span),
+            "panic" => self.compile_panic_macro(&mc.arguments, span),
+            "todo" => self.emit_builtin_call(
+                "__panic",
+                &[Value::Str("not yet implemented".to_string())],
+                span,
+            ),
+            "unimplemented" => self.emit_builtin_call(
+                "__panic",
+                &[Value::Str("not implemented".to_string())],
+                span,
+            ),
             _ => Err(CompileErrorKind::UnknownMacro {
                 name: mc.name.clone(),
             }
@@ -1829,6 +1840,96 @@ impl Compiler {
         let after = self.current_instructions().len();
         self.replace_operand(skip_pos, after)?;
         self.emit(Opcode::Null, &[], span);
+        Ok(())
+    }
+
+    /// Compiles `panic!()`, `panic!("message")`, or `panic!("fmt {}", args...)`.
+    ///
+    /// With no arguments, emits `__panic("explicit panic")`. With a plain
+    /// string literal, emits `__panic(literal)`. With a format string and
+    /// interpolation arguments, builds the message by concatenating segments
+    /// via `__to_string` and `__str_concat`, then emits `__panic(result)`.
+    fn compile_panic_macro(&mut self, args: &[Expr], span: Span) -> Result<()> {
+        if args.is_empty() {
+            return self.emit_builtin_call(
+                "__panic",
+                &[Value::Str("explicit panic".to_string())],
+                span,
+            );
+        }
+
+        let fmt = match &args[0] {
+            Expr::Str(s) => maat_ast::unescape_string(&s.value),
+            _ => {
+                return Err(CompileErrorKind::MacroExpectsFormatString {
+                    macro_name: "panic".to_string(),
+                }
+                .at(span)
+                .into());
+            }
+        };
+
+        let segments = parse_format_string(&fmt);
+        let placeholder_count = segments
+            .iter()
+            .filter(|s| matches!(s, FmtSegment::Arg))
+            .count();
+        let value_args = &args[1..];
+        if placeholder_count != value_args.len() {
+            return Err(CompileErrorKind::FormatArgCountMismatch {
+                placeholders: placeholder_count,
+                arguments: value_args.len(),
+            }
+            .at(span)
+            .into());
+        }
+
+        if placeholder_count == 0 {
+            return self.emit_builtin_call("__panic", &[Value::Str(fmt)], span);
+        }
+
+        let mut arg_idx = 0;
+        let mut first = true;
+
+        for segment in &segments {
+            let segment_str = match segment {
+                FmtSegment::Literal(text) => {
+                    let idx = self.add_constant(Value::Str(text.clone()))?;
+                    self.emit(Opcode::Constant, &[idx], span);
+                    true
+                }
+                FmtSegment::Arg => {
+                    self.emit_builtin_call_expr("__to_string", &value_args[arg_idx], span)?;
+                    arg_idx += 1;
+                    true
+                }
+                FmtSegment::Capture(name) => {
+                    let ident_expr = Expr::Ident(Ident {
+                        value: name.clone(),
+                        span,
+                    });
+                    self.emit_builtin_call_expr("__to_string", &ident_expr, span)?;
+                    true
+                }
+            };
+
+            if segment_str && !first {
+                let rhs_tmp = format!("__panic_rhs_{}", self.current_instructions().len());
+                let rhs_sym = self.define_and_set(&rhs_tmp, false, span)?;
+                let lhs_tmp = format!("__panic_lhs_{}", self.current_instructions().len());
+                let lhs_sym = self.define_and_set(&lhs_tmp, false, span)?;
+                let concat_idx = resolve_builtin_index("__str_concat");
+                self.emit(Opcode::GetBuiltin, &[concat_idx], span);
+                self.load_symbol(&lhs_sym, span);
+                self.load_symbol(&rhs_sym, span);
+                self.emit(Opcode::Call, &[2], span);
+            }
+            if segment_str {
+                first = false;
+            }
+        }
+
+        self.emit_builtin_call_stack("__panic", span)?;
         Ok(())
     }
 

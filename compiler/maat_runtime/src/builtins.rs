@@ -101,6 +101,7 @@ define_builtins! {
     "__print_str" => __print_str,
     "__print_str_ln" => __print_str_ln,
     "__to_string" => __to_string,
+    "__str_concat" => __str_concat,
     "__panic" => __panic,
 
     "Vector::len" => vector_len,
@@ -211,9 +212,22 @@ fn __to_string(args: &[Value]) -> Result<Value> {
     Ok(Value::Str(format!("{}", args[0])))
 }
 
+/// Concatenates two string values into a single string.
+///
+/// Internal builtin emitted by `panic!` format string expansion and
+/// string concatenation via the `+` operator.
+fn __str_concat(args: &[Value]) -> Result<Value> {
+    expect_arg_count("__str_concat", args, 2)?;
+    match (&args[0], &args[1]) {
+        (Value::Str(a), Value::Str(b)) => Ok(Value::Str(format!("{a}{b}"))),
+        _ => Err(EvalError::Builtin("__str_concat: expected two string arguments".into()).into()),
+    }
+}
+
 /// Terminates execution with a runtime error.
 ///
-/// Internal builtin emitted by `assert!` and `assert_eq!` macro expansion.
+/// Internal builtin emitted by `assert!`, `assert_eq!`, `panic!`, `todo!`,
+/// and `unimplemented!` macro expansion.
 fn __panic(args: &[Value]) -> Result<Value> {
     expect_arg_count("__panic", args, 1)?;
     Err(EvalError::Builtin(format!("{}", args[0])).into())

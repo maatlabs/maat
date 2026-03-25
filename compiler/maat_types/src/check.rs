@@ -729,7 +729,10 @@ impl TypeChecker {
         for arg in &mut mc.arguments {
             self.infer_expression(arg);
         }
-        Type::Null
+        match mc.name.as_str() {
+            "panic" | "todo" | "unimplemented" => Type::Never,
+            _ => Type::Null,
+        }
     }
 
     /// Type-checks a struct literal expression (e.g., `Point { x: 1, y: 2 }`)
