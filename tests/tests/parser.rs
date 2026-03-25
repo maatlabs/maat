@@ -407,7 +407,7 @@ fn parse_operator_precedence() {
 #[test]
 fn parse_conditionals() {
     // If without else
-    let program = parse("if (x < y) { x }");
+    let program = parse("if x < y { x }");
     let Stmt::Expr(ExprStmt {
         value: Expr::Cond(cond),
         ..
@@ -424,7 +424,7 @@ fn parse_conditionals() {
     assert!(cond.alternative.is_none());
 
     // If with else
-    let program = parse("if (x < y) { x } else { y }");
+    let program = parse("if x < y { x } else { y }");
     let Stmt::Expr(ExprStmt {
         value: Expr::Cond(cond),
         ..
@@ -542,7 +542,7 @@ fn parse_loops() {
     assert_eq!(loop_stmt.body.statements[0].to_string(), "1;");
 
     // While
-    let program = parse("while (x < 10) { x; }");
+    let program = parse("while x < 10 { x; }");
     let Stmt::While(while_stmt) = expect_single_stmt(&program) else {
         panic!("expected While statement");
     };

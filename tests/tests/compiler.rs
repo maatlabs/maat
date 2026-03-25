@@ -237,7 +237,7 @@ fn compile_boolean_expressions() {
 fn compile_conditionals() {
     let tests = vec![
         (
-            "if (true) { 10 }; 3333;",
+            "if true { 10 }; 3333;",
             vec![10, 3333],
             vec![
                 encode(Opcode::True, &[]),
@@ -251,7 +251,7 @@ fn compile_conditionals() {
             ],
         ),
         (
-            "if (true) { 10 } else { 20 }; 3333;",
+            "if true { 10 } else { 20 }; 3333;",
             vec![10, 20, 3333],
             vec![
                 encode(Opcode::True, &[]),
@@ -698,23 +698,23 @@ fn compile_let_statement_scopes() {
 #[test]
 fn compile_builtins() {
     let cases: Vec<ConstantTestCase<'_>> = vec![
-        // Method calls: Vector::len (builtin index 4)
+        // Method calls: Vector::len (builtin index 5)
         (
             "[].len();",
             vec![],
             vec![
-                encode(Opcode::GetBuiltin, &[4]),
+                encode(Opcode::GetBuiltin, &[5]),
                 encode(Opcode::Vector, &[0]),
                 encode(Opcode::Call, &[1]),
                 encode(Opcode::Pop, &[]),
             ],
         ),
-        // Method calls: Vector::push (builtin index 8)
+        // Method calls: Vector::push (builtin index 9)
         (
             "[].push(1);",
             vec![Constant::Int(1)],
             vec![
-                encode(Opcode::GetBuiltin, &[8]),
+                encode(Opcode::GetBuiltin, &[9]),
                 encode(Opcode::Vector, &[0]),
                 encode(Opcode::Constant, &[0]),
                 encode(Opcode::Call, &[2]),

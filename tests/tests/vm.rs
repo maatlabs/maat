@@ -263,14 +263,14 @@ fn boolean_expressions() {
 #[test]
 fn conditionals() {
     let cases = vec![
-        ("if (true) { 10 }", TestValue::I64(10)),
-        ("if (true) { 10 } else { 20 }", TestValue::I64(10)),
-        ("if (false) { 10 } else { 20 }", TestValue::I64(20)),
-        ("if (1 < 2) { 10 }", TestValue::I64(10)),
+        ("if true { 10 }", TestValue::I64(10)),
+        ("if true { 10 } else { 20 }", TestValue::I64(10)),
+        ("if false { 10 } else { 20 }", TestValue::I64(20)),
+        ("if 1 < 2 { 10 }", TestValue::I64(10)),
         ("if (1 < 2) { 10 } else { 20 }", TestValue::I64(10)),
         ("if (1 > 2) { 10 } else { 20 }", TestValue::I64(20)),
-        ("if (1 > 2) { 10 }", TestValue::Null),
-        ("if (false) { 10 }", TestValue::Null),
+        ("if 1 > 2 { 10 }", TestValue::Null),
+        ("if false { 10 }", TestValue::Null),
     ];
     for (input, expected) in cases {
         run_vm_test(input, expected);

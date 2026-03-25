@@ -843,14 +843,16 @@ fn parse_grouped_expression<'src>(
 }
 
 /// Parses an `if` expression with optional `else` / `else if` chains.
+///
+/// Parentheses around the condition are optional: both `if x > 0 { ... }`
+/// and `if (x > 0) { ... }` are accepted. When present, parentheses are
+/// parsed as a grouped expression.
 fn parse_conditional_expression<'src>(
     input: &mut &'src [Token<'src>],
     depth: &Cell<usize>,
 ) -> ParseResult<Expr> {
     let start = parse(input, TokenKind::If)?.span;
-    parse(input, TokenKind::LParen)?;
     let condition = Box::new(parse_expression(input, MIN_BP, depth)?);
-    parse(input, TokenKind::RParen)?;
     parse(input, TokenKind::LBrace)?;
     let consequence = parse_block(input, depth)?;
 
@@ -1398,17 +1400,19 @@ fn parse_loop_stmt<'src>(
     })
 }
 
-/// Parses a `while` loop: `while (condition) { body }` or
-/// `'label: while (condition) { body }`.
+/// Parses a `while` loop: `while condition { body }` or
+/// `'label: while condition { body }`.
+///
+/// Parentheses around the condition are optional: both `while x > 0 { ... }`
+/// and `while (x > 0) { ... }` are accepted. When present, parentheses are
+/// parsed as a grouped expression.
 fn parse_while_stmt<'src>(
     input: &mut &'src [Token<'src>],
     depth: &Cell<usize>,
     label: Option<String>,
 ) -> ParseResult<WhileStmt> {
     let start = parse(input, TokenKind::While)?.span;
-    parse(input, TokenKind::LParen)?;
     let condition = Box::new(parse_expression(input, MIN_BP, depth)?);
-    parse(input, TokenKind::RParen)?;
     parse(input, TokenKind::LBrace)?;
     let body = parse_block(input, depth)?;
     let end = body.span;

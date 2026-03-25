@@ -51,9 +51,9 @@ fn let_bindings() {
 
 #[test]
 fn conditionals() {
-    run_roundtrip_test("if (true) { 10 }", Value::Integer(Integer::I64(10)));
+    run_roundtrip_test("if true { 10 }", Value::Integer(Integer::I64(10)));
     run_roundtrip_test(
-        "if (false) { 10 } else { 20 }",
+        "if false { 10 } else { 20 }",
         Value::Integer(Integer::I64(20)),
     );
 }

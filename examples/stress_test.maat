@@ -14,7 +14,7 @@ struct Graph {
 /// Builds an adjacency list from a list of [from, to] edge pairs.
 fn build_graph(size: i64, edge_pairs: [[i64]]) -> Graph {
     fn init_adj(n: i64, acc: [[i64]]) -> [[i64]] {
-        if (n == 0) {
+        if n == 0 {
             acc
         } else {
             init_adj(n - 1, acc.push([]))
@@ -28,9 +28,9 @@ fn build_graph(size: i64, edge_pairs: [[i64]]) -> Graph {
         let to = pair[1];
         let mut new_adj = [];
         for i in 0..size {
-            if (i == from) {
+            if i == from {
                 new_adj = new_adj.push(adj[i].push(to));
-            } else if (i == to) {
+            } else if i == to {
                 new_adj = new_adj.push(adj[i].push(from));
             } else {
                 new_adj = new_adj.push(adj[i]);
@@ -53,7 +53,7 @@ struct DfsResult {
 /// Performs a depth-first search starting from the given node.
 fn dfs(graph: Graph, start: i64) -> DfsResult {
     fn go(graph: Graph, node: i64, visited: Set, order: [i64]) -> DfsResult {
-        if (visited.contains(node)) {
+        if visited.contains(node) {
             DfsResult { visited: visited, order: order }
         } else {
             let new_visited = visited.insert(node);
@@ -66,7 +66,7 @@ fn dfs(graph: Graph, start: i64) -> DfsResult {
                 idx: i64,
                 state: DfsResult,
             ) -> DfsResult {
-                if (idx as usize >= neighbors.len()) {
+                if idx as usize >= neighbors.len() {
                     state
                 } else {
                     let neighbor = neighbors[idx];
@@ -100,7 +100,7 @@ println!("{}", result.visited.len());
 // Verify all nodes were visited
 let mut all_visited = true;
 for i in 0..6 {
-    if (!result.visited.contains(i)) {
+    if !result.visited.contains(i) {
         all_visited = false;
     }
 }
@@ -111,7 +111,7 @@ println!("{}", all_visited);
 fn euler_totient(n: i64) -> i64 {
     let mut count: i64 = 0;
     for i in 1..n {
-        if (gcd(i, n) == 1) {
+        if gcd(i, n) == 1 {
             count += 1;
         }
     }
@@ -123,7 +123,7 @@ println!("{}", euler_totient(30));
 
 // Result-based safe operations pipeline
 fn safe_div(a: i64, b: i64) -> Result<i64, str> {
-    if (b == 0) {
+    if b == 0 {
         Err("division by zero")
     } else {
         Ok(a / b)
@@ -131,12 +131,12 @@ fn safe_div(a: i64, b: i64) -> Result<i64, str> {
 }
 
 fn chain_ops(values: [i64]) -> Result<i64, str> {
-    if (values.len() < 2usize) {
+    if values.len() < 2usize {
         return Err("need at least 2 values");
     }
     let mut acc = values[0];
     let mut i: i64 = 1;
-    while (i as usize < values.len()) {
+    while i as usize < values.len() {
         match safe_div(acc, values[i]) {
             Ok(v) => { acc = v + values[i]; },
             Err(e) => { return Err(e); },
@@ -182,7 +182,7 @@ let process_batch = fn(data: [i64]) {
     let mut unique_sum: i64 = 0;
     let mut duplicates: i64 = 0;
     for item in data {
-        if (seen.contains(item)) {
+        if seen.contains(item) {
             duplicates += 1;
         } else {
             seen = seen.insert(item);
@@ -225,9 +225,9 @@ println!("{}", combine_pair(Pair {
 /// Returns the number of steps in the Collatz sequence starting from `n`.
 fn collatz_length(n: i64) -> i64 {
     fn go(n: i64, steps: i64) -> i64 {
-        if (n == 1) {
+        if n == 1 {
             steps
-        } else if (n % 2 == 0) {
+        } else if n % 2 == 0 {
             go(n / 2, steps + 1)
         } else {
             go(3 * n + 1, steps + 1)

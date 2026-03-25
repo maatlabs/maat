@@ -2,14 +2,14 @@
 
 /// Computes base^exp mod modulus using the binary exponentiation method.
 fn mod_pow(base: i64, exp: i64, modulus: i64) -> i64 {
-    if (modulus == 1) {
+    if modulus == 1 {
         return 0;
     }
     fn go(result: i64, base: i64, exp: i64, modulus: i64) -> i64 {
-        if (exp <= 0) {
+        if exp <= 0 {
             result
         } else {
-            let next_result = if (exp % 2 == 1) {
+            let next_result = if exp % 2 == 1 {
                 result * base % modulus
             } else {
                 result
@@ -23,23 +23,23 @@ fn mod_pow(base: i64, exp: i64, modulus: i64) -> i64 {
 /// Fermat primality test: a^(p-1) should equal 1 (mod p) for prime p.
 /// Tests with multiple small witnesses for increased confidence.
 fn is_probable_prime(n: i64) -> bool {
-    if (n < 2) {
+    if n < 2 {
         return false;
     }
-    if (n < 4) {
+    if n < 4 {
         return true;
     }
-    if (n % 2 == 0) {
+    if n % 2 == 0 {
         return false;
     }
     // Test with small witnesses
     let witnesses = [2, 3, 5, 7, 11];
     let mut all_pass = true;
     for a in witnesses {
-        if (a >= n) {
+        if a >= n {
             continue;
         }
-        if (mod_pow(a, n - 1, n) != 1) {
+        if mod_pow(a, n - 1, n) != 1 {
             all_pass = false;
             break;
         }
@@ -70,7 +70,7 @@ struct GcdResult {
 
 /// Computes the extended GCD using the recursive Euclidean algorithm.
 fn extended_gcd(a: i64, b: i64) -> GcdResult {
-    if (b == 0) {
+    if b == 0 {
         GcdResult { gcd: a, x: 1, y: 0 }
     } else {
         let r = extended_gcd(b, a % b);
@@ -92,12 +92,12 @@ println!("{}", 35 * eg.x + 15 * eg.y);
 /// Computes the modular inverse a^(-1) mod m, if it exists.
 fn mod_inverse(a: i64, m: i64) -> Option<i64> {
     let r = extended_gcd(a, m);
-    if (r.gcd != 1) {
+    if r.gcd != 1 {
         None
     } else {
         // Normalize to positive
         let inv = r.x % m;
-        if (inv < 0) {
+        if inv < 0 {
             Some(inv + m)
         } else {
             Some(inv)
@@ -113,7 +113,7 @@ println!("{}", match mod_inverse(6, 9) { Some(v) => v, None => -1 });
 /// Encrypts or decrypts data by XOR-ing each element with a key.
 fn xor_cipher(data, key: i64) {
     let go = fn(data, acc) {
-        if (data.len() == 0usize) {
+        if data.len() == 0usize {
             acc
         } else {
             go(data.rest(), acc.push(data.first() ^ key));
@@ -134,7 +134,7 @@ println!("{}", decrypted);
 fn popcount(n: i64) -> i64 {
     let mut count: i64 = 0;
     let mut val = n;
-    while (val != 0) {
+    while val != 0 {
         count += val & 1;
         val = val >> 1;
     }
