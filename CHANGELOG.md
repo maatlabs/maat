@@ -4,6 +4,78 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-03-26
+
+Major language ergonomics and compiler infrastructure release. Maat's compiler frontend has been rebuilt on industrial-strength foundations: `logos` for lexing and `winnow` for parsing. The language gains tuples, `char`, the `?` operator, `Map<K, V>`, higher-order collection methods, builtin macros (`println!`, `assert!`, `panic!`), and Rust-native control-flow syntax (no mandatory parentheses on `if`/`while`). The runtime value system has been overhauled to cleanly separate AST nodes from runtime values, `Null` has been replaced with typed `Unit`, and `Array` has been renamed to `Vector`. Implicit numeric promotion has been removed in favor of explicit conversions.
+
+### Added
+
+#### New Types
+
+- **Tuples as first-class types**: `(i64, bool, str)` syntax in expressions, patterns, type annotations, and destructuring. Tuple field access via `.0`, `.1`, etc. Full type inference and unification support
+- **`char` type and character literals**: `'a'`, `'\n'`, `'\\'` with escape sequence support. Methods: `is_alphabetic`, `is_numeric`, `to_string`. Type checker enforces `char` as a distinct type
+- **`Map<K, V>` as a first-class collection type**: Literal syntax `{ "key": value }`, methods (`insert`, `get`, `remove`, `contains_key`, `keys`, `values`, `len`), and full type inference
+- **`Set<T>` promoted to first-class type**: Bug fixes in stdlib design, full integration with the type system
+
+#### Error Handling
+
+- **Try (`?`) operator**: `expr?` propagates `Err` / `None` early, matching Rust semantics. Works with `Result<T, E>` and `Option<T>`. Compiled to conditional jump + unwrap sequences
+- **Methods on `Result<T, E>` and `Option<T>`**: `is_ok`, `is_err`, `is_some`, `is_none`, `unwrap`, `unwrap_or`, `map`, `and_then`
+
+#### Builtin Macros
+
+- **`print!` and `println!`**: Format-string macros with `{}` interpolation, replacing the `print` free function
+- **`assert!` and `assert_eq!`**: Runtime assertion macros with descriptive panic messages
+- **`panic!`, `todo!`, `unimplemented!`**: Diagnostic macros for signaling unreachable or incomplete code paths
+
+#### Standard Library Enhancements
+
+- **Higher-order methods on `Vector<T>`**: `map`, `filter`, `fold`, `any`, `all` -- compiler-desugared with no runtime overhead, supports chaining
+- **`T::default` and `T::from` support**: Static associated functions for type construction and conversion
+- **`cmp` module**: `cmp::min`, `cmp::max`, `cmp::clamp` as polymorphic comparison functions over all integer types
+- **Typed `str` parse methods**: `parse_i8`, `parse_i16`, `parse_i32`, `parse_i64`, `parse_i128`, `parse_u8`, `parse_u16`, `parse_u32`, `parse_u64`, `parse_u128`, `parse_usize` -- each returning `Result<T, ParseIntError>`
+
+#### Syntax
+
+- **Labelled loops**: `'label: loop { ... }`, `'label: for ... { ... }`, `'label: while ... { ... }` with `break 'label` and `continue 'label`
+- **Struct update syntax**: `Point { x: 1, ..existing }` for creating modified copies
+- **Documentation comments (`///`)**: Lexer, parser, and AST support for doc comments
+
+#### Testing
+
+- **Type checker unit tests**: Comprehensive test coverage for the Hindley-Milner inference engine
+- **Module system unit tests**: Tests for module resolution, visibility enforcement, circular dependency detection, and cross-module type checking
+
+### Changed
+
+#### Compiler Infrastructure
+
+- **Lexer rewritten with `logos`**: Hand-rolled lexer replaced with a compile-time DFA lexer, improving tokenization throughput and correctness
+- **Parser rewritten with `winnow`**: Hand-rolled Pratt parser replaced with a combinator-based parser, reducing parser complexity and improving error recovery
+- **`O(1)` enum variant lookup**: Replaced `O(n)` linear scan with direct index-based lookup in the compilation pipeline
+- **REPL upgraded to `rustyline`**: Replaced raw `std::io::BufRead` loop with `rustyline::Editor` for line editing, history, and signal handling
+
+#### Runtime & Type System
+
+- **Runtime value system overhaul**: Clean separation of AST representation from runtime values; numeric type handling consolidated
+- **AST/runtime disambiguation**: AST nodes and runtime values now occupy distinct type hierarchies
+- **`Null` replaced with typed `Unit`**: Untyped `Null` sentinel eliminated in favor of the typed `Unit` value `()`, aligning with Rust semantics
+- **Implicit numeric promotion removed**: The type checker no longer silently widens integers; explicit `as` casts required
+- **`Array` renamed to `Vector`**: Standard library overhaul aligns collection naming with `Vec<T>` conventions; stdlib modules restructured
+
+#### Performance
+
+- **Zero-allocation `Substitution::apply`** on struct/enum types: Eliminated heap allocations in the hot path of type inference
+- **Zero-allocation `Display` implementations**: `std::fmt::Display` impls rewritten to avoid intermediate `String` allocations
+- **Reduced boilerplate in runtime integer ops**: Macro-based dispatch consolidated
+
+#### Bug Fixes
+
+- **Parser rejects reserved type names and keywords** used as identifiers
+- **Compiler hygiene pass**: Dead code removal, unused import cleanup, warning elimination across all crates
+
+---
+
 ## [0.10.0] - 2026-03-17
 
 Security hardening and fuzz testing release. Maat's compiler and VM have been hardened against adversarial input. All arithmetic uses checked operations, all resource limits are enforced, and zero `unsafe` code exists. Five fuzz targets and nine property-based tests verify crash-freedom across millions of inputs. A comprehensive threat model documents trust boundaries and mitigations. The CI pipeline now gates fuzz testing, Miri, and code coverage.
@@ -778,6 +850,7 @@ When adding entries to this changelog for future releases:
 3. **Audience**: Write for users, not developers (focus on impact, not implementation)
 4. **Links**: Add comparison links at the bottom: `[0.2.0]: https://github.com/maatlabs/maat/compare/v0.1.0...v0.2.0`
 
+[0.11.0]: https://github.com/maatlabs/maat/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/maatlabs/maat/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/maatlabs/maat/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/maatlabs/maat/compare/v0.7.0...v0.8.0
