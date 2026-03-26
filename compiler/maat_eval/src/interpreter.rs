@@ -4,7 +4,7 @@ use indexmap::IndexMap;
 use maat_ast::*;
 use maat_errors::{EvalError, Result};
 use maat_runtime::{
-    Env, FALSE, Function, Hashable, Integer, Macro, Map, NULL, Quote, TRUE, Value, get_builtin,
+    Env, FALSE, Function, Hashable, Integer, Macro, Map, Quote, TRUE, UNIT, Value, get_builtin,
 };
 
 use crate::{QUOTE, UNQUOTE};
@@ -60,7 +60,7 @@ pub fn eval(node: Node, env: &Env) -> Result<Value> {
             | Stmt::TraitDecl(_)
             | Stmt::ImplBlock(_)
             | Stmt::Use(_)
-            | Stmt::Mod(_) => Ok(NULL),
+            | Stmt::Mod(_) => Ok(UNIT),
         },
         Node::Expr(expr) => match expr {
             Expr::Number(v) => Ok(Value::from_number_literal(&v).map_err(EvalError::Number)?),
@@ -105,7 +105,7 @@ pub fn eval(node: Node, env: &Env) -> Result<Value> {
                     .value
                     .map(|v| eval(Node::Expr(*v), env))
                     .transpose()?
-                    .unwrap_or(NULL);
+                    .unwrap_or(UNIT);
                 Ok(Value::Break(Box::new(value)))
             }
             Expr::Continue(_) => Ok(Value::Continue),
@@ -157,7 +157,7 @@ pub fn eval(node: Node, env: &Env) -> Result<Value> {
 }
 
 fn eval_program(prog: Program, env: &Env) -> Result<Value> {
-    let mut result = NULL;
+    let mut result = UNIT;
     for stmt in &prog.statements {
         result = eval(Node::Stmt(stmt.clone()), env)?;
         match result {
@@ -177,7 +177,7 @@ fn eval_program(prog: Program, env: &Env) -> Result<Value> {
 
 pub fn eval_block_statement(block: &BlockStmt, env: &Env) -> Result<Value> {
     let block_env = Env::new_enclosed(env);
-    let mut result = NULL;
+    let mut result = UNIT;
     for stmt in &block.statements {
         result = eval(Node::Stmt(stmt.clone()), &block_env)?;
         // Propagate control flow signals up to the enclosing loop or function.
@@ -217,7 +217,7 @@ fn eval_while_statement(stmt: WhileStmt, env: &Env) -> Result<Value> {
             _ => {}
         }
     }
-    Ok(NULL)
+    Ok(UNIT)
 }
 
 fn eval_for_statement(stmt: ForStmt, env: &Env) -> Result<Value> {
@@ -243,7 +243,7 @@ fn eval_for_statement(stmt: ForStmt, env: &Env) -> Result<Value> {
             _ => {}
         }
     }
-    Ok(NULL)
+    Ok(UNIT)
 }
 
 /// Evaluates an expression in the given environment.
@@ -272,7 +272,7 @@ fn eval_index_expression(idx_expr: IndexExpr, env: &Env) -> Result<Value> {
             if index.is_integer() {
                 match index.to_vector_index() {
                     Some(idx) if idx < arr.len() => Ok(arr[idx].clone()),
-                    _ => Ok(NULL),
+                    _ => Ok(UNIT),
                 }
             } else {
                 Err(EvalError::IndexExpr(format!(
@@ -284,7 +284,7 @@ fn eval_index_expression(idx_expr: IndexExpr, env: &Env) -> Result<Value> {
         }
         Value::Map(map) => {
             let key_hash = Hashable::try_from(index)?;
-            Ok(map.pairs.get(&key_hash).cloned().unwrap_or(NULL))
+            Ok(map.pairs.get(&key_hash).cloned().unwrap_or(UNIT))
         }
         _ => Err(
             EvalError::IndexExpr(format!("index expression not supported for {expr_type}")).into(),
@@ -498,7 +498,7 @@ fn eval_conditional_expression(expr: CondExpr, env: &Env) -> Result<Value> {
     } else if let Some(alt) = expr.alternative {
         eval(Node::Stmt(Stmt::Block(alt)), env)
     } else {
-        Ok(NULL)
+        Ok(UNIT)
     }
 }
 

@@ -143,7 +143,7 @@ mod tests {
         let bc = Bytecode {
             instructions: Instructions::new(),
             constants: vec![
-                Value::Null,
+                Value::Unit,
                 Value::Integer(Integer::I8(-42)),
                 Value::Integer(Integer::I16(-1000)),
                 Value::Integer(Integer::I32(100_000)),
@@ -335,7 +335,7 @@ mod tests {
     fn non_serializable_object() {
         let bc = Bytecode {
             instructions: Instructions::new(),
-            constants: vec![Value::Builtin(|_| Ok(Value::Null))],
+            constants: vec![Value::Builtin(|_| Ok(Value::Unit))],
             source_map: SourceMap::new(),
             type_registry: vec![],
         };

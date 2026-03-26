@@ -30,7 +30,7 @@ fn run_project(pairs: &[(&str, &str)]) -> Value {
     let bytecode = compile_project(pairs).expect("compilation failed");
     let mut vm = VM::new(bytecode);
     vm.run().expect("vm error");
-    vm.last_popped_stack_elem().cloned().unwrap_or(Value::Null)
+    vm.last_popped_stack_elem().cloned().unwrap_or(Value::Unit)
 }
 
 #[test]

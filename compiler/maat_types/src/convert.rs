@@ -12,7 +12,6 @@ use crate::{FnType, Type};
 /// - Numeric types (`i8`, `i64`, `u32`, etc.)
 /// - `bool` -> [`Type::Bool`]
 /// - `String` -> [`Type::String`]
-/// - `null` -> [`Type::Null`]
 /// - Unknown names are treated as generic type references.
 ///
 /// Compound types ([`TypeExpr::Vector`], [`TypeExpr::Set`], [`TypeExpr::Map`],
@@ -56,7 +55,6 @@ fn resolve_named(name: &str) -> Type {
         "bool" => Type::Bool,
         "char" => Type::Char,
         "str" | "String" => Type::String,
-        "null" => Type::Null,
         other => Type::Generic(Rc::from(other), vec![]),
     }
 }
@@ -76,7 +74,6 @@ mod tests {
             ("u32", Type::U32),
             ("bool", Type::Bool),
             ("String", Type::String),
-            ("null", Type::Null),
         ];
         for (name, expected) in cases {
             let expr = TypeExpr::Named(NamedType {

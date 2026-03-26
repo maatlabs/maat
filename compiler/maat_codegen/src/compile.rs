@@ -840,7 +840,7 @@ impl Compiler {
         match &expr.value {
             Some(val) => self.compile_expression(val)?,
             None => {
-                self.emit(Opcode::Null, &[], expr.span);
+                self.emit(Opcode::Unit, &[], expr.span);
             }
         }
         let jump_pos = self.emit(Opcode::Jump, &[Self::JUMP], expr.span);
@@ -973,21 +973,21 @@ impl Compiler {
         if self.last_instruction_is(Opcode::Pop) {
             self.remove_last_pop();
         } else {
-            self.emit(Opcode::Null, &[], cond.span);
+            self.emit(Opcode::Unit, &[], cond.span);
         }
         let jump_pos = self.emit(Opcode::Jump, &[Self::JUMP], cond.span);
         let cons_pos = self.current_instructions().len();
         self.replace_operand(cond_jump_pos, cons_pos)?;
         match &cond.alternative {
             None => {
-                self.emit(Opcode::Null, &[], cond.span);
+                self.emit(Opcode::Unit, &[], cond.span);
             }
             Some(alt_block) => {
                 self.compile_block_statement(alt_block)?;
                 if self.last_instruction_is(Opcode::Pop) {
                     self.remove_last_pop();
                 } else {
-                    self.emit(Opcode::Null, &[], cond.span);
+                    self.emit(Opcode::Unit, &[], cond.span);
                 }
             }
         }
@@ -1209,13 +1209,13 @@ impl Compiler {
                 }
                 _ => {
                     self.emit(Opcode::Pop, &[], span);
-                    self.emit(Opcode::Null, &[], span);
+                    self.emit(Opcode::Unit, &[], span);
                     end_jumps.push(self.emit(Opcode::Jump, &[Self::JUMP], span));
                 }
             }
         }
 
-        self.emit(Opcode::Null, &[], span);
+        self.emit(Opcode::Unit, &[], span);
         let exit = self.current_instructions().len();
         for jump_pos in end_jumps {
             self.replace_operand(jump_pos, exit)?;
@@ -2269,7 +2269,7 @@ impl Compiler {
             .into());
         }
 
-        // Each builtin call pushes a Null result. We pop all intermediate
+        // Each builtin call pushes a unit result. We pop all intermediate
         // results and keep only the final call's result as the expression value.
         let mut arg_idx = 0;
         let mut emitted_calls = 0usize;
@@ -2341,7 +2341,7 @@ impl Compiler {
 
         let after = self.current_instructions().len();
         self.replace_operand(skip_pos, after)?;
-        self.emit(Opcode::Null, &[], span);
+        self.emit(Opcode::Unit, &[], span);
         Ok(())
     }
 
@@ -2374,7 +2374,7 @@ impl Compiler {
 
         let after = self.current_instructions().len();
         self.replace_operand(skip_pos, after)?;
-        self.emit(Opcode::Null, &[], span);
+        self.emit(Opcode::Unit, &[], span);
         Ok(())
     }
 

@@ -71,9 +71,9 @@ pub enum Opcode {
     /// Operands: [u16] - jump target address
     Jump = 15,
 
-    /// Push the null value onto the stack.
+    /// Push the unit value `()` onto the stack.
     /// Operands: none
-    Null = 16,
+    Unit = 16,
 
     /// Store a value in a global binding.
     /// Operands: [u16] - global variable index
@@ -103,7 +103,7 @@ pub enum Opcode {
     /// Operands: none
     ReturnValue = 23,
 
-    /// Return from a function with no explicit return value (implicit null).
+    /// Return from a function with no explicit return value (implicit unit `()`).
     /// Operands: none
     Return = 24,
 
@@ -218,7 +218,7 @@ impl Opcode {
             Self::Bang => "OpBang",
             Self::CondJump => "OpCondJump",
             Self::Jump => "OpJump",
-            Self::Null => "OpNull",
+            Self::Unit => "OpUnit",
             Self::SetGlobal => "OpSetGlobal",
             Self::GetGlobal => "OpGetGlobal",
             Self::Vector => "OpVector",
@@ -286,7 +286,7 @@ impl Opcode {
             | Self::LessThan
             | Self::Minus
             | Self::Bang
-            | Self::Null
+            | Self::Unit
             | Self::Index
             | Self::ReturnValue
             | Self::Return
@@ -322,7 +322,7 @@ impl Opcode {
             13 => Some(Self::Bang),
             14 => Some(Self::CondJump),
             15 => Some(Self::Jump),
-            16 => Some(Self::Null),
+            16 => Some(Self::Unit),
             17 => Some(Self::SetGlobal),
             18 => Some(Self::GetGlobal),
             19 => Some(Self::Vector),

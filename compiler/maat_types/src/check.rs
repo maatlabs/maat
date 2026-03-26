@@ -192,7 +192,7 @@ impl TypeChecker {
                     .return_type
                     .as_ref()
                     .map(|t| self.resolve_field_type(t, &generic_params))
-                    .unwrap_or(Type::Null);
+                    .unwrap_or(Type::Unit);
                 MethodSig {
                     name: m.name.clone(),
                     params,
@@ -745,7 +745,7 @@ impl TypeChecker {
         }
         match mc.name.as_str() {
             "panic" | "todo" | "unimplemented" => Type::Never,
-            _ => Type::Null,
+            _ => Type::Unit,
         }
     }
 
@@ -1151,7 +1151,7 @@ impl TypeChecker {
             Expr::Bool(_) => Type::Bool,
             Expr::Char(_) => Type::Char,
             Expr::Str(_) => Type::String,
-            _ => Type::Null,
+            _ => Type::Unit,
         }
     }
 
@@ -1583,7 +1583,7 @@ impl TypeChecker {
 
     /// Infers the type of a block (the type of its last expression statement).
     fn infer_block(&mut self, block: &mut BlockStmt) -> Type {
-        let mut last = Type::Null;
+        let mut last = Type::Unit;
         for stmt in &mut block.statements {
             match stmt {
                 Stmt::Expr(es) => {
@@ -1595,7 +1595,7 @@ impl TypeChecker {
                 }
                 _ => {
                     self.check_statement(stmt);
-                    last = Type::Null;
+                    last = Type::Unit;
                 }
             }
         }

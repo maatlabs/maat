@@ -11,8 +11,8 @@ use indexmap::IndexMap;
 use maat_bytecode::{Bytecode, MAX_FRAMES, MAX_GLOBALS, MAX_STACK_SIZE, Opcode, TypeTag};
 use maat_errors::{Result, VmError};
 use maat_runtime::{
-    BUILTINS, Closure, CompiledFn, EnumVariantVal, FALSE, Hashable, Integer, Map, NULL, StructVal,
-    TRUE, TypeDef, Value,
+    BUILTINS, Closure, CompiledFn, EnumVariantVal, FALSE, Hashable, Integer, Map, StructVal, TRUE,
+    TypeDef, UNIT, Value,
 };
 use maat_span::{SourceMap, Span};
 
@@ -280,15 +280,15 @@ impl VM {
                         self.current_frame_mut()?.ip = target - 1;
                     }
                 }
-                Opcode::Null => {
-                    self.push_stack(NULL)?;
+                Opcode::Unit => {
+                    self.push_stack(UNIT)?;
                 }
                 Opcode::SetGlobal => {
                     let index = self.read_u16_operand(ip + 1)?;
                     self.current_frame_mut()?.ip += 2;
                     let value = self.pop_stack()?;
                     if index >= self.globals.len() {
-                        self.globals.resize(index + 1, Value::Null);
+                        self.globals.resize(index + 1, Value::Unit);
                     }
                     self.globals[index] = value;
                 }
@@ -411,7 +411,7 @@ impl VM {
                 Opcode::Return => {
                     let frame = self.pop_frame()?;
                     self.sp = frame.base_pointer.saturating_sub(1);
-                    self.push_stack(NULL)?;
+                    self.push_stack(UNIT)?;
                 }
                 Opcode::SetLocal => {
                     let local_index = self.read_u8_operand(ip + 1)?;
@@ -420,7 +420,7 @@ impl VM {
                     let value = self.pop_stack()?;
                     let slot = base_pointer + local_index;
                     if slot >= self.stack.len() {
-                        self.stack.resize(slot + 1, Value::Null);
+                        self.stack.resize(slot + 1, Value::Unit);
                     }
                     self.stack[slot] = value;
                 }
@@ -516,7 +516,7 @@ impl VM {
         self.sp = base_pointer + num_locals;
 
         if self.sp > self.stack.len() {
-            self.stack.resize(self.sp, Value::Null);
+            self.stack.resize(self.sp, Value::Unit);
         }
         Ok(())
     }
@@ -722,8 +722,10 @@ impl VM {
     /// Executes the logical NOT (bang) operator.
     fn execute_bang_operator(&mut self) -> Result<()> {
         let result = match self.pop_stack()? {
-            Value::Bool(false) | Value::Null => TRUE,
-            _ => FALSE,
+            Value::Bool(b) => Value::Bool(!b),
+            other => {
+                return Err(self.vm_error(format!("cannot apply `!` to {}", other.type_name())));
+            }
         };
         self.push_stack(result)
     }
@@ -846,7 +848,10 @@ impl VM {
         }
         match index.to_vector_index() {
             Some(idx) if idx < elements.len() => self.push_stack(elements[idx].clone()),
-            _ => self.push_stack(NULL),
+            _ => Err(self.vm_error(format!(
+                "index out of bounds: index is {index}, length is {}",
+                elements.len()
+            ))),
         }
     }
 
@@ -855,7 +860,7 @@ impl VM {
         let key = Hashable::try_from(index).map_err(|e| self.vm_error(e.to_string()))?;
         match map.pairs.get(&key) {
             Some(value) => self.push_stack(value.clone()),
-            None => self.push_stack(NULL),
+            None => Err(self.vm_error(format!("key not found: {key}"))),
         }
     }
 

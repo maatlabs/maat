@@ -244,7 +244,7 @@ fn compile_conditionals() {
                 encode(Opcode::CondJump, &[10]),
                 encode(Opcode::Constant, &[0]),
                 encode(Opcode::Jump, &[11]),
-                encode(Opcode::Null, &[]),
+                encode(Opcode::Unit, &[]),
                 encode(Opcode::Pop, &[]),
                 encode(Opcode::Constant, &[1]),
                 encode(Opcode::Pop, &[]),

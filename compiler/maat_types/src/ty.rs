@@ -30,7 +30,8 @@ pub enum Type {
     Bool,
     Char,
     String,
-    Null,
+    /// The unit type `()`, representing expressions that produce no value.
+    Unit,
     Vector(Box<Type>),
     /// A map type with key and value types (e.g., `Map<str, i64>`).
     Map(Box<Type>, Box<Type>),
@@ -299,7 +300,7 @@ impl fmt::Display for Type {
             Self::Bool => f.write_str("bool"),
             Self::Char => f.write_str("char"),
             Self::String => f.write_str("String"),
-            Self::Null => f.write_str("null"),
+            Self::Unit => f.write_str("()"),
             Self::Vector(elem) => write!(f, "[{elem}]"),
             Self::Map(k, v) => write!(f, "{{{k}: {v}}}"),
             Self::Set(elem) => write!(f, "Set<{elem}>"),

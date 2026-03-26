@@ -25,16 +25,18 @@ pub type BuiltinFn = fn(&[Value]) -> Result<Value>;
 
 pub const TRUE: Value = Value::Bool(true);
 pub const FALSE: Value = Value::Bool(false);
-pub const NULL: Value = Value::Null;
+/// The unit value `()`, representing the result of expressions that produce
+/// no meaningful value (e.g., statements, void function returns, `print!`).
+pub const UNIT: Value = Value::Unit;
 
 /// Runtime value representation.
 ///
 /// Values are the evaluated results of expressions and can be integers,
-/// booleans, functions, or special values like [`NULL`] and return wrappers.
+/// booleans, functions, or special values like [`UNIT`] and return wrappers.
 #[derive(Debug, Clone)]
 pub enum Value {
-    /// [`NULL`], representing absence of a value.
-    Null,
+    /// The unit type `()`, representing the absence of a meaningful value.
+    Unit,
     /// Runtime integer types
     Integer(Integer),
     /// A boolean value (true or false).
@@ -138,15 +140,12 @@ impl Value {
 
     /// Determines whether this value is truthy.
     ///
-    /// Booleans return their value directly; null is falsy;
-    /// all other values (including integers) are truthy.
+    /// Only booleans have a meaningful truth value. All other types
+    /// (including unit) are truthy. The type checker ensures that only
+    /// booleans appear in conditional positions.
     #[inline]
     pub fn is_truthy(&self) -> bool {
-        match self {
-            Value::Bool(b) => *b,
-            Value::Null => false,
-            _ => true,
-        }
+        !matches!(self, Value::Bool(false))
     }
 
     /// Attempts to convert this value to a `usize` vector index.
@@ -178,7 +177,7 @@ impl Value {
     /// Returns a string representation of the value's type.
     pub fn type_name(&self) -> &'static str {
         match self {
-            Self::Null => "Null",
+            Self::Unit => "()",
             Self::Integer(n) => n.type_name(),
             Self::Bool(_) => "Bool",
             Self::Char(_) => "Char",
@@ -212,7 +211,7 @@ impl Value {
 /// Attempting to serialize them produces an error.
 #[derive(Serialize, Deserialize)]
 enum SerVal {
-    Null,
+    Unit,
     Integer(Integer),
     Bool(bool),
     Char(char),
@@ -235,7 +234,7 @@ impl Serialize for Value {
         serializer: S,
     ) -> std::result::Result<S::Ok, S::Error> {
         let val = match self {
-            Self::Null => SerVal::Null,
+            Self::Unit => SerVal::Unit,
             Self::Integer(v) => SerVal::Integer(*v),
             Self::Bool(v) => SerVal::Bool(*v),
             Self::Char(v) => SerVal::Char(*v),
@@ -266,7 +265,7 @@ impl<'de> Deserialize<'de> for Value {
         deserializer: D,
     ) -> std::result::Result<Self, D::Error> {
         SerVal::deserialize(deserializer).map(|val| match val {
-            SerVal::Null => Self::Null,
+            SerVal::Unit => Self::Unit,
             SerVal::Integer(v) => Self::Integer(v),
             SerVal::Bool(v) => Self::Bool(v),
             SerVal::Char(v) => Self::Char(v),
@@ -289,7 +288,7 @@ impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         use Value::*;
         match (self, other) {
-            (Null, Null) => true,
+            (Unit, Unit) => true,
             (Integer(n1), Integer(n2)) => n1 == n2,
             (Bool(a), Bool(b)) => a == b,
             (Char(a), Char(b)) => a == b,
@@ -466,7 +465,7 @@ impl TryFrom<Value> for Hashable {
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Null => write!(f, "null"),
+            Self::Unit => write!(f, "()"),
             Self::Integer(v) => v.fmt(f),
             Self::Bool(v) => v.fmt(f),
             Self::Char(v) => v.fmt(f),

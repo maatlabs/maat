@@ -21,7 +21,7 @@ enum TestValue {
     Map(Vec<(i64, i64)>),
     Range(i64, i64),
     RangeInclusive(i64, i64),
-    Null,
+    Unit,
 }
 
 fn run_vm_test(input: &str, expected: TestValue) {
@@ -178,11 +178,11 @@ fn run_vm_test(input: &str, expected: TestValue) {
                 stack_elem
             );
         }
-        TestValue::Null => {
+        TestValue::Unit => {
             assert_eq!(
                 stack_elem,
-                Value::Null,
-                "expected null for input: {input}, got: {:?}",
+                Value::Unit,
+                "expected unit for input: {input}, got: {:?}",
                 stack_elem
             );
         }
@@ -269,8 +269,8 @@ fn conditionals() {
         ("if 1 < 2 { 10 }", TestValue::I64(10)),
         ("if (1 < 2) { 10 } else { 20 }", TestValue::I64(10)),
         ("if (1 > 2) { 10 } else { 20 }", TestValue::I64(20)),
-        ("if 1 > 2 { 10 }", TestValue::Null),
-        ("if false { 10 }", TestValue::Null),
+        ("if 1 > 2 { 10 }", TestValue::Unit),
+        ("if false { 10 }", TestValue::Unit),
     ];
     for (input, expected) in cases {
         run_vm_test(input, expected);
@@ -349,16 +349,31 @@ fn index_expressions() {
         ("[1, 2, 3][1]", TestValue::I64(2)),
         ("[1, 2, 3][0 + 2]", TestValue::I64(3)),
         ("[[1, 1, 1]][0][0]", TestValue::I64(1)),
-        ("[][0]", TestValue::Null),
-        ("[1, 2, 3][99]", TestValue::Null),
-        ("[1][-1]", TestValue::Null),
         ("{1: 1, 2: 2}[1]", TestValue::I64(1)),
         ("{1: 1, 2: 2}[2]", TestValue::I64(2)),
-        ("{1: 1}[0]", TestValue::Null),
-        ("{}[0]", TestValue::Null),
     ];
     for (input, expected) in cases {
         run_vm_test(input, expected);
+    }
+}
+
+#[test]
+fn index_out_of_bounds() {
+    let cases = vec![
+        ("[][0]", "index out of bounds"),
+        ("[1, 2, 3][99]", "index out of bounds"),
+        ("[1][-1]", "index out of bounds"),
+    ];
+    for (input, expected_error) in cases {
+        run_vm_error_test(input, expected_error);
+    }
+}
+
+#[test]
+fn key_not_found() {
+    let cases = vec![("{1: 1}[0]", "key not found"), ("{}[0]", "key not found")];
+    for (input, expected_error) in cases {
+        run_vm_error_test(input, expected_error);
     }
 }
 
@@ -403,10 +418,10 @@ fn functions_with_return_statement() {
 #[test]
 fn functions_without_return_value() {
     let cases = vec![
-        ("let noReturn = fn() { }; noReturn();", TestValue::Null),
+        ("let noReturn = fn() { }; noReturn();", TestValue::Unit),
         (
             "let noReturn = fn() { }; let noReturnTwo = fn() { noReturn(); }; noReturn(); noReturnTwo();",
-            TestValue::Null,
+            TestValue::Unit,
         ),
     ];
     for (input, expected) in cases {

@@ -322,7 +322,7 @@ pub fn start_interactive() {
         constants = next_constants;
 
         match vm.last_popped_stack_elem() {
-            Some(val) if !only_let_stmts && !matches!(val, Value::Null) => {
+            Some(val) if !only_let_stmts && !matches!(val, Value::Unit) => {
                 println!("{val}");
             }
             _ => println!(),
@@ -434,7 +434,7 @@ mod tests {
             symbols_table = next_symbols;
             constants = next_constants;
             match vm.last_popped_stack_elem() {
-                Some(val) if !only_let_stmts && !matches!(val, Value::Null) => {
+                Some(val) if !only_let_stmts && !matches!(val, Value::Unit) => {
                     writeln!(writer, "{val}")?;
                 }
                 _ => writeln!(writer)?,

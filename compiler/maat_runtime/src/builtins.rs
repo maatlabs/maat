@@ -1,7 +1,7 @@
 use indexmap::{IndexMap, IndexSet};
 use maat_errors::{Error, EvalError, Result};
 
-use crate::{BuiltinFn, EnumVariantVal, Hashable, Integer, Map, NULL, Set, Value};
+use crate::{BuiltinFn, EnumVariantVal, Hashable, Integer, Map, Set, UNIT, Value};
 
 /// Type registry index for `Option`.
 const OPTION_TYPE_INDEX: u16 = 0;
@@ -195,7 +195,7 @@ define_builtins! {
 fn __print_str(args: &[Value]) -> Result<Value> {
     expect_arg_count("__print_str", args, 1)?;
     print!("{}", args[0]);
-    Ok(NULL)
+    Ok(UNIT)
 }
 
 /// Prints a single value to stdout followed by a newline.
@@ -204,7 +204,7 @@ fn __print_str(args: &[Value]) -> Result<Value> {
 fn __print_str_ln(args: &[Value]) -> Result<Value> {
     expect_arg_count("__print_str_ln", args, 1)?;
     println!("{}", args[0]);
-    Ok(NULL)
+    Ok(UNIT)
 }
 
 /// Converts any value to its string representation.
