@@ -3,7 +3,7 @@ use maat_span::Span;
 
 fn one() -> Expr {
     Expr::Number(Number {
-        kind: NumberKind::I64,
+        kind: NumKind::I64,
         value: 1,
         radix: Radix::Dec,
         span: Span::ZERO,
@@ -12,7 +12,7 @@ fn one() -> Expr {
 
 fn two() -> Expr {
     Expr::Number(Number {
-        kind: NumberKind::I64,
+        kind: NumKind::I64,
         value: 2,
         radix: Radix::Dec,
         span: Span::ZERO,
@@ -21,7 +21,7 @@ fn two() -> Expr {
 
 fn turn_one_into_two(node: Node) -> Node {
     match node {
-        Node::Expr(Expr::Number(n)) if n.kind == NumberKind::I64 && n.value == 1 => {
+        Node::Expr(Expr::Number(n)) if n.kind == NumKind::I64 && n.value == 1 => {
             Node::Expr(Expr::Number(Number {
                 kind: n.kind,
                 value: 2,
@@ -51,6 +51,7 @@ fn transform_statements() {
                 ident: "x".to_string(),
                 type_annotation: None,
                 value: one(),
+                pattern: None,
                 span: Span::ZERO,
             }),
             Stmt::Return(ReturnStmt {
@@ -105,23 +106,23 @@ fn transform_compound_expressions() {
 
 #[test]
 fn transform_collections() {
-    let array = Expr::Array(Array {
+    let array = Expr::Vector(Vector {
         elements: vec![one(), one()],
         span: Span::ZERO,
     });
-    let Node::Expr(Expr::Array(arr)) = transform(Node::Expr(array), &mut turn_one_into_two) else {
-        panic!("expected Array");
+    let Node::Expr(Expr::Vector(arr)) = transform(Node::Expr(array), &mut turn_one_into_two) else {
+        panic!("expected Vector");
     };
     assert!(
         arr.elements
             .iter()
             .all(|e| matches!(e, Expr::Number(n) if n.value == 2))
     );
-    let hash = Expr::Map(Map {
+    let map = Expr::Map(MapLit {
         pairs: vec![(one(), one())],
         span: Span::ZERO,
     });
-    let Node::Expr(Expr::Map(h)) = transform(Node::Expr(hash), &mut turn_one_into_two) else {
+    let Node::Expr(Expr::Map(h)) = transform(Node::Expr(map), &mut turn_one_into_two) else {
         panic!("expected Map");
     };
     let (ref k, ref v) = h.pairs[0];
@@ -177,6 +178,7 @@ fn transform_nested_structures() {
                 ],
                 span: Span::ZERO,
             }),
+            pattern: None,
             span: Span::ZERO,
         })],
     };

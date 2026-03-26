@@ -1,0 +1,16 @@
+// Result<T, E> represents either success (Ok(T)) or failure (Err(E)).
+//
+// Construction:
+//   let r = Ok(42);
+//   let e: Result<i64, str> = Err("failed");
+//
+// Pattern matching:
+//   match r { Ok(v) => v, Err(e) => handle(e) }
+//
+// Methods:
+//   r.unwrap()            -> T       (panics if Err)
+//   r.unwrap_or(def)      -> T       (returns def if Err)
+//   r.is_ok()             -> bool
+//   r.is_err()            -> bool
+//   r.map(fn(T) -> U)     -> Result<U, E>
+//   r.and_then(fn(T) -> Result<U, E>) -> Result<U, E>

@@ -2,19 +2,19 @@
 
 // Named recursive function: fibonacci
 fn fib(n: i64) -> i64 {
-    if (n <= 1) {
+    if n <= 1 {
         n
     } else {
         fib(n - 1) + fib(n - 2)
     }
 }
 
-print(fib(10));
+println!("{}", fib(10));
 
 // Tail-recursive factorial via accumulator
 fn factorial(n: i64) -> i64 {
     fn go(n: i64, acc: i64) -> i64 {
-        if (n <= 1) {
+        if n <= 1 {
             acc
         } else {
             go(n - 1, acc * n)
@@ -23,14 +23,14 @@ fn factorial(n: i64) -> i64 {
     go(n, 1)
 }
 
-print(factorial(12));
+println!("{}", factorial(12));
 
 // Closures capturing variables
 let base = 100;
 let offset = fn(x: i64) -> i64 {
     base + x;
 };
-print(offset(42));
+println!("{}", offset(42));
 
 // Closure factory
 let make_multiplier = fn(factor: i64) {
@@ -41,16 +41,16 @@ let make_multiplier = fn(factor: i64) {
 
 let double = make_multiplier(2);
 let triple = make_multiplier(3);
-print(double(21));
-print(triple(14));
+println!("{}", double(21));
+println!("{}", triple(14));
 
 // Higher-order: map
 let map = fn(arr, f) {
     let go = fn(arr, acc) {
-        if (arr.len() == 0usize) {
+        if arr.len() == 0usize {
             acc
         } else {
-            go(arr.rest(), acc.push(f(arr.first())));
+            go(arr.split_first(), acc.push(f(arr.first().unwrap())));
         }
     };
     go(arr, []);
@@ -59,12 +59,12 @@ let map = fn(arr, f) {
 // Higher-order: filter
 let filter = fn(arr, pred) {
     let go = fn(arr, acc) {
-        if (arr.len() == 0usize) {
+        if arr.len() == 0usize {
             acc
         } else {
-            let head = arr.first();
-            let tail = arr.rest();
-            if (pred(head)) {
+            let head = arr.first().unwrap();
+            let tail = arr.split_first();
+            if pred(head) {
                 go(tail, acc.push(head));
             } else {
                 go(tail, acc);
@@ -77,10 +77,10 @@ let filter = fn(arr, pred) {
 // Higher-order: reduce
 let reduce = fn(arr, init, f) {
     let go = fn(arr, acc) {
-        if (arr.len() == 0usize) {
+        if arr.len() == 0usize {
             acc
         } else {
-            go(arr.rest(), f(acc, arr.first()));
+            go(arr.split_first(), f(acc, arr.first().unwrap()));
         }
     };
     go(arr, init);
@@ -91,21 +91,21 @@ let data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 let squares = map(data, fn(x: i64) -> i64 {
     x * x;
 });
-print(squares);
+println!("{squares}");
 
 let evens = filter(data, fn(x) {
     x % 2 == 0;
 });
-print(evens);
+println!("{evens}");
 
 let sum = reduce(data, 0, fn(a: i64, b: i64) -> i64 {
     a + b;
 });
-print(sum);
+println!("{sum}");
 
 // Mutual recursion: is_even / is_odd
 fn is_even(n: i64) -> bool {
-    if (n == 0) {
+    if n == 0 {
         true
     } else {
         is_odd(n - 1)
@@ -113,15 +113,15 @@ fn is_even(n: i64) -> bool {
 }
 
 fn is_odd(n: i64) -> bool {
-    if (n == 0) {
+    if n == 0 {
         false
     } else {
         is_even(n - 1)
     }
 }
 
-print(is_even(10));
-print(is_odd(7));
+println!("{}", is_even(10));
+println!("{}", is_odd(7));
 
 // Function composition
 let compose = fn(f, g) {
@@ -133,4 +133,4 @@ let compose = fn(f, g) {
 let add1 = fn(x: i64) -> i64 { x + 1; };
 let mul2 = fn(x: i64) -> i64 { x * 2; };
 let add1_then_mul2 = compose(mul2, add1);
-print(add1_then_mul2(5));
+println!("{}", add1_then_mul2(5));

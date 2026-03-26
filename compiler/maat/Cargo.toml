@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 ariadne.workspace = true
 clap = { version = "4", features = ["derive"] }
+rustyline = { version = "15", features = ["with-file-history", "derive"] }
 
 maat_ast = { path = "../maat_ast" }
 maat_bytecode = { path = "../maat_bytecode" }

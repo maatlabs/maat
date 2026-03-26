@@ -6,5 +6,5 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+logos = "0.16"
 maat_span = { path = "../maat_span" }
-unicode-xid.workspace = true

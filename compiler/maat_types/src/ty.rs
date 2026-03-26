@@ -1,6 +1,7 @@
 //! Core type representations for the type system.
 
 use std::fmt;
+use std::rc::Rc;
 
 use maat_ast::*;
 
@@ -10,7 +11,7 @@ pub type TypeVarId = u32;
 /// A concrete or polymorphic type in the type system.
 ///
 /// Mirrors the runtime value categories: numeric primitives, booleans, strings,
-/// compound types (arrays, hashes, functions), user-defined types (structs,
+/// compound types (vectors, maps, functions), user-defined types (structs,
 /// enums), and inference-time placeholders (type variables and generics).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
@@ -27,21 +28,28 @@ pub enum Type {
     U128,
     Usize,
     Bool,
-    String,
-    Null,
-    Array(Box<Type>),
-    Hash(Box<Type>, Box<Type>),
+    Char,
+    Str,
+    /// The unit type `()`, representing expressions that produce no value.
+    Unit,
+    Vector(Box<Type>),
+    /// A map type with key and value types (e.g., `Map<str, i64>`).
+    Map(Box<Type>, Box<Type>),
+    /// A set type parameterised by its element type (e.g., `Set<i64>`).
+    Set(Box<Type>),
     /// A range type parameterised by its element type (e.g., `Range<i64>`).
     Range(Box<Type>),
+    /// A tuple type with ordered element types (e.g., `(i64, bool, str)`).
+    Tuple(Vec<Type>),
     Function(FnType),
     /// A user-defined struct type, identified by name with instantiated type arguments.
-    Struct(String, Vec<Type>),
+    Struct(Rc<str>, Vec<Type>),
     /// A user-defined enum type, identified by name with instantiated type arguments.
-    Enum(String, Vec<Type>),
+    Enum(Rc<str>, Vec<Type>),
     /// A type variable introduced during inference (Algorithm W).
     Var(TypeVarId),
     /// A named generic type parameter with optional trait bounds.
-    Generic(String, Vec<String>),
+    Generic(Rc<str>, Vec<String>),
     /// The bottom type (diverging expressions like `break`, `continue`, `return`).
     Never,
 }
@@ -89,18 +97,18 @@ impl Type {
         let span = expr.span();
 
         let kind = match *self {
-            Self::I8 => NumberKind::I8,
-            Self::I16 => NumberKind::I16,
-            Self::I32 => NumberKind::I32,
-            Self::I64 => NumberKind::I64,
-            Self::I128 => NumberKind::I128,
-            Self::Isize => NumberKind::Isize,
-            Self::U8 => NumberKind::U8,
-            Self::U16 => NumberKind::U16,
-            Self::U32 => NumberKind::U32,
-            Self::U64 => NumberKind::U64,
-            Self::U128 => NumberKind::U128,
-            Self::Usize => NumberKind::Usize,
+            Self::I8 => NumKind::I8,
+            Self::I16 => NumKind::I16,
+            Self::I32 => NumKind::I32,
+            Self::I64 => NumKind::I64,
+            Self::I128 => NumKind::I128,
+            Self::Isize => NumKind::Isize,
+            Self::U8 => NumKind::U8,
+            Self::U16 => NumKind::U16,
+            Self::U32 => NumKind::U32,
+            Self::U64 => NumKind::U64,
+            Self::U128 => NumKind::U128,
+            Self::Usize => NumKind::Usize,
             _ => return,
         };
 
@@ -153,42 +161,42 @@ impl Type {
         Some((self.is_signed(), width))
     }
 
-    /// Converts an internal `Type` to a `TypeAnnotation` for generating cast nodes.
+    /// Converts an internal `Type` to a `NumKind` for generating cast nodes.
     ///
     /// Returns `None` for non-numeric types since cast nodes only support numeric targets.
-    pub fn to_type_annotation(&self) -> Option<TypeAnnotation> {
+    pub fn to_number_kind(&self) -> Option<NumKind> {
         match self {
-            Self::I8 => Some(TypeAnnotation::I8),
-            Self::I16 => Some(TypeAnnotation::I16),
-            Self::I32 => Some(TypeAnnotation::I32),
-            Self::I64 => Some(TypeAnnotation::I64),
-            Self::I128 => Some(TypeAnnotation::I128),
-            Self::Isize => Some(TypeAnnotation::Isize),
-            Self::U8 => Some(TypeAnnotation::U8),
-            Self::U16 => Some(TypeAnnotation::U16),
-            Self::U32 => Some(TypeAnnotation::U32),
-            Self::U64 => Some(TypeAnnotation::U64),
-            Self::U128 => Some(TypeAnnotation::U128),
-            Self::Usize => Some(TypeAnnotation::Usize),
+            Self::I8 => Some(NumKind::I8),
+            Self::I16 => Some(NumKind::I16),
+            Self::I32 => Some(NumKind::I32),
+            Self::I64 => Some(NumKind::I64),
+            Self::I128 => Some(NumKind::I128),
+            Self::Isize => Some(NumKind::Isize),
+            Self::U8 => Some(NumKind::U8),
+            Self::U16 => Some(NumKind::U16),
+            Self::U32 => Some(NumKind::U32),
+            Self::U64 => Some(NumKind::U64),
+            Self::U128 => Some(NumKind::U128),
+            Self::Usize => Some(NumKind::Usize),
             _ => None,
         }
     }
 
-    /// Converts a `TypeAnnotation` (for `as` casts) to an internal `Type`.
-    pub fn from_type_annotation(ann: &TypeAnnotation) -> Self {
-        match ann {
-            TypeAnnotation::I8 => Self::I8,
-            TypeAnnotation::I16 => Self::I16,
-            TypeAnnotation::I32 => Self::I32,
-            TypeAnnotation::I64 => Self::I64,
-            TypeAnnotation::I128 => Self::I128,
-            TypeAnnotation::Isize => Self::Isize,
-            TypeAnnotation::U8 => Self::U8,
-            TypeAnnotation::U16 => Self::U16,
-            TypeAnnotation::U32 => Self::U32,
-            TypeAnnotation::U64 => Self::U64,
-            TypeAnnotation::U128 => Self::U128,
-            TypeAnnotation::Usize => Self::Usize,
+    /// Converts a `NumKind` (for `as` casts) to an internal `Type`.
+    pub fn from_number_kind(num: &NumKind) -> Self {
+        match num {
+            NumKind::I8 => Self::I8,
+            NumKind::I16 => Self::I16,
+            NumKind::I32 => Self::I32,
+            NumKind::I64 => Self::I64,
+            NumKind::I128 => Self::I128,
+            NumKind::Isize => Self::Isize,
+            NumKind::U8 => Self::U8,
+            NumKind::U16 => Self::U16,
+            NumKind::U32 => Self::U32,
+            NumKind::U64 => Self::U64,
+            NumKind::U128 => Self::U128,
+            NumKind::Usize => Self::Usize,
         }
     }
 }
@@ -290,19 +298,35 @@ impl fmt::Display for Type {
             Self::U128 => f.write_str("u128"),
             Self::Usize => f.write_str("usize"),
             Self::Bool => f.write_str("bool"),
-            Self::String => f.write_str("String"),
-            Self::Null => f.write_str("null"),
-            Self::Array(elem) => write!(f, "[{elem}]"),
-            Self::Hash(k, v) => write!(f, "{{{k}: {v}}}"),
+            Self::Char => f.write_str("char"),
+            Self::Str => f.write_str("str"),
+            Self::Unit => f.write_str("()"),
+            Self::Vector(elem) => write!(f, "[{elem}]"),
+            Self::Map(k, v) => write!(f, "{{{k}: {v}}}"),
+            Self::Set(elem) => write!(f, "Set<{elem}>"),
             Self::Range(elem) => write!(f, "Range<{elem}>"),
+            Self::Tuple(elems) => {
+                f.write_str("(")?;
+                for (i, elem) in elems.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    write!(f, "{elem}")?;
+                }
+                if elems.len() == 1 {
+                    f.write_str(",")?;
+                }
+                f.write_str(")")
+            }
             Self::Function(fn_ty) => {
-                let params = fn_ty
-                    .params
-                    .iter()
-                    .map(|p| p.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "fn({params}) -> {}", fn_ty.ret)
+                f.write_str("fn(")?;
+                for (i, p) in fn_ty.params.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    write!(f, "{p}")?;
+                }
+                write!(f, ") -> {}", fn_ty.ret)
             }
             Self::Struct(name, args) | Self::Enum(name, args) => {
                 f.write_str(name)?;
@@ -320,11 +344,17 @@ impl fmt::Display for Type {
             }
             Self::Var(id) => write!(f, "?T{id}"),
             Self::Generic(name, bounds) => {
-                if bounds.is_empty() {
-                    f.write_str(name)
-                } else {
-                    write!(f, "{}: {}", name, bounds.join(" + "))
+                f.write_str(name)?;
+                if !bounds.is_empty() {
+                    f.write_str(": ")?;
+                    for (i, bound) in bounds.iter().enumerate() {
+                        if i > 0 {
+                            f.write_str(" + ")?;
+                        }
+                        f.write_str(bound)?;
+                    }
                 }
+                Ok(())
             }
             Self::Never => f.write_str("!"),
         }

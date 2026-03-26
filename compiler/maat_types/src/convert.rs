@@ -1,5 +1,7 @@
 //! Conversion from parsed [`TypeExpr`] to internal [`Type`] representation.
 
+use std::rc::Rc;
+
 use maat_ast::TypeExpr;
 
 use crate::{FnType, Type};
@@ -9,17 +11,17 @@ use crate::{FnType, Type};
 /// Maps named types to their corresponding [`Type`] variants:
 /// - Numeric types (`i8`, `i64`, `u32`, etc.)
 /// - `bool` -> [`Type::Bool`]
-/// - `String` -> [`Type::String`]
-/// - `null` -> [`Type::Null`]
+/// - `str` -> [`Type::Str`]
 /// - Unknown names are treated as generic type references.
 ///
-/// Compound types ([`TypeExpr::Array`], [`TypeExpr::Map`], [`TypeExpr::Fn`],
-/// [`TypeExpr::Generic`]) are resolved recursively.
+/// Compound types ([`TypeExpr::Vector`], [`TypeExpr::Set`], [`TypeExpr::Map`],
+/// [`TypeExpr::Fn`], [`TypeExpr::Generic`]) are resolved recursively.
 pub fn resolve_type_expr(expr: &TypeExpr) -> Type {
     match expr {
         TypeExpr::Named(named) => resolve_named(&named.name),
-        TypeExpr::Array(elem, _) => Type::Array(Box::new(resolve_type_expr(elem))),
-        TypeExpr::Map(k, v, _) => Type::Hash(
+        TypeExpr::Vector(elem, _) => Type::Vector(Box::new(resolve_type_expr(elem))),
+        TypeExpr::Set(elem, _) => Type::Set(Box::new(resolve_type_expr(elem))),
+        TypeExpr::Map(k, v, _) => Type::Map(
             Box::new(resolve_type_expr(k)),
             Box::new(resolve_type_expr(v)),
         ),
@@ -29,8 +31,9 @@ pub fn resolve_type_expr(expr: &TypeExpr) -> Type {
         }),
         TypeExpr::Generic(name, args, _) => {
             let _ = args;
-            Type::Generic(name.clone(), vec![])
+            Type::Generic(Rc::from(name.as_str()), vec![])
         }
+        TypeExpr::Tuple(elems, _) => Type::Tuple(elems.iter().map(resolve_type_expr).collect()),
     }
 }
 
@@ -50,9 +53,9 @@ fn resolve_named(name: &str) -> Type {
         "u128" => Type::U128,
         "usize" => Type::Usize,
         "bool" => Type::Bool,
-        "str" | "String" => Type::String,
-        "null" => Type::Null,
-        other => Type::Generic(other.to_string(), vec![]),
+        "char" => Type::Char,
+        "str" => Type::Str,
+        other => Type::Generic(Rc::from(other), vec![]),
     }
 }
 
@@ -70,8 +73,7 @@ mod tests {
             ("i64", Type::I64),
             ("u32", Type::U32),
             ("bool", Type::Bool),
-            ("String", Type::String),
-            ("null", Type::Null),
+            ("str", Type::Str),
         ];
         for (name, expected) in cases {
             let expr = TypeExpr::Named(NamedType {
@@ -84,14 +86,14 @@ mod tests {
 
     #[test]
     fn resolve_array() {
-        let expr = TypeExpr::Array(
+        let expr = TypeExpr::Vector(
             Box::new(TypeExpr::Named(NamedType {
                 name: "i64".to_string(),
                 span: Span::ZERO,
             })),
             Span::ZERO,
         );
-        assert_eq!(resolve_type_expr(&expr), Type::Array(Box::new(Type::I64)));
+        assert_eq!(resolve_type_expr(&expr), Type::Vector(Box::new(Type::I64)));
     }
 
     #[test]

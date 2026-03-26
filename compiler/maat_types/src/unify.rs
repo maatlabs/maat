@@ -43,11 +43,12 @@ impl Substitution {
     fn occurs(&self, var: TypeVarId, ty: &Type) -> bool {
         match ty {
             Type::Var(id) => *id == var,
-            Type::Array(elem) | Type::Range(elem) => self.occurs(var, elem),
-            Type::Hash(k, v) => self.occurs(var, k) || self.occurs(var, v),
+            Type::Vector(elem) | Type::Set(elem) | Type::Range(elem) => self.occurs(var, elem),
+            Type::Map(k, v) => self.occurs(var, k) || self.occurs(var, v),
             Type::Function(fn_ty) => {
                 fn_ty.params.iter().any(|p| self.occurs(var, p)) || self.occurs(var, &fn_ty.ret)
             }
+            Type::Tuple(elems) => elems.iter().any(|e| self.occurs(var, e)),
             Type::Struct(_, args) | Type::Enum(_, args) => args.iter().any(|a| self.occurs(var, a)),
             _ => false,
         }
@@ -68,9 +69,10 @@ impl Substitution {
             (Type::Never, _) | (_, Type::Never) => Ok(()),
             (Type::Var(id), _) => self.bind_var(*id, &b),
             (_, Type::Var(id)) => self.bind_var(*id, &a),
-            (Type::Array(ea), Type::Array(eb)) => self.unify(ea, eb),
+            (Type::Vector(ea), Type::Vector(eb)) => self.unify(ea, eb),
+            (Type::Set(ea), Type::Set(eb)) => self.unify(ea, eb),
             (Type::Range(ea), Type::Range(eb)) => self.unify(ea, eb),
-            (Type::Hash(ka, va), Type::Hash(kb, vb)) => {
+            (Type::Map(ka, va), Type::Map(kb, vb)) => {
                 self.unify(ka, kb)?;
                 self.unify(va, vb)
             }
@@ -80,6 +82,15 @@ impl Substitution {
                     return Err(UnifyError::Mismatch(a, b));
                 }
                 for (pa, pb) in args_a.iter().zip(args_b.iter()) {
+                    self.unify(pa, pb)?;
+                }
+                Ok(())
+            }
+            (Type::Tuple(ea), Type::Tuple(eb)) => {
+                if ea.len() != eb.len() {
+                    return Err(UnifyError::Mismatch(a, b));
+                }
+                for (pa, pb) in ea.iter().zip(eb.iter()) {
                     self.unify(pa, pb)?;
                 }
                 Ok(())
@@ -98,15 +109,26 @@ impl Substitution {
     }
 
     /// Applies this substitution to a type, recursively resolving all type variables.
+    ///
+    /// # Stack depth
+    ///
+    /// The `Type::Var` branch recurses through chained variable bindings
+    /// (`?0 -> ?1 -> ?2 -> ... -> T`). In well-formed substitutions produced by
+    /// `unify`, chain depth is bounded by the number of distinct type variables
+    /// in the program. However, pathologically deep chains could exhaust the
+    /// call stack in debug builds (where frames are larger and tail-call
+    /// optimization is absent). This is acceptable for the current compiler
+    /// because real Maat programs produce substitution chains of trivial depth.
     pub fn apply(&self, ty: &Type) -> Type {
         match ty {
             Type::Var(id) => match self.get(id) {
                 Some(resolved) => self.apply(resolved),
                 None => ty.clone(),
             },
-            Type::Array(elem) => Type::Array(Box::new(self.apply(elem))),
+            Type::Vector(elem) => Type::Vector(Box::new(self.apply(elem))),
+            Type::Set(elem) => Type::Set(Box::new(self.apply(elem))),
             Type::Range(elem) => Type::Range(Box::new(self.apply(elem))),
-            Type::Hash(k, v) => Type::Hash(Box::new(self.apply(k)), Box::new(self.apply(v))),
+            Type::Map(k, v) => Type::Map(Box::new(self.apply(k)), Box::new(self.apply(v))),
             Type::Function(fn_ty) => Type::Function(FnType {
                 params: fn_ty.params.iter().map(|p| self.apply(p)).collect(),
                 ret: Box::new(self.apply(&fn_ty.ret)),
@@ -117,6 +139,7 @@ impl Substitution {
             Type::Enum(name, args) => {
                 Type::Enum(name.clone(), args.iter().map(|a| self.apply(a)).collect())
             }
+            Type::Tuple(elems) => Type::Tuple(elems.iter().map(|e| self.apply(e)).collect()),
             _ => ty.clone(),
         }
     }
@@ -153,7 +176,7 @@ mod tests {
     #[test]
     fn unify_occurs_check() {
         let mut subst = Substitution::new();
-        let result = subst.unify(&Type::Var(0), &Type::Array(Box::new(Type::Var(0))));
+        let result = subst.unify(&Type::Var(0), &Type::Vector(Box::new(Type::Var(0))));
         assert!(matches!(result, Err(UnifyError::OccursCheck(_, _))));
     }
 

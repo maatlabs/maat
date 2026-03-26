@@ -1,4 +1,4 @@
-// Standard library usage: math, string, collections. Array/string methods and Set operations.
+// Standard library usage: math, string methods, vec/set/map methods.
 
 use std::math::abs;
 use std::math::min;
@@ -6,87 +6,93 @@ use std::math::max;
 use std::math::pow;
 use std::math::gcd;
 use std::math::lcm;
-use std::string::trim;
-use std::string::contains;
-use std::string::starts_with;
-use std::string::ends_with;
-use std::string::split;
-use std::string::join;
-use std::string::parse_int;
-use std::collections::new_set;
-use std::collections::set_insert;
-use std::collections::set_contains;
-use std::collections::set_remove;
-use std::collections::set_len;
-use std::collections::set_to_array;
 
 // std::math
-print(abs(-42));
-print(min(10, 20));
-print(max(10, 20));
-print(pow(2, 16));
-print(gcd(48, 18));
-print(lcm(12, 8));
+println!("{}", abs(-42));
+println!("{}", min(10, 20));
+println!("{}", max(10, 20));
+println!("{}", pow(2, 16));
+println!("{}", gcd(48, 18));
+println!("{}", lcm(12, 8));
 
-// std::string
+// String methods (called directly on `str` values)
 let msg = "  Hello, Maat!  ";
-print(trim(msg));
-print(contains(msg, "Maat"));
-print(starts_with(msg, "  Hello"));
-print(ends_with(msg, "!  "));
+println!("{}", msg.trim());
+println!("{}", msg.contains("Maat"));
+println!("{}", msg.starts_with("  Hello"));
+println!("{}", msg.ends_with("!  "));
 
 let csv = "alpha,beta,gamma,delta";
-let parts = split(csv, ",");
-print(parts);
-print(join(parts, " | "));
+let parts = csv.split(",");
+println!("{}", parts);
+println!("{}", parts.join(" | "));
 
-let n = parse_int("12345");
-print(n * 2);
+let n = match "12345".parse_int() { Ok(v) => v, Err(e) => 0 };
+println!("{}", n * 2);
 
-// Array methods
+// Typed parse methods return Result<T, ParseIntError>
+let a = match "127".parse_i8() { Ok(v) => v, Err(e) => 0i8 };
+let b = match "255".parse_u8() { Ok(v) => v, Err(e) => 0u8 };
+let c = match "42".parse_i32() { Ok(v) => v, Err(e) => 0i32 };
+let d = match "42".parse_usize() { Ok(v) => v, Err(e) => 0usize };
+println!("{}", a);
+println!("{}", b);
+println!("{}", c);
+println!("{}", d);
+
+// Error handling with `ParseIntError` variants
+let result = match "not_a_number".parse_i64() {
+    Ok(v) => v,
+    Err(ParseIntError::InvalidDigit) => -1,
+    Err(ParseIntError::Overflow) => -2,
+    Err(ParseIntError::Empty) => -3,
+};
+println!("{}", result);
+
+// Vector methods
 let arr = [10, 20, 30, 40, 50];
-print(arr.len());
-print(arr.first());
-print(arr.last());
-print(arr.rest());
-print(arr.push(60));
-print(arr[2]);
+println!("{}", arr.len());
+println!("{}", arr.first().unwrap());
+println!("{}", arr.last().unwrap());
+println!("{}", arr.split_first());
+println!("{}", arr.push(60));
+println!("{}", arr[2]);
 
 // Build array with push in a loop
 let mut squares = [];
 for i in 1..=10 {
     squares = squares.push(i * i);
 }
-print(squares);
+println!("{}", squares);
 
 // String methods
 let s = "Hello, World!";
-print(s.len());
-print(s.contains("World"));
-print(s.starts_with("Hello"));
-print(s.ends_with("!"));
-print(s.trim());
+println!("{}", s.len());
+println!("{}", s.contains("World"));
+println!("{}", s.starts_with("Hello"));
+println!("{}", s.ends_with("!"));
+println!("{}", s.trim());
 
 let words = s.split(" ");
-print(words);
-print(words.join("-"));
+println!("{}", words);
+println!("{}", words.join("-"));
 
-// std::collections: Set
-let mut visited = new_set();
-visited = set_insert(visited, 10);
-visited = set_insert(visited, 20);
-visited = set_insert(visited, 30);
-visited = set_insert(visited, 10);
-print(set_len(visited));
-print(set_contains(visited, 20));
-print(set_contains(visited, 99));
+// Set operations via direct method calls
+let mut visited = Set::new();
+visited = visited.insert(10);
+visited = visited.insert(20);
+visited = visited.insert(30);
+visited = visited.insert(10);
+println!("{}", visited.len());
+println!("{}", visited.contains(20));
+println!("{}", visited.contains(99));
 
-visited = set_remove(visited, 20);
-print(set_len(visited));
-print(set_to_array(visited));
+visited = visited.remove(20);
+println!("{}", visited.len());
+println!("{}", visited.to_vector());
 
 // Method chaining on Set values directly
 let s1 = Set::new().insert(1).insert(2).insert(3);
-print(s1.len());
-print(s1.contains(2));
-print(s1.to_array());
+println!("{}", s1.len());
+println!("{}", s1.contains(2));
+println!("{}", s1.to_vector());

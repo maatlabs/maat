@@ -1,8 +1,8 @@
-use maat_runtime::Object;
+use maat_runtime::{Integer, Value};
 use maat_types::TypeChecker;
 use maat_vm::VM;
 
-fn run(input: &str) -> Object {
+fn run(input: &str) -> Value {
     let bytecode = maat_tests::compile(input);
     let mut vm = VM::new(bytecode);
     vm.run().expect("vm error");
@@ -13,21 +13,21 @@ fn run(input: &str) -> Object {
 
 fn run_i64(input: &str, expected: i64) {
     match run(input) {
-        Object::I64(v) => assert_eq!(v, expected, "wrong value for:\n{input}"),
+        Value::Integer(Integer::I64(v)) => assert_eq!(v, expected, "wrong value for:\n{input}"),
         other => panic!("expected I64({expected}), got {other:?} for:\n{input}"),
     }
 }
 
 fn run_bool(input: &str, expected: bool) {
     match run(input) {
-        Object::Bool(v) => assert_eq!(v, expected, "wrong value for:\n{input}"),
+        Value::Bool(v) => assert_eq!(v, expected, "wrong value for:\n{input}"),
         other => panic!("expected Bool({expected}), got {other:?} for:\n{input}"),
     }
 }
 
 fn run_str(input: &str, expected: &str) {
     match run(input) {
-        Object::Str(v) => assert_eq!(v, expected, "wrong value for:\n{input}"),
+        Value::Str(v) => assert_eq!(v, expected, "wrong value for:\n{input}"),
         other => panic!("expected Str({expected:?}), got {other:?} for:\n{input}"),
     }
 }
@@ -111,11 +111,7 @@ fn structs() {
         "struct Stack { items: [i64] }
          impl Stack {
              fn peek(self) -> Option<i64> {
-                 if (self.items.len() == 0usize) {
-                     None
-                 } else {
-                     Some(self.items.first())
-                 }
+                 self.items.first()
              }
          }
          let s = Stack { items: [10, 20, 30] };
@@ -126,11 +122,7 @@ fn structs() {
         "struct Stack { items: [i64] }
          impl Stack {
              fn peek(self) -> Option<i64> {
-                 if (self.items.len() == 0usize) {
-                     None
-                 } else {
-                     Some(self.items.first())
-                 }
+                 self.items.first()
              }
          }
          let s = Stack { items: [] };
@@ -141,13 +133,15 @@ fn structs() {
 
 #[test]
 fn enums() {
-    assert_type_error_contains(
-        "duplicate type definition",
-        "enum Option<T> { Some(T), None }",
+    let errs = maat_tests::parse_errors("enum Option<T> { Some(T), None }");
+    assert!(
+        errs.iter().any(|e| e.contains("reserved type name")),
+        "expected reserved type name error for Option, got: {errs:?}"
     );
-    assert_type_error_contains(
-        "duplicate type definition",
-        "enum Result<T, E> { Ok(T), Err(E) }",
+    let errs = maat_tests::parse_errors("enum Result<T, E> { Ok(T), Err(E) }");
+    assert!(
+        errs.iter().any(|e| e.contains("reserved type name")),
+        "expected reserved type name error for Result, got: {errs:?}"
     );
     run_i64(
         "enum Color { Red, Green, Blue }
@@ -266,7 +260,7 @@ fn option_builtin_type() {
 #[test]
 fn result_builtin_type() {
     assert_no_type_errors(
-        "fn handle(r: Result<i64, String>) -> i64 {
+        "fn handle(r: Result<i64, str>) -> i64 {
              match r { Ok(v) => v, Err(e) => 0 }
          }",
     );
@@ -297,7 +291,7 @@ fn result_builtin_type() {
         -1,
     );
     run_str(
-        r#"fn validate(x: i64) -> Result<i64, String> {
+        r#"fn validate(x: i64) -> Result<i64, str> {
              if (x > 0) { Ok(x) } else { Err("negative") }
          }
          let r = validate(-5);
@@ -398,7 +392,7 @@ fn roundtrip_struct() {
     let mut vm = VM::new(bytecode);
     vm.run().expect("vm error after roundtrip");
     match vm.last_popped_stack_elem() {
-        Some(Object::I64(7)) => {}
+        Some(Value::Integer(Integer::I64(7))) => {}
         other => panic!("expected I64(7), got {other:?}"),
     }
 }
@@ -412,7 +406,7 @@ fn roundtrip_option() {
     let mut vm = VM::new(bytecode);
     vm.run().expect("vm error after roundtrip");
     match vm.last_popped_stack_elem() {
-        Some(Object::I64(42)) => {}
+        Some(Value::Integer(Integer::I64(42))) => {}
         other => panic!("expected I64(42), got {other:?}"),
     }
 }
@@ -426,7 +420,155 @@ fn roundtrip_result() {
     let mut vm = VM::new(bytecode);
     vm.run().expect("vm error after roundtrip");
     match vm.last_popped_stack_elem() {
-        Some(Object::I64(99)) => {}
+        Some(Value::Integer(Integer::I64(99))) => {}
         other => panic!("expected I64(99), got {other:?}"),
     }
+}
+
+#[test]
+fn option_unwrap_some() {
+    run_i64("Some(42).unwrap()", 42);
+}
+
+#[test]
+#[should_panic(expected = "vm error")]
+fn option_unwrap_none() {
+    run_i64("let x: Option<i64> = None; x.unwrap()", 0);
+}
+
+#[test]
+fn option_unwrap_or() {
+    run_i64("Some(10).unwrap_or(0)", 10);
+    run_i64("let x: Option<i64> = None; x.unwrap_or(99)", 99);
+}
+
+#[test]
+fn option_is_some() {
+    run_bool("Some(1).is_some()", true);
+    run_bool("let x: Option<i64> = None; x.is_some()", false);
+}
+
+#[test]
+fn option_is_none() {
+    run_bool("Some(1).is_none()", false);
+    run_bool("let x: Option<i64> = None; x.is_none()", true);
+}
+
+#[test]
+fn option_map_some() {
+    run_i64(
+        "let x = Some(5);
+         match x.map(fn(v) { v * 2 }) { Some(v) => v, None => 0 }",
+        10,
+    );
+}
+
+#[test]
+fn option_map_none() {
+    run_i64(
+        "let x: Option<i64> = None;
+         match x.map(fn(v) { v * 2 }) { Some(v) => v, None => -1 }",
+        -1,
+    );
+}
+
+#[test]
+fn option_and_then_some() {
+    run_i64(
+        "let x = Some(5);
+         match x.and_then(fn(v) { Some(v + 10) }) { Some(v) => v, None => 0 }",
+        15,
+    );
+}
+
+#[test]
+fn option_and_then_none_input() {
+    run_i64(
+        "let x: Option<i64> = None;
+         match x.and_then(fn(v) { Some(v + 10) }) { Some(v) => v, None => -1 }",
+        -1,
+    );
+}
+
+#[test]
+fn option_and_then_returns_none() {
+    run_i64(
+        "let x = Some(5);
+         match x.and_then(fn(v: i64) -> Option<i64> { None }) { Some(v) => v, None => -1 }",
+        -1,
+    );
+}
+
+#[test]
+fn result_unwrap_ok() {
+    run_i64("Ok(42).unwrap()", 42);
+}
+
+#[test]
+#[should_panic(expected = "vm error")]
+fn result_unwrap_err() {
+    run_i64("Err(-1).unwrap()", 0);
+}
+
+#[test]
+fn result_unwrap_or() {
+    run_i64("Ok(10).unwrap_or(0)", 10);
+    run_i64("Err(-1).unwrap_or(99)", 99);
+}
+
+#[test]
+fn result_is_ok() {
+    run_bool("Ok(1).is_ok()", true);
+    run_bool("Err(-1).is_ok()", false);
+}
+
+#[test]
+fn result_is_err() {
+    run_bool("Ok(1).is_err()", false);
+    run_bool("Err(-1).is_err()", true);
+}
+
+#[test]
+fn result_map_ok() {
+    run_i64(
+        "let r = Ok(5);
+         match r.map(fn(v) { v * 3 }) { Ok(v) => v, Err(e) => 0 }",
+        15,
+    );
+}
+
+#[test]
+fn result_map_err() {
+    run_i64(
+        "let r: Result<i64, i64> = Err(-1);
+         match r.map(fn(v) { v * 3 }) { Ok(v) => v, Err(e) => e }",
+        -1,
+    );
+}
+
+#[test]
+fn result_and_then_ok() {
+    run_i64(
+        "let r = Ok(5);
+         match r.and_then(fn(v) { Ok(v + 100) }) { Ok(v) => v, Err(e) => 0 }",
+        105,
+    );
+}
+
+#[test]
+fn result_and_then_err_input() {
+    run_i64(
+        "let r: Result<i64, i64> = Err(-1);
+         match r.and_then(fn(v) { Ok(v + 100) }) { Ok(v) => v, Err(e) => e }",
+        -1,
+    );
+}
+
+#[test]
+fn result_and_then_returns_err() {
+    run_i64(
+        "let r = Ok(5);
+         match r.and_then(fn(v: i64) -> Result<i64, i64> { Err(-99) }) { Ok(v) => v, Err(e) => e }",
+        -99,
+    );
 }

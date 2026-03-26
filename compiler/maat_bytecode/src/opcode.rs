@@ -1,3 +1,5 @@
+use maat_runtime::NumKind;
+
 /// Bytecode operation codes.
 ///
 /// Each opcode represents a single VM instruction. Opcodes are encoded
@@ -69,9 +71,9 @@ pub enum Opcode {
     /// Operands: [u16] - jump target address
     Jump = 15,
 
-    /// Push the null value onto the stack.
+    /// Push the unit value `()` onto the stack.
     /// Operands: none
-    Null = 16,
+    Unit = 16,
 
     /// Store a value in a global binding.
     /// Operands: [u16] - global variable index
@@ -81,15 +83,15 @@ pub enum Opcode {
     /// Operands: [u16] - global variable index
     GetGlobal = 18,
 
-    /// Build an array from the top N stack elements.
+    /// Build a vector from the top N stack elements.
     /// Operands: [u16] - number of elements
-    Array = 19,
+    Vector = 19,
 
-    /// Build a hash from the top N stack elements (key-value pairs).
+    /// Build a map from the top N stack elements (key-value pairs).
     /// Operands: [u16] - total number of elements (keys + values)
-    Hash = 20,
+    Map = 20,
 
-    /// Index into an array or hash. Pops index and container, pushes result.
+    /// Index into a vector or map. Pops index and container, pushes result.
     /// Operands: none
     Index = 21,
 
@@ -101,7 +103,7 @@ pub enum Opcode {
     /// Operands: none
     ReturnValue = 23,
 
-    /// Return from a function with no explicit return value (implicit null).
+    /// Return from a function with no explicit return value (implicit unit `()`).
     /// Operands: none
     Return = 24,
 
@@ -134,17 +136,27 @@ pub enum Opcode {
     Convert = 31,
 
     /// Construct a struct or enum variant from the top N stack elements.
-    /// Operands: [u16] - type registry index, [u8] - number of fields
+    ///
+    /// Operands: `[u16, u8]`
+    /// - `u16`: packed type index encoding `(registry_index << 8) | variant_tag`.
+    ///   The high 8 bits select the entry in the type registry; the low 8 bits
+    ///   carry the variant tag (0 for structs, 0..255 for enum variants).
+    /// - `u8`: number of field values to pop from the stack.
     Construct = 32,
 
-    /// Read a field from a struct object on top of the stack.
+    /// Read a field from a struct on top of the stack.
     /// Operands: [u16] - field index
     GetField = 33,
 
-    /// Read the variant tag from an enum object on top of the stack.
-    /// If the tag matches, jump over the operand's target address;
-    /// otherwise jump to the target.
-    /// Operands: [u16] - expected variant tag, [u16] - jump target on mismatch
+    /// Read the variant tag from an enum on top of the stack (peek, no pop).
+    /// If the tag matches, execution continues to the next instruction;
+    /// otherwise the instruction pointer jumps to the mismatch target.
+    ///
+    /// Operands: `[u16, u16]`
+    /// - `u16`: expected variant tag. Tags are limited to 0..255 by
+    ///   [`MAX_ENUM_VARIANTS`](crate::MAX_ENUM_VARIANTS) but encoded as
+    ///   `u16` for operand-width uniformity with other two-byte operands.
+    /// - `u16`: jump target address on mismatch.
     MatchTag = 34,
 
     /// Compute the remainder of two values from the stack.
@@ -172,14 +184,18 @@ pub enum Opcode {
     Shr = 40,
 
     /// Construct a half-open `Range` from two i64 values on the stack.
-    /// Pops `end` then `start`, pushes `Object::Range(start, end)`.
+    /// Pops `end` then `start`, pushes `Value::Range(start, end)`.
     /// Operands: none
     MakeRange = 41,
 
     /// Construct an inclusive `RangeInclusive` from two i64 values on the stack.
-    /// Pops `end` then `start`, pushes `Object::RangeInclusive(start, end)`.
+    /// Pops `end` then `start`, pushes `Value::RangeInclusive(start, end)`.
     /// Operands: none
     MakeRangeInclusive = 42,
+
+    /// Build a tuple from the top N stack elements.
+    /// Operands: [u16] - number of elements
+    Tuple = 43,
 }
 
 impl Opcode {
@@ -202,11 +218,11 @@ impl Opcode {
             Self::Bang => "OpBang",
             Self::CondJump => "OpCondJump",
             Self::Jump => "OpJump",
-            Self::Null => "OpNull",
+            Self::Unit => "OpUnit",
             Self::SetGlobal => "OpSetGlobal",
             Self::GetGlobal => "OpGetGlobal",
-            Self::Array => "OpArray",
-            Self::Hash => "OpHash",
+            Self::Vector => "OpVector",
+            Self::Map => "OpMap",
             Self::Index => "OpIndex",
             Self::Call => "OpCall",
             Self::ReturnValue => "OpReturnValue",
@@ -229,6 +245,7 @@ impl Opcode {
             Self::Shr => "OpShr",
             Self::MakeRange => "OpMakeRange",
             Self::MakeRangeInclusive => "OpMakeRangeInclusive",
+            Self::Tuple => "OpTuple",
         }
     }
 
@@ -244,9 +261,10 @@ impl Opcode {
             | Self::Jump
             | Self::SetGlobal
             | Self::GetGlobal
-            | Self::Array
-            | Self::Hash
-            | Self::GetField => &[2],
+            | Self::Vector
+            | Self::Map
+            | Self::GetField
+            | Self::Tuple => &[2],
             Self::Closure | Self::Construct => &[2, 1],
             Self::MatchTag => &[2, 2],
             Self::Call
@@ -268,7 +286,7 @@ impl Opcode {
             | Self::LessThan
             | Self::Minus
             | Self::Bang
-            | Self::Null
+            | Self::Unit
             | Self::Index
             | Self::ReturnValue
             | Self::Return
@@ -304,11 +322,11 @@ impl Opcode {
             13 => Some(Self::Bang),
             14 => Some(Self::CondJump),
             15 => Some(Self::Jump),
-            16 => Some(Self::Null),
+            16 => Some(Self::Unit),
             17 => Some(Self::SetGlobal),
             18 => Some(Self::GetGlobal),
-            19 => Some(Self::Array),
-            20 => Some(Self::Hash),
+            19 => Some(Self::Vector),
+            20 => Some(Self::Map),
             21 => Some(Self::Index),
             22 => Some(Self::Call),
             23 => Some(Self::ReturnValue),
@@ -331,6 +349,7 @@ impl Opcode {
             40 => Some(Self::Shr),
             41 => Some(Self::MakeRange),
             42 => Some(Self::MakeRangeInclusive),
+            43 => Some(Self::Tuple),
             _ => None,
         }
     }
@@ -389,6 +408,24 @@ impl TypeTag {
     pub const fn to_byte(self) -> u8 {
         self as u8
     }
+
+    /// Maps an integer bytecode type tag to a number type.
+    pub fn to_num_kind(&self) -> NumKind {
+        match self {
+            Self::I8 => NumKind::I8,
+            Self::I16 => NumKind::I16,
+            Self::I32 => NumKind::I32,
+            Self::I64 => NumKind::I64,
+            Self::I128 => NumKind::I128,
+            Self::Isize => NumKind::Isize,
+            Self::U8 => NumKind::U8,
+            Self::U16 => NumKind::U16,
+            Self::U32 => NumKind::U32,
+            Self::U64 => NumKind::U64,
+            Self::U128 => NumKind::U128,
+            Self::Usize => NumKind::Usize,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -397,7 +434,7 @@ mod tests {
 
     #[test]
     fn opcode_roundtrip() {
-        for byte in 0..=42 {
+        for byte in 0..=43 {
             let opcode = Opcode::from_byte(byte).unwrap();
             assert_eq!(opcode.to_byte(), byte);
         }

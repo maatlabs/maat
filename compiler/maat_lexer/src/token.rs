@@ -1,3 +1,5 @@
+//! Implements [`Token`] and [`TokenKind`].
+
 use maat_span::Span;
 
 /// A lexical token in Maat.
@@ -7,13 +9,45 @@ use maat_span::Span;
 /// syntactic classification ([`TokenKind`]), the exact source text it represents,
 /// and its position in the source for error reporting.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Token<'a> {
+pub struct Token<'src> {
     /// The syntactic classification of this token.
     pub kind: TokenKind,
     /// The raw source text that produced this token.
-    pub literal: &'a str,
+    pub literal: &'src str,
     /// The source position of this token.
     pub span: Span,
+}
+
+impl<'src> Token<'src> {
+    /// Constructs a new token with the given token kind, the raw text
+    /// from the source code, and its span.
+    ///
+    /// # Parameters
+    ///
+    /// * `kind` - The syntactic classification of the token.
+    /// * `literal` - The raw source text that produced this token.
+    /// * `span` - The source position of this token.
+    ///
+    /// # Returns
+    ///
+    /// A new [`Token`] instance.
+    #[inline]
+    pub const fn new(kind: TokenKind, literal: &'src str, span: Span) -> Self {
+        Self {
+            kind,
+            literal,
+            span,
+        }
+    }
+}
+
+impl<'src> core::fmt::Display for Token<'src> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self.kind {
+            TokenKind::Ident => write!(f, "{}", self.literal),
+            _ => write!(f, "{:?}", self.kind),
+        }
+    }
 }
 
 /// The syntactic classification of a lexical token.
@@ -26,13 +60,13 @@ pub enum TokenKind {
     Let,
     /// The `if` keyword for conditional expressions.
     If,
-    /// The `else` keyword for alternative branches.
+    /// The `else` keyword for alternative branches in conditionals.
     Else,
-    /// The `true` boolean literal.
+    /// The `true` keyword/boolean literal.
     True,
-    /// The `false` boolean literal.
+    /// The `false` keyword/boolean literal.
     False,
-    /// The `fn` keyword for function definitions.
+    /// The `fn` keyword for function definitions and closures.
     Fn,
     /// The `return` keyword for early returns.
     Return,
@@ -44,7 +78,7 @@ pub enum TokenKind {
     Loop,
     /// The `while` keyword for conditional loops.
     While,
-    /// The `for` keyword for iterator loops.
+    /// The `for` keyword for iterator-based loops.
     For,
     /// The `in` keyword for iterator binding.
     In,
@@ -70,17 +104,21 @@ pub enum TokenKind {
     SelfType,
     /// The `mod` keyword for module declarations.
     Mod,
-    /// The `use` keyword for importing items from other modules.
+    /// The `use` keyword for importing items from other modules/crates.
     Use,
-    /// The `pub` keyword for visibility modifiers.
+    /// The `pub` keyword for marking an item as public/visible.
     Pub,
     /// The `mut` keyword for mutable bindings.
     Mut,
 
     /// A user-defined identifier (variable, function name, etc.).
     Ident,
+    /// A lifetime-style label for loops (`'outer`, `'inner`).
+    Label,
     /// A string literal.
     String,
+    /// A character literal (`'a'`, `'\n'`, `'\u{1F600}'`).
+    Char,
 
     /// An 8-bit signed integer literal.
     I8,
@@ -110,7 +148,7 @@ pub enum TokenKind {
 
     /// The assignment operator `=`.
     Assign,
-    /// The addition operator `+`.
+    /// The addition/concat operator `+`.
     Plus,
     /// The subtraction operator `-`.
     Minus,
@@ -195,99 +233,14 @@ pub enum TokenKind {
     DotDot,
     /// The inclusive range operator `..=` for closed ranges.
     DotDotEqual,
+    /// The try operator `?` for error propagation.
+    Question,
+
+    /// A documentation comment (`///`).
+    DocComment,
 
     /// An invalid or unrecognized token.
     Invalid,
     /// End of file marker.
     Eof,
-}
-
-impl TokenKind {
-    /// Classifies an identifier string as either a keyword or a regular identifier.
-    ///
-    /// This method performs keyword recognition by matching the input string against
-    /// all reserved keywords in the language. If no keyword matches, the identifier
-    /// is classified as a regular user-defined identifier.
-    ///
-    /// # Parameters
-    ///
-    /// * `ident` - The identifier string to classify.
-    ///
-    /// # Returns
-    ///
-    /// The corresponding keyword variant if the string is a reserved word,
-    /// otherwise [`TokenKind::Ident`].
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use maat_lexer::TokenKind;
-    /// assert_eq!(TokenKind::keyword_or_ident("let"), TokenKind::Let);
-    /// assert_eq!(TokenKind::keyword_or_ident("fn"), TokenKind::Fn);
-    /// assert_eq!(TokenKind::keyword_or_ident("myvar"), TokenKind::Ident);
-    /// ```
-    #[inline]
-    pub fn keyword_or_ident(ident: &str) -> Self {
-        match ident {
-            "let" => Self::Let,
-            "if" => Self::If,
-            "else" => Self::Else,
-            "true" => Self::True,
-            "false" => Self::False,
-            "fn" => Self::Fn,
-            "return" => Self::Return,
-            "macro" => Self::Macro,
-            "as" => Self::As,
-            "loop" => Self::Loop,
-            "while" => Self::While,
-            "for" => Self::For,
-            "in" => Self::In,
-            "break" => Self::Break,
-            "continue" => Self::Continue,
-            "where" => Self::Where,
-            "struct" => Self::Struct,
-            "enum" => Self::Enum,
-            "match" => Self::Match,
-            "impl" => Self::Impl,
-            "trait" => Self::Trait,
-            "self" => Self::SelfValue,
-            "Self" => Self::SelfType,
-            "mod" => Self::Mod,
-            "use" => Self::Use,
-            "pub" => Self::Pub,
-            "mut" => Self::Mut,
-            _ => Self::Ident,
-        }
-    }
-}
-
-impl<'a> Token<'a> {
-    /// Constructs a new token with the given kind, literal text, and span.
-    ///
-    /// # Parameters
-    ///
-    /// * `kind` - The syntactic classification of the token.
-    /// * `literal` - The raw source text that produced this token.
-    /// * `span` - The source position of this token.
-    ///
-    /// # Returns
-    ///
-    /// A new [`Token`] instance.
-    #[inline]
-    pub const fn new(kind: TokenKind, literal: &'a str, span: Span) -> Self {
-        Self {
-            kind,
-            literal,
-            span,
-        }
-    }
-}
-
-impl<'a> core::fmt::Display for Token<'a> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self.kind {
-            TokenKind::Ident => write!(f, "{}", self.literal),
-            _ => write!(f, "{:?}", self.kind),
-        }
-    }
 }

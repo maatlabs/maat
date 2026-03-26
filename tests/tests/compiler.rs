@@ -1,5 +1,5 @@
 use maat_bytecode::{Bytecode, Instructions, Opcode, encode};
-use maat_runtime::Object;
+use maat_runtime::{Integer, Value};
 
 /// A constant expectation that can be either an integer or a compiled function's instructions.
 enum Constant {
@@ -17,26 +17,26 @@ fn assert_constants(bytecode: &Bytecode, expected: &[Constant], input: &str) {
     );
     for (i, expected_const) in expected.iter().enumerate() {
         match (expected_const, &bytecode.constants[i]) {
-            (Constant::Int(expected_val), Object::I64(actual_val)) => {
+            (Constant::Int(expected_val), Value::Integer(Integer::I64(actual_val))) => {
                 assert_eq!(
                     actual_val, expected_val,
                     "constant {i} wrong for input: {input}"
                 );
             }
-            (Constant::Fn(expected_insts), Object::CompiledFunction(cf)) => {
+            (Constant::Fn(expected_insts), Value::CompiledFn(cf)) => {
                 let expected_ins = concat_instructions(expected_insts);
                 let actual_ins = Instructions::from_bytes(cf.instructions.to_vec());
                 assert_eq!(
                     actual_ins.as_bytes(),
                     expected_ins.as_bytes(),
-                    "wrong instructions for CompiledFunction constant {i} in input: {input}\n  got: {actual_ins}\n  want: {expected_ins}",
+                    "wrong instructions for CompiledFn constant {i} in input: {input}\n  got: {actual_ins}\n  want: {expected_ins}",
                 );
             }
             (Constant::Int(_), actual) => {
                 panic!("expected integer constant at index {i}, got: {actual:?}");
             }
             (Constant::Fn(_), actual) => {
-                panic!("expected CompiledFunction constant at index {i}, got: {actual:?}");
+                panic!("expected CompiledFn constant at index {i}, got: {actual:?}");
             }
         }
     }
@@ -58,7 +58,7 @@ fn assert_integer_constants(bytecode: &Bytecode, expected: &[i64], input: &str) 
     );
     for (i, expected_val) in expected.iter().enumerate() {
         match &bytecode.constants[i] {
-            Object::I64(value) => {
+            Value::Integer(Integer::I64(value)) => {
                 assert_eq!(
                     *value, *expected_val,
                     "constant {i} wrong for input: {input}"
@@ -237,21 +237,21 @@ fn compile_boolean_expressions() {
 fn compile_conditionals() {
     let tests = vec![
         (
-            "if (true) { 10 }; 3333;",
+            "if true { 10 }; 3333;",
             vec![10, 3333],
             vec![
                 encode(Opcode::True, &[]),
                 encode(Opcode::CondJump, &[10]),
                 encode(Opcode::Constant, &[0]),
                 encode(Opcode::Jump, &[11]),
-                encode(Opcode::Null, &[]),
+                encode(Opcode::Unit, &[]),
                 encode(Opcode::Pop, &[]),
                 encode(Opcode::Constant, &[1]),
                 encode(Opcode::Pop, &[]),
             ],
         ),
         (
-            "if (true) { 10 } else { 20 }; 3333;",
+            "if true { 10 } else { 20 }; 3333;",
             vec![10, 20, 3333],
             vec![
                 encode(Opcode::True, &[]),
@@ -344,7 +344,7 @@ fn compile_strings() {
         );
         for (i, expected) in expected_constants.iter().enumerate() {
             match &bytecode.constants[i] {
-                Object::Str(value) => {
+                Value::Str(value) => {
                     assert_eq!(value, expected, "constant {i} wrong for input: {input}")
                 }
                 _ => panic!("expected string constant at index {i}"),
@@ -359,7 +359,7 @@ fn compile_arrays() {
         (
             "[]",
             vec![],
-            vec![encode(Opcode::Array, &[0]), encode(Opcode::Pop, &[])],
+            vec![encode(Opcode::Vector, &[0]), encode(Opcode::Pop, &[])],
         ),
         (
             "[1, 2, 3]",
@@ -368,7 +368,7 @@ fn compile_arrays() {
                 encode(Opcode::Constant, &[0]),
                 encode(Opcode::Constant, &[1]),
                 encode(Opcode::Constant, &[2]),
-                encode(Opcode::Array, &[3]),
+                encode(Opcode::Vector, &[3]),
                 encode(Opcode::Pop, &[]),
             ],
         ),
@@ -385,7 +385,7 @@ fn compile_arrays() {
                 encode(Opcode::Constant, &[4]),
                 encode(Opcode::Constant, &[5]),
                 encode(Opcode::Mul, &[]),
-                encode(Opcode::Array, &[3]),
+                encode(Opcode::Vector, &[3]),
                 encode(Opcode::Pop, &[]),
             ],
         ),
@@ -398,12 +398,12 @@ fn compile_arrays() {
 }
 
 #[test]
-fn compile_hashes() {
+fn compile_maps() {
     let cases = vec![
         (
             "{}",
             vec![],
-            vec![encode(Opcode::Hash, &[0]), encode(Opcode::Pop, &[])],
+            vec![encode(Opcode::Map, &[0]), encode(Opcode::Pop, &[])],
         ),
         (
             "{1: 2, 3: 4, 5: 6}",
@@ -415,7 +415,7 @@ fn compile_hashes() {
                 encode(Opcode::Constant, &[3]),
                 encode(Opcode::Constant, &[4]),
                 encode(Opcode::Constant, &[5]),
-                encode(Opcode::Hash, &[6]),
+                encode(Opcode::Map, &[6]),
                 encode(Opcode::Pop, &[]),
             ],
         ),
@@ -431,7 +431,7 @@ fn compile_hashes() {
                 encode(Opcode::Constant, &[4]),
                 encode(Opcode::Constant, &[5]),
                 encode(Opcode::Mul, &[]),
-                encode(Opcode::Hash, &[4]),
+                encode(Opcode::Map, &[4]),
                 encode(Opcode::Pop, &[]),
             ],
         ),
@@ -453,7 +453,7 @@ fn compile_index_expressions() {
                 encode(Opcode::Constant, &[0]),
                 encode(Opcode::Constant, &[1]),
                 encode(Opcode::Constant, &[2]),
-                encode(Opcode::Array, &[3]),
+                encode(Opcode::Vector, &[3]),
                 encode(Opcode::Constant, &[3]),
                 encode(Opcode::Constant, &[4]),
                 encode(Opcode::Add, &[]),
@@ -467,7 +467,7 @@ fn compile_index_expressions() {
             vec![
                 encode(Opcode::Constant, &[0]),
                 encode(Opcode::Constant, &[1]),
-                encode(Opcode::Hash, &[2]),
+                encode(Opcode::Map, &[2]),
                 encode(Opcode::Constant, &[2]),
                 encode(Opcode::Constant, &[3]),
                 encode(Opcode::Sub, &[]),
@@ -698,24 +698,24 @@ fn compile_let_statement_scopes() {
 #[test]
 fn compile_builtins() {
     let cases: Vec<ConstantTestCase<'_>> = vec![
-        // Method calls: Array::len (builtin index 1)
+        // Method calls: Vector::len (builtin index 5)
         (
             "[].len();",
             vec![],
             vec![
-                encode(Opcode::GetBuiltin, &[1]),
-                encode(Opcode::Array, &[0]),
+                encode(Opcode::GetBuiltin, &[5]),
+                encode(Opcode::Vector, &[0]),
                 encode(Opcode::Call, &[1]),
                 encode(Opcode::Pop, &[]),
             ],
         ),
-        // Method calls: Array::push (builtin index 6)
+        // Method calls: Vector::push (builtin index 9)
         (
             "[].push(1);",
             vec![Constant::Int(1)],
             vec![
-                encode(Opcode::GetBuiltin, &[6]),
-                encode(Opcode::Array, &[0]),
+                encode(Opcode::GetBuiltin, &[9]),
+                encode(Opcode::Vector, &[0]),
                 encode(Opcode::Constant, &[0]),
                 encode(Opcode::Call, &[2]),
                 encode(Opcode::Pop, &[]),

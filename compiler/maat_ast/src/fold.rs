@@ -1,12 +1,12 @@
 //! Constant folding pass over the AST.
 //!
-//! Replaces `Infix(Literal, op, Literal)` nodes with a single literal
+//! Replaces `Infix(lhs, op, rhs)` nodes with a single literal
 //! when both operands are compile-time constants. Uses checked arithmetic;
 //! overflow is reported as a compile error.
 
 use maat_errors::{TypeError, TypeErrorKind};
 
-use super::*;
+use crate::*;
 
 /// Folds constant expressions in a program.
 ///
@@ -82,7 +82,7 @@ fn fold_expression(expr: &mut Expr, errors: &mut Vec<TypeError>) {
                 *expr = folded;
             }
         }
-        Expr::Array(e) => {
+        Expr::Vector(e) => {
             for elem in &mut e.elements {
                 fold_expression(elem, errors);
             }
@@ -105,9 +105,14 @@ fn fold_expression(expr: &mut Expr, errors: &mut Vec<TypeError>) {
             }
         }
         Expr::Lambda(e) => fold_block(&mut e.body, errors),
-        Expr::Macro(e) => fold_block(&mut e.body, errors),
+        Expr::MacroLit(e) => fold_block(&mut e.body, errors),
         Expr::Call(e) => {
             fold_expression(&mut e.function, errors);
+            for arg in &mut e.arguments {
+                fold_expression(arg, errors);
+            }
+        }
+        Expr::MacroCall(e) => {
             for arg in &mut e.arguments {
                 fold_expression(arg, errors);
             }
@@ -134,6 +139,9 @@ fn fold_expression(expr: &mut Expr, errors: &mut Vec<TypeError>) {
         Expr::StructLit(e) => {
             for (_, val) in &mut e.fields {
                 fold_expression(val, errors);
+            }
+            if let Some(base) = &mut e.base {
+                fold_expression(base, errors);
             }
         }
         Expr::Range(e) => {
@@ -170,7 +178,7 @@ fn try_fold_prefix(prefix: &PrefixExpr, errors: &mut Vec<TypeError>) -> Option<E
             _ => None,
         },
         "!" => match prefix.operand.as_ref() {
-            Expr::Bool(b) => Some(Expr::Bool(Bool {
+            Expr::Bool(b) => Some(Expr::Bool(BoolLit {
                 value: !b.value,
                 span,
             })),
@@ -215,11 +223,11 @@ fn try_fold_infix(infix: &InfixExpr, errors: &mut Vec<TypeError>) -> Option<Expr
         }
 
         (Expr::Bool(l), Expr::Bool(r)) => match op {
-            "==" => Some(Expr::Bool(Bool {
+            "==" => Some(Expr::Bool(BoolLit {
                 value: l.value == r.value,
                 span,
             })),
-            "!=" => Some(Expr::Bool(Bool {
+            "!=" => Some(Expr::Bool(BoolLit {
                 value: l.value != r.value,
                 span,
             })),
@@ -245,7 +253,7 @@ fn try_fold_comparison(infix: &InfixExpr) -> Option<Expr> {
                 ">=" => l.value >= r.value,
                 _ => return None,
             };
-            Some(Expr::Bool(Bool { value, span }))
+            Some(Expr::Bool(BoolLit { value, span }))
         }
         _ => None,
     }

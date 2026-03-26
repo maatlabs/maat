@@ -2,7 +2,7 @@
 //!
 //! Provides the `transform` function for traversing and modifying
 //! AST nodes. It's essential for macro expansion and other AST modifications.
-use crate::ast::*;
+use crate::*;
 
 /// A function that takes a node and returns a potentially modified one.
 pub type TransformFn<'a> = &'a mut dyn FnMut(Node) -> Node;
@@ -16,14 +16,14 @@ pub type TransformFn<'a> = &'a mut dyn FnMut(Node) -> Node;
 /// # Examples
 ///
 /// ```
-/// use maat_ast::{ast::*, transform};
+/// use maat_ast::*;
 /// use maat_span::Span;
 ///
 /// // Double all i64 integer values
 /// let program = Program {
 ///     statements: vec![Stmt::Expr(ExprStmt {
 ///         value: Expr::Number(Number {
-///             kind: NumberKind::I64,
+///             kind: NumKind::I64,
 ///             value: 5,
 ///             radix: Radix::Dec,
 ///             span: Span::ZERO,
@@ -34,7 +34,7 @@ pub type TransformFn<'a> = &'a mut dyn FnMut(Node) -> Node;
 ///
 /// let result = transform(Node::Program(program), &mut |node| {
 ///     match node {
-///         Node::Expr(Expr::Number(mut n)) if n.kind == NumberKind::I64 => {
+///         Node::Expr(Expr::Number(mut n)) if n.kind == NumKind::I64 => {
 ///             n.value *= 2;
 ///             Node::Expr(Expr::Number(n))
 ///         }
@@ -198,8 +198,8 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
 
         Node::Expr(expr) => {
             let new_expr = match expr {
-                Expr::Array(mut array) => {
-                    array.elements = array
+                Expr::Vector(mut vector) => {
+                    vector.elements = vector
                         .elements
                         .into_iter()
                         .map(|elem| match transform(Node::Expr(elem), transformer) {
@@ -207,7 +207,7 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                             _ => unreachable!("Expr transformation returned non-expression"),
                         })
                         .collect();
-                    Expr::Array(array)
+                    Expr::Vector(vector)
                 }
 
                 Expr::Index(mut index) => {
@@ -297,13 +297,13 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                     Expr::Lambda(lambda)
                 }
 
-                Expr::Macro(mut macro_lit) => {
+                Expr::MacroLit(mut macro_lit) => {
                     macro_lit.body =
                         match transform(Node::Stmt(Stmt::Block(macro_lit.body)), transformer) {
                             Node::Stmt(Stmt::Block(b)) => b,
                             _ => unreachable!("Block transformation returned non-block"),
                         };
-                    Expr::Macro(macro_lit)
+                    Expr::MacroLit(macro_lit)
                 }
 
                 Expr::Call(mut call) => {
@@ -323,6 +323,18 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                     Expr::Call(call)
                 }
 
+                Expr::MacroCall(mut mc) => {
+                    mc.arguments = mc
+                        .arguments
+                        .into_iter()
+                        .map(|arg| match transform(Node::Expr(arg), transformer) {
+                            Node::Expr(e) => e,
+                            _ => unreachable!("Expr transformation returned non-expression"),
+                        })
+                        .collect();
+                    Expr::MacroCall(mc)
+                }
+
                 Expr::Cast(mut cast) => {
                     cast.expr = Box::new(match transform(Node::Expr(*cast.expr), transformer) {
                         Node::Expr(e) => e,
@@ -339,6 +351,15 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                         })
                     });
                     Expr::Break(break_expr)
+                }
+
+                Expr::Try(mut try_expr) => {
+                    try_expr.expr =
+                        Box::new(match transform(Node::Expr(*try_expr.expr), transformer) {
+                            Node::Expr(e) => e,
+                            _ => unreachable!("Expr transformation returned non-expression"),
+                        });
+                    Expr::Try(try_expr)
                 }
 
                 Expr::Match(mut match_expr) => {
@@ -412,7 +433,25 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                             (name, new_val)
                         })
                         .collect();
+                    struct_lit.base = struct_lit.base.map(|base| {
+                        Box::new(match transform(Node::Expr(*base), transformer) {
+                            Node::Expr(e) => e,
+                            _ => unreachable!("Expr transformation returned non-expression"),
+                        })
+                    });
                     Expr::StructLit(struct_lit)
+                }
+
+                Expr::Tuple(mut tuple) => {
+                    tuple.elements = tuple
+                        .elements
+                        .into_iter()
+                        .map(|elem| match transform(Node::Expr(elem), transformer) {
+                            Node::Expr(e) => e,
+                            _ => unreachable!("Expr transformation returned non-expression"),
+                        })
+                        .collect();
+                    Expr::Tuple(tuple)
                 }
 
                 Expr::Range(mut range) => {
@@ -428,7 +467,7 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                     Expr::Range(range)
                 }
 
-                // Leaf nodes (literals, identifiers, continue, paths) don't need transformation
+                // Leaf nodes (literals, identifiers, continue, paths) need no recursive traversal
                 expr => expr,
             };
             Node::Expr(new_expr)

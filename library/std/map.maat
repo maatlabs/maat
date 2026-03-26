@@ -1,0 +1,2 @@
+// Map<K, V> methods are available directly via method syntax on Map values.
+// Construction: literal syntax {k: v} or Map::new(), then m.insert(k, v), m.get(k), etc.

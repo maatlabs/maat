@@ -1,11 +1,10 @@
 //! Shared utilities for integration tests.
 
-use maat_ast::fold::fold_constants;
-use maat_ast::{Node, Program};
+use maat_ast::{Node, Program, fold_constants};
 use maat_bytecode::Bytecode;
 use maat_codegen::Compiler;
-use maat_lexer::Lexer;
-use maat_parser::Parser;
+use maat_lexer::MaatLexer;
+use maat_parser::MaatParser;
 use maat_types::TypeChecker;
 
 /// Parses the given source string into an AST [`Program`].
@@ -14,8 +13,8 @@ use maat_types::TypeChecker;
 ///
 /// Panics if the parser encounters any errors.
 pub fn parse(input: &str) -> Program {
-    let lexer = Lexer::new(input);
-    let mut parser = Parser::new(lexer);
+    let lexer = MaatLexer::new(input);
+    let mut parser = MaatParser::new(lexer);
     let program = parser.parse();
     assert!(
         parser.errors().is_empty(),
@@ -67,6 +66,16 @@ pub fn compile_raw(input: &str) -> Bytecode {
         .compile(&Node::Program(program))
         .expect("compilation failed");
     compiler.bytecode().expect("bytecode extraction failed")
+}
+
+/// Parses the given source string, expecting parse errors.
+///
+/// Returns the error messages for assertion.
+pub fn parse_errors(input: &str) -> Vec<String> {
+    let lexer = MaatLexer::new(input);
+    let mut parser = MaatParser::new(lexer);
+    let _ = parser.parse();
+    parser.errors().iter().map(|e| e.message.clone()).collect()
 }
 
 /// Compiles the given source string, expecting type errors.
@@ -125,7 +134,7 @@ let add10 = makeAdder(10);
 add5(add10(1));
 ";
 
-    pub const ARRAY_SOURCE: &str = "
+    pub const VECTOR_SOURCE: &str = "
 let sum = fn(arr) {
     let iter = fn(idx, acc) {
         if (idx == arr.len()) {
@@ -172,8 +181,8 @@ match r { Some(v) => v, None => -1 }
     pub const METHOD_DISPATCH_SOURCE: &str = r#"
 let arr = [1, 2, 3, 4, 5];
 let a = arr.len();
-let b = arr.first();
-let c = arr.last();
+let b = arr.first().unwrap();
+let c = arr.last().unwrap();
 let s = "  hello  ";
 let t = s.trim();
 let u = s.len();

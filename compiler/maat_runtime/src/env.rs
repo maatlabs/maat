@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use indexmap::IndexMap;
 
-use crate::Object;
+use crate::Value;
 
 /// Represents the execution environment of the interpreter.
 #[derive(Debug, Clone, Default)]
@@ -13,7 +13,7 @@ pub struct Env {
 
 #[derive(Debug, Default)]
 struct EnvInner {
-    store: IndexMap<String, Object>,
+    store: IndexMap<String, Value>,
     outer: Option<Env>,
 }
 
@@ -31,18 +31,18 @@ impl Env {
         }
     }
 
-    /// Returns a clone of the object associated with a `name` if found.
-    pub fn get(&self, name: &str) -> Option<Object> {
+    /// Returns a clone of the value associated with a `name` if found.
+    pub fn get(&self, name: &str) -> Option<Value> {
         let inner = self.inner.borrow();
         match inner.store.get(name) {
-            Some(obj) => Some(obj.clone()),
+            Some(val) => Some(val.clone()),
             None => inner.outer.as_ref().and_then(|outer| outer.get(name)),
         }
     }
 
-    /// Binds the `object` in the environment with the `name`.
-    pub fn set(&self, name: String, object: &Object) {
-        self.inner.borrow_mut().store.insert(name, object.clone());
+    /// Binds the `value` in the environment with the `name`.
+    pub fn set(&self, name: String, value: &Value) {
+        self.inner.borrow_mut().store.insert(name, value.clone());
     }
 
     /// Updates an existing binding in the nearest enclosing scope that contains it.
@@ -50,18 +50,18 @@ impl Env {
     /// Walks the scope chain from the current environment outward. If the binding
     /// is found, it is updated in-place. If no enclosing scope contains the name,
     /// the binding is created in the current scope as a fallback.
-    pub fn update(&self, name: String, object: &Object) {
+    pub fn update(&self, name: String, value: &Value) {
         if self.inner.borrow().store.contains_key(&name) {
-            self.inner.borrow_mut().store.insert(name, object.clone());
+            self.inner.borrow_mut().store.insert(name, value.clone());
             return;
         }
         if let Some(outer) = self.inner.borrow().outer.as_ref().cloned()
             && outer.contains(&name)
         {
-            outer.update(name, object);
+            outer.update(name, value);
             return;
         }
-        self.inner.borrow_mut().store.insert(name, object.clone());
+        self.inner.borrow_mut().store.insert(name, value.clone());
     }
 
     /// Returns `true` if `name` is defined in this scope or any enclosing scope.

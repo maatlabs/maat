@@ -218,7 +218,7 @@ fn parse_arrays() {
     // Non-empty array
     let program = parse("[1, 2 * 2, 3 + 3]");
     let Stmt::Expr(ExprStmt {
-        value: Expr::Array(array),
+        value: Expr::Vector(array),
         ..
     }) = expect_single_stmt(&program)
     else {
@@ -232,7 +232,7 @@ fn parse_arrays() {
     // Empty array
     let program = parse("[]");
     let Stmt::Expr(ExprStmt {
-        value: Expr::Array(array),
+        value: Expr::Vector(array),
         ..
     }) = expect_single_stmt(&program)
     else {
@@ -256,15 +256,15 @@ fn parse_index_expression() {
 }
 
 #[test]
-fn parse_hashes() {
-    // Non-empty hash
+fn parse_maps() {
+    // Non-empty map
     let program = parse(r#"{"one": 1, "two": 2, "three": 3}"#);
     let Stmt::Expr(ExprStmt {
         value: Expr::Map(map),
         ..
     }) = expect_single_stmt(&program)
     else {
-        panic!("expected hash literal");
+        panic!("expected map literal");
     };
     assert_eq!(map.pairs.len(), 3);
     let expected = [("one", "1"), ("two", "2"), ("three", "3")];
@@ -275,27 +275,27 @@ fn parse_hashes() {
             .any(|(k, v)| k.to_string() == key && v.to_string() == value);
         assert!(found, "expected key-value pair: {} => {}", key, value);
     }
-    // Empty hash
+    // Empty map
     let program = parse("{}");
     let Stmt::Expr(ExprStmt {
-        value: Expr::Map(hash),
+        value: Expr::Map(map),
         ..
     }) = expect_single_stmt(&program)
     else {
-        panic!("expected hash literal");
+        panic!("expected map literal");
     };
-    assert_eq!(hash.pairs.len(), 0);
+    assert_eq!(map.pairs.len(), 0);
 
-    // Hash with expressions
+    // Map with expressions
     let program = parse(r#"{"one": 0 + 1, "two": 10 - 8}"#);
     let Stmt::Expr(ExprStmt {
-        value: Expr::Map(hash),
+        value: Expr::Map(map),
         ..
     }) = expect_single_stmt(&program)
     else {
-        panic!("expected hash literal");
+        panic!("expected map literal");
     };
-    assert_eq!(hash.pairs.len(), 2);
+    assert_eq!(map.pairs.len(), 2);
 }
 
 #[test]
@@ -407,7 +407,7 @@ fn parse_operator_precedence() {
 #[test]
 fn parse_conditionals() {
     // If without else
-    let program = parse("if (x < y) { x }");
+    let program = parse("if x < y { x }");
     let Stmt::Expr(ExprStmt {
         value: Expr::Cond(cond),
         ..
@@ -424,7 +424,7 @@ fn parse_conditionals() {
     assert!(cond.alternative.is_none());
 
     // If with else
-    let program = parse("if (x < y) { x } else { y }");
+    let program = parse("if x < y { x } else { y }");
     let Stmt::Expr(ExprStmt {
         value: Expr::Cond(cond),
         ..
@@ -542,7 +542,7 @@ fn parse_loops() {
     assert_eq!(loop_stmt.body.statements[0].to_string(), "1;");
 
     // While
-    let program = parse("while (x < 10) { x; }");
+    let program = parse("while x < 10 { x; }");
     let Stmt::While(while_stmt) = expect_single_stmt(&program) else {
         panic!("expected While statement");
     };
@@ -603,6 +603,52 @@ fn parse_loop_control() {
     else {
         panic!("expected Continue expression");
     };
+
+    // Labeled loop
+    let program = parse("'outer: loop { break 'outer; }");
+    let Stmt::Loop(loop_stmt) = expect_single_stmt(&program) else {
+        panic!("expected Loop statement");
+    };
+    assert_eq!(loop_stmt.label.as_deref(), Some("outer"));
+    let Stmt::Expr(ExprStmt {
+        value: Expr::Break(break_expr),
+        ..
+    }) = &loop_stmt.body.statements[0]
+    else {
+        panic!("expected Break expression");
+    };
+    assert_eq!(break_expr.label.as_deref(), Some("outer"));
+
+    // Labeled while
+    let program = parse("'outer: while (true) { continue 'outer; }");
+    let Stmt::While(while_stmt) = expect_single_stmt(&program) else {
+        panic!("expected While statement");
+    };
+    assert_eq!(while_stmt.label.as_deref(), Some("outer"));
+    let Stmt::Expr(ExprStmt {
+        value: Expr::Continue(cont_expr),
+        ..
+    }) = &while_stmt.body.statements[0]
+    else {
+        panic!("expected Continue expression");
+    };
+    assert_eq!(cont_expr.label.as_deref(), Some("outer"));
+
+    // Labeled for
+    let program = parse("'rows: for i in 0..10 { break 'rows 42; }");
+    let Stmt::For(for_stmt) = expect_single_stmt(&program) else {
+        panic!("expected For statement");
+    };
+    assert_eq!(for_stmt.label.as_deref(), Some("rows"));
+    let Stmt::Expr(ExprStmt {
+        value: Expr::Break(break_expr),
+        ..
+    }) = &for_stmt.body.statements[0]
+    else {
+        panic!("expected Break expression");
+    };
+    assert_eq!(break_expr.label.as_deref(), Some("rows"));
+    assert!(break_expr.value.is_some());
 }
 
 #[test]
@@ -836,7 +882,7 @@ fn parse_match_expressions() {
         panic!("expected Match expression");
     };
     assert_eq!(m.arms.len(), 1);
-    let Pattern::Ident(ref name, _) = m.arms[0].pattern else {
+    let Pattern::Ident { ref name, .. } = m.arms[0].pattern else {
         panic!("expected Ident pattern");
     };
     assert_eq!(name, "y");
@@ -879,4 +925,162 @@ fn parse_mixed_module_items() {
     assert!(matches!(&program.statements[1], Stmt::Mod(_)));
     assert!(matches!(&program.statements[2], Stmt::FuncDef(f) if f.is_public));
     assert!(matches!(&program.statements[3], Stmt::StructDecl(s) if s.is_public));
+}
+
+#[test]
+fn parse_struct_update_syntax() {
+    // Struct update with one explicit field
+    let program = parse("let p = Point { x: 10, ..base };");
+    let stmt = expect_single_stmt(&program);
+    let Stmt::Let(let_stmt) = stmt else {
+        panic!("expected let statement");
+    };
+    let Expr::StructLit(lit) = &let_stmt.value else {
+        panic!("expected struct literal");
+    };
+    assert_eq!(lit.name, "Point");
+    assert_eq!(lit.fields.len(), 1);
+    assert_eq!(lit.fields[0].0, "x");
+    assert!(lit.base.is_some());
+
+    // Struct update with no explicit fields
+    let program = parse("let p = Config { ..defaults };");
+    let stmt = expect_single_stmt(&program);
+    let Stmt::Let(let_stmt) = stmt else {
+        panic!("expected let statement");
+    };
+    let Expr::StructLit(lit) = &let_stmt.value else {
+        panic!("expected struct literal");
+    };
+    assert_eq!(lit.name, "Config");
+    assert!(lit.fields.is_empty());
+    assert!(lit.base.is_some());
+
+    // Regular struct literal (no base)
+    let program = parse("let p = Point { x: 1, y: 2 };");
+    let stmt = expect_single_stmt(&program);
+    let Stmt::Let(let_stmt) = stmt else {
+        panic!("expected let statement");
+    };
+    let Expr::StructLit(lit) = &let_stmt.value else {
+        panic!("expected struct literal");
+    };
+    assert_eq!(lit.name, "Point");
+    assert_eq!(lit.fields.len(), 2);
+    assert!(lit.base.is_none());
+}
+
+#[test]
+fn doc_comments() {
+    // on functions
+    let program = parse("/// Adds two numbers\npub fn add(x: i64, y: i64) -> i64 { x + y }");
+    let Stmt::FuncDef(func) = expect_single_stmt(&program) else {
+        panic!("expected FuncDef");
+    };
+    assert_eq!(func.doc.as_deref(), Some(" Adds two numbers"));
+    assert_eq!(func.name, "add");
+
+    // multi-line
+    let program = parse("/// Line one\n/// Line two\nfn foo() { 1 }");
+    let Stmt::FuncDef(func) = expect_single_stmt(&program) else {
+        panic!("expected FuncDef");
+    };
+    assert_eq!(func.doc.as_deref(), Some(" Line one\n Line two"));
+
+    // on structs
+    let program = parse("/// A point in 2D space\nstruct Point { x: i64, y: i64 }");
+    let Stmt::StructDecl(decl) = expect_single_stmt(&program) else {
+        panic!("expected StructDecl");
+    };
+    assert_eq!(decl.doc.as_deref(), Some(" A point in 2D space"));
+    assert_eq!(decl.name, "Point");
+
+    // on enums
+    let program = parse("/// Represents a color\nenum Color { Red, Green, Blue }");
+    let Stmt::EnumDecl(decl) = expect_single_stmt(&program) else {
+        panic!("expected EnumDecl");
+    };
+    assert_eq!(decl.doc.as_deref(), Some(" Represents a color"));
+
+    // on traits
+    let program = parse("/// A printable trait\ntrait Display { fn display(self) -> str; }");
+    let Stmt::TraitDecl(decl) = expect_single_stmt(&program) else {
+        panic!("expected TraitDecl");
+    };
+    assert_eq!(decl.doc.as_deref(), Some(" A printable trait"));
+
+    // no doc comment
+    let program = parse("fn bare() { 1 }");
+    let Stmt::FuncDef(func) = expect_single_stmt(&program) else {
+        panic!("expected FuncDef");
+    };
+    assert!(func.doc.is_none());
+
+    // regular comment
+    let program = parse("// just a comment\nfn bare() { 1 }");
+    let Stmt::FuncDef(func) = expect_single_stmt(&program) else {
+        panic!("expected FuncDef");
+    };
+    assert!(
+        func.doc.is_none(),
+        "regular comments should not become doc comments"
+    );
+}
+
+#[test]
+fn reserved_type_names() {
+    let cases = [
+        ("struct Option { x: i64 }", "Option"),
+        ("struct Result { x: i64 }", "Result"),
+        ("struct Vector { x: i64 }", "Vector"),
+        ("struct bool { x: i64 }", "bool"),
+        ("enum i64 { A, B }", "i64"),
+        ("enum Map { A, B }", "Map"),
+        ("trait str {}", "str"),
+        ("trait ParseIntError {}", "ParseIntError"),
+    ];
+    for (input, name) in cases {
+        let errs = maat_tests::parse_errors(input);
+        assert!(
+            errs.iter().any(|e| e.contains("reserved type name")),
+            "{name}: expected reserved type name error, got: {errs:?}"
+        );
+    }
+    // Valid user-defined types must still parse successfully.
+    let _ = parse("struct Foo { x: i64 }");
+    let _ = parse("enum Color { Red, Green }");
+    let _ = parse("trait Drawable {}");
+}
+
+#[test]
+fn reserved_keywords() {
+    let keyword_cases = [
+        ("let type = 5;", "type", "let binding"),
+        ("let const = 5;", "const", "let binding"),
+        ("let async = 5;", "async", "let binding"),
+        ("let static = true;", "static", "let binding"),
+        ("let yield = 1;", "yield", "let binding"),
+        ("fn type() { 1 }", "type", "function name"),
+        ("fn const() { 1 }", "const", "function name"),
+        ("fn await() { 1 }", "await", "function name"),
+        ("struct Foo { type: i64 }", "type", "struct field"),
+        ("struct Foo { static: bool }", "static", "struct field"),
+        ("for type in 0..5 { 1; }", "type", "for-loop variable"),
+        (
+            "fn foo(type: i64) -> i64 { type }",
+            "type",
+            "function parameter",
+        ),
+    ];
+    for (input, kw, ctx) in keyword_cases {
+        let errs = maat_tests::parse_errors(input);
+        assert!(
+            errs.iter().any(|e| e.contains("reserved keyword")),
+            "`{kw}` in {ctx}: expected reserved keyword error, got: {errs:?}"
+        );
+    }
+    // Valid identifiers must still work.
+    let _ = parse("let x = 5;");
+    let _ = parse("fn foo() { 1 }");
+    let _ = parse("for i in 0..5 { 1; }");
 }

@@ -1,0 +1,2 @@
+// Set<T> methods are available directly via method syntax on Set values.
+// Construction: Set::new(), then s.insert(value), s.contains(value), etc.

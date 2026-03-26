@@ -3,16 +3,16 @@
 use libfuzzer_sys::fuzz_target;
 use maat_ast::Node;
 use maat_codegen::Compiler;
-use maat_lexer::Lexer;
-use maat_parser::Parser;
+use maat_lexer::MaatLexer;
+use maat_parser::MaatParser;
 use maat_types::TypeChecker;
 
 fuzz_target!(|data: &[u8]| {
     let Ok(source) = std::str::from_utf8(data) else {
         return;
     };
-    let lexer = Lexer::new(source);
-    let mut parser = Parser::new(lexer);
+    let lexer = MaatLexer::new(source);
+    let mut parser = MaatParser::new(lexer);
     let mut program = parser.parse();
     if !parser.errors().is_empty() {
         return;

@@ -1,16 +1,21 @@
 // Structs, methods, enums, Option/Result, match, and traits.
 
-// Struct with methods
+/// A two-dimensional vector with integer components.
 struct Vec2 {
+    /// The horizontal component.
     x: i64,
+    /// The vertical component.
     y: i64,
 }
 
+/// Methods for two-dimensional vector arithmetic.
 impl Vec2 {
+    /// Returns the squared Euclidean magnitude.
     fn magnitude_squared(self) -> i64 {
         self.x * self.x + self.y * self.y
     }
 
+    /// Returns the component-wise sum of two vectors.
     fn add(self, other: Vec2) -> Vec2 {
         Vec2 {
             x: self.x + other.x,
@@ -18,6 +23,7 @@ impl Vec2 {
         }
     }
 
+    /// Multiplies each component by the given scalar.
     fn scale(self, factor: i64) -> Vec2 {
         Vec2 {
             x: self.x * factor,
@@ -29,21 +35,25 @@ impl Vec2 {
 let v1 = Vec2 { x: 3, y: 4 };
 let v2 = Vec2 { x: 1, y: 2 };
 let v3 = v1.add(v2);
-print(v3.x);
-print(v3.y);
-print(v1.magnitude_squared());
+println!("{}", v3.x);
+println!("{}", v3.y);
+println!("{}", v1.magnitude_squared());
 
 let scaled = v1.scale(3);
-print(scaled.x);
-print(scaled.y);
+println!("{}", scaled.x);
+println!("{}", scaled.y);
 
-// Enum with tuple variants
+/// A geometric shape.
 enum Shape {
+    /// A circle defined by its radius.
     Circle(i64),
+    /// A rectangle defined by width and height.
     Rect(i64, i64),
+    /// A triangle defined by three side lengths.
     Triangle(i64, i64, i64),
 }
 
+/// Computes the perimeter of a shape.
 fn perimeter(s: Shape) -> i64 {
     match s {
         Circle(r) => 2 * 314 * r / 100,
@@ -52,13 +62,13 @@ fn perimeter(s: Shape) -> i64 {
     }
 }
 
-print(perimeter(Shape::Circle(10)));
-print(perimeter(Shape::Rect(5, 8)));
-print(perimeter(Shape::Triangle(3, 4, 5)));
+println!("{}", perimeter(Shape::Circle(10)));
+println!("{}", perimeter(Shape::Rect(5, 8)));
+println!("{}", perimeter(Shape::Triangle(3, 4, 5)));
 
 // Option: safe division
 fn safe_div(a: i64, b: i64) -> Option<i64> {
-    if (b == 0) {
+    if b == 0 {
         None
     } else {
         Some(a / b)
@@ -67,24 +77,24 @@ fn safe_div(a: i64, b: i64) -> Option<i64> {
 
 let r1 = safe_div(100, 7);
 let r2 = safe_div(100, 0);
-print(match r1 { Some(v) => v, None => -1 });
-print(match r2 { Some(v) => v, None => -1 });
+println!("{}", match r1 { Some(v) => v, None => -1 });
+println!("{}", match r2 { Some(v) => v, None => -1 });
 
 // Result: checked square root (integer)
 fn isqrt(n: i64) -> Result<i64, str> {
-    if (n < 0) {
+    if n < 0 {
         Err("negative input")
     } else {
         let mut guess: i64 = 0;
-        while ((guess + 1) * (guess + 1) <= n) {
+        while (guess + 1) * (guess + 1) <= n {
             guess += 1;
         }
         Ok(guess)
     }
 }
 
-print(match isqrt(144) { Ok(v) => v, Err(e) => -1 });
-print(match isqrt(-4) { Ok(v) => v, Err(e) => -1 });
+println!("{}", match isqrt(144) { Ok(v) => v, Err(e) => -1 });
+println!("{}", match isqrt(-4) { Ok(v) => v, Err(e) => -1 });
 
 // Chained Option matching
 fn add_opt(a: Option<i64>, b: Option<i64>) -> Option<i64> {
@@ -97,30 +107,38 @@ fn add_opt(a: Option<i64>, b: Option<i64>) -> Option<i64> {
     }
 }
 
-print(match add_opt(Some(10), Some(20)) { Some(v) => v, None => -1 });
-print(match add_opt(Some(10), None) { Some(v) => v, None => -1 });
+println!("{}", match add_opt(Some(10), Some(20)) { Some(v) => v, None => -1 });
+println!("{}", match add_opt(Some(10), None) { Some(v) => v, None => -1 });
 
-// Trait definition and implementation
+/// A trait for types that can produce a numeric description.
 trait Describable {
+    /// Returns a numeric descriptor (e.g., area) for this value.
     fn describe(self) -> i64;
 }
 
+/// A circle defined by its radius.
 struct Circle {
+    /// The radius of the circle.
     radius: i64,
 }
 
+/// A rectangle defined by width and height.
 struct Rectangle {
+    /// The horizontal extent.
     width: i64,
+    /// The vertical extent.
     height: i64,
 }
 
 impl Describable for Circle {
+    /// Returns the approximate area (314 * r^2 / 100).
     fn describe(self) -> i64 {
         self.radius * self.radius * 314 / 100
     }
 }
 
 impl Describable for Rectangle {
+    /// Returns the area (width * height).
     fn describe(self) -> i64 {
         self.width * self.height
     }
@@ -128,5 +146,5 @@ impl Describable for Rectangle {
 
 let c = Circle { radius: 5 };
 let r = Rectangle { width: 6, height: 8 };
-print(c.describe());
-print(r.describe());
+println!("{}", c.describe());
+println!("{}", r.describe());

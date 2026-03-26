@@ -1,4 +1,4 @@
-use maat_runtime::Object;
+use maat_runtime::{Integer, Value};
 use maat_types::TypeChecker;
 use maat_vm::VM;
 
@@ -21,28 +21,28 @@ fn run_vm_test(input: &str, expected: TestValue) {
         .clone();
     match expected {
         TestValue::I64(expected_val) => match stack_elem {
-            Object::I64(val) => assert_eq!(
+            Value::Integer(Integer::I64(val)) => assert_eq!(
                 val, expected_val,
                 "wrong value for input: {input}\n  got: {val}\n  want: {expected_val}"
             ),
             _ => panic!("expected I64, got: {stack_elem:?} for input: {input}"),
         },
         TestValue::I16(expected_val) => match stack_elem {
-            Object::I16(val) => assert_eq!(
+            Value::Integer(Integer::I16(val)) => assert_eq!(
                 val, expected_val,
                 "wrong value for input: {input}\n  got: {val}\n  want: {expected_val}"
             ),
             _ => panic!("expected I16, got: {stack_elem:?} for input: {input}"),
         },
         TestValue::U8(expected_val) => match stack_elem {
-            Object::U8(val) => assert_eq!(
+            Value::Integer(Integer::U8(val)) => assert_eq!(
                 val, expected_val,
                 "wrong value for input: {input}\n  got: {val}\n  want: {expected_val}"
             ),
             _ => panic!("expected U8, got: {stack_elem:?} for input: {input}"),
         },
         TestValue::Bool(expected_val) => match stack_elem {
-            Object::Bool(val) => assert_eq!(
+            Value::Bool(val) => assert_eq!(
                 val, expected_val,
                 "wrong value for input: {input}\n  got: {val}\n  want: {expected_val}"
             ),
@@ -123,21 +123,21 @@ fn constant_folding() {
         bytecode.constants.len()
     );
     match &bytecode.constants[0] {
-        Object::I64(val) => assert_eq!(*val, 3),
+        Value::Integer(Integer::I64(val)) => assert_eq!(*val, 3),
         other => panic!("expected I64(3), got: {other:?}"),
     }
     // Nested addition
     let bytecode = maat_tests::compile("1 + 2 + 3");
     assert_eq!(bytecode.constants.len(), 1);
     match &bytecode.constants[0] {
-        Object::I64(val) => assert_eq!(*val, 6),
+        Value::Integer(Integer::I64(val)) => assert_eq!(*val, 6),
         other => panic!("expected I64(6), got: {other:?}"),
     }
     // Multiplication
     let bytecode = maat_tests::compile("3 * 7");
     assert_eq!(bytecode.constants.len(), 1);
     match &bytecode.constants[0] {
-        Object::I64(val) => assert_eq!(*val, 21),
+        Value::Integer(Integer::I64(val)) => assert_eq!(*val, 21),
         other => panic!("expected I64(21), got: {other:?}"),
     }
     // Boolean comparison
@@ -145,14 +145,16 @@ fn constant_folding() {
     let mut vm = VM::new(bytecode);
     vm.run().expect("vm error");
     let result = vm.last_popped_stack_elem().expect("no value").clone();
-    assert_eq!(result, Object::Bool(true));
+    assert_eq!(result, Value::Bool(true));
 }
 
 #[test]
 fn numeric_promotion_i8_to_i16() {
-    run_vm_test(
-        "let x: i8 = 5i8; let y: i16 = 10i16; x + y",
-        TestValue::I16(15),
+    let errs = maat_tests::compile_type_errors("let x = 5i8; let y = 10i16; x + y");
+    assert!(!errs.is_empty(), "expected type error for i8 + i16");
+    assert!(
+        errs.iter().any(|e| e.contains("i8") || e.contains("i16")),
+        "error should mention mismatched types: {errs:?}"
     );
 }
 
@@ -329,7 +331,7 @@ fn builtin_type_methods() {
     assert_no_type_errors("[1, 2, 3].len();");
     assert_no_type_errors("[1, 2, 3].first();");
     assert_no_type_errors("[1, 2, 3].last();");
-    assert_no_type_errors("[1, 2, 3].rest();");
+    assert_no_type_errors("[1, 2, 3].split_first();");
     assert_no_type_errors("[1, 2, 3].push(4);");
     assert_no_type_errors(r#""hello".len();"#);
 
@@ -349,14 +351,36 @@ fn builtin_type_methods() {
         "#,
     );
     // Method chaining
-    assert_no_type_errors("[1, 2, 3].rest().first();");
+    assert_no_type_errors("[1, 2, 3].split_first().first();");
     assert_no_type_errors("[1, 2].push(3).len();");
     assert_no_type_errors(
         r#"
         let nums = [10, 20, 30];
         let strs = ["a", "b", "c"];
-        let n = nums.rest().len();
-        let s = strs.rest().first();
+        let n = nums.split_first().len();
+        let s = strs.split_first().first();
         "#,
+    );
+}
+
+#[test]
+fn from_conversion_rejects_narrowing() {
+    let errors = maat_tests::compile_type_errors("let x: i64 = 42; i16::from(x)");
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("safely convertible") || e.contains("mismatch")),
+        "expected rejection of i64->i16 narrowing, got: {errors:?}"
+    );
+}
+
+#[test]
+fn from_conversion_rejects_unsigned_to_same_width_signed() {
+    let errors = maat_tests::compile_type_errors("let x: u16 = 1000; i16::from(x)");
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("safely convertible") || e.contains("mismatch")),
+        "expected rejection of u16->i16, got: {errors:?}"
     );
 }

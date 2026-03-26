@@ -1,17 +1,12 @@
 use std::hint::black_box;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use maat_ast::Node;
-use maat_ast::fold::fold_constants;
+use maat_ast::{Node, fold_constants};
 use maat_bytecode::Bytecode;
 use maat_codegen::Compiler;
-use maat_lexer::{Lexer, TokenKind};
-use maat_parser::Parser;
-use maat_tests::benchmark_programs::{
-    ARITHMETIC_BASELINE, ARRAY_SOURCE, BITWISE_SOURCE, CLOSURE_SOURCE, EMPTY_PROGRAM,
-    ENUM_MATCH_SOURCE, METHOD_DISPATCH_SOURCE, OPTION_SOURCE, RANGE_LOOP_10, RANGE_LOOP_100,
-    RANGE_LOOP_1000, STRING_SOURCE, STRUCT_SOURCE, WHILE_LOOP_1000, fib_source,
-};
+use maat_lexer::{MaatLexer, TokenKind};
+use maat_parser::MaatParser;
+use maat_tests::benchmark_programs::*;
 use maat_tests::compile;
 use maat_types::TypeChecker;
 use maat_vm::VM;
@@ -37,7 +32,7 @@ fn run_vm(source: &str) {
 }
 
 fn lex_all(source: &str) {
-    let mut lexer = Lexer::new(black_box(source));
+    let mut lexer = MaatLexer::new(black_box(source));
     loop {
         let tok = lexer.next_token();
         if tok.kind == TokenKind::Eof {
@@ -47,23 +42,23 @@ fn lex_all(source: &str) {
 }
 
 fn parse_source(source: &str) {
-    let lexer = Lexer::new(black_box(source));
-    let mut parser = Parser::new(lexer);
+    let lexer = MaatLexer::new(black_box(source));
+    let mut parser = MaatParser::new(lexer);
     let program = parser.parse();
     black_box(program);
 }
 
 fn typecheck_source(source: &str) {
-    let lexer = Lexer::new(source);
-    let mut parser = Parser::new(lexer);
+    let lexer = MaatLexer::new(source);
+    let mut parser = MaatParser::new(lexer);
     let mut program = parser.parse();
     let errors = TypeChecker::new().check_program(&mut program);
     black_box(errors);
 }
 
 fn check_and_compile(source: &str) {
-    let lexer = Lexer::new(source);
-    let mut parser = Parser::new(lexer);
+    let lexer = MaatLexer::new(source);
+    let mut parser = MaatParser::new(lexer);
     let mut program = parser.parse();
     let _ = TypeChecker::new().check_program(&mut program);
     let _ = fold_constants(&mut program);
@@ -123,9 +118,9 @@ fn bench_closures(c: &mut Criterion) {
     });
 }
 
-fn bench_array_iteration(c: &mut Criterion) {
-    c.bench_function("array_iteration/vm", |b| {
-        b.iter(|| run_vm(ARRAY_SOURCE));
+fn bench_vector_iteration(c: &mut Criterion) {
+    c.bench_function("vector_iteration/vm", |b| {
+        b.iter(|| run_vm(VECTOR_SOURCE));
     });
 }
 
@@ -275,7 +270,7 @@ criterion_group! {
 criterion_group!(
     feature_benches,
     bench_closures,
-    bench_array_iteration,
+    bench_vector_iteration,
     bench_string_operations,
     bench_struct_method,
     bench_enum_match,

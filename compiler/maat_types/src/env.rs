@@ -1,6 +1,7 @@
 //! Type environment for tracking variable bindings during type inference.
 
 use std::collections::HashSet;
+use std::rc::Rc;
 
 use indexmap::IndexMap;
 use maat_ast::{NamedType, TypeExpr};
@@ -16,21 +17,16 @@ use crate::{
 struct BuiltinMethodScheme {
     /// Type variables universally quantified in this method.
     forall: Vec<TypeVarId>,
-    /// The self-type pattern (e.g., `[?T0]` for array methods).
+    /// The self-type pattern (e.g., `[?T0]` for vector methods).
     self_type: Type,
     /// The method's function type (parameters exclude `self`).
     fn_type: Type,
 }
 
 /// Lexically scoped type environment.
-///
-/// Maintains a stack of scopes, each mapping variable names to their type
-/// schemes. The innermost scope is checked first during lookups, supporting
-/// shadowing. Stores `TypeScheme` rather than raw `Type` to enable
-/// let-polymorphism: generalized bindings are instantiated with fresh
-/// variables at each use site.
 pub struct TypeEnv {
-    scopes: Vec<IndexMap<String, TypeScheme>>,
+    bindings: Vec<(String, TypeScheme)>,
+    scope_starts: Vec<usize>,
     next_var: TypeVarId,
     structs: IndexMap<String, StructDef>,
     enums: IndexMap<String, EnumDef>,
@@ -49,7 +45,8 @@ impl TypeEnv {
     /// Creates a new type environment with a single empty scope.
     pub fn new() -> Self {
         Self {
-            scopes: vec![IndexMap::new()],
+            bindings: Vec::new(),
+            scope_starts: vec![0],
             next_var: 0,
             structs: IndexMap::new(),
             enums: IndexMap::new(),
@@ -68,25 +65,169 @@ impl TypeEnv {
     pub fn register_builtins(&mut self) {
         self.register_builtin_methods();
         self.register_builtin_enums();
+        self.register_option_result_methods();
         self.register_builtin_ctors();
+        self.register_numeric_conversions();
+        self.register_default_fns();
+        self.register_cmp_builtins();
     }
 
     /// Registers constructor functions and opaque types for built-in types.
     fn register_builtin_ctors(&mut self) {
-        self.register_struct(StructDef {
-            name: "Set".to_string(),
-            generic_params: vec![],
-            fields: vec![],
-        });
+        // Vector::new() -> Vector<T> (i.e., [T])
+        let vec_t_id = self.next_var;
+        self.next_var += 1;
+        let vec_ty = Type::Vector(Box::new(Type::Var(vec_t_id)));
+        self.define_scheme(
+            "Vector::new",
+            TypeScheme {
+                forall: vec![vec_t_id],
+                ty: Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(vec_ty),
+                }),
+            },
+        );
 
-        // Set::new() -> Set
-        let set_ty = Type::Struct("Set".to_string(), vec![]);
+        // Set::new() -> Set<T>
+        let set_t_id = self.next_var;
+        self.next_var += 1;
+        let set_ty = Type::Set(Box::new(Type::Var(set_t_id)));
         self.define_scheme(
             "Set::new",
-            TypeScheme::monomorphic(Type::Function(FnType {
-                params: vec![],
-                ret: Box::new(set_ty),
-            })),
+            TypeScheme {
+                forall: vec![set_t_id],
+                ty: Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(set_ty),
+                }),
+            },
+        );
+
+        // Map::new() -> Map<K, V>
+        let map_k_id = self.next_var;
+        self.next_var += 1;
+        let map_v_id = self.next_var;
+        self.next_var += 1;
+        let map_ty = Type::Map(Box::new(Type::Var(map_k_id)), Box::new(Type::Var(map_v_id)));
+        self.define_scheme(
+            "Map::new",
+            TypeScheme {
+                forall: vec![map_k_id, map_v_id],
+                ty: Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(map_ty),
+                }),
+            },
+        );
+    }
+
+    /// Registers lossless numeric widening conversions as associated functions.
+    ///
+    /// Each conversion is registered as `Target::from(Source) -> Target`,
+    /// following Rust's `From` trait pattern. Only safe (lossless) widenings
+    /// are provided; lossy narrowing conversions remain explicit `as` casts.
+    fn register_numeric_conversions(&mut self) {
+        let targets: &[(&str, Type)] = &[
+            ("i16::from", Type::I16),
+            ("i32::from", Type::I32),
+            ("i64::from", Type::I64),
+            ("i128::from", Type::I128),
+            ("u16::from", Type::U16),
+            ("u32::from", Type::U32),
+            ("u64::from", Type::U64),
+            ("u128::from", Type::U128),
+        ];
+        for &(name, ref ret) in targets {
+            let param_id = self.next_var;
+            self.next_var += 1;
+            self.define_scheme(
+                name,
+                TypeScheme {
+                    forall: vec![param_id],
+                    ty: Type::Function(FnType {
+                        params: vec![Type::Var(param_id)],
+                        ret: Box::new(ret.clone()),
+                    }),
+                },
+            );
+        }
+    }
+
+    /// Registers `Type::default()` associated functions for primitive types.
+    ///
+    /// Returns the zero value for numeric types, `false` for `bool`,
+    /// and `""` for `str`.
+    fn register_default_fns(&mut self) {
+        let defaults: &[(&str, Type)] = &[
+            ("i8::default", Type::I8),
+            ("i16::default", Type::I16),
+            ("i32::default", Type::I32),
+            ("i64::default", Type::I64),
+            ("i128::default", Type::I128),
+            ("u8::default", Type::U8),
+            ("u16::default", Type::U16),
+            ("u32::default", Type::U32),
+            ("u64::default", Type::U64),
+            ("u128::default", Type::U128),
+            ("usize::default", Type::Usize),
+            ("isize::default", Type::Isize),
+            ("bool::default", Type::Bool),
+            ("str::default", Type::Str),
+        ];
+        for &(name, ref ret) in defaults {
+            self.define_scheme(
+                name,
+                TypeScheme {
+                    forall: vec![],
+                    ty: Type::Function(FnType {
+                        params: vec![],
+                        ret: Box::new(ret.clone()),
+                    }),
+                },
+            );
+        }
+    }
+
+    /// Registers polymorphic comparison utility functions.
+    ///
+    /// `min` and `max` accept two values of the same integer type and return
+    /// the lesser or greater. `clamp` restricts a value to a `[min, max]` range.
+    fn register_cmp_builtins(&mut self) {
+        let t_id = self.next_var;
+        self.next_var += 1;
+        let t = Type::Var(t_id);
+        let forall = vec![t_id];
+
+        self.define_scheme(
+            "cmp::min",
+            TypeScheme {
+                forall: forall.clone(),
+                ty: Type::Function(FnType {
+                    params: vec![t.clone(), t.clone()],
+                    ret: Box::new(t.clone()),
+                }),
+            },
+        );
+        self.define_scheme(
+            "cmp::max",
+            TypeScheme {
+                forall: forall.clone(),
+                ty: Type::Function(FnType {
+                    params: vec![t.clone(), t.clone()],
+                    ret: Box::new(t.clone()),
+                }),
+            },
+        );
+        self.define_scheme(
+            "cmp::clamp",
+            TypeScheme {
+                forall,
+                ty: Type::Function(FnType {
+                    params: vec![t.clone(), t.clone(), t.clone()],
+                    ret: Box::new(t),
+                }),
+            },
         );
     }
 
@@ -95,59 +236,134 @@ impl TypeEnv {
         let elem_id = self.next_var;
         self.next_var += 1;
         let elem = Type::Var(elem_id);
-        let array_ty = Type::Array(Box::new(elem.clone()));
+        let vector_ty = Type::Vector(Box::new(elem.clone()));
         let forall = vec![elem_id];
-        // impl [T]
-        let array_methods = [
+        // impl Vector<T>
+        let vec_methods = [
             (
-                "Array::len",
+                "Vector::len",
                 Type::Function(FnType {
                     params: vec![],
                     ret: Box::new(Type::Usize),
                 }),
             ),
             (
-                "Array::first",
+                "Vector::first",
                 Type::Function(FnType {
                     params: vec![],
-                    ret: Box::new(elem.clone()),
+                    ret: Box::new(Type::Enum(Rc::from("Option"), vec![elem.clone()])),
                 }),
             ),
             (
-                "Array::last",
+                "Vector::last",
                 Type::Function(FnType {
                     params: vec![],
-                    ret: Box::new(elem.clone()),
+                    ret: Box::new(Type::Enum(Rc::from("Option"), vec![elem.clone()])),
                 }),
             ),
             (
-                "Array::rest",
+                "Vector::split_first",
                 Type::Function(FnType {
                     params: vec![],
-                    ret: Box::new(array_ty.clone()),
+                    ret: Box::new(vector_ty.clone()),
                 }),
             ),
             (
-                "Array::push",
+                "Vector::push",
                 Type::Function(FnType {
                     params: vec![elem],
-                    ret: Box::new(array_ty.clone()),
+                    ret: Box::new(vector_ty.clone()),
                 }),
             ),
             (
-                "Array::join",
+                "Vector::join",
                 Type::Function(FnType {
-                    params: vec![Type::String],
-                    ret: Box::new(Type::String),
+                    params: vec![Type::Str],
+                    ret: Box::new(Type::Str),
                 }),
             ),
         ];
-        for (name, fn_type) in array_methods {
+        for (name, fn_type) in vec_methods {
             self.builtin_method_schemes.insert(
                 name.to_string(),
                 BuiltinMethodScheme {
                     forall: forall.clone(),
-                    self_type: array_ty.clone(),
+                    self_type: vector_ty.clone(),
+                    fn_type,
+                },
+            );
+        }
+        // Higher-order Vector<T> methods requiring an additional type variable.
+        let out_id = self.next_var;
+        self.next_var += 1;
+        let out = Type::Var(out_id);
+        let vector_out = Type::Vector(Box::new(out.clone()));
+        let vec_ho_methods: Vec<(&str, Vec<TypeVarId>, Type)> = vec![
+            (
+                "Vector::map",
+                vec![elem_id, out_id],
+                Type::Function(FnType {
+                    params: vec![Type::Function(FnType {
+                        params: vec![Type::Var(elem_id)],
+                        ret: Box::new(out.clone()),
+                    })],
+                    ret: Box::new(vector_out),
+                }),
+            ),
+            (
+                "Vector::filter",
+                forall.clone(),
+                Type::Function(FnType {
+                    params: vec![Type::Function(FnType {
+                        params: vec![Type::Var(elem_id)],
+                        ret: Box::new(Type::Bool),
+                    })],
+                    ret: Box::new(vector_ty.clone()),
+                }),
+            ),
+            (
+                "Vector::fold",
+                vec![elem_id, out_id],
+                Type::Function(FnType {
+                    params: vec![
+                        out.clone(),
+                        Type::Function(FnType {
+                            params: vec![out.clone(), Type::Var(elem_id)],
+                            ret: Box::new(out),
+                        }),
+                    ],
+                    ret: Box::new(Type::Var(out_id)),
+                }),
+            ),
+            (
+                "Vector::any",
+                forall.clone(),
+                Type::Function(FnType {
+                    params: vec![Type::Function(FnType {
+                        params: vec![Type::Var(elem_id)],
+                        ret: Box::new(Type::Bool),
+                    })],
+                    ret: Box::new(Type::Bool),
+                }),
+            ),
+            (
+                "Vector::all",
+                forall.clone(),
+                Type::Function(FnType {
+                    params: vec![Type::Function(FnType {
+                        params: vec![Type::Var(elem_id)],
+                        ret: Box::new(Type::Bool),
+                    })],
+                    ret: Box::new(Type::Bool),
+                }),
+            ),
+        ];
+        for (name, ho_forall, fn_type) in vec_ho_methods {
+            self.builtin_method_schemes.insert(
+                name.to_string(),
+                BuiltinMethodScheme {
+                    forall: ho_forall,
+                    self_type: vector_ty.clone(),
                     fn_type,
                 },
             );
@@ -165,60 +381,116 @@ impl TypeEnv {
                 "str::trim",
                 Type::Function(FnType {
                     params: vec![],
-                    ret: Box::new(Type::String),
+                    ret: Box::new(Type::Str),
                 }),
             ),
             (
                 "str::contains",
                 Type::Function(FnType {
-                    params: vec![Type::String],
+                    params: vec![Type::Str],
                     ret: Box::new(Type::Bool),
                 }),
             ),
             (
                 "str::starts_with",
                 Type::Function(FnType {
-                    params: vec![Type::String],
+                    params: vec![Type::Str],
                     ret: Box::new(Type::Bool),
                 }),
             ),
             (
                 "str::ends_with",
                 Type::Function(FnType {
-                    params: vec![Type::String],
+                    params: vec![Type::Str],
                     ret: Box::new(Type::Bool),
                 }),
             ),
             (
                 "str::split",
                 Type::Function(FnType {
-                    params: vec![Type::String],
-                    ret: Box::new(Type::Array(Box::new(Type::String))),
-                }),
-            ),
-            (
-                "str::parse_int",
-                Type::Function(FnType {
-                    params: vec![],
-                    ret: Box::new(Type::I64),
+                    params: vec![Type::Str],
+                    ret: Box::new(Type::Vector(Box::new(Type::Str))),
                 }),
             ),
         ];
-        for (name, fn_type) in str_methods {
+        let parse_error_ty = Type::Enum(Rc::from("ParseIntError"), vec![]);
+        let parse_result = |int_ty: Type| -> Type {
+            Type::Enum(Rc::from("Result"), vec![int_ty, parse_error_ty.clone()])
+        };
+        let parse_methods: [(&str, Type); 12] = [
+            ("str::parse_int", parse_result(Type::I64)),
+            ("str::parse_i8", parse_result(Type::I8)),
+            ("str::parse_i16", parse_result(Type::I16)),
+            ("str::parse_i32", parse_result(Type::I32)),
+            ("str::parse_i64", parse_result(Type::I64)),
+            ("str::parse_i128", parse_result(Type::I128)),
+            ("str::parse_u8", parse_result(Type::U8)),
+            ("str::parse_u16", parse_result(Type::U16)),
+            ("str::parse_u32", parse_result(Type::U32)),
+            ("str::parse_u64", parse_result(Type::U64)),
+            ("str::parse_u128", parse_result(Type::U128)),
+            ("str::parse_usize", parse_result(Type::Usize)),
+        ];
+        let all_str_methods = str_methods
+            .into_iter()
+            .chain(parse_methods.map(|(name, ret)| {
+                (
+                    name,
+                    Type::Function(FnType {
+                        params: vec![],
+                        ret: Box::new(ret),
+                    }),
+                )
+            }));
+        for (name, fn_type) in all_str_methods {
             self.builtin_method_schemes.insert(
                 name.to_string(),
                 BuiltinMethodScheme {
                     forall: vec![],
-                    self_type: Type::String,
+                    self_type: Type::Str,
                     fn_type,
                 },
             );
         }
-        // impl Set
-        let set_ty = Type::Struct("Set".to_string(), vec![]);
+        // impl char
+        let char_methods: [(&str, Type); 3] = [
+            (
+                "char::is_alphabetic",
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Bool),
+                }),
+            ),
+            (
+                "char::is_numeric",
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Bool),
+                }),
+            ),
+            (
+                "char::to_string",
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Str),
+                }),
+            ),
+        ];
+        for (name, fn_type) in char_methods {
+            self.builtin_method_schemes.insert(
+                name.to_string(),
+                BuiltinMethodScheme {
+                    forall: vec![],
+                    self_type: Type::Char,
+                    fn_type,
+                },
+            );
+        }
+        // impl Set<T>
         let set_elem_id = self.next_var;
         self.next_var += 1;
         let set_elem = Type::Var(set_elem_id);
+        let set_ty = Type::Set(Box::new(set_elem.clone()));
         let set_forall = vec![set_elem_id];
         let set_methods = [
             (
@@ -241,24 +513,24 @@ impl TypeEnv {
                 "Set::remove",
                 set_forall.clone(),
                 Type::Function(FnType {
-                    params: vec![set_elem],
+                    params: vec![set_elem.clone()],
                     ret: Box::new(set_ty.clone()),
                 }),
             ),
             (
                 "Set::len",
-                vec![],
+                set_forall.clone(),
                 Type::Function(FnType {
                     params: vec![],
                     ret: Box::new(Type::Usize),
                 }),
             ),
             (
-                "Set::to_array",
-                vec![],
+                "Set::to_vector",
+                set_forall.clone(),
                 Type::Function(FnType {
                     params: vec![],
-                    ret: Box::new(Type::Array(Box::new(Type::Var(set_elem_id)))),
+                    ret: Box::new(Type::Vector(Box::new(set_elem))),
                 }),
             ),
         ];
@@ -272,9 +544,251 @@ impl TypeEnv {
                 },
             );
         }
+        // impl Map<K, V>
+        let map_k_id = self.next_var;
+        self.next_var += 1;
+        let map_v_id = self.next_var;
+        self.next_var += 1;
+        let map_k = Type::Var(map_k_id);
+        let map_v = Type::Var(map_v_id);
+        let map_ty = Type::Map(Box::new(map_k.clone()), Box::new(map_v.clone()));
+        let map_forall = vec![map_k_id, map_v_id];
+        let map_methods = [
+            (
+                "Map::insert",
+                map_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![map_k.clone(), map_v.clone()],
+                    ret: Box::new(map_ty.clone()),
+                }),
+            ),
+            (
+                "Map::get",
+                map_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![map_k.clone()],
+                    ret: Box::new(Type::Enum(Rc::from("Option"), vec![map_v])),
+                }),
+            ),
+            (
+                "Map::contains_key",
+                map_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![map_k.clone()],
+                    ret: Box::new(Type::Bool),
+                }),
+            ),
+            (
+                "Map::remove",
+                map_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![map_k.clone()],
+                    ret: Box::new(map_ty.clone()),
+                }),
+            ),
+            (
+                "Map::len",
+                vec![],
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Usize),
+                }),
+            ),
+            (
+                "Map::keys",
+                map_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Vector(Box::new(map_k))),
+                }),
+            ),
+            (
+                "Map::values",
+                map_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Vector(Box::new(Type::Var(map_v_id)))),
+                }),
+            ),
+        ];
+        for (name, forall, fn_type) in map_methods {
+            self.builtin_method_schemes.insert(
+                name.to_string(),
+                BuiltinMethodScheme {
+                    forall,
+                    self_type: map_ty.clone(),
+                    fn_type,
+                },
+            );
+        }
     }
 
-    /// Registers `Option<T>` and `Result<T, E>` as language-level enum types.
+    /// Registers inherent methods on `Option<T>` and `Result<T, E>`.
+    fn register_option_result_methods(&mut self) {
+        // impl Option<T>
+        let t_id = self.next_var;
+        self.next_var += 1;
+        let t = Type::Var(t_id);
+        let option_ty = Type::Enum(Rc::from("Option"), vec![t.clone()]);
+        let option_forall = vec![t_id];
+
+        let u_id = self.next_var;
+        self.next_var += 1;
+        let u = Type::Var(u_id);
+        let option_u = Type::Enum(Rc::from("Option"), vec![u.clone()]);
+
+        let option_methods: Vec<(&str, Vec<TypeVarId>, Type)> = vec![
+            (
+                "Option::unwrap",
+                option_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(t.clone()),
+                }),
+            ),
+            (
+                "Option::unwrap_or",
+                option_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![t.clone()],
+                    ret: Box::new(t.clone()),
+                }),
+            ),
+            (
+                "Option::is_some",
+                option_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Bool),
+                }),
+            ),
+            (
+                "Option::is_none",
+                option_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Bool),
+                }),
+            ),
+            (
+                "Option::map",
+                vec![t_id, u_id],
+                Type::Function(FnType {
+                    params: vec![Type::Function(FnType {
+                        params: vec![t.clone()],
+                        ret: Box::new(u.clone()),
+                    })],
+                    ret: Box::new(option_u.clone()),
+                }),
+            ),
+            (
+                "Option::and_then",
+                vec![t_id, u_id],
+                Type::Function(FnType {
+                    params: vec![Type::Function(FnType {
+                        params: vec![t.clone()],
+                        ret: Box::new(option_u.clone()),
+                    })],
+                    ret: Box::new(option_u),
+                }),
+            ),
+        ];
+        for (name, forall, fn_type) in option_methods {
+            self.builtin_method_schemes.insert(
+                name.to_string(),
+                BuiltinMethodScheme {
+                    forall,
+                    self_type: option_ty.clone(),
+                    fn_type,
+                },
+            );
+        }
+
+        // impl Result<T, E>
+        let rt_id = self.next_var;
+        self.next_var += 1;
+        let rt = Type::Var(rt_id);
+        let re_id = self.next_var;
+        self.next_var += 1;
+        let re = Type::Var(re_id);
+        let result_ty = Type::Enum(Rc::from("Result"), vec![rt.clone(), re.clone()]);
+        let result_forall = vec![rt_id, re_id];
+
+        let ru_id = self.next_var;
+        self.next_var += 1;
+        let ru = Type::Var(ru_id);
+        let result_u = Type::Enum(Rc::from("Result"), vec![ru.clone(), re.clone()]);
+
+        let result_methods: Vec<(&str, Vec<TypeVarId>, Type)> = vec![
+            (
+                "Result::unwrap",
+                result_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(rt.clone()),
+                }),
+            ),
+            (
+                "Result::unwrap_or",
+                result_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![rt.clone()],
+                    ret: Box::new(rt.clone()),
+                }),
+            ),
+            (
+                "Result::is_ok",
+                result_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Bool),
+                }),
+            ),
+            (
+                "Result::is_err",
+                result_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Bool),
+                }),
+            ),
+            (
+                "Result::map",
+                vec![rt_id, re_id, ru_id],
+                Type::Function(FnType {
+                    params: vec![Type::Function(FnType {
+                        params: vec![rt.clone()],
+                        ret: Box::new(ru.clone()),
+                    })],
+                    ret: Box::new(result_u.clone()),
+                }),
+            ),
+            (
+                "Result::and_then",
+                vec![rt_id, re_id, ru_id],
+                Type::Function(FnType {
+                    params: vec![Type::Function(FnType {
+                        params: vec![rt],
+                        ret: Box::new(result_u.clone()),
+                    })],
+                    ret: Box::new(result_u),
+                }),
+            ),
+        ];
+        for (name, forall, fn_type) in result_methods {
+            self.builtin_method_schemes.insert(
+                name.to_string(),
+                BuiltinMethodScheme {
+                    forall,
+                    self_type: result_ty.clone(),
+                    fn_type,
+                },
+            );
+        }
+    }
+
+    /// Registers `Option<T>`, `Result<T, E>`, and `ParseIntError` as
+    /// language-level enum types.
     fn register_builtin_enums(&mut self) {
         self.register_enum(EnumDef {
             name: "Option".to_string(),
@@ -282,7 +796,7 @@ impl TypeEnv {
             variants: vec![
                 VariantDef {
                     name: "Some".to_string(),
-                    kind: VariantKind::Tuple(vec![Type::Generic("T".to_string(), vec![])]),
+                    kind: VariantKind::Tuple(vec![Type::Generic(Rc::from("T"), vec![])]),
                 },
                 VariantDef {
                     name: "None".to_string(),
@@ -296,11 +810,29 @@ impl TypeEnv {
             variants: vec![
                 VariantDef {
                     name: "Ok".to_string(),
-                    kind: VariantKind::Tuple(vec![Type::Generic("T".to_string(), vec![])]),
+                    kind: VariantKind::Tuple(vec![Type::Generic(Rc::from("T"), vec![])]),
                 },
                 VariantDef {
                     name: "Err".to_string(),
-                    kind: VariantKind::Tuple(vec![Type::Generic("E".to_string(), vec![])]),
+                    kind: VariantKind::Tuple(vec![Type::Generic(Rc::from("E"), vec![])]),
+                },
+            ],
+        });
+        self.register_enum(EnumDef {
+            name: "ParseIntError".to_string(),
+            generic_params: vec![],
+            variants: vec![
+                VariantDef {
+                    name: "Empty".to_string(),
+                    kind: VariantKind::Unit,
+                },
+                VariantDef {
+                    name: "InvalidDigit".to_string(),
+                    kind: VariantKind::Unit,
+                },
+                VariantDef {
+                    name: "Overflow".to_string(),
+                    kind: VariantKind::Unit,
                 },
             ],
         });
@@ -382,7 +914,7 @@ impl TypeEnv {
         self.impls
             .iter()
             .filter(|imp| match &imp.self_type {
-                Type::Struct(n, _) | Type::Enum(n, _) => n == type_name,
+                Type::Struct(n, _) | Type::Enum(n, _) => n.as_ref() == type_name,
                 _ => false,
             })
             .find_map(|imp| {
@@ -398,7 +930,7 @@ impl TypeEnv {
     /// For polymorphic methods (e.g., `[T].first() -> T`), each call site
     /// receives fresh inference variables that are independent of all other
     /// call sites. This prevents the type pollution that would occur if a
-    /// single shared type variable were reused across different array element
+    /// single shared type variable were reused across different vector element
     /// types.
     ///
     /// Returns `(instantiated_self_type, instantiated_fn_type)` on success.
@@ -415,9 +947,13 @@ impl TypeEnv {
         subst: &Substitution,
     ) -> Option<(Type, Type)> {
         let prefix = match receiver {
-            Type::Array(_) => "Array",
-            Type::String => "str",
-            Type::Struct(name, _) if name == "Set" => "Set",
+            Type::Vector(_) => "Vector",
+            Type::Char => "char",
+            Type::Str => "str",
+            Type::Map(..) => "Map",
+            Type::Set(_) => "Set",
+            Type::Enum(name, _) if &**name == "Option" => "Option",
+            Type::Enum(name, _) if &**name == "Result" => "Result",
             _ => return None,
         };
         let key = format!("{prefix}::{method_name}");
@@ -458,7 +994,7 @@ impl TypeEnv {
     /// type registry to recognize user-defined struct and enum names.
     ///
     /// Falls back to [`resolve_type_expr`] for primitive and compound types.
-    pub fn resolve_type(&self, expr: &TypeExpr) -> Type {
+    pub fn resolve_type(&mut self, expr: &TypeExpr) -> Type {
         match expr {
             TypeExpr::Named(named) => self.resolve_named_type(&named.name),
             TypeExpr::Generic(name, args, _) => {
@@ -466,12 +1002,23 @@ impl TypeEnv {
                     .iter()
                     .map(|a| self.resolve_type(a))
                     .collect::<Vec<Type>>();
-                if self.structs.contains_key(name) {
-                    Type::Struct(name.clone(), resolved_args)
+                if name == "Vector" {
+                    let elem = resolved_args
+                        .into_iter()
+                        .next()
+                        .unwrap_or_else(|| self.fresh_var());
+                    Type::Vector(Box::new(elem))
+                } else if name == "Map" {
+                    let mut args = resolved_args.into_iter();
+                    let k = args.next().unwrap_or_else(|| self.fresh_var());
+                    let v = args.next().unwrap_or_else(|| self.fresh_var());
+                    Type::Map(Box::new(k), Box::new(v))
+                } else if self.structs.contains_key(name) {
+                    Type::Struct(Rc::from(name.as_str()), resolved_args)
                 } else if self.enums.contains_key(name) {
-                    Type::Enum(name.clone(), resolved_args)
+                    Type::Enum(Rc::from(name.as_str()), resolved_args)
                 } else {
-                    Type::Generic(name.clone(), vec![])
+                    Type::Generic(Rc::from(name.as_str()), vec![])
                 }
             }
             _ => resolve_type_expr(expr),
@@ -480,13 +1027,27 @@ impl TypeEnv {
 
     /// Resolves a named type string, checking the registry before falling
     /// back to primitives.
-    fn resolve_named_type(&self, name: &str) -> Type {
-        if self.structs.contains_key(name) {
-            Type::Struct(name.to_string(), vec![])
-        } else if self.enums.contains_key(name) {
-            Type::Enum(name.to_string(), vec![])
+    ///
+    /// When a registered struct or enum has generic type parameters and none
+    /// are explicitly provided, fresh inference variables are inserted so that
+    /// bare usage (e.g., `s: Set`) is equivalent to `s: Set<_>`.
+    fn resolve_named_type(&mut self, name: &str) -> Type {
+        if name == "Vector" {
+            return Type::Vector(Box::new(self.fresh_var()));
+        }
+        if name == "Set" {
+            return Type::Set(Box::new(self.fresh_var()));
+        }
+        if name == "Map" {
+            return Type::Map(Box::new(self.fresh_var()), Box::new(self.fresh_var()));
+        }
+        if let Some(count) = self.structs.get(name).map(|d| d.generic_params.len()) {
+            let args = (0..count).map(|_| self.fresh_var()).collect();
+            Type::Struct(Rc::from(name), args)
+        } else if let Some(count) = self.enums.get(name).map(|d| d.generic_params.len()) {
+            let args = (0..count).map(|_| self.fresh_var()).collect();
+            Type::Enum(Rc::from(name), args)
         } else {
-            // Delegate to the standalone resolver for primitives and generics.
             resolve_type_expr(&TypeExpr::Named(NamedType {
                 name: name.to_string(),
                 span: maat_span::Span::ZERO,
@@ -508,14 +1069,24 @@ impl TypeEnv {
 
     /// Defines a variable with a polymorphic type scheme in the current scope.
     pub fn define_scheme(&mut self, name: &str, scheme: TypeScheme) {
-        if let Some(scope) = self.scopes.last_mut() {
-            scope.insert(name.to_string(), scheme);
+        let scope_start = self.scope_starts.last().copied().unwrap_or(0);
+        if let Some(entry) = self.bindings[scope_start..]
+            .iter_mut()
+            .find(|(n, _)| n == name)
+        {
+            entry.1 = scheme;
+        } else {
+            self.bindings.push((name.to_string(), scheme));
         }
     }
 
     /// Looks up a variable's type scheme, searching from innermost to outermost scope.
     pub fn lookup_scheme(&self, name: &str) -> Option<&TypeScheme> {
-        self.scopes.iter().rev().find_map(|scope| scope.get(name))
+        self.bindings
+            .iter()
+            .rev()
+            .find(|(n, _)| n == name)
+            .map(|(_, scheme)| scheme)
     }
 
     /// Looks up a variable and instantiates its scheme with fresh type variables.
@@ -557,33 +1128,36 @@ impl TypeEnv {
         }
     }
 
-    /// Collects all free type variables across all scopes in the environment.
+    /// Collects all free type variables across all bindings in the environment.
     fn free_env_vars(&self, subst: &Substitution) -> HashSet<TypeVarId> {
         let mut vars = HashSet::new();
-        for scope in &self.scopes {
-            for scheme in scope.values() {
-                let resolved = subst.apply(&scheme.ty);
-                let scheme_free = free_type_vars(&resolved);
-                let quantified = scheme
-                    .forall
-                    .iter()
-                    .copied()
-                    .collect::<HashSet<TypeVarId>>();
-                vars.extend(scheme_free.difference(&quantified));
-            }
+        for (_, scheme) in &self.bindings {
+            let resolved = subst.apply(&scheme.ty);
+            let scheme_free = free_type_vars(&resolved);
+            let quantified = scheme
+                .forall
+                .iter()
+                .copied()
+                .collect::<HashSet<TypeVarId>>();
+            vars.extend(scheme_free.difference(&quantified));
         }
         vars
     }
 
     /// Pushes a new empty scope.
     pub fn push_scope(&mut self) {
-        self.scopes.push(IndexMap::new());
+        self.scope_starts.push(self.bindings.len());
     }
 
-    /// Pops the innermost scope.
+    /// Pops the innermost scope, discarding all bindings introduced since
+    /// the matching [`push_scope`](Self::push_scope).
     pub fn pop_scope(&mut self) {
-        if self.scopes.len() > 1 {
-            self.scopes.pop();
+        if self.scope_starts.len() > 1 {
+            let start = self
+                .scope_starts
+                .pop()
+                .expect("scope_starts checked non-empty");
+            self.bindings.truncate(start);
         }
     }
 }
@@ -600,8 +1174,8 @@ fn collect_free_vars(ty: &Type, vars: &mut HashSet<TypeVarId>) {
         Type::Var(id) => {
             vars.insert(*id);
         }
-        Type::Array(elem) | Type::Range(elem) => collect_free_vars(elem, vars),
-        Type::Hash(k, v) => {
+        Type::Vector(elem) | Type::Set(elem) | Type::Range(elem) => collect_free_vars(elem, vars),
+        Type::Map(k, v) => {
             collect_free_vars(k, vars);
             collect_free_vars(v, vars);
         }
@@ -693,24 +1267,24 @@ mod tests {
         let mut env = TypeEnv::new();
         env.register_builtins();
         let subst = Substitution::new();
-        let i64_array = Type::Array(Box::new(Type::I64));
-        let str_array = Type::Array(Box::new(Type::String));
+        let i64_vector = Type::Vector(Box::new(Type::I64));
+        let str_vector = Type::Vector(Box::new(Type::Str));
 
         // Two separate instantiations should produce independent type variables.
         let (self1, fn1) = env
-            .instantiate_builtin_method(&i64_array, "first", &subst)
-            .expect("Array::first should exist");
+            .instantiate_builtin_method(&i64_vector, "first", &subst)
+            .expect("Vector::first should exist");
         let (self2, fn2) = env
-            .instantiate_builtin_method(&str_array, "first", &subst)
-            .expect("Array::first should exist");
+            .instantiate_builtin_method(&str_vector, "first", &subst)
+            .expect("Vector::first should exist");
         match (&self1, &self2) {
-            (Type::Array(a), Type::Array(b)) => {
+            (Type::Vector(a), Type::Vector(b)) => {
                 assert_ne!(
                     a, b,
                     "each instantiation must use independent type variables"
                 );
             }
-            _ => panic!("expected Array types"),
+            _ => panic!("expected Vector types"),
         }
         match (&fn1, &fn2) {
             (Type::Function(f1), Type::Function(f2)) => {
@@ -728,17 +1302,21 @@ mod tests {
         let mut env = TypeEnv::new();
         env.register_builtins();
         let mut subst = Substitution::new();
-        let i64_array = Type::Array(Box::new(Type::I64));
+        let i64_vector = Type::Vector(Box::new(Type::I64));
         let (inst_self, inst_fn) = env
-            .instantiate_builtin_method(&i64_array, "first", &subst)
-            .expect("Array::first should exist");
+            .instantiate_builtin_method(&i64_vector, "first", &subst)
+            .expect("Vector::first should exist");
         // Unify the instantiated self-type with the actual receiver.
         subst
-            .unify(&inst_self, &i64_array)
+            .unify(&inst_self, &i64_vector)
             .expect("unification should succeed");
         match subst.apply(&inst_fn) {
             Type::Function(fn_ty) => {
-                assert_eq!(*fn_ty.ret, Type::I64, "return type should resolve to i64");
+                let expected = Type::Enum(Rc::from("Option"), vec![Type::I64]);
+                assert_eq!(
+                    *fn_ty.ret, expected,
+                    "return type should resolve to Option<i64>"
+                );
             }
             _ => panic!("expected Function type"),
         }

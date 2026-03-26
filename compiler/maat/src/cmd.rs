@@ -3,6 +3,7 @@ use std::process;
 
 use maat_bytecode::Bytecode;
 use maat_module::{check_and_compile, resolve_module_graph};
+use maat_runtime::Value;
 use maat_vm::VM;
 
 use crate::diagnostic;
@@ -68,7 +69,7 @@ pub fn execute(path: &Path) {
         process::exit(1);
     }
     if let Some(result) = vm.last_popped_stack_elem()
-        && !matches!(result, maat_runtime::Object::Null)
+        && !matches!(result, Value::Unit)
     {
         println!("{result}");
     }
@@ -79,7 +80,7 @@ pub fn execute(path: &Path) {
 /// Resolves module imports relative to the source file, builds the
 /// module dependency graph, type-checks and compiles all modules into
 /// linked bytecode, then executes it on the VM. The result of the last
-/// expression (if non-null) is printed to stdout.
+/// expression (if non-unit) is printed to stdout.
 pub fn run(path: &Path) {
     require_extension(path, "maat", "run");
 
@@ -90,7 +91,7 @@ pub fn run(path: &Path) {
         process::exit(1);
     }
     if let Some(result) = vm.last_popped_stack_elem()
-        && !matches!(result, maat_runtime::Object::Null)
+        && !matches!(result, Value::Unit)
     {
         println!("{result}");
     }

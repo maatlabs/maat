@@ -22,7 +22,7 @@
 //! ```
 #![forbid(unsafe_code)]
 
-use maat_runtime::{Object, TypeDef};
+use maat_runtime::{TypeDef, Value};
 use maat_span::SourceMap;
 
 mod instruction;
@@ -99,7 +99,7 @@ pub const MAX_FRAMES: usize = 1024;
 /// - **Fixed instruction size**: `OpConstant` instructions are always 3 bytes
 ///   (1 opcode + 2 index bytes), regardless of the size of the referenced value.
 ///
-/// - **Type flexibility**: The constant pool can hold any `Object` type (integers,
+/// - **Type flexibility**: The constant pool can hold any `Value` type (integers,
 ///   booleans, strings, arrays, functions) while the bytecode remains uniform.
 ///
 /// # Example
@@ -108,11 +108,11 @@ pub const MAX_FRAMES: usize = 1024;
 ///
 /// ```
 /// # use maat_bytecode::{Bytecode, Instructions, Opcode, encode};
-/// # use maat_runtime::Object;
+/// # use maat_runtime::{Integer, Value};
 /// // Constant pool stores the actual values:
 /// let constants = vec![
-///     Object::I64(1),  // constants[0]
-///     Object::I64(2),  // constants[1]
+///     Value::Integer(Integer::I64(1)),  // constants[0]
+///     Value::Integer(Integer::I64(2)),  // constants[1]
 /// ];
 ///
 /// // Instructions reference constants by index:
@@ -126,9 +126,9 @@ pub const MAX_FRAMES: usize = 1024;
 /// ```
 ///
 /// When executed by the VM:
-/// 1. `OpConstant 0` pushes `Object::I64(1)` onto the stack
-/// 2. `OpConstant 1` pushes `Object::I64(2)` onto the stack
-/// 3. `OpAdd` pops both values, adds them, and pushes `Object::I64(3)`
+/// 1. `OpConstant 0` pushes `Value::I64(1)` onto the stack
+/// 2. `OpConstant 1` pushes `Value::I64(2)` onto the stack
+/// 3. `OpAdd` pops both values, adds them, and pushes `Value::I64(3)`
 /// 4. `OpPop` removes the result from the stack
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Bytecode {
@@ -143,7 +143,7 @@ pub struct Bytecode {
     /// This array holds all constant values referenced by `OpConstant` instructions.
     /// The index into this array is encoded as a 2-byte operand (allowing up to
     /// 65,535 distinct constants).
-    pub constants: Vec<Object>,
+    pub constants: Vec<Value>,
 
     /// Maps instruction byte offsets to source spans for error reporting.
     pub source_map: SourceMap,

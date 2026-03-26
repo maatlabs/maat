@@ -1,23 +1,47 @@
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use maat_ast::{
     BlockStmt, BreakExpr, CondExpr, ContinueExpr, EnumVariantKind, Expr, FieldAccessExpr, ForStmt,
-    ImplBlock, InfixExpr, MatchExpr, MethodCallExpr, Node, PathExpr, Pattern, Program, Stmt,
-    StructLitExpr, TypeAnnotation, TypeExpr,
+    Ident, ImplBlock, InfixExpr, LoopStmt, MacroCallExpr, MatchExpr, MethodCallExpr, Node, NumKind,
+    PathExpr, Pattern, Program, ReAssignStmt, Stmt, StructLitExpr, TryExpr, TryKind, TypeExpr,
+    WhileStmt,
 };
 use maat_bytecode::{
     Bytecode, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, MAX_ENUM_VARIANTS, Opcode,
     TypeTag, encode,
 };
 use maat_errors::{CompileError, CompileErrorKind, Error, Result};
-use maat_runtime::{BUILTINS, CompiledFunction, Object, TypeDef, VariantInfo};
+use maat_runtime::{BUILTINS, CompiledFn, Integer, TypeDef, Value, VariantInfo};
 use maat_span::{SourceMap, Span};
 
 use crate::{Symbol, SymbolScope, SymbolsTable};
 
+/// Built-in type prefixes for method dispatch fallback.
+const BUILTIN_METHOD_PREFIXES: &[&str] =
+    &["Vector", "str", "char", "Set", "Map", "Option", "Result"];
+
+/// Enum types whose variants are available as bare names in patterns.
+///
+/// Mirrors Rust's prelude: `Option` (`Some`, `None`) and `Result`
+/// (`Ok`, `Err`) are directly accessible. All other enum variants
+/// require a qualified path (e.g., `ParseIntError::InvalidDigit`).
+const PRELUDE_ENUMS: &[&str] = &["Option", "Result"];
+
+/// A segment of a parsed format string.
+enum FmtSegment {
+    /// A literal text segment (between `{}` placeholders).
+    Literal(String),
+    /// A `{}` placeholder to be replaced by a positional argument.
+    Arg,
+    /// A `{name}` placeholder resolved as a variable capture.
+    Capture(String),
+}
+
 /// Tracks jump targets for break/continue within a loop.
 #[derive(Debug, Clone)]
 struct LoopContext {
+    label: Option<String>,
     continue_target: Option<usize>,
     break_jumps: Vec<usize>,
     continue_jumps: Vec<usize>,
@@ -43,16 +67,25 @@ impl CompilationScope {
     }
 }
 
+/// Pre-computed enum variant lookup entry, indexed by variant name.
+#[derive(Debug, Clone, Copy)]
+struct VariantEntry {
+    registry_index: usize,
+    tag: usize,
+    field_count: usize,
+}
+
 /// Compiler state for generating bytecode from AST nodes.
 #[derive(Debug, Clone)]
 pub struct Compiler {
-    constants: Vec<Object>,
+    constants: Vec<Value>,
     symbols_table: SymbolsTable,
     scopes: Vec<CompilationScope>,
     scope_index: usize,
     loop_contexts: Vec<LoopContext>,
     for_loop_counter: usize,
     type_registry: Vec<TypeDef>,
+    variant_index: HashMap<String, VariantEntry>,
 }
 
 impl Default for Compiler {
@@ -70,6 +103,8 @@ impl Compiler {
     pub fn new() -> Self {
         let mut symbols_table = SymbolsTable::new();
         Self::register_builtins(&mut symbols_table);
+        let type_registry = Self::builtin_type_registry();
+        let variant_index = Self::build_variant_index(&type_registry);
         Self {
             constants: Vec::new(),
             symbols_table,
@@ -77,7 +112,8 @@ impl Compiler {
             scope_index: 0,
             loop_contexts: Vec::new(),
             for_loop_counter: 0,
-            type_registry: Self::builtin_type_registry(),
+            type_registry,
+            variant_index,
         }
     }
 
@@ -85,8 +121,10 @@ impl Compiler {
     ///
     /// This enables REPL sessions where variable definitions and constants
     /// persist across multiple compilation passes.
-    pub fn with_state(mut symbols_table: SymbolsTable, constants: Vec<Object>) -> Self {
+    pub fn with_state(mut symbols_table: SymbolsTable, constants: Vec<Value>) -> Self {
         Self::register_builtins(&mut symbols_table);
+        let type_registry = Self::builtin_type_registry();
+        let variant_index = Self::build_variant_index(&type_registry);
         Self {
             constants,
             symbols_table,
@@ -94,7 +132,8 @@ impl Compiler {
             scope_index: 0,
             loop_contexts: Vec::new(),
             for_loop_counter: 0,
-            type_registry: Self::builtin_type_registry(),
+            type_registry,
+            variant_index,
         }
     }
 
@@ -106,13 +145,28 @@ impl Compiler {
         &mut self.symbols_table
     }
 
-    /// Returns a mutable reference to the compiler's type registry.
+    /// Registers a type definition (struct or enum) in the type registry.
     ///
-    /// Used by the module pipeline to register imported type definitions
-    /// (structs, enums) so that construction and field access work
-    /// across module boundaries.
-    pub fn type_registry_mut(&mut self) -> &mut Vec<TypeDef> {
-        &mut self.type_registry
+    /// Used by the module pipeline to register imported type
+    /// definitions so that construction and field access work across module
+    /// boundaries.
+    pub fn register_type(&mut self, typedef: TypeDef) {
+        let registry_index = self.type_registry.len();
+        if let TypeDef::Enum {
+            ref name,
+            ref variants,
+        } = typedef
+        {
+            // User-defined enums always get bare variant names in scope.
+            Self::index_variants(
+                &mut self.variant_index,
+                registry_index,
+                variants,
+                name,
+                true,
+            );
+        }
+        self.type_registry.push(typedef);
     }
 
     /// Registers all built-in functions in the given symbols table.
@@ -151,7 +205,61 @@ impl Compiler {
                     },
                 ],
             },
+            TypeDef::Enum {
+                name: "ParseIntError".to_string(),
+                variants: vec![
+                    VariantInfo {
+                        name: "Empty".to_string(),
+                        field_count: 0,
+                    },
+                    VariantInfo {
+                        name: "InvalidDigit".to_string(),
+                        field_count: 0,
+                    },
+                    VariantInfo {
+                        name: "Overflow".to_string(),
+                        field_count: 0,
+                    },
+                ],
+            },
         ]
+    }
+
+    /// Builds the enum variant index from an existing type registry.
+    fn build_variant_index(registry: &[TypeDef]) -> HashMap<String, VariantEntry> {
+        let mut index = HashMap::new();
+        for (registry_index, td) in registry.iter().enumerate() {
+            if let TypeDef::Enum { name, variants } = td {
+                let in_prelude = PRELUDE_ENUMS.contains(&name.as_str());
+                Self::index_variants(&mut index, registry_index, variants, name, in_prelude);
+            }
+        }
+        index
+    }
+
+    /// Inserts entries for each variant of an enum at the given registry index.
+    ///
+    /// Qualified keys (`EnumName::VariantName`) are always registered. Bare
+    /// keys (`VariantName`) are only registered when `include_bare` is true,
+    /// which is the case for prelude enums like `Option` and `Result`.
+    fn index_variants(
+        index: &mut HashMap<String, VariantEntry>,
+        registry_index: usize,
+        variants: &[VariantInfo],
+        enum_name: &str,
+        include_bare: bool,
+    ) {
+        for (tag, v) in variants.iter().enumerate() {
+            let entry = VariantEntry {
+                registry_index,
+                tag,
+                field_count: v.field_count as usize,
+            };
+            if include_bare {
+                index.insert(v.name.clone(), entry);
+            }
+            index.insert(format!("{enum_name}::{}", v.name), entry);
+        }
     }
 
     /// Extracts the compiled bytecode and constants.
@@ -221,67 +329,27 @@ impl Compiler {
             Stmt::Block(block) => self.compile_block_statement(block),
             Stmt::Let(let_stmt) => {
                 let span = let_stmt.span;
-                if let Expr::Lambda(lambda) = &let_stmt.value {
-                    self.compile_fn_body(
-                        Some(&let_stmt.ident),
-                        lambda.param_names(),
-                        lambda.params.len(),
-                        &lambda.body,
-                        lambda.span,
-                    )?;
-                } else {
+                if let Some(pattern) = &let_stmt.pattern {
                     self.compile_expression(&let_stmt.value)?;
+                    self.compile_let_destructure(pattern, span)?;
+                    Ok(())
+                } else {
+                    if let Expr::Lambda(lambda) = &let_stmt.value {
+                        self.compile_fn_body(
+                            Some(&let_stmt.ident),
+                            lambda.param_names(),
+                            lambda.params.len(),
+                            &lambda.body,
+                            lambda.span,
+                        )?;
+                    } else {
+                        self.compile_expression(&let_stmt.value)?;
+                    }
+                    self.define_and_set(&let_stmt.ident, let_stmt.mutable, span)?;
+                    Ok(())
                 }
-                let symbol = match self
-                    .symbols_table
-                    .define_symbol(&let_stmt.ident, let_stmt.mutable)
-                {
-                    Ok(s) => s,
-                    Err(e) => return Err(self.attach_span(e, span)),
-                };
-                let (scope, index) = (symbol.scope, symbol.index);
-                match scope {
-                    SymbolScope::Global => self.emit(Opcode::SetGlobal, &[index], span),
-                    SymbolScope::Local => self.emit(Opcode::SetLocal, &[index], span),
-                    SymbolScope::Builtin | SymbolScope::Free | SymbolScope::Function => {
-                        unreachable!("define_symbol never produces this scope")
-                    }
-                };
-                Ok(())
             }
-            Stmt::ReAssign(assign_stmt) => {
-                let span = assign_stmt.span;
-                let symbol = self
-                    .symbols_table
-                    .resolve_symbol(&assign_stmt.ident)
-                    .ok_or_else(|| {
-                        CompileErrorKind::UndefinedVariable {
-                            name: assign_stmt.ident.clone(),
-                        }
-                        .at(span)
-                    })?;
-                if !symbol.mutable {
-                    return Err(CompileErrorKind::ImmutableAssignment {
-                        name: assign_stmt.ident.clone(),
-                    }
-                    .at(span)
-                    .into());
-                }
-                self.compile_expression(&assign_stmt.value)?;
-                match symbol.scope {
-                    SymbolScope::Global => self.emit(Opcode::SetGlobal, &[symbol.index], span),
-                    SymbolScope::Local => self.emit(Opcode::SetLocal, &[symbol.index], span),
-                    SymbolScope::Free => self.emit(Opcode::SetLocal, &[symbol.index], span),
-                    SymbolScope::Builtin | SymbolScope::Function => {
-                        return Err(CompileErrorKind::ImmutableAssignment {
-                            name: assign_stmt.ident.clone(),
-                        }
-                        .at(span)
-                        .into());
-                    }
-                };
-                Ok(())
-            }
+            Stmt::ReAssign(assign_stmt) => self.compile_reassign(assign_stmt),
             Stmt::Return(ret_stmt) => {
                 self.compile_expression(&ret_stmt.value)?;
                 self.emit(Opcode::ReturnValue, &[], ret_stmt.span);
@@ -296,64 +364,13 @@ impl Compiler {
                     &fn_item.body,
                     span,
                 )?;
-                let symbol = match self.symbols_table.define_symbol(&fn_item.name, false) {
-                    Ok(s) => s,
-                    Err(e) => return Err(self.attach_span(e, span)),
-                };
-                let (scope, index) = (symbol.scope, symbol.index);
-                match scope {
-                    SymbolScope::Global => self.emit(Opcode::SetGlobal, &[index], span),
-                    SymbolScope::Local => self.emit(Opcode::SetLocal, &[index], span),
-                    SymbolScope::Builtin | SymbolScope::Free | SymbolScope::Function => {
-                        unreachable!("define_symbol never produces this scope")
-                    }
-                };
+                self.define_and_set(&fn_item.name, false, span)?;
                 Ok(())
             }
-            Stmt::Loop(loop_stmt) => {
-                let start = self.current_instructions().len();
-                self.loop_contexts.push(LoopContext {
-                    continue_target: Some(start),
-                    break_jumps: Vec::new(),
-                    continue_jumps: Vec::new(),
-                });
-                self.compile_block_statement(&loop_stmt.body)?;
-                self.emit(Opcode::Jump, &[start], loop_stmt.span);
-                let exit = self.current_instructions().len();
-                let ctx = self
-                    .loop_contexts
-                    .pop()
-                    .expect("loop context was just pushed");
-                for jump_pos in ctx.break_jumps {
-                    self.replace_operand(jump_pos, exit)?;
-                }
-                Ok(())
-            }
-
-            Stmt::While(while_stmt) => {
-                let start = self.current_instructions().len();
-                self.loop_contexts.push(LoopContext {
-                    continue_target: Some(start),
-                    break_jumps: Vec::new(),
-                    continue_jumps: Vec::new(),
-                });
-                self.compile_expression(&while_stmt.condition)?;
-                let exit_jump = self.emit(Opcode::CondJump, &[Self::JUMP], while_stmt.span);
-                self.compile_block_statement(&while_stmt.body)?;
-                self.emit(Opcode::Jump, &[start], while_stmt.span);
-                let loop_exit = self.current_instructions().len();
-                self.replace_operand(exit_jump, loop_exit)?;
-                let ctx = self
-                    .loop_contexts
-                    .pop()
-                    .expect("loop context was just pushed");
-                for jump_pos in ctx.break_jumps {
-                    self.replace_operand(jump_pos, loop_exit)?;
-                }
-                Ok(())
-            }
+            Stmt::Loop(loop_stmt) => self.compile_loop(loop_stmt),
+            Stmt::While(while_stmt) => self.compile_while(while_stmt),
             Stmt::StructDecl(decl) => {
-                self.type_registry.push(TypeDef::Struct {
+                self.register_type(TypeDef::Struct {
                     name: decl.name.clone(),
                     field_names: decl.fields.iter().map(|f| f.name.clone()).collect(),
                 });
@@ -396,7 +413,7 @@ impl Compiler {
                         })
                     })
                     .collect::<Result<Vec<_>>>()?;
-                self.type_registry.push(TypeDef::Enum {
+                self.register_type(TypeDef::Enum {
                     name: decl.name.clone(),
                     variants,
                 });
@@ -418,9 +435,84 @@ impl Compiler {
         }
     }
 
+    /// Compiles a variable reassignment (`x = expr`).
+    fn compile_reassign(&mut self, assign_stmt: &ReAssignStmt) -> Result<()> {
+        let span = assign_stmt.span;
+        let symbol = self.resolve_or_error(&assign_stmt.ident, span)?;
+        if !symbol.mutable {
+            return Err(CompileErrorKind::ImmutableAssignment {
+                name: assign_stmt.ident.clone(),
+            }
+            .at(span)
+            .into());
+        }
+        self.compile_expression(&assign_stmt.value)?;
+        match symbol.scope {
+            SymbolScope::Global => self.emit(Opcode::SetGlobal, &[symbol.index], span),
+            SymbolScope::Local | SymbolScope::Free => {
+                self.emit(Opcode::SetLocal, &[symbol.index], span)
+            }
+            SymbolScope::Builtin | SymbolScope::Function => {
+                return Err(CompileErrorKind::ImmutableAssignment {
+                    name: assign_stmt.ident.clone(),
+                }
+                .at(span)
+                .into());
+            }
+        };
+        Ok(())
+    }
+
+    /// Compiles an infinite `loop { body }`.
+    fn compile_loop(&mut self, loop_stmt: &LoopStmt) -> Result<()> {
+        let start = self.current_instructions().len();
+        self.loop_contexts.push(LoopContext {
+            label: loop_stmt.label.clone(),
+            continue_target: Some(start),
+            break_jumps: Vec::new(),
+            continue_jumps: Vec::new(),
+        });
+        self.compile_block_statement(&loop_stmt.body)?;
+        self.emit(Opcode::Jump, &[start], loop_stmt.span);
+        let exit = self.current_instructions().len();
+        let ctx = self
+            .loop_contexts
+            .pop()
+            .expect("loop context was just pushed");
+        for jump_pos in ctx.break_jumps {
+            self.replace_operand(jump_pos, exit)?;
+        }
+        Ok(())
+    }
+
+    /// Compiles a `while condition { body }` loop.
+    fn compile_while(&mut self, while_stmt: &WhileStmt) -> Result<()> {
+        let start = self.current_instructions().len();
+        self.loop_contexts.push(LoopContext {
+            label: while_stmt.label.clone(),
+            continue_target: Some(start),
+            break_jumps: Vec::new(),
+            continue_jumps: Vec::new(),
+        });
+        self.compile_expression(&while_stmt.condition)?;
+        let exit_jump = self.emit(Opcode::CondJump, &[Self::JUMP], while_stmt.span);
+        self.compile_block_statement(&while_stmt.body)?;
+        self.emit(Opcode::Jump, &[start], while_stmt.span);
+        let loop_exit = self.current_instructions().len();
+        self.replace_operand(exit_jump, loop_exit)?;
+        let ctx = self
+            .loop_contexts
+            .pop()
+            .expect("loop context was just pushed");
+        for jump_pos in ctx.break_jumps {
+            self.replace_operand(jump_pos, loop_exit)?;
+        }
+        Ok(())
+    }
+
     /// Compiles a `for x in start..end` or `for x in start..=end` loop.
     ///
-    /// Desugars to a counter-based loop without allocating an array:
+    /// Desugars to a counter-based loop without allocating a vector:
     ///
     /// ```text
     /// let __end = <end>;
@@ -457,6 +549,7 @@ impl Compiler {
         // loop_start: condition check
         let loop_start = self.current_instructions().len();
         self.loop_contexts.push(LoopContext {
+            label: for_stmt.label.clone(),
             continue_target: None,
             break_jumps: Vec::new(),
             continue_jumps: Vec::new(),
@@ -486,7 +579,7 @@ impl Compiler {
     ///
     /// ```text
     /// let __iter = <iterable>;
-    /// let __len  = Array::len(__iter);
+    /// let __len  = Vector::len(__iter);
     /// let __i    = 0;
     /// loop_start:
     ///     if !(__i < __len) goto loop_exit
@@ -510,24 +603,15 @@ impl Compiler {
         self.compile_expression(&for_stmt.iterable)?;
         let iter_sym = self.define_and_set(&iter_name, false, span)?;
 
-        // __len_N = Array::len(__iter_N)
-        let len_builtin = self
-            .symbols_table
-            .resolve_symbol("Array::len")
-            .ok_or_else(|| {
-                CompileErrorKind::UndefinedVariable {
-                    name: "Array::len".to_string(),
-                }
-                .at(span)
-            })?
-            .clone();
+        // __len_N = Vector::len(__iter_N)
+        let len_builtin = self.resolve_or_error("Vector::len", span)?;
         self.load_symbol(&len_builtin, span);
         self.load_symbol(&iter_sym, span);
         self.emit(Opcode::Call, &[1], span);
         let len_sym = self.define_and_set(&len_name, false, span)?;
 
         // __i_N = 0
-        let zero_idx = self.add_constant(Object::I64(0))?;
+        let zero_idx = self.add_constant(Value::Integer(Integer::I64(0)))?;
         self.emit(Opcode::Constant, &[zero_idx], span);
         let i_sym = self.define_and_set(&i_name, false, span)?;
 
@@ -535,6 +619,7 @@ impl Compiler {
         let loop_start = self.current_instructions().len();
 
         self.loop_contexts.push(LoopContext {
+            label: for_stmt.label.clone(),
             continue_target: None,
             break_jumps: Vec::new(),
             continue_jumps: Vec::new(),
@@ -568,7 +653,7 @@ impl Compiler {
     ) -> Result<()> {
         let continue_target = self.current_instructions().len();
         self.load_symbol(i_sym, span);
-        let one_idx = self.add_constant(Object::I64(1))?;
+        let one_idx = self.add_constant(Value::Integer(Integer::I64(1)))?;
         self.emit(Opcode::Constant, &[one_idx], span);
         self.emit(Opcode::Add, &[], span);
         self.emit_set_symbol(i_sym, span);
@@ -600,8 +685,8 @@ impl Compiler {
     }
 
     /// Emits a constant-load instruction for a numeric literal.
-    fn compile_numeric_constant(&mut self, obj: Object, span: Span) -> Result<()> {
-        let index = self.add_constant(obj)?;
+    fn compile_numeric_constant(&mut self, val: Value, span: Span) -> Result<()> {
+        let index = self.add_constant(val)?;
         self.emit(Opcode::Constant, &[index], span);
         Ok(())
     }
@@ -611,9 +696,9 @@ impl Compiler {
         let span = expr.span();
         match expr {
             Expr::Number(lit) => {
-                let obj = Object::from_number_literal(lit)
+                let val = Value::from_number_literal(lit)
                     .map_err(|msg| CompileErrorKind::UnsupportedExpr { expr_type: msg }.at(span))?;
-                self.compile_numeric_constant(obj, span)
+                self.compile_numeric_constant(val, span)
             }
             Expr::Bool(b) => {
                 let opcode = if b.value { Opcode::True } else { Opcode::False };
@@ -655,25 +740,37 @@ impl Compiler {
                     .into())
                 }
             }
+            Expr::Char(c) => {
+                let index = self.add_constant(Value::Char(c.value))?;
+                self.emit(Opcode::Constant, &[index], span);
+                Ok(())
+            }
+            Expr::Tuple(tuple) => {
+                for element in &tuple.elements {
+                    self.compile_expression(element)?;
+                }
+                self.emit(Opcode::Tuple, &[tuple.elements.len()], span);
+                Ok(())
+            }
             Expr::Str(s) => {
-                let constant = Object::Str(maat_ast::unescape_string(&s.value));
+                let constant = Value::Str(maat_ast::unescape_string(&s.value));
                 let index = self.add_constant(constant)?;
                 self.emit(Opcode::Constant, &[index], span);
                 Ok(())
             }
-            Expr::Array(array) => {
+            Expr::Vector(array) => {
                 for element in &array.elements {
                     self.compile_expression(element)?;
                 }
-                self.emit(Opcode::Array, &[array.elements.len()], span);
+                self.emit(Opcode::Vector, &[array.elements.len()], span);
                 Ok(())
             }
-            Expr::Map(hash) => {
-                for (key, value) in &hash.pairs {
+            Expr::Map(map) => {
+                for (key, value) in &map.pairs {
                     self.compile_expression(key)?;
                     self.compile_expression(value)?;
                 }
-                self.emit(Opcode::Hash, &[hash.pairs.len() * 2], span);
+                self.emit(Opcode::Map, &[map.pairs.len() * 2], span);
                 Ok(())
             }
             Expr::Index(index_expr) => {
@@ -702,19 +799,21 @@ impl Compiler {
             }
             Expr::Cast(cast) => {
                 self.compile_expression(&cast.expr)?;
-                let tag = Self::type_annotation_to_tag(cast.target);
+                let tag = num_kind_to_tag(cast.target);
                 self.emit(Opcode::Convert, &[tag.to_byte() as usize], span);
                 Ok(())
             }
             Expr::Break(break_expr) => self.compile_break(break_expr),
             Expr::Continue(cont_expr) => self.compile_continue(cont_expr),
-            Expr::Macro(_) => Err(CompileErrorKind::UnsupportedExpr {
+            Expr::MacroCall(mc) => self.compile_macro_call(mc),
+            Expr::MacroLit(_) => Err(CompileErrorKind::UnsupportedExpr {
                 expr_type: "macro literal".to_string(),
             }
             .at(span)
             .into()),
             Expr::StructLit(struct_lit) => self.compile_struct_literal(struct_lit),
             Expr::PathExpr(path_expr) => self.compile_path_expression(path_expr),
+            Expr::Try(try_expr) => self.compile_try(try_expr),
             Expr::Match(match_expr) => self.compile_match(match_expr),
             Expr::FieldAccess(field_access) => self.compile_field_access(field_access),
             Expr::MethodCall(method_call) => self.compile_method_call(method_call),
@@ -737,41 +836,55 @@ impl Compiler {
         if self.loop_contexts.is_empty() {
             return Err(CompileErrorKind::BreakOutsideLoop.at(expr.span).into());
         }
+        let ctx_index = self.resolve_loop_label(&expr.label, expr.span)?;
         match &expr.value {
             Some(val) => self.compile_expression(val)?,
             None => {
-                self.emit(Opcode::Null, &[], expr.span);
+                self.emit(Opcode::Unit, &[], expr.span);
             }
         }
         let jump_pos = self.emit(Opcode::Jump, &[Self::JUMP], expr.span);
-        self.loop_contexts
-            .last_mut()
-            .expect("loop context was just verified")
-            .break_jumps
-            .push(jump_pos);
+        self.loop_contexts[ctx_index].break_jumps.push(jump_pos);
         Ok(())
     }
 
     /// Compiles a `continue` expression inside a loop.
     fn compile_continue(&mut self, expr: &ContinueExpr) -> Result<()> {
-        let ctx = self
-            .loop_contexts
-            .last()
-            .ok_or_else(|| CompileErrorKind::ContinueOutsideLoop.at(expr.span))?;
-        match ctx.continue_target {
+        if self.loop_contexts.is_empty() {
+            return Err(CompileErrorKind::ContinueOutsideLoop.at(expr.span).into());
+        }
+        let ctx_index = self.resolve_loop_label(&expr.label, expr.span)?;
+        match self.loop_contexts[ctx_index].continue_target {
             Some(target) => {
                 self.emit(Opcode::Jump, &[target], expr.span);
             }
             None => {
                 let jump_pos = self.emit(Opcode::Jump, &[Self::JUMP], expr.span);
-                self.loop_contexts
-                    .last_mut()
-                    .expect("loop context was just verified")
-                    .continue_jumps
-                    .push(jump_pos);
+                self.loop_contexts[ctx_index].continue_jumps.push(jump_pos);
             }
         }
         Ok(())
+    }
+
+    /// Resolves a loop label to the index into `self.loop_contexts`.
+    ///
+    /// Returns the innermost loop's index when no label is specified.
+    /// When a label is given, searches outward for a matching loop context.
+    fn resolve_loop_label(&self, label: &Option<String>, span: Span) -> Result<usize> {
+        match label {
+            None => Ok(self.loop_contexts.len() - 1),
+            Some(name) => self
+                .loop_contexts
+                .iter()
+                .rposition(|ctx| ctx.label.as_deref() == Some(name))
+                .ok_or_else(|| {
+                    CompileErrorKind::UndeclaredLabel {
+                        label: name.clone(),
+                    }
+                    .at(span)
+                    .into()
+                }),
+        }
     }
 
     /// Compiles an infix (binary) expression, including short-circuit `&&`/`||`.
@@ -860,21 +973,21 @@ impl Compiler {
         if self.last_instruction_is(Opcode::Pop) {
             self.remove_last_pop();
         } else {
-            self.emit(Opcode::Null, &[], cond.span);
+            self.emit(Opcode::Unit, &[], cond.span);
         }
         let jump_pos = self.emit(Opcode::Jump, &[Self::JUMP], cond.span);
         let cons_pos = self.current_instructions().len();
         self.replace_operand(cond_jump_pos, cons_pos)?;
         match &cond.alternative {
             None => {
-                self.emit(Opcode::Null, &[], cond.span);
+                self.emit(Opcode::Unit, &[], cond.span);
             }
             Some(alt_block) => {
                 self.compile_block_statement(alt_block)?;
                 if self.last_instruction_is(Opcode::Pop) {
                     self.remove_last_pop();
                 } else {
-                    self.emit(Opcode::Null, &[], cond.span);
+                    self.emit(Opcode::Unit, &[], cond.span);
                 }
             }
         }
@@ -883,7 +996,8 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles a struct literal expression (e.g., `Point { x: 1, y: 2 }`).
+    /// Compiles a struct literal expression (e.g., `Point { x: 1, y: 2 }`)
+    /// or with functional update syntax (e.g., `Point { x: 10, ..other }`).
     fn compile_struct_literal(&mut self, lit: &StructLitExpr) -> Result<()> {
         let span = lit.span;
         let (registry_index, field_names) = self
@@ -902,19 +1016,34 @@ impl Compiler {
                 }
                 .at(span)
             })?;
-        for field_name in &field_names {
-            let value_expr = lit
-                .fields
-                .iter()
-                .find(|(name, _)| name == field_name)
-                .map(|(_, expr)| expr)
-                .ok_or_else(|| {
-                    CompileErrorKind::UndefinedVariable {
-                        name: format!("missing field `{}` in struct `{}`", field_name, lit.name),
-                    }
-                    .at(span)
-                })?;
-            self.compile_expression(value_expr)?;
+        let base_sym = lit
+            .base
+            .as_ref()
+            .map(|base_expr| {
+                self.compile_expression(base_expr)?;
+                let id = self.for_loop_counter;
+                self.for_loop_counter += 1;
+                let hidden = format!("__struct_base_{id}");
+                self.define_and_set(&hidden, false, span)
+            })
+            .transpose()?;
+        for (field_index, field_name) in field_names.iter().enumerate() {
+            match lit.fields.iter().find(|(name, _)| name == field_name) {
+                Some((_, expr)) => self.compile_expression(expr)?,
+                None => {
+                    let sym = base_sym.as_ref().ok_or_else(|| {
+                        CompileErrorKind::UndefinedVariable {
+                            name: format!(
+                                "missing field `{}` in struct `{}`",
+                                field_name, lit.name
+                            ),
+                        }
+                        .at(span)
+                    })?;
+                    self.load_symbol(sym, span);
+                    self.emit(Opcode::GetField, &[field_index], span);
+                }
+            }
         }
         let type_index = registry_index << 8;
         self.emit(Opcode::Construct, &[type_index, field_names.len()], span);
@@ -944,10 +1073,7 @@ impl Compiler {
             }
         }
         let full_name = path.segments.join("::");
-        let symbol = self
-            .symbols_table
-            .resolve_symbol(&full_name)
-            .ok_or_else(|| CompileErrorKind::UndefinedVariable { name: full_name }.at(span))?;
+        let symbol = self.resolve_or_error(&full_name, span)?;
         self.load_symbol(&symbol, span);
         Ok(())
     }
@@ -974,9 +1100,7 @@ impl Compiler {
                 param_names.push(name);
             }
             for name in &param_names {
-                let sym = self.symbols_table.resolve_symbol(name).ok_or_else(|| {
-                    CompileErrorKind::UndefinedVariable { name: name.clone() }.at(span)
-                })?;
+                let sym = self.resolve_or_error(name, span)?;
                 self.load_symbol(&sym, span);
             }
             self.emit(Opcode::Construct, &[type_index, field_count], span);
@@ -984,7 +1108,7 @@ impl Compiler {
 
             let num_locals = self.symbols_table.max_definitions();
             let (instructions, inner_source_map) = self.leave_scope()?;
-            let compiled_fn = Object::CompiledFunction(CompiledFunction {
+            let compiled_fn = Value::CompiledFn(CompiledFn {
                 instructions: Rc::from(instructions.as_bytes()),
                 num_locals,
                 num_parameters: field_count,
@@ -1023,7 +1147,7 @@ impl Compiler {
         let span = match_expr.span;
         self.compile_expression(&match_expr.scrutinee)?;
 
-        let mut end_jumps = Vec::new();
+        let mut end_jumps = Vec::with_capacity(match_expr.arms.len());
         for arm in &match_expr.arms {
             match &arm.pattern {
                 Pattern::TupleStruct { path, fields, .. } => {
@@ -1031,75 +1155,67 @@ impl Compiler {
                         let match_tag_pos =
                             self.emit(Opcode::MatchTag, &[variant_tag, Self::JUMP], span);
 
-                        self.bind_variant_fields(fields, span)?;
-                        self.compile_expression(&arm.body)?;
-                        if self.last_instruction_is(Opcode::Pop) {
-                            self.remove_last_pop();
+                        let (nested_positions, scrutinee_var) =
+                            self.bind_variant_fields(fields, span)?;
+                        end_jumps.push(self.compile_match_arm_body(&arm.body, span)?);
+
+                        if nested_positions.is_empty() {
+                            let next_arm = self.current_instructions().len();
+                            self.replace_match_tag_target(match_tag_pos, next_arm)?;
+                        } else {
+                            let cleanup = self.current_instructions().len();
+                            for nested_pos in nested_positions {
+                                self.replace_match_tag_target(nested_pos, cleanup)?;
+                            }
+                            self.emit(Opcode::Pop, &[], span);
+                            if let Some(ref var_name) = scrutinee_var {
+                                let sym = self.resolve_or_error(var_name, span)?;
+                                self.load_symbol(&sym, span);
+                            }
+                            let next_arm = self.current_instructions().len();
+                            self.replace_match_tag_target(match_tag_pos, next_arm)?;
                         }
-                        let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
-                        end_jumps.push(end_jump);
-                        let next_arm = self.current_instructions().len();
-                        self.replace_match_tag_target(match_tag_pos, next_arm)?;
                     }
                 }
-                Pattern::Ident(name, _) if name != "_" => {
+                Pattern::Ident { name, mutable, .. } if name != "_" => {
                     if let Some((_, variant_tag, _)) = self.find_variant_in_registry(name) {
                         let match_tag_pos =
                             self.emit(Opcode::MatchTag, &[variant_tag, Self::JUMP], span);
-
                         self.emit(Opcode::Pop, &[], span);
-
-                        self.compile_expression(&arm.body)?;
-                        if self.last_instruction_is(Opcode::Pop) {
-                            self.remove_last_pop();
-                        }
-                        let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
-                        end_jumps.push(end_jump);
+                        end_jumps.push(self.compile_match_arm_body(&arm.body, span)?);
                         let next_arm = self.current_instructions().len();
                         self.replace_match_tag_target(match_tag_pos, next_arm)?;
                     } else {
-                        self.define_and_set(name, false, span)?;
-                        self.compile_expression(&arm.body)?;
-                        if self.last_instruction_is(Opcode::Pop) {
-                            self.remove_last_pop();
-                        }
-                        let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
-                        end_jumps.push(end_jump);
+                        self.define_and_set(name, *mutable, span)?;
+                        end_jumps.push(self.compile_match_arm_body(&arm.body, span)?);
                     }
                 }
-                Pattern::Wildcard(_) | Pattern::Ident(_, _) => {
+                Pattern::Wildcard(_) | Pattern::Ident { .. } => {
                     self.emit(Opcode::Pop, &[], span);
-                    self.compile_expression(&arm.body)?;
-                    if self.last_instruction_is(Opcode::Pop) {
-                        self.remove_last_pop();
-                    }
-                    let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
-                    end_jumps.push(end_jump);
+                    end_jumps.push(self.compile_match_arm_body(&arm.body, span)?);
+                }
+                Pattern::Tuple(..) => {
+                    self.compile_let_destructure(&arm.pattern, span)?;
+                    self.emit(Opcode::Pop, &[], span);
+                    end_jumps.push(self.compile_match_arm_body(&arm.body, span)?);
                 }
                 Pattern::Literal(lit_expr) => {
                     self.compile_expression(lit_expr)?;
                     self.emit(Opcode::Equal, &[], span);
                     let cond_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
-
-                    self.compile_expression(&arm.body)?;
-                    if self.last_instruction_is(Opcode::Pop) {
-                        self.remove_last_pop();
-                    }
-                    let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
-                    end_jumps.push(end_jump);
+                    end_jumps.push(self.compile_match_arm_body(&arm.body, span)?);
                     let next_arm = self.current_instructions().len();
                     self.replace_operand(cond_jump, next_arm)?;
                 }
                 _ => {
                     self.emit(Opcode::Pop, &[], span);
-                    self.emit(Opcode::Null, &[], span);
-                    let end_jump = self.emit(Opcode::Jump, &[Self::JUMP], span);
-                    end_jumps.push(end_jump);
+                    self.emit(Opcode::Unit, &[], span);
+                    end_jumps.push(self.emit(Opcode::Jump, &[Self::JUMP], span));
                 }
             }
         }
 
-        self.emit(Opcode::Null, &[], span);
+        self.emit(Opcode::Unit, &[], span);
         let exit = self.current_instructions().len();
         for jump_pos in end_jumps {
             self.replace_operand(jump_pos, exit)?;
@@ -1107,48 +1223,66 @@ impl Compiler {
         Ok(())
     }
 
-    /// Finds an enum variant across the entire type registry by variant name.
-    fn find_variant_in_registry(&self, variant_name: &str) -> Option<(usize, usize, usize)> {
-        self.type_registry
-            .iter()
-            .enumerate()
-            .find_map(|(i, td)| match td {
-                TypeDef::Enum { variants, .. } => variants
-                    .iter()
-                    .enumerate()
-                    .find(|(_, v)| v.name == variant_name)
-                    .map(|(tag, v)| (i, tag, v.field_count as usize)),
-                _ => None,
-            })
+    /// Compiles a match arm body and emits the end-jump.
+    ///
+    /// Returns the jump position for later back-patching.
+    fn compile_match_arm_body(&mut self, body: &Expr, span: Span) -> Result<usize> {
+        self.compile_expression(body)?;
+        if self.last_instruction_is(Opcode::Pop) {
+            self.remove_last_pop();
+        }
+        Ok(self.emit(Opcode::Jump, &[Self::JUMP], span))
+    }
+
+    /// Looks up an enum variant by name in the pre-built variant index.
+    fn find_variant_in_registry(&self, variant: &str) -> Option<(usize, usize, usize)> {
+        self.variant_index
+            .get(variant)
+            .map(|entry| (entry.registry_index, entry.tag, entry.field_count))
     }
 
     /// Binds variant payload fields to local variables via `GetField`.
-    fn bind_variant_fields(&mut self, fields: &[Pattern], span: Span) -> Result<()> {
+    ///
+    /// Returns `(nested_match_positions, scrutinee_var)` where:
+    /// - `nested_match_positions` are bytecode offsets of inner `MatchTag`
+    ///   instructions whose jump targets must be patched to cleanup code
+    /// - `scrutinee_var` is the hidden variable name storing the outer
+    ///   scrutinee, needed to restore the stack on inner match failure
+    fn bind_variant_fields(
+        &mut self,
+        fields: &[Pattern],
+        span: Span,
+    ) -> Result<(Vec<usize>, Option<String>)> {
+        let mut nested_match_positions = Vec::new();
+        let mut scrutinee_var = None;
         for (i, field) in fields.iter().enumerate() {
-            if let Pattern::Ident(name, _) = field {
-                // For enum variants with payloads, the scrutinee is on top of stack.
+            if let Pattern::Ident { name, mutable, .. } = field {
                 if i == 0 {
                     let hidden = format!("__match_scrutinee_{}", self.for_loop_counter);
                     self.for_loop_counter += 1;
                     let hidden_sym = self.define_and_set(&hidden, false, span)?;
+                    scrutinee_var = Some(hidden.clone());
                     self.load_symbol(&hidden_sym, span);
                     self.emit(Opcode::GetField, &[i], span);
-                    self.define_and_set(name, false, span)?;
-                    continue;
+                } else {
+                    let hidden = format!("__match_scrutinee_{}", self.for_loop_counter - 1);
+                    let hidden_sym = self.resolve_or_error(&hidden, span)?;
+                    self.load_symbol(&hidden_sym, span);
+                    self.emit(Opcode::GetField, &[i], span);
                 }
-                let hidden = format!("__match_scrutinee_{}", self.for_loop_counter - 1);
-                let hidden_sym = self.symbols_table.resolve_symbol(&hidden).ok_or_else(|| {
-                    CompileErrorKind::UndefinedVariable {
-                        name: hidden.clone(),
-                    }
-                    .at(span)
-                })?;
-                self.load_symbol(&hidden_sym, span);
-                self.emit(Opcode::GetField, &[i], span);
-                self.define_and_set(name, false, span)?;
+
+                if name == "_" {
+                    self.emit(Opcode::Pop, &[], span);
+                } else if let Some((_, variant_tag, _)) = self.find_variant_in_registry(name) {
+                    let pos = self.emit(Opcode::MatchTag, &[variant_tag, Self::JUMP], span);
+                    self.emit(Opcode::Pop, &[], span);
+                    nested_match_positions.push(pos);
+                } else {
+                    self.define_and_set(name, *mutable, span)?;
+                }
             }
         }
-        Ok(())
+        Ok((nested_match_positions, scrutinee_var))
     }
 
     /// Replaces the jump-on-mismatch target of a `MatchTag` instruction.
@@ -1166,14 +1300,17 @@ impl Compiler {
     fn compile_field_access(&mut self, fa: &FieldAccessExpr) -> Result<()> {
         let span = fa.span;
         self.compile_expression(&fa.object)?;
-        let field_index = self
-            .type_registry
-            .iter()
-            .find_map(|td| match td {
-                TypeDef::Struct { field_names, .. } => {
-                    field_names.iter().position(|f| f == &fa.field)
-                }
-                _ => None,
+        let field_index = fa
+            .field
+            .parse::<usize>()
+            .ok()
+            .or_else(|| {
+                self.type_registry.iter().find_map(|td| match td {
+                    TypeDef::Struct { field_names, .. } => {
+                        field_names.iter().position(|f| f == &fa.field)
+                    }
+                    _ => None,
+                })
             })
             .ok_or_else(|| {
                 CompileErrorKind::UndefinedVariable {
@@ -1185,24 +1322,66 @@ impl Compiler {
         Ok(())
     }
 
+    /// Compiles a destructuring `let` binding (e.g., `let (x, y) = expr;`).
+    fn compile_let_destructure(&mut self, pattern: &Pattern, span: Span) -> Result<()> {
+        match pattern {
+            Pattern::Tuple(fields, _) => {
+                let temp = self.define_anonymous_local(span)?;
+                for (i, field) in fields.iter().enumerate() {
+                    match field {
+                        Pattern::Ident { name, mutable, .. } => {
+                            self.load_symbol(&temp, span);
+                            self.emit(Opcode::GetField, &[i], span);
+                            self.define_and_set(name, *mutable, span)?;
+                        }
+                        Pattern::Wildcard(_) => {}
+                        Pattern::Tuple(..) => {
+                            self.load_symbol(&temp, span);
+                            self.emit(Opcode::GetField, &[i], span);
+                            self.compile_let_destructure(field, span)?;
+                        }
+                        _ => {
+                            return Err(CompileErrorKind::UnsupportedExpr {
+                                expr_type: "unsupported pattern in tuple destructuring".to_string(),
+                            }
+                            .at(span)
+                            .into());
+                        }
+                    }
+                }
+                Ok(())
+            }
+            _ => Err(CompileErrorKind::UnsupportedExpr {
+                expr_type: "expected tuple pattern in let destructuring".to_string(),
+            }
+            .at(span)
+            .into()),
+        }
+    }
+
+    /// Defines an anonymous variable and sets it from the stack top.
+    fn define_anonymous_local(&mut self, span: Span) -> Result<Symbol> {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        static COUNTER: AtomicUsize = AtomicUsize::new(0);
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let name = format!("__destructure_{id}");
+        self.define_and_set(&name, false, span)
+    }
+
     /// Compiles a method call expression (e.g., `point.distance(other)`).
     fn compile_method_call(&mut self, mc: &MethodCallExpr) -> Result<()> {
         let span = mc.span;
+        if self.is_desugared_higher_order(mc) {
+            return self.compile_desugared_higher_order(mc);
+        }
         let qualified_name = self.resolve_method_name(mc).ok_or_else(|| {
             CompileErrorKind::UndefinedVariable {
                 name: format!("unknown method `{}`", mc.method),
             }
             .at(span)
         })?;
-        let symbol = self
-            .symbols_table
-            .resolve_symbol(&qualified_name)
-            .ok_or_else(|| {
-                CompileErrorKind::UndefinedVariable {
-                    name: qualified_name,
-                }
-                .at(span)
-            })?;
+        let symbol = self.resolve_or_error(&qualified_name, span)?;
         self.load_symbol(&symbol, span);
         self.compile_expression(&mc.object)?;
         for arg in &mc.arguments {
@@ -1213,11 +1392,544 @@ impl Compiler {
         Ok(())
     }
 
+    /// Returns `true` if this method call should be desugared into inline
+    /// bytecode rather than dispatched as a builtin call.
+    ///
+    /// `Option::map`, `Option::and_then`, `Result::map`, and `Result::and_then`
+    /// accept closures that require VM-level invocation. These are compiled
+    /// as inline match + call sequences instead of builtin function calls.
+    fn is_desugared_higher_order(&self, mc: &MethodCallExpr) -> bool {
+        matches!(
+            (mc.receiver.as_deref(), mc.method.as_str()),
+            (Some("Option" | "Result"), "map" | "and_then")
+                | (Some("Vector"), "map" | "filter" | "fold" | "any" | "all")
+        )
+    }
+
+    /// Dispatches a higher-order method call to the appropriate inline
+    /// desugaring (Option/Result or Vector iterators).
+    fn compile_desugared_higher_order(&mut self, mc: &MethodCallExpr) -> Result<()> {
+        match mc.receiver.as_deref() {
+            Some("Option" | "Result") => self.compile_option_result_higher_order(mc),
+            Some("Vector") => self.compile_vector_iterator(mc),
+            _ => unreachable!("is_desugared_higher_order already validated receiver"),
+        }
+    }
+
+    /// Compiles `Option::map`, `Option::and_then`, `Result::map`, or
+    /// `Result::and_then` as inline bytecode equivalent to a match expression.
+    ///
+    /// For `opt.map(f)`:
+    /// ```text
+    /// match opt { Some(x) => Some(f(x)), None => None }
+    /// ```
+    ///
+    /// For `opt.and_then(f)`:
+    /// ```text
+    /// match opt { Some(x) => f(x), None => None }
+    /// ```
+    ///
+    /// Result variants follow the same pattern with Ok/Err.
+    fn compile_option_result_higher_order(&mut self, mc: &MethodCallExpr) -> Result<()> {
+        let span = mc.span;
+        let is_option = mc.receiver.as_deref() == Some("Option");
+        let is_map = mc.method == "map";
+
+        let success_tag: usize = 0;
+        let type_index: usize = if is_option { 0 } else { 1 };
+        let some_or_ok = type_index << 8;
+        let none_or_err = (type_index << 8) | 1;
+
+        let id = self.for_loop_counter;
+        self.for_loop_counter += 1;
+        let fn_name = format!("__hof_fn_{id}");
+        let val_name = format!("__hof_val_{id}");
+
+        self.compile_expression(&mc.arguments[0])?;
+        let fn_sym = self.define_and_set(&fn_name, false, span)?;
+
+        self.compile_expression(&mc.object)?;
+
+        let match_tag_pos = self.emit(Opcode::MatchTag, &[success_tag, Self::JUMP], span);
+
+        self.emit(Opcode::GetField, &[0], span);
+        let val_sym = self.define_and_set(&val_name, false, span)?;
+
+        self.load_symbol(&fn_sym, span);
+        self.load_symbol(&val_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+
+        if is_map {
+            self.emit(Opcode::Construct, &[some_or_ok, 1], span);
+        }
+        let jump_to_end = self.emit(Opcode::Jump, &[Self::JUMP], span);
+
+        let fail_arm = self.current_instructions().len();
+        self.replace_match_tag_target(match_tag_pos, fail_arm)?;
+
+        if is_option {
+            self.emit(Opcode::Pop, &[], span);
+            self.emit(Opcode::Construct, &[none_or_err, 0], span);
+        } else {
+            // `Result::Err`: the scrutinee is already the Err variant; keep it.
+        }
+        let end = self.current_instructions().len();
+        self.replace_operand(jump_to_end, end)?;
+        Ok(())
+    }
+
+    /// Compiles `Vector::map`, `Vector::filter`, `Vector::fold`, `Vector::any`,
+    /// and `Vector::all` as inline loop desugaring.
+    ///
+    /// Each method desugars to a counting loop over the source vector:
+    ///
+    /// - `map(f)`:   builds a new vector by applying `f` to each element
+    /// - `filter(f)`: builds a new vector of elements where `f` returns true
+    /// - `fold(init, f)`: accumulates a single value via `f(acc, elem)`
+    /// - `any(f)`:   short-circuits to `true` when `f(elem)` is true
+    /// - `all(f)`:   short-circuits to `false` when `f(elem)` is false
+    fn compile_vector_iterator(&mut self, mc: &MethodCallExpr) -> Result<()> {
+        match mc.method.as_str() {
+            "map" => self.compile_vector_map(mc),
+            "filter" => self.compile_vector_filter(mc),
+            "fold" => self.compile_vector_fold(mc),
+            "any" => self.compile_vector_any_all(mc, true),
+            "all" => self.compile_vector_any_all(mc, false),
+            _ => unreachable!("is_desugared_higher_order already validated method"),
+        }
+    }
+
+    /// Compiles `vec.map(f)` as a loop that builds a new vector.
+    ///
+    /// ```text
+    /// let __fn = f;
+    /// let __iter = vec;
+    /// let __len = Vector::len(__iter);
+    /// let __result = [];
+    /// let __i = 0;
+    /// loop_start:
+    ///   if __i >= __len: jump exit
+    ///   let __elem = __iter[__i]
+    ///   __result = Vector::push(__result, __fn(__elem))
+    ///   __i += 1
+    ///   jump loop_start
+    /// exit:
+    ///   __result
+    /// ```
+    fn compile_vector_map(&mut self, mc: &MethodCallExpr) -> Result<()> {
+        let span = mc.span;
+        let id = self.for_loop_counter;
+        self.for_loop_counter += 1;
+
+        let fn_name = format!("__vmap_fn_{id}");
+        let iter_name = format!("__vmap_iter_{id}");
+        let len_name = format!("__vmap_len_{id}");
+        let result_name = format!("__vmap_result_{id}");
+        let i_name = format!("__vmap_i_{id}");
+        let elem_name = format!("__vmap_elem_{id}");
+
+        // Store the closure
+        self.compile_expression(&mc.arguments[0])?;
+        let fn_sym = self.define_and_set(&fn_name, false, span)?;
+
+        // Store the source vector
+        self.compile_expression(&mc.object)?;
+        let iter_sym = self.define_and_set(&iter_name, false, span)?;
+
+        // __len = Vector::len(__iter)
+        let len_builtin = self.resolve_or_error("Vector::len", span)?;
+        self.load_symbol(&len_builtin, span);
+        self.load_symbol(&iter_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+        let len_sym = self.define_and_set(&len_name, false, span)?;
+
+        // __result = [] (empty vector)
+        self.emit(Opcode::Vector, &[0], span);
+        let result_sym = self.define_and_set(&result_name, true, span)?;
+
+        // __i = 0
+        let zero_idx = self.add_constant(Value::Integer(Integer::I64(0)))?;
+        self.emit(Opcode::Constant, &[zero_idx], span);
+        let i_sym = self.define_and_set(&i_name, true, span)?;
+
+        // loop_start: __i < __len
+        let loop_start = self.current_instructions().len();
+        self.load_symbol(&i_sym, span);
+        self.load_symbol(&len_sym, span);
+        self.emit(Opcode::LessThan, &[], span);
+        let exit_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+
+        // let __elem = __iter[__i]
+        self.load_symbol(&iter_sym, span);
+        self.load_symbol(&i_sym, span);
+        self.emit(Opcode::Index, &[], span);
+        let elem_sym = self.define_and_set(&elem_name, false, span)?;
+
+        // __result = Vector::push(__result, __fn(__elem))
+        let push_builtin = self.resolve_or_error("Vector::push", span)?;
+        self.load_symbol(&push_builtin, span);
+        self.load_symbol(&result_sym, span);
+        self.load_symbol(&fn_sym, span);
+        self.load_symbol(&elem_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+        self.emit(Opcode::Call, &[2], span);
+        self.emit_set_symbol(&result_sym, span);
+
+        // __i += 1
+        self.load_symbol(&i_sym, span);
+        let one_idx = self.add_constant(Value::Integer(Integer::I64(1)))?;
+        self.emit(Opcode::Constant, &[one_idx], span);
+        self.emit(Opcode::Add, &[], span);
+        self.emit_set_symbol(&i_sym, span);
+
+        self.emit(Opcode::Jump, &[loop_start], span);
+
+        // exit: push __result
+        let loop_exit = self.current_instructions().len();
+        self.replace_operand(exit_jump, loop_exit)?;
+        self.load_symbol(&result_sym, span);
+        Ok(())
+    }
+
+    /// Compiles `vec.filter(f)` as a loop that conditionally appends elements.
+    ///
+    /// ```text
+    /// let __fn = f;
+    /// let __iter = vec;
+    /// let __len = Vector::len(__iter);
+    /// let __result = [];
+    /// let __i = 0;
+    /// loop_start:
+    ///   if __i >= __len: jump exit
+    ///   let __elem = __iter[__i]
+    ///   if !__fn(__elem): jump skip
+    ///   __result = Vector::push(__result, __elem)
+    /// skip:
+    ///   __i += 1
+    ///   jump loop_start
+    /// exit:
+    ///   __result
+    /// ```
+    fn compile_vector_filter(&mut self, mc: &MethodCallExpr) -> Result<()> {
+        let span = mc.span;
+        let id = self.for_loop_counter;
+        self.for_loop_counter += 1;
+
+        let fn_name = format!("__vfilt_fn_{id}");
+        let iter_name = format!("__vfilt_iter_{id}");
+        let len_name = format!("__vfilt_len_{id}");
+        let result_name = format!("__vfilt_result_{id}");
+        let i_name = format!("__vfilt_i_{id}");
+        let elem_name = format!("__vfilt_elem_{id}");
+
+        self.compile_expression(&mc.arguments[0])?;
+        let fn_sym = self.define_and_set(&fn_name, false, span)?;
+
+        self.compile_expression(&mc.object)?;
+        let iter_sym = self.define_and_set(&iter_name, false, span)?;
+
+        let len_builtin = self.resolve_or_error("Vector::len", span)?;
+        self.load_symbol(&len_builtin, span);
+        self.load_symbol(&iter_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+        let len_sym = self.define_and_set(&len_name, false, span)?;
+
+        self.emit(Opcode::Vector, &[0], span);
+        let result_sym = self.define_and_set(&result_name, true, span)?;
+
+        let zero_idx = self.add_constant(Value::Integer(Integer::I64(0)))?;
+        self.emit(Opcode::Constant, &[zero_idx], span);
+        let i_sym = self.define_and_set(&i_name, true, span)?;
+
+        let loop_start = self.current_instructions().len();
+        self.load_symbol(&i_sym, span);
+        self.load_symbol(&len_sym, span);
+        self.emit(Opcode::LessThan, &[], span);
+        let exit_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+
+        // let __elem = __iter[__i]
+        self.load_symbol(&iter_sym, span);
+        self.load_symbol(&i_sym, span);
+        self.emit(Opcode::Index, &[], span);
+        let elem_sym = self.define_and_set(&elem_name, false, span)?;
+
+        // if __fn(__elem) => push
+        self.load_symbol(&fn_sym, span);
+        self.load_symbol(&elem_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+        let skip_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+
+        // __result = Vector::push(__result, __elem)
+        let push_builtin = self.resolve_or_error("Vector::push", span)?;
+        self.load_symbol(&push_builtin, span);
+        self.load_symbol(&result_sym, span);
+        self.load_symbol(&elem_sym, span);
+        self.emit(Opcode::Call, &[2], span);
+        self.emit_set_symbol(&result_sym, span);
+
+        // skip:
+        let skip_target = self.current_instructions().len();
+        self.replace_operand(skip_jump, skip_target)?;
+
+        // __i += 1
+        self.load_symbol(&i_sym, span);
+        let one_idx = self.add_constant(Value::Integer(Integer::I64(1)))?;
+        self.emit(Opcode::Constant, &[one_idx], span);
+        self.emit(Opcode::Add, &[], span);
+        self.emit_set_symbol(&i_sym, span);
+
+        self.emit(Opcode::Jump, &[loop_start], span);
+
+        let loop_exit = self.current_instructions().len();
+        self.replace_operand(exit_jump, loop_exit)?;
+        self.load_symbol(&result_sym, span);
+        Ok(())
+    }
+
+    /// Compiles `vec.fold(init, f)` as a loop that accumulates a value.
+    ///
+    /// ```text
+    /// let __fn = f;
+    /// let __acc = init;
+    /// let __iter = vec;
+    /// let __len = Vector::len(__iter);
+    /// let __i = 0;
+    /// loop_start:
+    ///   if __i >= __len: jump exit
+    ///   let __elem = __iter[__i]
+    ///   __acc = __fn(__acc, __elem)
+    ///   __i += 1
+    ///   jump loop_start
+    /// exit:
+    ///   __acc
+    /// ```
+    fn compile_vector_fold(&mut self, mc: &MethodCallExpr) -> Result<()> {
+        let span = mc.span;
+        let id = self.for_loop_counter;
+        self.for_loop_counter += 1;
+
+        let fn_name = format!("__vfold_fn_{id}");
+        let acc_name = format!("__vfold_acc_{id}");
+        let iter_name = format!("__vfold_iter_{id}");
+        let len_name = format!("__vfold_len_{id}");
+        let i_name = format!("__vfold_i_{id}");
+        let elem_name = format!("__vfold_elem_{id}");
+
+        // Store the closure (second arg)
+        self.compile_expression(&mc.arguments[1])?;
+        let fn_sym = self.define_and_set(&fn_name, false, span)?;
+
+        // Store the initial accumulator (first arg)
+        self.compile_expression(&mc.arguments[0])?;
+        let acc_sym = self.define_and_set(&acc_name, true, span)?;
+
+        // Store the source vector
+        self.compile_expression(&mc.object)?;
+        let iter_sym = self.define_and_set(&iter_name, false, span)?;
+
+        let len_builtin = self.resolve_or_error("Vector::len", span)?;
+        self.load_symbol(&len_builtin, span);
+        self.load_symbol(&iter_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+        let len_sym = self.define_and_set(&len_name, false, span)?;
+
+        let zero_idx = self.add_constant(Value::Integer(Integer::I64(0)))?;
+        self.emit(Opcode::Constant, &[zero_idx], span);
+        let i_sym = self.define_and_set(&i_name, true, span)?;
+
+        let loop_start = self.current_instructions().len();
+        self.load_symbol(&i_sym, span);
+        self.load_symbol(&len_sym, span);
+        self.emit(Opcode::LessThan, &[], span);
+        let exit_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+
+        // let __elem = __iter[__i]
+        self.load_symbol(&iter_sym, span);
+        self.load_symbol(&i_sym, span);
+        self.emit(Opcode::Index, &[], span);
+        let elem_sym = self.define_and_set(&elem_name, false, span)?;
+
+        // __acc = __fn(__acc, __elem)
+        self.load_symbol(&fn_sym, span);
+        self.load_symbol(&acc_sym, span);
+        self.load_symbol(&elem_sym, span);
+        self.emit(Opcode::Call, &[2], span);
+        self.emit_set_symbol(&acc_sym, span);
+
+        // __i += 1
+        self.load_symbol(&i_sym, span);
+        let one_idx = self.add_constant(Value::Integer(Integer::I64(1)))?;
+        self.emit(Opcode::Constant, &[one_idx], span);
+        self.emit(Opcode::Add, &[], span);
+        self.emit_set_symbol(&i_sym, span);
+
+        self.emit(Opcode::Jump, &[loop_start], span);
+
+        let loop_exit = self.current_instructions().len();
+        self.replace_operand(exit_jump, loop_exit)?;
+        self.load_symbol(&acc_sym, span);
+        Ok(())
+    }
+
+    /// Compiles `vec.any(f)` and `vec.all(f)` as short-circuiting loops.
+    ///
+    /// For `any`: returns `true` as soon as `f(elem)` is `true`, else `false`.
+    /// For `all`: returns `false` as soon as `f(elem)` is `false`, else `true`.
+    ///
+    /// ```text
+    /// let __fn = f;
+    /// let __iter = vec;
+    /// let __len = Vector::len(__iter);
+    /// let __i = 0;
+    /// loop_start:
+    ///   if __i >= __len: jump default_result
+    ///   let __elem = __iter[__i]
+    ///   let __test = __fn(__elem)
+    ///   // any: if __test => jump early_result
+    ///   // all: if !__test => jump early_result
+    ///   __i += 1
+    ///   jump loop_start
+    /// early_result:
+    ///   push <early_value>  // any: true, all: false
+    ///   jump end
+    /// default_result:
+    ///   push <default_value>  // any: false, all: true
+    /// end:
+    /// ```
+    fn compile_vector_any_all(&mut self, mc: &MethodCallExpr, is_any: bool) -> Result<()> {
+        let span = mc.span;
+        let id = self.for_loop_counter;
+        self.for_loop_counter += 1;
+
+        let fn_name = format!("__vaa_fn_{id}");
+        let iter_name = format!("__vaa_iter_{id}");
+        let len_name = format!("__vaa_len_{id}");
+        let i_name = format!("__vaa_i_{id}");
+        let elem_name = format!("__vaa_elem_{id}");
+
+        self.compile_expression(&mc.arguments[0])?;
+        let fn_sym = self.define_and_set(&fn_name, false, span)?;
+
+        self.compile_expression(&mc.object)?;
+        let iter_sym = self.define_and_set(&iter_name, false, span)?;
+
+        let len_builtin = self.resolve_or_error("Vector::len", span)?;
+        self.load_symbol(&len_builtin, span);
+        self.load_symbol(&iter_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+        let len_sym = self.define_and_set(&len_name, false, span)?;
+
+        let zero_idx = self.add_constant(Value::Integer(Integer::I64(0)))?;
+        self.emit(Opcode::Constant, &[zero_idx], span);
+        let i_sym = self.define_and_set(&i_name, true, span)?;
+
+        let loop_start = self.current_instructions().len();
+        self.load_symbol(&i_sym, span);
+        self.load_symbol(&len_sym, span);
+        self.emit(Opcode::LessThan, &[], span);
+        let exit_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+
+        // let __elem = __iter[__i]
+        self.load_symbol(&iter_sym, span);
+        self.load_symbol(&i_sym, span);
+        self.emit(Opcode::Index, &[], span);
+        let elem_sym = self.define_and_set(&elem_name, false, span)?;
+
+        // let __test = __fn(__elem)
+        self.load_symbol(&fn_sym, span);
+        self.load_symbol(&elem_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+
+        let (early_value, default_value) = if is_any { (true, false) } else { (false, true) };
+
+        if is_any {
+            let continue_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+
+            let early_idx = self.add_constant(Value::Bool(early_value))?;
+            self.emit(Opcode::Constant, &[early_idx], span);
+            let early_exit = self.emit(Opcode::Jump, &[Self::JUMP], span);
+
+            let continue_target = self.current_instructions().len();
+            self.replace_operand(continue_jump, continue_target)?;
+
+            self.load_symbol(&i_sym, span);
+            let one_idx = self.add_constant(Value::Integer(Integer::I64(1)))?;
+            self.emit(Opcode::Constant, &[one_idx], span);
+            self.emit(Opcode::Add, &[], span);
+            self.emit_set_symbol(&i_sym, span);
+            self.emit(Opcode::Jump, &[loop_start], span);
+
+            let default_target = self.current_instructions().len();
+            self.replace_operand(exit_jump, default_target)?;
+            let default_idx = self.add_constant(Value::Bool(default_value))?;
+            self.emit(Opcode::Constant, &[default_idx], span);
+
+            let end = self.current_instructions().len();
+            self.replace_operand(early_exit, end)?;
+        } else {
+            let early_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+
+            self.load_symbol(&i_sym, span);
+            let one_idx = self.add_constant(Value::Integer(Integer::I64(1)))?;
+            self.emit(Opcode::Constant, &[one_idx], span);
+            self.emit(Opcode::Add, &[], span);
+            self.emit_set_symbol(&i_sym, span);
+            self.emit(Opcode::Jump, &[loop_start], span);
+
+            let early_target = self.current_instructions().len();
+            self.replace_operand(early_jump, early_target)?;
+            let early_idx = self.add_constant(Value::Bool(early_value))?;
+            self.emit(Opcode::Constant, &[early_idx], span);
+            let early_exit = self.emit(Opcode::Jump, &[Self::JUMP], span);
+
+            let default_target = self.current_instructions().len();
+            self.replace_operand(exit_jump, default_target)?;
+            let default_idx = self.add_constant(Value::Bool(default_value))?;
+            self.emit(Opcode::Constant, &[default_idx], span);
+
+            let end = self.current_instructions().len();
+            self.replace_operand(early_exit, end)?;
+        }
+        Ok(())
+    }
+
+    /// Compiles the try operator (`expr?`).
+    ///
+    /// Desugars to an inline match:
+    /// - `Option<T>`: `Some(val) => val`, `None => return None`
+    /// - `Result<T, E>`: `Ok(val) => val`, `Err(e) => return Err(e)`
+    fn compile_try(&mut self, try_expr: &TryExpr) -> Result<()> {
+        let span = try_expr.span;
+        let is_option = try_expr.kind == TryKind::Option;
+
+        let success_tag: usize = 0;
+        let type_index: usize = if is_option { 0 } else { 1 };
+        let none_or_err = (type_index << 8) | 1;
+
+        self.compile_expression(&try_expr.expr)?;
+
+        let match_tag_pos = self.emit(Opcode::MatchTag, &[success_tag, Self::JUMP], span);
+
+        self.emit(Opcode::GetField, &[0], span);
+        let jump_to_end = self.emit(Opcode::Jump, &[Self::JUMP], span);
+
+        let fail_arm = self.current_instructions().len();
+        self.replace_match_tag_target(match_tag_pos, fail_arm)?;
+
+        if is_option {
+            self.emit(Opcode::Pop, &[], span);
+            self.emit(Opcode::Construct, &[none_or_err, 0], span);
+        }
+        // For Result, the Err variant is already on the stack.
+        self.emit(Opcode::ReturnValue, &[], span);
+
+        let end = self.current_instructions().len();
+        self.replace_operand(jump_to_end, end)?;
+        Ok(())
+    }
+
     /// Resolves the fully-qualified builtin name for a method call.
     fn resolve_method_name(&mut self, mc: &MethodCallExpr) -> Option<String> {
-        // Built-in type prefixes for method dispatch fallback.
-        const BUILTIN_METHOD_PREFIXES: &[&str] = &["Array", "str", "Set"];
-
         if let Some(ref receiver) = mc.receiver {
             let candidate = format!("{receiver}::{}", mc.method);
             if self.symbols_table.resolve_symbol(&candidate).is_some() {
@@ -1238,22 +1950,15 @@ impl Compiler {
             })
     }
 
-    /// Maps a source-level type annotation to a bytecode type tag.
-    fn type_annotation_to_tag(t: TypeAnnotation) -> TypeTag {
-        match t {
-            TypeAnnotation::I8 => TypeTag::I8,
-            TypeAnnotation::I16 => TypeTag::I16,
-            TypeAnnotation::I32 => TypeTag::I32,
-            TypeAnnotation::I64 => TypeTag::I64,
-            TypeAnnotation::I128 => TypeTag::I128,
-            TypeAnnotation::Isize => TypeTag::Isize,
-            TypeAnnotation::U8 => TypeTag::U8,
-            TypeAnnotation::U16 => TypeTag::U16,
-            TypeAnnotation::U32 => TypeTag::U32,
-            TypeAnnotation::U64 => TypeTag::U64,
-            TypeAnnotation::U128 => TypeTag::U128,
-            TypeAnnotation::Usize => TypeTag::Usize,
-        }
+    /// Resolves a symbol by name, returning an error if undefined.
+    fn resolve_or_error(&mut self, name: &str, span: Span) -> Result<Symbol> {
+        self.symbols_table.resolve_symbol(name).ok_or_else(|| {
+            CompileErrorKind::UndefinedVariable {
+                name: name.to_string(),
+            }
+            .at(span)
+            .into()
+        })
     }
 
     /// Attaches a span to a compile error that lacks one.
@@ -1274,7 +1979,7 @@ impl Compiler {
     ///
     /// Returns `CompileError::ConstantPoolOverflow` if adding this constant
     /// would exceed the maximum constant pool size.
-    fn add_constant(&mut self, obj: Object) -> Result<usize> {
+    fn add_constant(&mut self, val: Value) -> Result<usize> {
         let index = self.constants.len();
         if index > MAX_CONSTANT_POOL_SIZE {
             return Err(CompileError::new(CompileErrorKind::ConstantPoolOverflow {
@@ -1283,7 +1988,7 @@ impl Compiler {
             })
             .into());
         }
-        self.constants.push(obj);
+        self.constants.push(val);
         Ok(index)
     }
 
@@ -1325,7 +2030,7 @@ impl Compiler {
         for sym in &free_vars {
             self.load_symbol(sym, span);
         }
-        let compiled_fn = Object::CompiledFunction(CompiledFunction {
+        let compiled_fn = Value::CompiledFn(CompiledFn {
             instructions: Rc::from(instructions.as_bytes()),
             num_locals,
             num_parameters: num_params,
@@ -1355,18 +2060,7 @@ impl Compiler {
                 &method.body,
                 span,
             )?;
-            let symbol = match self.symbols_table.define_symbol(&qualified_name, false) {
-                Ok(s) => s,
-                Err(e) => return Err(self.attach_span(e, span)),
-            };
-            let (scope, index) = (symbol.scope, symbol.index);
-            match scope {
-                SymbolScope::Global => self.emit(Opcode::SetGlobal, &[index], span),
-                SymbolScope::Local => self.emit(Opcode::SetLocal, &[index], span),
-                SymbolScope::Builtin | SymbolScope::Free | SymbolScope::Function => {
-                    unreachable!("define_symbol never produces this scope")
-                }
-            };
+            self.define_and_set(&qualified_name, false, span)?;
         }
         Ok(())
     }
@@ -1448,9 +2142,7 @@ impl Compiler {
     fn add_instruction(&mut self, instruction: &[u8]) -> usize {
         let scope = &mut self.scopes[self.scope_index];
         let pos = scope.instructions.len();
-        scope
-            .instructions
-            .extend(&Instructions::from(instruction.to_vec()));
+        scope.instructions.extend_from_bytes(instruction);
         pos
     }
 
@@ -1510,6 +2202,406 @@ impl Compiler {
         scope.instructions.replace_bytes(op_pos, &new_inst);
         Ok(())
     }
+
+    /// Dispatches a builtin macro call to the appropriate expansion routine.
+    fn compile_macro_call(&mut self, mc: &MacroCallExpr) -> Result<()> {
+        let span = mc.span;
+        match mc.name.as_str() {
+            "print" => self.compile_print_macro(&mc.arguments, false, span),
+            "println" => self.compile_print_macro(&mc.arguments, true, span),
+            "assert" => self.compile_assert_macro(&mc.arguments, span),
+            "assert_eq" => self.compile_assert_eq_macro(&mc.arguments, span),
+            "panic" => self.compile_panic_macro(&mc.arguments, span),
+            "todo" => self.emit_builtin_call(
+                "__panic",
+                &[Value::Str("not yet implemented".to_string())],
+                span,
+            ),
+            "unimplemented" => self.emit_builtin_call(
+                "__panic",
+                &[Value::Str("not implemented".to_string())],
+                span,
+            ),
+            _ => Err(CompileErrorKind::UnknownMacro {
+                name: mc.name.clone(),
+            }
+            .at(span)
+            .into()),
+        }
+    }
+
+    /// Compiles `print!(fmt, args...)` or `println!(fmt, args...)`.
+    fn compile_print_macro(&mut self, args: &[Expr], newline: bool, span: Span) -> Result<()> {
+        let macro_name = if newline { "println" } else { "print" };
+
+        if args.is_empty() {
+            if newline {
+                return self.emit_builtin_call(
+                    "__print_str_ln",
+                    &[Value::Str(String::new())],
+                    span,
+                );
+            }
+            return self.emit_builtin_call("__print_str", &[Value::Str(String::new())], span);
+        }
+        let fmt = match &args[0] {
+            Expr::Str(s) => maat_ast::unescape_string(&s.value),
+            _ => {
+                return Err(CompileErrorKind::MacroExpectsFormatString {
+                    macro_name: macro_name.to_string(),
+                }
+                .at(span)
+                .into());
+            }
+        };
+        let segments = parse_format_string(&fmt);
+        let placeholder_count = segments
+            .iter()
+            .filter(|s| matches!(s, FmtSegment::Arg))
+            .count();
+        let value_args = &args[1..];
+        if placeholder_count != value_args.len() {
+            return Err(CompileErrorKind::FormatArgCountMismatch {
+                placeholders: placeholder_count,
+                arguments: value_args.len(),
+            }
+            .at(span)
+            .into());
+        }
+
+        // Each builtin call pushes a unit result. We pop all intermediate
+        // results and keep only the final call's result as the expression value.
+        let mut arg_idx = 0;
+        let mut emitted_calls = 0usize;
+
+        for segment in &segments {
+            if emitted_calls > 0 {
+                self.emit(Opcode::Pop, &[], span);
+            }
+            match segment {
+                FmtSegment::Literal(text) => {
+                    self.emit_builtin_call("__print_str", &[Value::Str(text.clone())], span)?;
+                    emitted_calls += 1;
+                }
+                FmtSegment::Arg => {
+                    self.emit_builtin_call_expr("__to_string", &value_args[arg_idx], span)?;
+                    self.emit_builtin_call_stack("__print_str", span)?;
+                    arg_idx += 1;
+                    emitted_calls += 1;
+                }
+                FmtSegment::Capture(name) => {
+                    let ident_expr = Expr::Ident(Ident {
+                        value: name.clone(),
+                        span,
+                    });
+                    self.emit_builtin_call_expr("__to_string", &ident_expr, span)?;
+                    self.emit_builtin_call_stack("__print_str", span)?;
+                    emitted_calls += 1;
+                }
+            }
+        }
+        if newline {
+            if emitted_calls > 0 {
+                self.emit(Opcode::Pop, &[], span);
+            }
+            self.emit_builtin_call("__print_str_ln", &[Value::Str(String::new())], span)?;
+        }
+        Ok(())
+    }
+
+    /// Compiles `assert!(condition)` or `assert!(condition, message)`.
+    fn compile_assert_macro(&mut self, args: &[Expr], span: Span) -> Result<()> {
+        if args.is_empty() || args.len() > 2 {
+            return Err(CompileErrorKind::FormatArgCountMismatch {
+                placeholders: 1,
+                arguments: args.len(),
+            }
+            .at(span)
+            .into());
+        }
+
+        self.compile_expression(&args[0])?;
+        let cond_jump_pos = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+        let skip_pos = self.emit(Opcode::Jump, &[Self::JUMP], span);
+
+        let panic_start = self.current_instructions().len();
+        self.replace_operand(cond_jump_pos, panic_start)?;
+
+        if args.len() == 2 {
+            self.compile_expression(&args[1])?;
+            self.emit_builtin_call_stack("__panic", span)?;
+        } else {
+            self.emit_builtin_call(
+                "__panic",
+                &[Value::Str("assertion failed".to_string())],
+                span,
+            )?;
+        }
+        self.emit(Opcode::Pop, &[], span);
+
+        let after = self.current_instructions().len();
+        self.replace_operand(skip_pos, after)?;
+        self.emit(Opcode::Unit, &[], span);
+        Ok(())
+    }
+
+    /// Compiles `assert_eq!(left, right)`.
+    fn compile_assert_eq_macro(&mut self, args: &[Expr], span: Span) -> Result<()> {
+        if args.len() != 2 {
+            return Err(CompileErrorKind::FormatArgCountMismatch {
+                placeholders: 2,
+                arguments: args.len(),
+            }
+            .at(span)
+            .into());
+        }
+
+        self.compile_expression(&args[0])?;
+        self.compile_expression(&args[1])?;
+        self.emit(Opcode::Equal, &[], span);
+
+        let cond_jump_pos = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+        let skip_pos = self.emit(Opcode::Jump, &[Self::JUMP], span);
+
+        let panic_start = self.current_instructions().len();
+        self.replace_operand(cond_jump_pos, panic_start)?;
+        self.emit_builtin_call(
+            "__panic",
+            &[Value::Str("assertion `left == right` failed".to_string())],
+            span,
+        )?;
+        self.emit(Opcode::Pop, &[], span);
+
+        let after = self.current_instructions().len();
+        self.replace_operand(skip_pos, after)?;
+        self.emit(Opcode::Unit, &[], span);
+        Ok(())
+    }
+
+    /// Compiles `panic!()`, `panic!("message")`, or `panic!("fmt {}", args...)`.
+    ///
+    /// With no arguments, emits `__panic("explicit panic")`. With a plain
+    /// string literal, emits `__panic(literal)`. With a format string and
+    /// interpolation arguments, builds the message by concatenating segments
+    /// via `__to_string` and `__str_concat`, then emits `__panic(result)`.
+    fn compile_panic_macro(&mut self, args: &[Expr], span: Span) -> Result<()> {
+        if args.is_empty() {
+            return self.emit_builtin_call(
+                "__panic",
+                &[Value::Str("explicit panic".to_string())],
+                span,
+            );
+        }
+
+        let fmt = match &args[0] {
+            Expr::Str(s) => maat_ast::unescape_string(&s.value),
+            _ => {
+                return Err(CompileErrorKind::MacroExpectsFormatString {
+                    macro_name: "panic".to_string(),
+                }
+                .at(span)
+                .into());
+            }
+        };
+
+        let segments = parse_format_string(&fmt);
+        let placeholder_count = segments
+            .iter()
+            .filter(|s| matches!(s, FmtSegment::Arg))
+            .count();
+        let value_args = &args[1..];
+        if placeholder_count != value_args.len() {
+            return Err(CompileErrorKind::FormatArgCountMismatch {
+                placeholders: placeholder_count,
+                arguments: value_args.len(),
+            }
+            .at(span)
+            .into());
+        }
+
+        if placeholder_count == 0 {
+            return self.emit_builtin_call("__panic", &[Value::Str(fmt)], span);
+        }
+
+        let mut arg_idx = 0;
+        let mut first = true;
+
+        for segment in &segments {
+            let segment_str = match segment {
+                FmtSegment::Literal(text) => {
+                    let idx = self.add_constant(Value::Str(text.clone()))?;
+                    self.emit(Opcode::Constant, &[idx], span);
+                    true
+                }
+                FmtSegment::Arg => {
+                    self.emit_builtin_call_expr("__to_string", &value_args[arg_idx], span)?;
+                    arg_idx += 1;
+                    true
+                }
+                FmtSegment::Capture(name) => {
+                    let ident_expr = Expr::Ident(Ident {
+                        value: name.clone(),
+                        span,
+                    });
+                    self.emit_builtin_call_expr("__to_string", &ident_expr, span)?;
+                    true
+                }
+            };
+
+            if segment_str && !first {
+                let rhs_tmp = format!("__panic_rhs_{}", self.current_instructions().len());
+                let rhs_sym = self.define_and_set(&rhs_tmp, false, span)?;
+                let lhs_tmp = format!("__panic_lhs_{}", self.current_instructions().len());
+                let lhs_sym = self.define_and_set(&lhs_tmp, false, span)?;
+                let concat_idx = resolve_builtin_index("__str_concat");
+                self.emit(Opcode::GetBuiltin, &[concat_idx], span);
+                self.load_symbol(&lhs_sym, span);
+                self.load_symbol(&rhs_sym, span);
+                self.emit(Opcode::Call, &[2], span);
+            }
+            if segment_str {
+                first = false;
+            }
+        }
+
+        self.emit_builtin_call_stack("__panic", span)?;
+        Ok(())
+    }
+
+    /// Emits a call to a builtin function with constant arguments.
+    fn emit_builtin_call(&mut self, name: &str, const_args: &[Value], span: Span) -> Result<()> {
+        let builtin_idx = resolve_builtin_index(name);
+        self.emit(Opcode::GetBuiltin, &[builtin_idx], span);
+        for arg in const_args {
+            let idx = self.add_constant(arg.clone())?;
+            self.emit(Opcode::Constant, &[idx], span);
+        }
+        self.emit(Opcode::Call, &[const_args.len()], span);
+        Ok(())
+    }
+
+    /// Emits a call to a builtin function where the single argument is an
+    /// expression to be compiled (pushed onto the stack).
+    fn emit_builtin_call_expr(&mut self, name: &str, arg: &Expr, span: Span) -> Result<()> {
+        let builtin_idx = resolve_builtin_index(name);
+        self.emit(Opcode::GetBuiltin, &[builtin_idx], span);
+        self.compile_expression(arg)?;
+        self.emit(Opcode::Call, &[1], span);
+        Ok(())
+    }
+
+    /// Emits a call to a builtin function where the single argument is
+    /// already on the stack (from a prior call's return value).
+    fn emit_builtin_call_stack(&mut self, name: &str, span: Span) -> Result<()> {
+        let temp_name = format!("__macro_tmp_{}", self.current_instructions().len());
+        let symbol = self.define_and_set(&temp_name, false, span)?;
+        let builtin_idx = resolve_builtin_index(name);
+        self.emit(Opcode::GetBuiltin, &[builtin_idx], span);
+        self.load_symbol(&symbol, span);
+        self.emit(Opcode::Call, &[1], span);
+        Ok(())
+    }
+}
+
+/// Resolves a builtin function name to its index in the [`BUILTINS`] registry.
+///
+/// Panics if the name is not found. Internal builtins are guaranteed
+/// to be present at compile time.
+fn resolve_builtin_index(name: &str) -> usize {
+    BUILTINS
+        .iter()
+        .position(|(n, _)| *n == name)
+        .unwrap_or_else(|| panic!("internal builtin `{name}` not found in registry"))
+}
+
+/// Parses a format string into a sequence of literal, positional, and capture segments.
+///
+/// Handles `{{` and `}}` as escaped braces. `{}` is a positional placeholder,
+/// `{name}` is a variable capture (where `name` matches `[a-zA-Z_][a-zA-Z0-9_]*`).
+fn parse_format_string(fmt: &str) -> Vec<FmtSegment> {
+    let mut segments = Vec::new();
+    let mut buf = String::new();
+    let mut chars = fmt.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '{' => {
+                if chars.peek() == Some(&'{') {
+                    chars.next();
+                    buf.push('{');
+                } else if chars.peek() == Some(&'}') {
+                    chars.next();
+                    if !buf.is_empty() {
+                        segments.push(FmtSegment::Literal(std::mem::take(&mut buf)));
+                    }
+                    segments.push(FmtSegment::Arg);
+                } else {
+                    // Try to parse `{identifier}`.
+                    let mut name = String::new();
+                    while let Some(&c) = chars.peek() {
+                        if c == '}' {
+                            break;
+                        }
+                        name.push(c);
+                        chars.next();
+                    }
+                    if chars.peek() == Some(&'}') && is_identifier(&name) {
+                        chars.next();
+                        if !buf.is_empty() {
+                            segments.push(FmtSegment::Literal(std::mem::take(&mut buf)));
+                        }
+                        segments.push(FmtSegment::Capture(name));
+                    } else {
+                        // Not a valid capture; emit as literal text.
+                        buf.push('{');
+                        buf.push_str(&name);
+                    }
+                }
+            }
+            '}' => {
+                if chars.peek() == Some(&'}') {
+                    chars.next();
+                    buf.push('}');
+                } else {
+                    buf.push('}');
+                }
+            }
+            _ => buf.push(ch),
+        }
+    }
+
+    if !buf.is_empty() {
+        segments.push(FmtSegment::Literal(buf));
+    }
+    segments
+}
+
+/// Returns `true` if `s` is a valid Maat identifier (`[a-zA-Z_][a-zA-Z0-9_]*`).
+fn is_identifier(s: &str) -> bool {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) if c.is_alphabetic() || c == '_' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_alphanumeric() || c == '_')
+}
+
+/// Maps a source-level type annotation to a bytecode type tag.
+fn num_kind_to_tag(t: NumKind) -> TypeTag {
+    match t {
+        NumKind::I8 => TypeTag::I8,
+        NumKind::I16 => TypeTag::I16,
+        NumKind::I32 => TypeTag::I32,
+        NumKind::I64 => TypeTag::I64,
+        NumKind::I128 => TypeTag::I128,
+        NumKind::Isize => TypeTag::Isize,
+        NumKind::U8 => TypeTag::U8,
+        NumKind::U16 => TypeTag::U16,
+        NumKind::U32 => TypeTag::U32,
+        NumKind::U64 => TypeTag::U64,
+        NumKind::U128 => TypeTag::U128,
+        NumKind::Usize => TypeTag::Usize,
+    }
 }
 
 #[cfg(test)]
@@ -1520,10 +2612,10 @@ mod tests {
     fn constant_pool_overflow() {
         let mut compiler = Compiler::new();
         for i in 0..=MAX_CONSTANT_POOL_SIZE as i64 {
-            let result = compiler.add_constant(Object::I64(i));
+            let result = compiler.add_constant(Value::Integer(Integer::I64(i)));
             assert!(result.is_ok(), "should succeed for index {i}");
         }
-        let result = compiler.add_constant(Object::I64(999));
+        let result = compiler.add_constant(Value::Integer(Integer::I64(999)));
         assert!(
             result.is_err(),
             "should fail when exceeding MAX_CONSTANT_POOL_SIZE"
@@ -1542,12 +2634,12 @@ mod tests {
 
     #[test]
     fn unsupported_prefix_operator() {
-        use maat_ast::{ExprStmt, Number, NumberKind, PrefixExpr, Radix};
+        use maat_ast::{ExprStmt, NumKind, Number, PrefixExpr, Radix};
 
         let expr = Expr::Prefix(PrefixExpr {
             operator: "~".to_string(),
             operand: Box::new(Expr::Number(Number {
-                kind: NumberKind::I64,
+                kind: NumKind::I64,
                 value: 5,
                 radix: Radix::Dec,
                 span: Span::ZERO,

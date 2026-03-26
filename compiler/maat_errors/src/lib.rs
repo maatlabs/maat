@@ -95,6 +95,11 @@ pub enum TypeErrorKind {
     #[error("type mismatch: expected `{expected}`, found `{found}`")]
     Mismatch { expected: String, found: String },
 
+    #[error(
+        "type mismatch: expected `{expected}`, found `{found}`\n  help: consider using `as {expected}` for explicit numeric conversion"
+    )]
+    NumericMismatch { expected: String, found: String },
+
     #[error("infinite type: `{0}` occurs in its own definition")]
     OccursCheck(String),
 
@@ -223,8 +228,25 @@ pub enum CompileErrorKind {
     #[error("`continue` outside of a loop")]
     ContinueOutsideLoop,
 
+    #[error("undeclared label `'{label}`")]
+    UndeclaredLabel { label: String },
+
     #[error("cannot re-assign to immutable variable `{name}`")]
     ImmutableAssignment { name: String },
+
+    #[error("unknown builtin macro `{name}!`")]
+    UnknownMacro { name: String },
+
+    #[error(
+        "format string has {placeholders} placeholder(s) but {arguments} argument(s) were supplied"
+    )]
+    FormatArgCountMismatch {
+        placeholders: usize,
+        arguments: usize,
+    },
+
+    #[error("`{macro_name}!` requires a format string literal as its first argument")]
+    MacroExpectsFormatString { macro_name: String },
 
     #[error(
         "enum `{name}` has {count} variants, exceeding the maximum of {max} (variant tags must fit in 8 bits)"

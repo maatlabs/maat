@@ -1,0 +1,26 @@
+// Vector<T> — a growable, ordered collection of elements.
+//
+// Construction:
+//   let v = [1, 2, 3];          // literal syntax
+//   let v = Vector::new();      // empty vector
+//
+// Access:
+//   v.len()                     -> usize         — number of elements
+//   v.first()                   -> Option<T>     — first element, or None if empty
+//   v.last()                    -> Option<T>     — last element, or None if empty
+//   v.split_first()             -> Vector<T>     — all elements except the first (empty if empty)
+//   v[i]                        -> T             — element at index i (panics if out of bounds)
+//
+// Building:
+//   v.push(x)                   -> Vector<T>     — new vector with x appended
+//   v.join(sep)                 -> str           — elements joined into a string
+//
+// Higher-order iterators (compiler-desugared, no runtime overhead):
+//   v.map(fn(T) -> U)           -> Vector<U>     — apply f to each element
+//   v.filter(fn(T) -> bool)     -> Vector<T>     — elements where f returns true
+//   v.fold(init, fn(U, T) -> U) -> U             — accumulate via f(acc, elem)
+//   v.any(fn(T) -> bool)        -> bool          — true if f returns true for any element
+//   v.all(fn(T) -> bool)        -> bool          — true if f returns true for all elements
+//
+// Iterators support chaining:
+//   [1, 2, 3, 4].filter(fn(x: i64) -> bool { x % 2 == 0 }).map(fn(x: i64) -> i64 { x * 10 })

@@ -1,19 +1,27 @@
 use maat_bytecode::{Bytecode, Instructions, Opcode, encode};
-use maat_runtime::{Hashable, Object};
+use maat_runtime::{Hashable, Integer, Value};
 use maat_vm::VM;
 
 #[derive(Debug)]
 enum TestValue {
-    I64(i64),
+    I8(i8),
+    I16(i16),
     I32(i32),
+    I64(i64),
+    I128(i128),
+    U8(u8),
+    U16(u16),
+    U32(u32),
+    U64(u64),
+    U128(u128),
     Usize(usize),
     Bool(bool),
     Str(String),
-    IntArray(Vec<i64>),
-    Hash(Vec<(i64, i64)>),
+    IntVector(Vec<i64>),
+    Map(Vec<(i64, i64)>),
     Range(i64, i64),
     RangeInclusive(i64, i64),
-    Null,
+    Unit,
 }
 
 fn run_vm_test(input: &str, expected: TestValue) {
@@ -26,77 +34,125 @@ fn run_vm_test(input: &str, expected: TestValue) {
         .expect("no value on stack")
         .clone();
     match expected {
-        TestValue::I64(exp) => match stack_elem {
-            Object::I64(val) => {
-                assert_eq!(val, exp, "wrong integer value for input: {input}")
+        TestValue::I8(exp) => match stack_elem {
+            Value::Integer(Integer::I8(val)) => {
+                assert_eq!(val, exp, "wrong I8 value for input: {input}")
             }
-            Object::Usize(val) => {
-                assert_eq!(val as i64, exp, "wrong integer value for input: {input}")
+            _ => panic!("expected I8, got: {stack_elem:?}"),
+        },
+        TestValue::I16(exp) => match stack_elem {
+            Value::Integer(Integer::I16(val)) => {
+                assert_eq!(val, exp, "wrong I16 value for input: {input}")
             }
-            _ => panic!("expected integer object, got: {:?}", stack_elem),
+            _ => panic!("expected I16, got: {stack_elem:?}"),
         },
         TestValue::I32(exp) => match stack_elem {
-            Object::I32(val) => {
+            Value::Integer(Integer::I32(val)) => {
                 assert_eq!(val, exp, "wrong I32 value for input: {input}")
             }
-            _ => panic!("expected I32 object, got: {:?}", stack_elem),
+            _ => panic!("expected I32, got: {stack_elem:?}"),
+        },
+        TestValue::I64(exp) => match stack_elem {
+            Value::Integer(Integer::I64(val)) => {
+                assert_eq!(val, exp, "wrong integer value for input: {input}")
+            }
+            Value::Integer(Integer::Usize(val)) => {
+                assert_eq!(val as i64, exp, "wrong integer value for input: {input}")
+            }
+            _ => panic!("expected integer, got: {stack_elem:?}"),
+        },
+        TestValue::I128(exp) => match stack_elem {
+            Value::Integer(Integer::I128(val)) => {
+                assert_eq!(val, exp, "wrong I128 value for input: {input}")
+            }
+            _ => panic!("expected I128, got: {stack_elem:?}"),
+        },
+        TestValue::U8(exp) => match stack_elem {
+            Value::Integer(Integer::U8(val)) => {
+                assert_eq!(val, exp, "wrong U8 value for input: {input}")
+            }
+            _ => panic!("expected U8, got: {stack_elem:?}"),
+        },
+        TestValue::U16(exp) => match stack_elem {
+            Value::Integer(Integer::U16(val)) => {
+                assert_eq!(val, exp, "wrong U16 value for input: {input}")
+            }
+            _ => panic!("expected U16, got: {stack_elem:?}"),
+        },
+        TestValue::U32(exp) => match stack_elem {
+            Value::Integer(Integer::U32(val)) => {
+                assert_eq!(val, exp, "wrong U32 value for input: {input}")
+            }
+            _ => panic!("expected U32, got: {stack_elem:?}"),
+        },
+        TestValue::U64(exp) => match stack_elem {
+            Value::Integer(Integer::U64(val)) => {
+                assert_eq!(val, exp, "wrong U64 value for input: {input}")
+            }
+            _ => panic!("expected U64, got: {stack_elem:?}"),
+        },
+        TestValue::U128(exp) => match stack_elem {
+            Value::Integer(Integer::U128(val)) => {
+                assert_eq!(val, exp, "wrong U128 value for input: {input}")
+            }
+            _ => panic!("expected U128, got: {stack_elem:?}"),
         },
         TestValue::Usize(exp) => match stack_elem {
-            Object::Usize(val) => {
+            Value::Integer(Integer::Usize(val)) => {
                 assert_eq!(val, exp, "wrong Usize value for input: {input}")
             }
-            _ => panic!("expected Usize object, got: {:?}", stack_elem),
+            _ => panic!("expected Usize, got: {stack_elem:?}"),
         },
         TestValue::Bool(exp) => match stack_elem {
-            Object::Bool(val) => {
+            Value::Bool(val) => {
                 assert_eq!(val, exp, "wrong boolean value for input: {input}")
             }
-            _ => panic!("expected boolean object, got: {:?}", stack_elem),
+            _ => panic!("expected boolean, got: {:?}", stack_elem),
         },
         TestValue::Str(exp) => match stack_elem {
-            Object::Str(val) => {
+            Value::Str(val) => {
                 assert_eq!(val, exp, "wrong string value for input: {input}")
             }
-            _ => panic!("expected string object, got: {:?}", stack_elem),
+            _ => panic!("expected string, got: {:?}", stack_elem),
         },
-        TestValue::IntArray(expected_vals) => match stack_elem {
-            Object::Array(elements) => {
+        TestValue::IntVector(expected_vals) => match stack_elem {
+            Value::Vector(elements) => {
                 assert_eq!(
                     elements.len(),
                     expected_vals.len(),
-                    "wrong array length for input: {input}"
+                    "wrong vector length for input: {input}"
                 );
                 for (i, expected_elem) in expected_vals.iter().enumerate() {
                     match &elements[i] {
-                        Object::I64(val) => assert_eq!(
+                        Value::Integer(Integer::I64(val)) => assert_eq!(
                             *val, *expected_elem,
-                            "wrong array element at index {i} for input: {input}"
+                            "wrong vector element at index {i} for input: {input}"
                         ),
                         other => {
-                            panic!("expected integer in array at index {i}, got: {:?}", other)
+                            panic!("expected integer in vector at index {i}, got: {:?}", other)
                         }
                     }
                 }
             }
-            _ => panic!("expected array object, got: {:?}", stack_elem),
+            _ => panic!("expected vector, got: {:?}", stack_elem),
         },
-        TestValue::Hash(expected_pairs) => match &stack_elem {
-            Object::Hash(hash_obj) => {
+        TestValue::Map(expected_pairs) => match &stack_elem {
+            Value::Map(map_obj) => {
                 assert_eq!(
-                    hash_obj.pairs.len(),
+                    map_obj.pairs.len(),
                     expected_pairs.len(),
-                    "wrong hash size for input: {input}"
+                    "wrong map size for input: {input}"
                 );
                 for (key, value) in &expected_pairs {
-                    let hash_key = Hashable::I64(*key);
-                    let actual = hash_obj
+                    let map_key = Hashable::Integer(Integer::I64(*key));
+                    let actual = map_obj
                         .pairs
-                        .get(&hash_key)
-                        .unwrap_or_else(|| panic!("missing key {key} in hash for input: {input}"));
+                        .get(&map_key)
+                        .unwrap_or_else(|| panic!("missing key {key} in map for input: {input}"));
                     match actual {
-                        Object::I64(val) => assert_eq!(
+                        Value::Integer(Integer::I64(val)) => assert_eq!(
                             *val, *value,
-                            "wrong hash value for key {key} in input: {input}"
+                            "wrong map value for key {key} in input: {input}"
                         ),
                         other => {
                             panic!("expected integer value for key {key}, got: {:?}", other)
@@ -104,12 +160,12 @@ fn run_vm_test(input: &str, expected: TestValue) {
                     }
                 }
             }
-            _ => panic!("expected hash object, got: {:?}", stack_elem),
+            _ => panic!("expected map , got: {:?}", stack_elem),
         },
         TestValue::Range(s, e) => {
             assert_eq!(
                 stack_elem,
-                Object::Range(s, e),
+                Value::Range(s, e),
                 "expected Range({s}..{e}) for input: {input}, got: {:?}",
                 stack_elem
             );
@@ -117,16 +173,16 @@ fn run_vm_test(input: &str, expected: TestValue) {
         TestValue::RangeInclusive(s, e) => {
             assert_eq!(
                 stack_elem,
-                Object::RangeInclusive(s, e),
+                Value::RangeInclusive(s, e),
                 "expected RangeInclusive({s}..={e}) for input: {input}, got: {:?}",
                 stack_elem
             );
         }
-        TestValue::Null => {
+        TestValue::Unit => {
             assert_eq!(
                 stack_elem,
-                Object::Null,
-                "expected null for input: {input}, got: {:?}",
+                Value::Unit,
+                "expected unit for input: {input}, got: {:?}",
                 stack_elem
             );
         }
@@ -207,14 +263,14 @@ fn boolean_expressions() {
 #[test]
 fn conditionals() {
     let cases = vec![
-        ("if (true) { 10 }", TestValue::I64(10)),
-        ("if (true) { 10 } else { 20 }", TestValue::I64(10)),
-        ("if (false) { 10 } else { 20 }", TestValue::I64(20)),
-        ("if (1 < 2) { 10 }", TestValue::I64(10)),
+        ("if true { 10 }", TestValue::I64(10)),
+        ("if true { 10 } else { 20 }", TestValue::I64(10)),
+        ("if false { 10 } else { 20 }", TestValue::I64(20)),
+        ("if 1 < 2 { 10 }", TestValue::I64(10)),
         ("if (1 < 2) { 10 } else { 20 }", TestValue::I64(10)),
         ("if (1 > 2) { 10 } else { 20 }", TestValue::I64(20)),
-        ("if (1 > 2) { 10 }", TestValue::Null),
-        ("if (false) { 10 }", TestValue::Null),
+        ("if 1 > 2 { 10 }", TestValue::Unit),
+        ("if false { 10 }", TestValue::Unit),
     ];
     for (input, expected) in cases {
         run_vm_test(input, expected);
@@ -258,13 +314,13 @@ fn string_literals() {
 }
 
 #[test]
-fn array_literals() {
+fn vectors() {
     let cases = vec![
-        ("[]", TestValue::IntArray(vec![])),
-        ("[1, 2, 3]", TestValue::IntArray(vec![1, 2, 3])),
+        ("[]", TestValue::IntVector(vec![])),
+        ("[1, 2, 3]", TestValue::IntVector(vec![1, 2, 3])),
         (
             "[1 + 2, 3 * 4, 5 + 6]",
-            TestValue::IntArray(vec![3, 12, 11]),
+            TestValue::IntVector(vec![3, 12, 11]),
         ),
     ];
     for (input, expected) in cases {
@@ -273,13 +329,13 @@ fn array_literals() {
 }
 
 #[test]
-fn hash_literals() {
+fn map_literals() {
     let cases = vec![
-        ("{}", TestValue::Hash(vec![])),
-        ("{1: 2, 2: 3}", TestValue::Hash(vec![(1, 2), (2, 3)])),
+        ("{}", TestValue::Map(vec![])),
+        ("{1: 2, 2: 3}", TestValue::Map(vec![(1, 2), (2, 3)])),
         (
             "{1 + 1: 2 * 2, 3 + 3: 4 * 4}",
-            TestValue::Hash(vec![(2, 4), (6, 16)]),
+            TestValue::Map(vec![(2, 4), (6, 16)]),
         ),
     ];
     for (input, expected) in cases {
@@ -293,16 +349,31 @@ fn index_expressions() {
         ("[1, 2, 3][1]", TestValue::I64(2)),
         ("[1, 2, 3][0 + 2]", TestValue::I64(3)),
         ("[[1, 1, 1]][0][0]", TestValue::I64(1)),
-        ("[][0]", TestValue::Null),
-        ("[1, 2, 3][99]", TestValue::Null),
-        ("[1][-1]", TestValue::Null),
         ("{1: 1, 2: 2}[1]", TestValue::I64(1)),
         ("{1: 1, 2: 2}[2]", TestValue::I64(2)),
-        ("{1: 1}[0]", TestValue::Null),
-        ("{}[0]", TestValue::Null),
     ];
     for (input, expected) in cases {
         run_vm_test(input, expected);
+    }
+}
+
+#[test]
+fn index_out_of_bounds() {
+    let cases = vec![
+        ("[][0]", "index out of bounds"),
+        ("[1, 2, 3][99]", "index out of bounds"),
+        ("[1][-1]", "index out of bounds"),
+    ];
+    for (input, expected_error) in cases {
+        run_vm_error_test(input, expected_error);
+    }
+}
+
+#[test]
+fn key_not_found() {
+    let cases = vec![("{1: 1}[0]", "key not found"), ("{}[0]", "key not found")];
+    for (input, expected_error) in cases {
+        run_vm_error_test(input, expected_error);
     }
 }
 
@@ -347,10 +418,10 @@ fn functions_with_return_statement() {
 #[test]
 fn functions_without_return_value() {
     let cases = vec![
-        ("let noReturn = fn() { }; noReturn();", TestValue::Null),
+        ("let noReturn = fn() { }; noReturn();", TestValue::Unit),
         (
             "let noReturn = fn() { }; let noReturnTwo = fn() { noReturn(); }; noReturn(); noReturnTwo();",
-            TestValue::Null,
+            TestValue::Unit,
         ),
     ];
     for (input, expected) in cases {
@@ -461,24 +532,23 @@ fn calling_functions_with_wrong_arguments() {
 #[test]
 fn builtin_methods() {
     let cases = vec![
-        // Array methods
+        // Vector methods
         ("[1, 2, 3].len()", TestValue::Usize(3)),
         ("[].len()", TestValue::Usize(0)),
-        ("[1, 2, 3].first()", TestValue::I64(1)),
-        ("[].first()", TestValue::Null),
-        ("[1, 2, 3].last()", TestValue::I64(3)),
-        ("[].last()", TestValue::Null),
-        ("[1, 2, 3].rest()", TestValue::IntArray(vec![2, 3])),
-        ("[].rest()", TestValue::Null),
-        ("[].push(1)", TestValue::IntArray(vec![1])),
+        ("[1, 2, 3].first().unwrap()", TestValue::I64(1)),
+        ("[1, 2, 3].first().is_some()", TestValue::Bool(true)),
+        ("[].first().is_none()", TestValue::Bool(true)),
+        ("[1, 2, 3].last().unwrap()", TestValue::I64(3)),
+        ("[].last().is_none()", TestValue::Bool(true)),
+        ("[1, 2, 3].split_first()", TestValue::IntVector(vec![2, 3])),
+        ("[].split_first()", TestValue::IntVector(vec![])),
+        ("[].push(1)", TestValue::IntVector(vec![1])),
         // str methods
         (r#""".len()"#, TestValue::Usize(0)),
         (r#""four".len()"#, TestValue::Usize(4)),
         (r#""hello".len()"#, TestValue::Usize(5)),
         // len with cast
         ("[1, 2, 3].len() as i64", TestValue::I64(3)),
-        // print remains a free function
-        (r#"print("hello", "world!")"#, TestValue::Null),
     ];
     for (input, expected) in cases {
         run_vm_test(input, expected);
@@ -487,20 +557,35 @@ fn builtin_methods() {
 
 #[test]
 fn builtin_method_chaining() {
-    // `push` returns a new array, so chaining is possible
+    // `push` returns a new vector, so chaining is possible
     run_vm_test("[1, 2].push(3).len()", TestValue::Usize(3));
-    // `rest` returns a new array
-    run_vm_test("[1, 2, 3].rest().first()", TestValue::I64(2));
-    run_vm_test("[1, 2, 3].rest().last()", TestValue::I64(3));
-    run_vm_test("let arr = [10, 20, 30]; arr.len()", TestValue::Usize(3));
-    run_vm_test("let arr = [10, 20, 30]; arr.first()", TestValue::I64(10));
-    run_vm_test("let arr = [10, 20, 30]; arr.last()", TestValue::I64(30));
+    // `split_first` returns the tail as a new vector
+    run_vm_test(
+        "[1, 2, 3].split_first().first().unwrap()",
+        TestValue::I64(2),
+    );
+    run_vm_test("[1, 2, 3].split_first().last().unwrap()", TestValue::I64(3));
+    run_vm_test(
+        "let vector = [10, 20, 30]; vector.len()",
+        TestValue::Usize(3),
+    );
+    run_vm_test(
+        "let vector = [10, 20, 30]; vector.first().unwrap()",
+        TestValue::I64(10),
+    );
+    run_vm_test(
+        "let vector = [10, 20, 30]; vector.last().unwrap()",
+        TestValue::I64(30),
+    );
     run_vm_test(r#"let s = "hello world"; s.len()"#, TestValue::Usize(11));
     run_vm_test(
-        "let arr = [1, 2, 3]; arr.len() as i64 + 1",
+        "let vector = [1, 2, 3]; vector.len() as i64 + 1",
         TestValue::I64(4),
     );
-    run_vm_test("let arr = [1, 2, 3]; arr.rest().len()", TestValue::Usize(2));
+    run_vm_test(
+        "let vector = [1, 2, 3]; vector.split_first().len()",
+        TestValue::Usize(2),
+    );
 }
 
 #[test]
@@ -586,15 +671,15 @@ fn recursive_functions() {
 }
 
 #[test]
-fn closure_captures_array_with_builtins() {
+fn closure_captures_vector_with_builtins() {
     run_vm_test(
         r#"
-        let sum = fn(arr) {
+        let sum = fn(vector) {
             let iter = fn(idx, acc) {
-                if (idx == arr.len()) {
+                if (idx == vector.len()) {
                     acc
                 } else {
-                    iter(idx + 1, acc + arr[idx]);
+                    iter(idx + 1, acc + vector[idx]);
                 }
             };
             iter(0, 0);
@@ -647,7 +732,7 @@ fn typed_integer_arithmetic() {
 
 #[test]
 fn unsigned_negation_error() {
-    run_vm_error_test("-(5usize)", "unsupported type for negation");
+    run_vm_error_test("-(5usize)", "integer negation overflow");
 }
 
 #[test]
@@ -676,10 +761,10 @@ fn cast_expressions() {
 #[test]
 fn cross_type_integer_comparison() {
     let cases = vec![
-        ("5 == [1, 2, 3, 4, 5].len()", TestValue::Bool(true)),
-        ("5 != [1, 2, 3, 4, 5].len()", TestValue::Bool(false)),
-        ("10 > [1, 2, 3].len()", TestValue::Bool(true)),
-        ("1 < [1, 2, 3].len()", TestValue::Bool(true)),
+        ("5usize == [1, 2, 3, 4, 5].len()", TestValue::Bool(true)),
+        ("5usize != [1, 2, 3, 4, 5].len()", TestValue::Bool(false)),
+        ("10usize > [1, 2, 3].len()", TestValue::Bool(true)),
+        ("1usize < [1, 2, 3].len()", TestValue::Bool(true)),
     ];
     for (input, expected) in cases {
         run_vm_test(input, expected);
@@ -706,13 +791,13 @@ fn loop_control_flow() {
     // return from function inside loop
     run_vm_test(
         r#"
-        let find_first = fn(arr, target) {
+        let find_first = fn(vector, target) {
             let mut i = 0;
             loop {
-                if (i == arr.len() as i64) {
+                if (i == vector.len() as i64) {
                     return -1;
                 }
-                if (arr[i] == target) {
+                if (vector[i] == target) {
                     return i;
                 }
                 i = i + 1;
@@ -796,7 +881,7 @@ fn for_loops() {
         "#,
         TestValue::I64(15),
     );
-    // Empty array
+    // Empty vector
     run_vm_test(
         r#"
         let mut sum = 0;
@@ -918,10 +1003,10 @@ fn plain_assignment() {
 #[test]
 fn immutable_assignment_error() {
     let input = "let x = 10; x = 20; x";
-    let lexer = maat_lexer::Lexer::new(input);
-    let mut parser = maat_parser::Parser::new(lexer);
+    let lexer = maat_lexer::MaatLexer::new(input);
+    let mut parser = maat_parser::MaatParser::new(lexer);
     let mut program = parser.parse();
-    maat_ast::fold::fold_constants(&mut program);
+    maat_ast::fold_constants(&mut program);
     let mut compiler = maat_codegen::Compiler::new();
     let result = compiler.compile(&maat_ast::Node::Program(program));
     assert!(
@@ -1149,10 +1234,13 @@ fn euclidean_modulo_edge_case() {
 #[test]
 fn shift_overflow() {
     // Shifting by more bits than the type width should produce an error
-    run_vm_error_test("1 << 64", "shift amount exceeds type bit width");
-    run_vm_error_test("1 >> 64", "shift amount exceeds type bit width");
-    // Negative shift amount
-    run_vm_error_test("1 << -1", "shift amount exceeds type bit width");
+    run_vm_error_test("1 << 64", "shift value exceeds type bit width");
+    run_vm_error_test("1 >> 64", "shift value exceeds type bit width");
+    // Negative shift value
+    run_vm_error_test(
+        "1 << -1",
+        "shift amount must be a non-negative integer <= u32::MAX",
+    );
 }
 
 #[test]
@@ -1267,9 +1355,9 @@ fn result_error_propagation() {
 fn break_with_value() {
     run_vm_test(
         r#"
-        fn find_first_even(arr: [i64]) -> i64 {
+        fn find_first_even(vector: [i64]) -> i64 {
             let mut result = -1;
-            for x in arr {
+            for x in vector {
                 if (x % 2 == 0) {
                     result = x;
                     break;
@@ -1303,6 +1391,71 @@ fn continue_in_loops() {
         sum_odd()
         "#,
         TestValue::I64(25),
+    );
+}
+
+#[test]
+fn labeled_loops() {
+    // break 'outer from nested loop
+    run_vm_test(
+        r#"
+        fn find_pair() -> i64 {
+            let mut result = 0;
+            'outer: for i in 0..5 {
+                for j in 0..5 {
+                    if (i + j == 6) {
+                        result = i * 10 + j;
+                        break 'outer;
+                    }
+                }
+            }
+            result
+        }
+        find_pair()
+        "#,
+        TestValue::I64(24),
+    );
+
+    // continue 'outer from nested loop
+    run_vm_test(
+        r#"
+        fn sum_diag() -> i64 {
+            let mut total = 0;
+            'outer: for i in 0..5 {
+                for j in 0..5 {
+                    if (j > i) {
+                        continue 'outer;
+                    }
+                    total += 1;
+                }
+            }
+            total
+        }
+        sum_diag()
+        "#,
+        TestValue::I64(15),
+    );
+
+    // labeled while loop
+    run_vm_test(
+        r#"
+        fn labeled_while() -> i64 {
+            let mut x = 0;
+            let mut y = 0;
+            'outer: while (x < 10) {
+                x += 1;
+                while (y < 10) {
+                    y += 1;
+                    if (y == 3) {
+                        continue 'outer;
+                    }
+                }
+            }
+            x * 100 + y
+        }
+        labeled_while()
+        "#,
+        TestValue::I64(1010),
     );
 }
 
@@ -1346,12 +1499,12 @@ fn conditional_reassignment_in_loop() {
     run_vm_test(
         r#"
         fn test() -> i64 {
-            let arr = [10, 20, 30];
+            let vector = [10, 20, 30];
             let target: i64 = 1;
             let mut result: i64 = 0;
             for i in 0..3 {
                 if (i == target) {
-                    result = arr[i];
+                    result = vector[i];
                 } else {
                     result += 1;
                 }
@@ -1378,4 +1531,367 @@ fn conditional_reassignment_in_loop() {
         "#,
         TestValue::I64(6),
     );
+}
+
+#[test]
+fn struct_update_syntax() {
+    // Basic struct update: override one field, inherit the rest
+    run_vm_test(
+        r#"
+        struct Point { x: i64, y: i64 }
+        fn test() -> i64 {
+            let p1 = Point { x: 1, y: 2 };
+            let p2 = Point { x: 10, ..p1 };
+            p2.x + p2.y
+        }
+        test()
+        "#,
+        TestValue::I64(12),
+    );
+
+    // Update with no explicit fields (clone via update syntax)
+    run_vm_test(
+        r#"
+        struct Pair { a: i64, b: i64 }
+        fn test() -> i64 {
+            let p1 = Pair { a: 3, b: 7 };
+            let p2 = Pair { ..p1 };
+            p2.a + p2.b
+        }
+        test()
+        "#,
+        TestValue::I64(10),
+    );
+
+    // Update with all fields overridden (base is unused but valid)
+    run_vm_test(
+        r#"
+        struct Vec2 { x: i64, y: i64 }
+        fn test() -> i64 {
+            let v1 = Vec2 { x: 1, y: 2 };
+            let v2 = Vec2 { x: 100, y: 200, ..v1 };
+            v2.x + v2.y
+        }
+        test()
+        "#,
+        TestValue::I64(300),
+    );
+
+    // Struct update with three fields
+    run_vm_test(
+        r#"
+        struct Config { width: i64, height: i64, depth: i64 }
+        fn test() -> i64 {
+            let base = Config { width: 10, height: 20, depth: 30 };
+            let updated = Config { height: 99, ..base };
+            updated.width + updated.height + updated.depth
+        }
+        test()
+        "#,
+        TestValue::I64(139),
+    );
+
+    // Struct update with a function returning the base
+    run_vm_test(
+        r#"
+        struct Rect { w: i64, h: i64 }
+        fn default_rect() -> Rect {
+            Rect { w: 5, h: 10 }
+        }
+        fn test() -> i64 {
+            let r = Rect { h: 42, ..default_rect() };
+            r.w + r.h
+        }
+        test()
+        "#,
+        TestValue::I64(47),
+    );
+}
+
+#[test]
+fn map_type() {
+    // Map::new, insert, get
+    run_vm_test(
+        r#"
+        fn test() -> i64 {
+            let m = Map::new();
+            let m = m.insert(1, 100);
+            let m = m.insert(2, 200);
+            m.get(1).unwrap() + m.get(2).unwrap()
+        }
+        test()
+        "#,
+        TestValue::I64(300),
+    );
+
+    // Map::contains_key
+    run_vm_test(
+        r#"
+        fn test() -> bool {
+            let m = Map::new();
+            let m = m.insert(42, 0);
+            m.contains_key(42)
+        }
+        test()
+        "#,
+        TestValue::Bool(true),
+    );
+
+    // Map::contains_key returns false for missing key
+    run_vm_test(
+        r#"
+        fn test() -> bool {
+            let m = Map::new();
+            let m = m.insert(1, 10);
+            m.contains_key(99)
+        }
+        test()
+        "#,
+        TestValue::Bool(false),
+    );
+
+    // Map::remove
+    run_vm_test(
+        r#"
+        fn test() -> usize {
+            let m = Map::new();
+            let m = m.insert(1, 10);
+            let m = m.insert(2, 20);
+            let m = m.remove(1);
+            m.len()
+        }
+        test()
+        "#,
+        TestValue::Usize(1),
+    );
+
+    // Map::len
+    run_vm_test(
+        r#"
+        fn test() -> usize {
+            let m = Map::new();
+            let m = m.insert(1, 10);
+            let m = m.insert(2, 20);
+            let m = m.insert(3, 30);
+            m.len()
+        }
+        test()
+        "#,
+        TestValue::Usize(3),
+    );
+
+    // Map::keys
+    run_vm_test(
+        r#"
+        fn test() -> i64 {
+            let m = Map::new();
+            let m = m.insert(10, 100);
+            let m = m.insert(20, 200);
+            let ks = m.keys();
+            ks[0] + ks[1]
+        }
+        test()
+        "#,
+        TestValue::I64(30),
+    );
+
+    // Map::values
+    run_vm_test(
+        r#"
+        fn test() -> i64 {
+            let m = Map::new();
+            let m = m.insert(1, 100);
+            let m = m.insert(2, 200);
+            let vs = m.values();
+            vs[0] + vs[1]
+        }
+        test()
+        "#,
+        TestValue::I64(300),
+    );
+
+    // Map with string keys
+    run_vm_test(
+        r#"
+        fn test() -> i64 {
+            let m = Map::new();
+            let m = m.insert("x", 10);
+            let m = m.insert("y", 20);
+            m.get("x").unwrap() + m.get("y").unwrap()
+        }
+        test()
+        "#,
+        TestValue::I64(30),
+    );
+
+    // Map indexing with [] operator
+    run_vm_test(
+        r#"
+        fn test() -> i64 {
+            let m = Map::new();
+            let m = m.insert(1, 42);
+            m[1]
+        }
+        test()
+        "#,
+        TestValue::I64(42),
+    );
+}
+
+#[test]
+fn generic_set() {
+    // Set<str>: insert and contains with string elements
+    run_vm_test(
+        r#"
+        fn test() -> bool {
+            let s = Set::new();
+            let s = s.insert("a");
+            let s = s.insert("b");
+            s.contains("a")
+        }
+        test()
+        "#,
+        TestValue::Bool(true),
+    );
+    // Set<str>: contains returns false for missing element
+    run_vm_test(
+        r#"
+        fn test() -> bool {
+            let s = Set::new();
+            let s = s.insert("hello");
+            s.contains("world")
+        }
+        test()
+        "#,
+        TestValue::Bool(false),
+    );
+    // Set<bool>: insert and len
+    run_vm_test(
+        r#"
+        fn test() -> usize {
+            let s = Set::new();
+            let s = s.insert(true);
+            let s = s.insert(false);
+            let s = s.insert(true);
+            s.len()
+        }
+        test()
+        "#,
+        TestValue::Usize(2),
+    );
+    // Set<str>: remove
+    run_vm_test(
+        r#"
+        fn test() -> usize {
+            let s = Set::new();
+            let s = s.insert("x");
+            let s = s.insert("y");
+            let s = s.insert("z");
+            let s = s.remove("y");
+            s.len()
+        }
+        test()
+        "#,
+        TestValue::Usize(2),
+    );
+
+    // Set<i64>: to_vector preserves elements
+    run_vm_test(
+        r#"
+        fn test() -> i64 {
+            let s = Set::new();
+            let s = s.insert(10);
+            let s = s.insert(20);
+            let vector = s.to_vector();
+            vector[0] + vector[1]
+        }
+        test()
+        "#,
+        TestValue::I64(30),
+    );
+    // Set used in struct field with generic element type
+    run_vm_test(
+        r#"
+        struct State {
+            visited: Set,
+        }
+        fn test() -> bool {
+            let st = State { visited: Set::new().insert("node_a") };
+            st.visited.contains("node_a")
+        }
+        test()
+        "#,
+        TestValue::Bool(true),
+    );
+    // Set<str>: method chaining
+    run_vm_test(
+        r#"
+        fn test() -> usize {
+            Set::new().insert("a").insert("b").insert("c").len()
+        }
+        test()
+        "#,
+        TestValue::Usize(3),
+    );
+}
+
+#[test]
+fn numeric_from_conversions() {
+    // Signed widening chain
+    run_vm_test("let x: i8 = 42; i16::from(x)", TestValue::I16(42));
+    run_vm_test("let x: i16 = 1000; i32::from(x)", TestValue::I32(1000));
+    run_vm_test("let x: i32 = 100000; i64::from(x)", TestValue::I64(100000));
+    run_vm_test(
+        "let x: i64 = 9223372036854775807; i128::from(x)",
+        TestValue::I128(9223372036854775807),
+    );
+
+    // Unsigned widening chain
+    run_vm_test("let x: u8 = 200; u16::from(x)", TestValue::U16(200));
+    run_vm_test("let x: u16 = 50000; u32::from(x)", TestValue::U32(50000));
+    run_vm_test(
+        "let x: u32 = 3000000000; u64::from(x)",
+        TestValue::U64(3000000000),
+    );
+    run_vm_test(
+        "let x: u64 = 10000000000; u128::from(x)",
+        TestValue::U128(10000000000),
+    );
+
+    // Cross-sign widening (unsigned --> larger signed)
+    run_vm_test("let x: u8 = 255; i16::from(x)", TestValue::I16(255));
+    run_vm_test("let x: u16 = 65535; i32::from(x)", TestValue::I32(65535));
+    run_vm_test(
+        "let x: u32 = 4294967295; i64::from(x)",
+        TestValue::I64(4294967295),
+    );
+}
+
+#[test]
+fn default_values() {
+    run_vm_test("i8::default()", TestValue::I8(0));
+    run_vm_test("i16::default()", TestValue::I16(0));
+    run_vm_test("i32::default()", TestValue::I32(0));
+    run_vm_test("i64::default()", TestValue::I64(0));
+    run_vm_test("u8::default()", TestValue::U8(0));
+    run_vm_test("u16::default()", TestValue::U16(0));
+    run_vm_test("u32::default()", TestValue::U32(0));
+    run_vm_test("u64::default()", TestValue::U64(0));
+    run_vm_test("bool::default()", TestValue::Bool(false));
+    run_vm_test("str::default()", TestValue::Str(String::new()));
+}
+
+#[test]
+fn cmp_min_max_clamp() {
+    run_vm_test("cmp::min(10, 20)", TestValue::I64(10));
+    run_vm_test("cmp::min(20, 10)", TestValue::I64(10));
+    run_vm_test("cmp::max(10, 20)", TestValue::I64(20));
+    run_vm_test("cmp::max(20, 10)", TestValue::I64(20));
+    run_vm_test("cmp::clamp(25, 0, 20)", TestValue::I64(20));
+    run_vm_test("cmp::clamp(5, 0, 20)", TestValue::I64(5));
+    run_vm_test("cmp::clamp(-5, 0, 20)", TestValue::I64(0));
+
+    // Typed variants
+    run_vm_test("cmp::min(10i32, 20i32)", TestValue::I32(10));
+    run_vm_test("cmp::max(10i32, 20i32)", TestValue::I32(20));
 }

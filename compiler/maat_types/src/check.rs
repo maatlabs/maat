@@ -1,12 +1,13 @@
 //! Compile-time type checker for the AST.
 
+use std::rc::Rc;
+
 use maat_ast::*;
 use maat_errors::{
     MissingTraitMethodError, TraitMethodSignatureMismatchError, TypeError, TypeErrorKind,
 };
 use maat_span::Span;
 
-use crate::promote::{self, PromotionError};
 use crate::unify::{Substitution, UnifyError};
 use crate::{
     EnumDef, FnType, ImplDef, MethodSig, StructDef, TraitDef, Type, TypeEnv, VariantDef,
@@ -191,7 +192,7 @@ impl TypeChecker {
                     .return_type
                     .as_ref()
                     .map(|t| self.resolve_field_type(t, &generic_params))
-                    .unwrap_or(Type::Null);
+                    .unwrap_or(Type::Unit);
                 MethodSig {
                     name: m.name.clone(),
                     params,
@@ -210,10 +211,10 @@ impl TypeChecker {
 
     /// Resolves a type expression for a struct/enum field, treating names
     /// that match a generic parameter as `Type::Generic`.
-    fn resolve_field_type(&self, ty: &TypeExpr, generic_params: &[String]) -> Type {
+    fn resolve_field_type(&mut self, ty: &TypeExpr, generic_params: &[String]) -> Type {
         match ty {
             TypeExpr::Named(named) if generic_params.contains(&named.name) => {
-                Type::Generic(named.name.clone(), vec![])
+                Type::Generic(Rc::from(named.name.as_str()), vec![])
             }
             _ => self.env.resolve_type(ty),
         }
@@ -244,7 +245,7 @@ impl TypeChecker {
                 let iter_ty = self.infer_expression(&mut for_stmt.iterable);
                 let resolved = self.subst.apply(&iter_ty);
                 let elem_ty = match resolved {
-                    Type::Array(elem) => *elem,
+                    Type::Vector(elem) => *elem,
                     Type::Range(elem) => *elem,
                     Type::Var(_) => self.env.fresh_var(),
                     _ => {
@@ -291,8 +292,12 @@ impl TypeChecker {
         } else {
             inferred
         };
-        let scheme = self.env.generalize(&ty, &self.subst);
-        self.env.define_scheme(&let_stmt.ident, scheme);
+        if let Some(pattern) = &let_stmt.pattern {
+            self.check_pattern(pattern, &ty);
+        } else {
+            let scheme = self.env.generalize(&ty, &self.subst);
+            self.env.define_scheme(&let_stmt.ident, scheme);
+        }
     }
 
     fn check_block(&mut self, block: &mut BlockStmt) {
@@ -362,6 +367,11 @@ impl TypeChecker {
 
     fn check_impl_block(&mut self, impl_block: &mut ImplBlock) {
         let self_type = self.env.resolve_type(&impl_block.self_type);
+        if let Type::Generic(ref name, _) = self_type {
+            self.errors
+                .push(TypeErrorKind::UnknownType(name.to_string()).at(impl_block.span));
+            return;
+        }
         let trait_name = impl_block.trait_name.as_ref().and_then(|te| match te {
             TypeExpr::Named(n) => Some(n.name.clone()),
             TypeExpr::Generic(name, _, _) => Some(name.clone()),
@@ -462,28 +472,29 @@ impl TypeChecker {
     fn infer_expression(&mut self, expr: &mut Expr) -> Type {
         match expr {
             Expr::Number(lit) => match lit.kind {
-                NumberKind::I8 => Type::I8,
-                NumberKind::I16 => Type::I16,
-                NumberKind::I32 => Type::I32,
-                NumberKind::I64 => Type::I64,
-                NumberKind::I128 => Type::I128,
-                NumberKind::Isize => Type::Isize,
-                NumberKind::U8 => Type::U8,
-                NumberKind::U16 => Type::U16,
-                NumberKind::U32 => Type::U32,
-                NumberKind::U64 => Type::U64,
-                NumberKind::U128 => Type::U128,
-                NumberKind::Usize => Type::Usize,
+                NumKind::I8 => Type::I8,
+                NumKind::I16 => Type::I16,
+                NumKind::I32 => Type::I32,
+                NumKind::I64 => Type::I64,
+                NumKind::I128 => Type::I128,
+                NumKind::Isize => Type::Isize,
+                NumKind::U8 => Type::U8,
+                NumKind::U16 => Type::U16,
+                NumKind::U32 => Type::U32,
+                NumKind::U64 => Type::U64,
+                NumKind::U128 => Type::U128,
+                NumKind::Usize => Type::Usize,
             },
             Expr::Bool(_) => Type::Bool,
-            Expr::Str(_) => Type::String,
+            Expr::Char(_) => Type::Char,
+            Expr::Str(_) => Type::Str,
             Expr::Ident(ident) => self
                 .env
                 .instantiate(&ident.value, &self.subst)
                 .or_else(|| self.resolve_bare_variant(&ident.value))
                 .unwrap_or_else(|| self.env.fresh_var()),
-            Expr::Array(array) => self.infer_array(array),
-            Expr::Map(hash) => self.infer_map(hash),
+            Expr::Vector(vector) => self.infer_vector(vector),
+            Expr::Map(map) => self.infer_map(map),
             Expr::Index(idx) => self.infer_index(idx),
             Expr::Prefix(prefix) => self.infer_prefix(prefix),
             Expr::Infix(infix) => self.check_infix(infix),
@@ -496,9 +507,10 @@ impl TypeChecker {
                 lambda.span,
             ),
             Expr::Call(call) => self.check_call_expr(call),
+            Expr::MacroCall(mc) => self.check_macro_call(mc),
             Expr::Cast(cast) => {
                 self.infer_expression(&mut cast.expr);
-                Type::from_type_annotation(&cast.target)
+                Type::from_number_kind(&cast.target)
             }
             Expr::Break(break_expr) => {
                 if let Some(val) = &mut break_expr.value {
@@ -507,7 +519,16 @@ impl TypeChecker {
                 Type::Never
             }
             Expr::Continue(_) => Type::Never,
-            Expr::Macro(_) => self.env.fresh_var(),
+            Expr::MacroLit(_) => self.env.fresh_var(),
+            Expr::Tuple(tuple) => {
+                let elem_types = tuple
+                    .elements
+                    .iter_mut()
+                    .map(|e| self.infer_expression(e))
+                    .collect();
+                Type::Tuple(elem_types)
+            }
+            Expr::Try(try_expr) => self.check_try_expr(try_expr),
             Expr::Match(match_expr) => self.check_match_expr(match_expr),
             Expr::FieldAccess(field_access) => self.check_field_access(field_access),
             Expr::MethodCall(method_call) => self.check_method_call(method_call),
@@ -517,36 +538,36 @@ impl TypeChecker {
         }
     }
 
-    /// Infers the element type of an array literal.
-    fn infer_array(&mut self, array: &mut Array) -> Type {
-        if array.elements.is_empty() {
+    /// Infers the element type of a vector.
+    fn infer_vector(&mut self, vector: &mut Vector) -> Type {
+        if vector.elements.is_empty() {
             let elem = self.env.fresh_var();
-            Type::Array(Box::new(elem))
+            Type::Vector(Box::new(elem))
         } else {
-            let first = self.infer_expression(&mut array.elements[0]);
-            for elem in &mut array.elements[1..] {
+            let first = self.infer_expression(&mut vector.elements[0]);
+            for elem in &mut vector.elements[1..] {
                 let elem_ty = self.infer_expression(elem);
                 if let Err(e) = self.subst.unify(&first, &elem_ty) {
                     self.report_unify_error(e, elem.span());
                 }
             }
-            Type::Array(Box::new(self.subst.apply(&first)))
+            Type::Vector(Box::new(self.subst.apply(&first)))
         }
     }
 
     /// Infers the key and value types of a map literal.
-    fn infer_map(&mut self, hash: &mut Map) -> Type {
-        if hash.pairs.is_empty() {
+    fn infer_map(&mut self, map: &mut MapLit) -> Type {
+        if map.pairs.is_empty() {
             let k = self.env.fresh_var();
             let v = self.env.fresh_var();
-            Type::Hash(Box::new(k), Box::new(v))
+            Type::Map(Box::new(k), Box::new(v))
         } else {
             let (first_k, first_v) = {
-                let k = self.infer_expression(&mut hash.pairs[0].0);
-                let v = self.infer_expression(&mut hash.pairs[0].1);
+                let k = self.infer_expression(&mut map.pairs[0].0);
+                let v = self.infer_expression(&mut map.pairs[0].1);
                 (k, v)
             };
-            for (k_expr, v_expr) in &mut hash.pairs[1..] {
+            for (k_expr, v_expr) in &mut map.pairs[1..] {
                 let k = self.infer_expression(k_expr);
                 let v = self.infer_expression(v_expr);
                 if let Err(e) = self.subst.unify(&first_k, &k) {
@@ -556,7 +577,7 @@ impl TypeChecker {
                     self.report_unify_error(e, v_expr.span());
                 }
             }
-            Type::Hash(
+            Type::Map(
                 Box::new(self.subst.apply(&first_k)),
                 Box::new(self.subst.apply(&first_v)),
             )
@@ -569,8 +590,8 @@ impl TypeChecker {
         let _index_ty = self.infer_expression(&mut idx.index);
         let resolved = self.subst.apply(&collection);
         match resolved {
-            Type::Array(elem) => *elem,
-            Type::Hash(_, v) => *v,
+            Type::Vector(elem) => *elem,
+            Type::Map(_, v) => *v,
             _ => self.env.fresh_var(),
         }
     }
@@ -667,19 +688,14 @@ impl TypeChecker {
                     for (param, arg) in fn_ty.params.iter().zip(arg_types.iter()) {
                         let p = self.subst.apply(param);
                         let a = self.subst.apply(arg);
-                        if p.is_integer()
-                            && a.is_integer()
-                            && p != a
-                            && promote::common_numeric_type(&p, &a).is_ok()
-                        {
-                            continue;
-                        }
                         if let Err(e) = self.subst.unify(&p, &a) {
                             self.report_unify_error(e, call.span);
                         }
                     }
                 }
-                self.subst.apply(&fn_ty.ret)
+                let ret = self.subst.apply(&fn_ty.ret);
+                self.validate_from_conversion(call, &arg_types, &ret);
+                ret
             }
             Type::Var(_) => {
                 let ret = self.env.fresh_var();
@@ -700,7 +716,41 @@ impl TypeChecker {
         }
     }
 
-    /// Type-checks a struct literal expression (e.g., `Point { x: 1, y: 2 }`).
+    /// Validates that a `Type::from(value)` call is a lossless conversion.
+    fn validate_from_conversion(&mut self, call: &CallExpr, arg_types: &[Type], ret: &Type) {
+        let is_from_path = matches!(
+            call.function.as_ref(),
+            Expr::PathExpr(p) if p.segments.len() == 2 && p.segments[1] == "from"
+        );
+        if !is_from_path || arg_types.len() != 1 {
+            return;
+        }
+        let source = self.subst.apply(&arg_types[0]);
+        let target = self.subst.apply(ret);
+        if source.is_integer() && target.is_integer() && !is_lossless_conversion(&source, &target) {
+            self.errors.push(
+                TypeErrorKind::Mismatch {
+                    expected: format!("a type safely convertible to `{target}`"),
+                    found: source.to_string(),
+                }
+                .at(call.span),
+            );
+        }
+    }
+
+    /// Type-checks a builtin macro invocation.
+    fn check_macro_call(&mut self, mc: &mut MacroCallExpr) -> Type {
+        for arg in &mut mc.arguments {
+            self.infer_expression(arg);
+        }
+        match mc.name.as_str() {
+            "panic" | "todo" | "unimplemented" => Type::Never,
+            _ => Type::Unit,
+        }
+    }
+
+    /// Type-checks a struct literal expression (e.g., `Point { x: 1, y: 2 }`)
+    /// or with functional update syntax (e.g., `Point { x: 10, ..other }`).
     fn check_struct_literal(&mut self, lit: &mut StructLitExpr) -> Type {
         let struct_def = self.env.lookup_struct(&lit.name).cloned();
         let Some(def) = struct_def else {
@@ -731,21 +781,29 @@ impl TypeChecker {
                 );
             }
         }
-        for (def_field_name, _) in &def.fields {
-            if !lit.fields.iter().any(|(n, _)| n == def_field_name) {
-                self.errors.push(
-                    TypeErrorKind::UnknownField {
-                        ty: format!("missing field `{}` in `{}`", def_field_name, lit.name),
-                        field: def_field_name.clone(),
-                    }
-                    .at(lit.span),
-                );
+        let expected_struct_ty = Type::Struct(
+            Rc::from(lit.name.as_str()),
+            type_args.iter().map(|t| self.subst.apply(t)).collect(),
+        );
+        if let Some(base_expr) = &mut lit.base {
+            let base_ty = self.infer_expression(base_expr);
+            if let Err(e) = self.subst.unify(&expected_struct_ty, &base_ty) {
+                self.report_unify_error(e, base_expr.span());
+            }
+        } else {
+            for (def_field_name, _) in &def.fields {
+                if !lit.fields.iter().any(|(n, _)| n == def_field_name) {
+                    self.errors.push(
+                        TypeErrorKind::UnknownField {
+                            ty: format!("missing field `{}` in `{}`", def_field_name, lit.name),
+                            field: def_field_name.clone(),
+                        }
+                        .at(lit.span),
+                    );
+                }
             }
         }
-        Type::Struct(
-            lit.name.clone(),
-            type_args.iter().map(|t| self.subst.apply(t)).collect(),
-        )
+        expected_struct_ty
     }
 
     /// Type-checks a path expression (e.g., `Option::Some`, `Color::Red`).
@@ -763,7 +821,7 @@ impl TypeChecker {
                     match &variant.kind {
                         VariantKind::Unit => {
                             return Type::Enum(
-                                type_name.clone(),
+                                Rc::from(type_name.as_str()),
                                 type_args.iter().map(|t| self.subst.apply(t)).collect(),
                             );
                         }
@@ -779,7 +837,7 @@ impl TypeChecker {
                                 })
                                 .collect();
                             let ret = Type::Enum(
-                                type_name.clone(),
+                                Rc::from(type_name.as_str()),
                                 type_args.iter().map(|t| self.subst.apply(t)).collect(),
                             );
                             return Type::Function(FnType {
@@ -789,7 +847,7 @@ impl TypeChecker {
                         }
                         VariantKind::Struct(_) => {
                             return Type::Enum(
-                                type_name.clone(),
+                                Rc::from(type_name.as_str()),
                                 type_args.iter().map(|t| self.subst.apply(t)).collect(),
                             );
                         }
@@ -848,11 +906,24 @@ impl TypeChecker {
                     },
                     None => {
                         self.errors
-                            .push(TypeErrorKind::UnknownType(name.clone()).at(fa.span));
+                            .push(TypeErrorKind::UnknownType(name.to_string()).at(fa.span));
                         self.env.fresh_var()
                     }
                 }
             }
+            Type::Tuple(elems) => match fa.field.parse::<usize>() {
+                Ok(idx) if idx < elems.len() => elems[idx].clone(),
+                _ => {
+                    self.errors.push(
+                        TypeErrorKind::UnknownField {
+                            ty: resolved.to_string(),
+                            field: fa.field.clone(),
+                        }
+                        .at(fa.span),
+                    );
+                    self.env.fresh_var()
+                }
+            },
             Type::Var(_) => self.env.fresh_var(),
             _ => {
                 self.errors.push(
@@ -936,6 +1007,35 @@ impl TypeChecker {
         }
     }
 
+    /// Type-checks the try operator (`expr?`).
+    ///
+    /// Validates that the operand is `Option<T>` or `Result<T, E>` and
+    /// returns the inner success type `T`.
+    fn check_try_expr(&mut self, expr: &mut TryExpr) -> Type {
+        let inner_ty = self.infer_expression(&mut expr.expr);
+        let resolved = self.subst.apply(&inner_ty);
+        match &resolved {
+            Type::Enum(name, args) if &**name == "Option" && args.len() == 1 => {
+                expr.kind = TryKind::Option;
+                args[0].clone()
+            }
+            Type::Enum(name, args) if &**name == "Result" && args.len() == 2 => {
+                expr.kind = TryKind::Result;
+                args[0].clone()
+            }
+            _ => {
+                self.errors.push(
+                    TypeErrorKind::Mismatch {
+                        expected: "Option<T> or Result<T, E>".to_string(),
+                        found: resolved.to_string(),
+                    }
+                    .at(expr.span),
+                );
+                self.env.fresh_var()
+            }
+        }
+    }
+
     fn check_match_expr(&mut self, expr: &mut MatchExpr) -> Type {
         let scrutinee_ty = self.infer_expression(&mut expr.scrutinee);
         let scrutinee_resolved = self.subst.apply(&scrutinee_ty);
@@ -973,7 +1073,7 @@ impl TypeChecker {
     fn check_pattern(&mut self, p: &Pattern, scrutinee_ty: &Type) {
         match p {
             Pattern::Wildcard(_) => {}
-            Pattern::Ident(name, _) => {
+            Pattern::Ident { name, .. } => {
                 self.env.define_var(name, scrutinee_ty.clone());
             }
             Pattern::Literal(expr) => {
@@ -994,6 +1094,35 @@ impl TypeChecker {
             Pattern::Struct { path, fields, span } => {
                 self.check_struct_pattern(path, fields, scrutinee_ty, *span);
             }
+            Pattern::Tuple(fields, span) => {
+                let resolved = self.subst.apply(scrutinee_ty);
+                match &resolved {
+                    Type::Tuple(elem_types) => {
+                        if fields.len() != elem_types.len() {
+                            self.errors.push(
+                                TypeErrorKind::Mismatch {
+                                    expected: format!("tuple of {} elements", elem_types.len()),
+                                    found: format!("tuple pattern with {} elements", fields.len()),
+                                }
+                                .at(*span),
+                            );
+                        } else {
+                            for (pat, ty) in fields.iter().zip(elem_types.iter()) {
+                                self.check_pattern(pat, ty);
+                            }
+                        }
+                    }
+                    _ => {
+                        self.errors.push(
+                            TypeErrorKind::Mismatch {
+                                expected: resolved.to_string(),
+                                found: "tuple pattern".to_string(),
+                            }
+                            .at(*span),
+                        );
+                    }
+                }
+            }
             Pattern::Or(patterns, _) => {
                 for pat in patterns {
                     self.check_pattern(pat, scrutinee_ty);
@@ -1006,22 +1135,23 @@ impl TypeChecker {
     fn infer_literal_pattern_type(&self, expr: &Expr) -> Type {
         match expr {
             Expr::Number(lit) => match lit.kind {
-                NumberKind::I8 => Type::I8,
-                NumberKind::I16 => Type::I16,
-                NumberKind::I32 => Type::I32,
-                NumberKind::I64 => Type::I64,
-                NumberKind::I128 => Type::I128,
-                NumberKind::Isize => Type::Isize,
-                NumberKind::U8 => Type::U8,
-                NumberKind::U16 => Type::U16,
-                NumberKind::U32 => Type::U32,
-                NumberKind::U64 => Type::U64,
-                NumberKind::U128 => Type::U128,
-                NumberKind::Usize => Type::Usize,
+                NumKind::I8 => Type::I8,
+                NumKind::I16 => Type::I16,
+                NumKind::I32 => Type::I32,
+                NumKind::I64 => Type::I64,
+                NumKind::I128 => Type::I128,
+                NumKind::Isize => Type::Isize,
+                NumKind::U8 => Type::U8,
+                NumKind::U16 => Type::U16,
+                NumKind::U32 => Type::U32,
+                NumKind::U64 => Type::U64,
+                NumKind::U128 => Type::U128,
+                NumKind::Usize => Type::Usize,
             },
             Expr::Bool(_) => Type::Bool,
-            Expr::Str(_) => Type::String,
-            _ => Type::Null,
+            Expr::Char(_) => Type::Char,
+            Expr::Str(_) => Type::Str,
+            _ => Type::Unit,
         }
     }
 
@@ -1044,7 +1174,7 @@ impl TypeChecker {
         let Some((enum_def, type_args)) = enum_info else {
             // Not a known variant; skip checking but still bind identifiers.
             for field in fields {
-                if let Pattern::Ident(name, _) = field {
+                if let Pattern::Ident { name, .. } = field {
                     let fresh = self.env.fresh_var();
                     self.env.define_var(name, fresh);
                 }
@@ -1114,7 +1244,7 @@ impl TypeChecker {
         span: Span,
     ) {
         let struct_info = match scrutinee_ty {
-            Type::Struct(name, type_args) if name == type_name => self
+            Type::Struct(name, type_args) if name.as_ref() == type_name => self
                 .env
                 .lookup_struct(name)
                 .cloned()
@@ -1127,7 +1257,7 @@ impl TypeChecker {
                     .pattern
                     .as_ref()
                     .and_then(|p| match p.as_ref() {
-                        Pattern::Ident(n, _) => Some(n.clone()),
+                        Pattern::Ident { name: n, .. } => Some(n.clone()),
                         _ => None,
                     })
                     .unwrap_or_else(|| field.name.clone());
@@ -1173,9 +1303,10 @@ impl TypeChecker {
     fn resolve_bare_variant(&mut self, name: &str) -> Option<Type> {
         let (enum_def, type_args) = self.find_enum_for_variant(name)?;
         let variant = enum_def.variants.iter().find(|v| v.name == name)?;
+        let enum_name: Rc<str> = Rc::from(enum_def.name.as_str());
         match &variant.kind {
             VariantKind::Unit => Some(Type::Enum(
-                enum_def.name.clone(),
+                enum_name,
                 type_args.iter().map(|t| self.subst.apply(t)).collect(),
             )),
             VariantKind::Tuple(field_types) => {
@@ -1184,7 +1315,7 @@ impl TypeChecker {
                     .map(|t| self.instantiate_generic_type(t, &enum_def.generic_params, &type_args))
                     .collect();
                 let ret = Type::Enum(
-                    enum_def.name.clone(),
+                    enum_name,
                     type_args.iter().map(|t| self.subst.apply(t)).collect(),
                 );
                 Some(Type::Function(FnType {
@@ -1193,7 +1324,7 @@ impl TypeChecker {
                 }))
             }
             VariantKind::Struct(_) => Some(Type::Enum(
-                enum_def.name.clone(),
+                enum_name,
                 type_args.iter().map(|t| self.subst.apply(t)).collect(),
             )),
         }
@@ -1224,11 +1355,11 @@ impl TypeChecker {
         match ty {
             Type::Generic(name, _) => generic_params
                 .iter()
-                .position(|g| g == name)
+                .position(|g| g.as_str() == name.as_ref())
                 .and_then(|i| type_args.get(i))
                 .cloned()
                 .unwrap_or_else(|| ty.clone()),
-            Type::Array(elem) => Type::Array(Box::new(self.instantiate_generic_type(
+            Type::Vector(elem) => Type::Vector(Box::new(self.instantiate_generic_type(
                 elem,
                 generic_params,
                 type_args,
@@ -1238,7 +1369,7 @@ impl TypeChecker {
                 generic_params,
                 type_args,
             ))),
-            Type::Hash(k, v) => Type::Hash(
+            Type::Map(k, v) => Type::Map(
                 Box::new(self.instantiate_generic_type(k, generic_params, type_args)),
                 Box::new(self.instantiate_generic_type(v, generic_params, type_args)),
             ),
@@ -1309,10 +1440,10 @@ impl TypeChecker {
             }
             Type::Bool => {
                 let has_true = match_expr.arms.iter().any(|arm| {
-                    matches!(&arm.pattern, Pattern::Literal(e) if matches!(e.as_ref(), Expr::Bool(Bool { value: true, .. })))
+                    matches!(&arm.pattern, Pattern::Literal(e) if matches!(e.as_ref(), Expr::Bool(BoolLit { value: true, .. })))
                 });
                 let has_false = match_expr.arms.iter().any(|arm| {
-                    matches!(&arm.pattern, Pattern::Literal(e) if matches!(e.as_ref(), Expr::Bool(Bool { value: false, .. })))
+                    matches!(&arm.pattern, Pattern::Literal(e) if matches!(e.as_ref(), Expr::Bool(BoolLit { value: false, .. })))
                 });
                 if !has_true || !has_false {
                     self.errors.push(
@@ -1342,7 +1473,7 @@ impl TypeChecker {
     fn pattern_is_catch_all(&self, p: &Pattern, enum_def: &Option<EnumDef>) -> bool {
         match p {
             Pattern::Wildcard(_) => true,
-            Pattern::Ident(name, _) => !enum_def
+            Pattern::Ident { name, .. } => !enum_def
                 .as_ref()
                 .is_some_and(|def| def.variants.iter().any(|v| v.name == *name)),
             _ => false,
@@ -1354,7 +1485,7 @@ impl TypeChecker {
         match p {
             Pattern::TupleStruct { path, .. } => Some(path.as_str()),
             Pattern::Struct { path, .. } => Some(path.as_str()),
-            Pattern::Ident(name, _) => {
+            Pattern::Ident { name, .. } => {
                 // Check if this identifier is actually a unit variant name.
                 if enum_def.variants.iter().any(|v| v.name == *name) {
                     Some(name.as_str())
@@ -1392,9 +1523,14 @@ impl TypeChecker {
             infix.operator.as_str(),
             "<" | ">" | "<=" | ">=" | "==" | "!="
         );
-        // String concatenation
-        if infix.operator == "+" && lhs_resolved == Type::String && rhs_resolved == Type::String {
-            return Type::String;
+        // String concatenation and comparison
+        if lhs_resolved == Type::Str && rhs_resolved == Type::Str {
+            if infix.operator == "+" {
+                return Type::Str;
+            }
+            if is_comparison {
+                return Type::Bool;
+            }
         }
         // Boolean equality
         if (infix.operator == "==" || infix.operator == "!=")
@@ -1403,33 +1539,28 @@ impl TypeChecker {
         {
             return Type::Bool;
         }
-        // Numeric operations
+        // Char equality and comparison
+        if lhs_resolved == Type::Char && rhs_resolved == Type::Char && is_comparison {
+            return Type::Bool;
+        }
+        // Numeric operations: both operands must be the same integer type.
         if lhs_resolved.is_integer() && rhs_resolved.is_integer() {
-            if lhs_resolved == rhs_resolved {
-                return if is_comparison {
-                    Type::Bool
-                } else {
-                    lhs_resolved
-                };
+            if lhs_resolved != rhs_resolved {
+                self.errors.push(
+                    TypeErrorKind::NumericMismatch {
+                        expected: lhs_resolved.to_string(),
+                        found: rhs_resolved.to_string(),
+                    }
+                    .at(infix.span),
+                );
             }
-            match promote::common_numeric_type(&lhs_resolved, &rhs_resolved) {
-                Ok(promoted) => {
-                    self.maybe_insert_cast(&mut infix.lhs, &lhs_resolved, &promoted);
-                    self.maybe_insert_cast(&mut infix.rhs, &rhs_resolved, &promoted);
-                    if is_comparison { Type::Bool } else { promoted }
-                }
-                Err(PromotionError::NonNumeric(ty)) => {
-                    self.errors.push(
-                        TypeErrorKind::Mismatch {
-                            expected: "numeric".to_string(),
-                            found: ty.to_string(),
-                        }
-                        .at(infix.span),
-                    );
-                    self.env.fresh_var()
-                }
-            }
-        } else if matches!(lhs_resolved, Type::Var(_)) || matches!(rhs_resolved, Type::Var(_)) {
+            return if is_comparison {
+                Type::Bool
+            } else {
+                lhs_resolved
+            };
+        }
+        if matches!(lhs_resolved, Type::Var(_)) || matches!(rhs_resolved, Type::Var(_)) {
             if let Err(e) = self.subst.unify(&lhs_resolved, &rhs_resolved) {
                 self.report_unify_error(e, infix.span);
             }
@@ -1450,31 +1581,9 @@ impl TypeChecker {
         }
     }
 
-    /// Wraps an expression in a `Cast` node if it needs promotion.
-    fn maybe_insert_cast(&self, expr: &mut Box<Expr>, current: &Type, target: &Type) {
-        if current == target {
-            return;
-        }
-        if let Some(ann) = target.to_type_annotation() {
-            let span = expr.span();
-            let inner = std::mem::replace(
-                expr.as_mut(),
-                Expr::Bool(Bool {
-                    value: false,
-                    span: Span::ZERO,
-                }),
-            );
-            *expr.as_mut() = Expr::Cast(CastExpr {
-                expr: Box::new(inner),
-                target: ann,
-                span,
-            });
-        }
-    }
-
     /// Infers the type of a block (the type of its last expression statement).
     fn infer_block(&mut self, block: &mut BlockStmt) -> Type {
-        let mut last = Type::Null;
+        let mut last = Type::Unit;
         for stmt in &mut block.statements {
             match stmt {
                 Stmt::Expr(es) => {
@@ -1486,7 +1595,7 @@ impl TypeChecker {
                 }
                 _ => {
                     self.check_statement(stmt);
-                    last = Type::Null;
+                    last = Type::Unit;
                 }
             }
         }
@@ -1550,15 +1659,18 @@ impl TypeChecker {
 
     /// Maps a resolved type to the dispatch prefix used in builtin qualified names.
     ///
-    /// Returns `Some("Array")` for array types, `Some("str")` for strings,
-    /// and `Some(name)` for user-defined structs/enums (including `Set`).
-    /// Returns `None` for unresolved type variables or primitive types
-    /// that have no inherent methods.
+    /// Returns `Some("Vector")` for vector types, `Some("str")` for strings,
+    /// `Some("Map")` for map types, `Some("Set")` for set types, and
+    /// `Some(name)` for user-defined structs/enums. Returns `None` for
+    /// unresolved type variables or primitive types that have no inherent methods.
     fn receiver_type_name(ty: &Type) -> Option<String> {
         match ty {
-            Type::Array(_) => Some("Array".to_string()),
-            Type::String => Some("str".to_string()),
-            Type::Struct(name, _) | Type::Enum(name, _) => Some(name.clone()),
+            Type::Vector(_) => Some("Vector".to_string()),
+            Type::Char => Some("char".to_string()),
+            Type::Str => Some("str".to_string()),
+            Type::Map(..) => Some("Map".to_string()),
+            Type::Set(_) => Some("Set".to_string()),
+            Type::Struct(name, _) | Type::Enum(name, _) => Some(name.to_string()),
             _ => None,
         }
     }
@@ -1574,5 +1686,1265 @@ impl TypeChecker {
             }
         };
         self.errors.push(kind.at(span));
+    }
+}
+
+/// Returns `true` if converting `source` to `target` is a lossless widening.
+///
+/// Accepted conversions mirror Rust's `From` impls for integer types:
+/// - Signed widening: `i8-->i16-->i32-->i64-->i128`
+/// - Unsigned widening: `u8-->u16-->u32-->u64-->u128`
+/// - Unsigned-->signed where the target is strictly wider:
+///   `u8-->i16`, `u16-->i32`, `u32-->i64`, `u64-->i128`
+fn is_lossless_conversion(source: &Type, target: &Type) -> bool {
+    use Type::*;
+    matches!(
+        (source, target),
+        // Signed widening chain
+        (I8, I16)
+            | (I8, I32)
+            | (I8, I64)
+            | (I8, I128)
+            | (I16, I32)
+            | (I16, I64)
+            | (I16, I128)
+            | (I32, I64)
+            | (I32, I128)
+            | (I64, I128)
+            // Unsigned widening chain
+            | (U8, U16)
+            | (U8, U32)
+            | (U8, U64)
+            | (U8, U128)
+            | (U16, U32)
+            | (U16, U64)
+            | (U16, U128)
+            | (U32, U64)
+            | (U32, U128)
+            | (U64, U128)
+            // Safe cross-sign (unsigned --> strictly wider signed)
+            | (U8, I16)
+            | (U8, I32)
+            | (U8, I64)
+            | (U8, I128)
+            | (U16, I32)
+            | (U16, I64)
+            | (U16, I128)
+            | (U32, I64)
+            | (U32, I128)
+            | (U64, I128)
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const S: Span = Span::ZERO;
+
+    fn int_expr(value: i128, kind: NumKind) -> Expr {
+        Expr::Number(Number {
+            kind,
+            value,
+            radix: Radix::Dec,
+            span: S,
+        })
+    }
+
+    fn i64_expr(value: i128) -> Expr {
+        int_expr(value, NumKind::I64)
+    }
+
+    fn bool_expr(value: bool) -> Expr {
+        Expr::Bool(BoolLit { value, span: S })
+    }
+
+    fn str_expr(value: &str) -> Expr {
+        Expr::Str(StrLit {
+            value: value.to_string(),
+            span: S,
+        })
+    }
+
+    fn ident_expr(name: &str) -> Expr {
+        Expr::Ident(Ident {
+            value: name.to_string(),
+            span: S,
+        })
+    }
+
+    fn infix(lhs: Expr, op: &str, rhs: Expr) -> Expr {
+        Expr::Infix(InfixExpr {
+            lhs: Box::new(lhs),
+            operator: op.to_string(),
+            rhs: Box::new(rhs),
+            span: S,
+        })
+    }
+
+    fn prefix(op: &str, operand: Expr) -> Expr {
+        Expr::Prefix(PrefixExpr {
+            operator: op.to_string(),
+            operand: Box::new(operand),
+            span: S,
+        })
+    }
+
+    fn cond(condition: Expr, consequence: Vec<Stmt>, alternative: Option<Vec<Stmt>>) -> Expr {
+        Expr::Cond(CondExpr {
+            condition: Box::new(condition),
+            consequence: BlockStmt {
+                statements: consequence,
+                span: S,
+            },
+            alternative: alternative.map(|stmts| BlockStmt {
+                statements: stmts,
+                span: S,
+            }),
+            span: S,
+        })
+    }
+
+    fn call(func: Expr, args: Vec<Expr>) -> Expr {
+        Expr::Call(CallExpr {
+            function: Box::new(func),
+            arguments: args,
+            span: S,
+        })
+    }
+
+    fn lambda(params: Vec<(&str, Option<TypeExpr>)>, body: Vec<Stmt>) -> Expr {
+        Expr::Lambda(Lambda {
+            params: params
+                .into_iter()
+                .map(|(name, te)| TypedParam {
+                    name: name.to_string(),
+                    type_expr: te,
+                    span: S,
+                })
+                .collect(),
+            generic_params: vec![],
+            return_type: None,
+            body: BlockStmt {
+                statements: body,
+                span: S,
+            },
+            span: S,
+        })
+    }
+
+    fn method_call(obj: Expr, method: &str, args: Vec<Expr>) -> Expr {
+        Expr::MethodCall(MethodCallExpr {
+            object: Box::new(obj),
+            method: method.to_string(),
+            arguments: args,
+            receiver: None,
+            span: S,
+        })
+    }
+
+    fn expr_stmt(e: Expr) -> Stmt {
+        Stmt::Expr(ExprStmt { value: e, span: S })
+    }
+
+    fn let_stmt(name: &str, value: Expr, ty: Option<TypeExpr>) -> Stmt {
+        Stmt::Let(LetStmt {
+            ident: name.to_string(),
+            mutable: false,
+            type_annotation: ty,
+            value,
+            pattern: None,
+            span: S,
+        })
+    }
+
+    fn func_def(
+        name: &str,
+        params: Vec<(&str, Option<TypeExpr>)>,
+        ret: Option<TypeExpr>,
+        body: Vec<Stmt>,
+    ) -> Stmt {
+        Stmt::FuncDef(FuncDef {
+            name: name.to_string(),
+            params: params
+                .into_iter()
+                .map(|(n, te)| TypedParam {
+                    name: n.to_string(),
+                    type_expr: te,
+                    span: S,
+                })
+                .collect(),
+            generic_params: vec![],
+            return_type: ret,
+            body: BlockStmt {
+                statements: body,
+                span: S,
+            },
+            is_public: false,
+            doc: None,
+            span: S,
+        })
+    }
+
+    fn named_type(name: &str) -> TypeExpr {
+        TypeExpr::Named(NamedType {
+            name: name.to_string(),
+            span: S,
+        })
+    }
+
+    fn struct_decl(name: &str, fields: Vec<(&str, TypeExpr)>) -> Stmt {
+        Stmt::StructDecl(StructDecl {
+            name: name.to_string(),
+            generic_params: vec![],
+            fields: fields
+                .into_iter()
+                .map(|(n, ty)| StructField {
+                    name: n.to_string(),
+                    ty,
+                    is_public: true,
+                    doc: None,
+                    span: S,
+                })
+                .collect(),
+            is_public: false,
+            doc: None,
+            span: S,
+        })
+    }
+
+    fn generic_struct_decl(name: &str, generics: Vec<&str>, fields: Vec<(&str, TypeExpr)>) -> Stmt {
+        Stmt::StructDecl(StructDecl {
+            name: name.to_string(),
+            generic_params: generics
+                .into_iter()
+                .map(|g| GenericParam {
+                    name: g.to_string(),
+                    bounds: vec![],
+                    span: S,
+                })
+                .collect(),
+            fields: fields
+                .into_iter()
+                .map(|(n, ty)| StructField {
+                    name: n.to_string(),
+                    ty,
+                    is_public: true,
+                    doc: None,
+                    span: S,
+                })
+                .collect(),
+            is_public: false,
+            doc: None,
+            span: S,
+        })
+    }
+
+    fn enum_decl(name: &str, variants: Vec<(&str, EnumVariantKind)>) -> Stmt {
+        Stmt::EnumDecl(EnumDecl {
+            name: name.to_string(),
+            generic_params: vec![],
+            variants: variants
+                .into_iter()
+                .map(|(n, kind)| EnumVariant {
+                    name: n.to_string(),
+                    kind,
+                    doc: None,
+                    span: S,
+                })
+                .collect(),
+            is_public: false,
+            doc: None,
+            span: S,
+        })
+    }
+
+    fn generic_enum_decl(
+        name: &str,
+        generics: Vec<&str>,
+        variants: Vec<(&str, EnumVariantKind)>,
+    ) -> Stmt {
+        Stmt::EnumDecl(EnumDecl {
+            name: name.to_string(),
+            generic_params: generics
+                .into_iter()
+                .map(|g| GenericParam {
+                    name: g.to_string(),
+                    bounds: vec![],
+                    span: S,
+                })
+                .collect(),
+            variants: variants
+                .into_iter()
+                .map(|(n, kind)| EnumVariant {
+                    name: n.to_string(),
+                    kind,
+                    doc: None,
+                    span: S,
+                })
+                .collect(),
+            is_public: false,
+            doc: None,
+            span: S,
+        })
+    }
+
+    fn trait_decl(name: &str, methods: Vec<TraitMethod>) -> Stmt {
+        Stmt::TraitDecl(TraitDecl {
+            name: name.to_string(),
+            generic_params: vec![],
+            methods,
+            is_public: false,
+            doc: None,
+            span: S,
+        })
+    }
+
+    fn trait_method(
+        name: &str,
+        params: Vec<(&str, Option<TypeExpr>)>,
+        ret: Option<TypeExpr>,
+    ) -> TraitMethod {
+        TraitMethod {
+            name: name.to_string(),
+            generic_params: vec![],
+            params: params
+                .into_iter()
+                .map(|(n, te)| TypedParam {
+                    name: n.to_string(),
+                    type_expr: te,
+                    span: S,
+                })
+                .collect(),
+            return_type: ret,
+            default_body: None,
+            doc: None,
+            span: S,
+        }
+    }
+
+    fn impl_block(
+        self_type: TypeExpr,
+        trait_name: Option<TypeExpr>,
+        methods: Vec<FuncDef>,
+    ) -> Stmt {
+        Stmt::ImplBlock(ImplBlock {
+            trait_name,
+            self_type,
+            generic_params: vec![],
+            methods,
+            doc: None,
+            span: S,
+        })
+    }
+
+    fn method_def(
+        name: &str,
+        params: Vec<(&str, Option<TypeExpr>)>,
+        ret: Option<TypeExpr>,
+        body: Vec<Stmt>,
+    ) -> FuncDef {
+        FuncDef {
+            name: name.to_string(),
+            params: params
+                .into_iter()
+                .map(|(n, te)| TypedParam {
+                    name: n.to_string(),
+                    type_expr: te,
+                    span: S,
+                })
+                .collect(),
+            generic_params: vec![],
+            return_type: ret,
+            body: BlockStmt {
+                statements: body,
+                span: S,
+            },
+            is_public: false,
+            doc: None,
+            span: S,
+        }
+    }
+
+    fn match_expr(scrutinee: Expr, arms: Vec<MatchArm>) -> Expr {
+        Expr::Match(MatchExpr {
+            scrutinee: Box::new(scrutinee),
+            arms,
+            span: S,
+        })
+    }
+
+    fn match_arm(pattern: Pattern, body: Expr) -> MatchArm {
+        MatchArm {
+            pattern,
+            guard: None,
+            body,
+            span: S,
+        }
+    }
+
+    fn struct_lit(name: &str, fields: Vec<(&str, Expr)>) -> Expr {
+        Expr::StructLit(StructLitExpr {
+            name: name.to_string(),
+            fields: fields
+                .into_iter()
+                .map(|(n, e)| (n.to_string(), e))
+                .collect(),
+            base: None,
+            span: S,
+        })
+    }
+
+    fn path_expr(segments: Vec<&str>) -> Expr {
+        Expr::PathExpr(PathExpr {
+            segments: segments.into_iter().map(|s| s.to_string()).collect(),
+            span: S,
+        })
+    }
+
+    /// Run the type checker on a program and return errors.
+    fn check(stmts: Vec<Stmt>) -> Vec<String> {
+        let mut program = Program { statements: stmts };
+        TypeChecker::new()
+            .check_program(&mut program)
+            .into_iter()
+            .map(|e| e.kind.to_string())
+            .collect()
+    }
+
+    /// Run the type checker expecting no errors.
+    fn check_ok(stmts: Vec<Stmt>) {
+        let errs = check(stmts);
+        assert!(errs.is_empty(), "expected no errors, got: {errs:?}");
+    }
+
+    #[test]
+    fn infer_literals() {
+        check_ok(vec![let_stmt("x", i64_expr(42), None)]);
+        check_ok(vec![let_stmt("x", bool_expr(true), None)]);
+        check_ok(vec![let_stmt("x", str_expr("hello"), None)]);
+
+        check_ok(vec![let_stmt("x", i64_expr(10), Some(named_type("i64")))]);
+        check_ok(vec![let_stmt(
+            "x",
+            int_expr(5, NumKind::I8),
+            Some(named_type("i8")),
+        )]);
+    }
+
+    #[test]
+    fn infer_binary_expressions() {
+        // same types
+        check_ok(vec![let_stmt(
+            "x",
+            infix(i64_expr(1), "+", i64_expr(2)),
+            None,
+        )]);
+
+        // i8 + i16 is a type mismatch (no implicit promotion)
+        {
+            let errs = check(vec![let_stmt(
+                "x",
+                infix(int_expr(1, NumKind::I8), "+", int_expr(2, NumKind::I16)),
+                None,
+            )]);
+            assert!(!errs.is_empty());
+        }
+
+        // comparison should return bool
+        check_ok(vec![let_stmt(
+            "x",
+            infix(i64_expr(1), "<", i64_expr(2)),
+            Some(named_type("bool")),
+        )]);
+
+        // equality check
+        check_ok(vec![let_stmt(
+            "x",
+            infix(bool_expr(true), "==", bool_expr(false)),
+            None,
+        )]);
+
+        // string concat
+        check_ok(vec![let_stmt(
+            "x",
+            infix(str_expr("a"), "+", str_expr("b")),
+            None,
+        )]);
+
+        // logical AND
+        check_ok(vec![let_stmt(
+            "x",
+            infix(bool_expr(true), "&&", bool_expr(false)),
+            None,
+        )]);
+
+        // logical OR requires bool
+        let errs = check(vec![let_stmt(
+            "x",
+            infix(i64_expr(1), "||", bool_expr(true)),
+            None,
+        )]);
+        assert!(!errs.is_empty());
+        assert!(errs[0].contains("bool"));
+    }
+
+    #[test]
+    fn infer_unary_expressions() {
+        check_ok(vec![let_stmt("x", prefix("-", i64_expr(5)), None)]);
+        check_ok(vec![let_stmt("x", prefix("!", bool_expr(true)), None)]);
+
+        // unary NOT rejects non-bool
+        let errs = check(vec![let_stmt("x", prefix("!", i64_expr(1)), None)]);
+        assert!(!errs.is_empty());
+        assert!(errs[0].contains("bool"));
+
+        // unary negation rejects string
+        let errs = check(vec![let_stmt("x", prefix("-", str_expr("a")), None)]);
+        assert!(!errs.is_empty());
+        assert!(errs[0].contains("numeric"));
+    }
+
+    #[test]
+    fn infer_conditionals() {
+        // unify if-else branch
+        check_ok(vec![let_stmt(
+            "x",
+            cond(
+                bool_expr(true),
+                vec![expr_stmt(i64_expr(1))],
+                Some(vec![expr_stmt(i64_expr(2))]),
+            ),
+            None,
+        )]);
+
+        // if-else branch mismatch
+        let errs = check(vec![let_stmt(
+            "x",
+            cond(
+                bool_expr(true),
+                vec![expr_stmt(i64_expr(1))],
+                Some(vec![expr_stmt(bool_expr(false))]),
+            ),
+            None,
+        )]);
+        assert!(!errs.is_empty());
+
+        // if condition must be bool
+        let errs = check(vec![let_stmt(
+            "x",
+            cond(i64_expr(1), vec![expr_stmt(i64_expr(2))], None),
+            None,
+        )]);
+        assert!(!errs.is_empty());
+        assert!(errs[0].contains("bool"));
+    }
+
+    #[test]
+    fn infer_function_and_method_calls() {
+        // fn add(a: i64, b: i64) -> i64 { a }
+        // let x = add(1, 2);
+        check_ok(vec![
+            func_def(
+                "add",
+                vec![
+                    ("a", Some(named_type("i64"))),
+                    ("b", Some(named_type("i64"))),
+                ],
+                Some(named_type("i64")),
+                vec![expr_stmt(ident_expr("a"))],
+            ),
+            let_stmt(
+                "x",
+                call(ident_expr("add"), vec![i64_expr(1), i64_expr(2)]),
+                None,
+            ),
+        ]);
+
+        // wrong arity
+        let errs = check(vec![
+            func_def(
+                "f",
+                vec![("a", Some(named_type("i64")))],
+                Some(named_type("i64")),
+                vec![expr_stmt(ident_expr("a"))],
+            ),
+            let_stmt(
+                "x",
+                call(ident_expr("f"), vec![i64_expr(1), i64_expr(2)]),
+                None,
+            ),
+        ]);
+        assert!(!errs.is_empty());
+
+        // method call on `Vector`
+        // let v = [1, 2, 3];
+        // let n = v.len();
+        check_ok(vec![
+            let_stmt(
+                "v",
+                Expr::Vector(Vector {
+                    elements: vec![i64_expr(1), i64_expr(2), i64_expr(3)],
+                    span: S,
+                }),
+                None,
+            ),
+            let_stmt("n", method_call(ident_expr("v"), "len", vec![]), None),
+        ]);
+
+        // lambda/closure
+        // let f = |x: i64| -> i64 { x };
+        check_ok(vec![let_stmt(
+            "f",
+            lambda(
+                vec![("x", Some(named_type("i64")))],
+                vec![expr_stmt(ident_expr("x"))],
+            ),
+            None,
+        )]);
+
+        // lambda call
+        // let f = |x: i64| -> i64 { x };
+        // let r = f(42);
+        check_ok(vec![
+            let_stmt(
+                "f",
+                lambda(
+                    vec![("x", Some(named_type("i64")))],
+                    vec![expr_stmt(ident_expr("x"))],
+                ),
+                None,
+            ),
+            let_stmt("r", call(ident_expr("f"), vec![i64_expr(42)]), None),
+        ]);
+    }
+
+    #[test]
+    fn exhaustive_enum_all_variants() {
+        // enum Color { Red, Green, Blue }
+        // match c { Red => 1, Green => 2, Blue => 3 }
+        check_ok(vec![
+            enum_decl(
+                "Color",
+                vec![
+                    ("Red", EnumVariantKind::Unit),
+                    ("Green", EnumVariantKind::Unit),
+                    ("Blue", EnumVariantKind::Unit),
+                ],
+            ),
+            let_stmt("c", path_expr(vec!["Color", "Red"]), None),
+            let_stmt(
+                "r",
+                match_expr(
+                    ident_expr("c"),
+                    vec![
+                        match_arm(
+                            Pattern::Ident {
+                                name: "Red".to_string(),
+                                mutable: false,
+                                span: S,
+                            },
+                            i64_expr(1),
+                        ),
+                        match_arm(
+                            Pattern::Ident {
+                                name: "Green".to_string(),
+                                mutable: false,
+                                span: S,
+                            },
+                            i64_expr(2),
+                        ),
+                        match_arm(
+                            Pattern::Ident {
+                                name: "Blue".to_string(),
+                                mutable: false,
+                                span: S,
+                            },
+                            i64_expr(3),
+                        ),
+                    ],
+                ),
+                None,
+            ),
+        ]);
+    }
+
+    #[test]
+    fn non_exhaustive_enum_missing_variant() {
+        let errs = check(vec![
+            enum_decl(
+                "Color",
+                vec![
+                    ("Red", EnumVariantKind::Unit),
+                    ("Green", EnumVariantKind::Unit),
+                    ("Blue", EnumVariantKind::Unit),
+                ],
+            ),
+            let_stmt("c", path_expr(vec!["Color", "Red"]), None),
+            let_stmt(
+                "r",
+                match_expr(
+                    ident_expr("c"),
+                    vec![
+                        match_arm(
+                            Pattern::Ident {
+                                name: "Red".to_string(),
+                                mutable: false,
+                                span: S,
+                            },
+                            i64_expr(1),
+                        ),
+                        match_arm(
+                            Pattern::Ident {
+                                name: "Green".to_string(),
+                                mutable: false,
+                                span: S,
+                            },
+                            i64_expr(2),
+                        ),
+                    ],
+                ),
+                None,
+            ),
+        ]);
+        assert!(!errs.is_empty());
+        assert!(errs.iter().any(|e| e.contains("Blue")));
+    }
+
+    #[test]
+    fn exhaustive_bool_true_false() {
+        check_ok(vec![
+            let_stmt("b", bool_expr(true), None),
+            let_stmt(
+                "r",
+                match_expr(
+                    ident_expr("b"),
+                    vec![
+                        match_arm(Pattern::Literal(Box::new(bool_expr(true))), i64_expr(1)),
+                        match_arm(Pattern::Literal(Box::new(bool_expr(false))), i64_expr(0)),
+                    ],
+                ),
+                None,
+            ),
+        ]);
+    }
+
+    #[test]
+    fn non_exhaustive_bool_missing_false() {
+        let errs = check(vec![
+            let_stmt("b", bool_expr(true), None),
+            let_stmt(
+                "r",
+                match_expr(
+                    ident_expr("b"),
+                    vec![match_arm(
+                        Pattern::Literal(Box::new(bool_expr(true))),
+                        i64_expr(1),
+                    )],
+                ),
+                None,
+            ),
+        ]);
+        assert!(!errs.is_empty());
+        assert!(errs.iter().any(|e| e.contains("boolean")));
+    }
+
+    #[test]
+    fn wildcard_makes_match_exhaustive() {
+        check_ok(vec![
+            let_stmt("x", i64_expr(5), None),
+            let_stmt(
+                "r",
+                match_expr(
+                    ident_expr("x"),
+                    vec![
+                        match_arm(Pattern::Literal(Box::new(i64_expr(1))), str_expr("one")),
+                        match_arm(Pattern::Wildcard(S), str_expr("other")),
+                    ],
+                ),
+                None,
+            ),
+        ]);
+    }
+
+    #[test]
+    fn non_exhaustive_integer_without_wildcard() {
+        let errs = check(vec![
+            let_stmt("x", i64_expr(5), None),
+            let_stmt(
+                "r",
+                match_expr(
+                    ident_expr("x"),
+                    vec![match_arm(
+                        Pattern::Literal(Box::new(i64_expr(1))),
+                        str_expr("one"),
+                    )],
+                ),
+                None,
+            ),
+        ]);
+        assert!(!errs.is_empty());
+        assert!(errs.iter().any(|e| e.contains("wildcard")));
+    }
+
+    #[test]
+    fn tuple_struct_destructuring() {
+        // enum Wrapper { Val(i64) }
+        // let w = Wrapper::Val(42);
+        // match w { Val(x) => x }
+        check_ok(vec![
+            generic_enum_decl(
+                "Wrapper",
+                vec![],
+                vec![("Val", EnumVariantKind::Tuple(vec![named_type("i64")]))],
+            ),
+            let_stmt(
+                "w",
+                call(path_expr(vec!["Wrapper", "Val"]), vec![i64_expr(42)]),
+                None,
+            ),
+            let_stmt(
+                "r",
+                match_expr(
+                    ident_expr("w"),
+                    vec![match_arm(
+                        Pattern::TupleStruct {
+                            path: "Val".to_string(),
+                            fields: vec![Pattern::Ident {
+                                name: "x".to_string(),
+                                mutable: false,
+                                span: S,
+                            }],
+                            span: S,
+                        },
+                        ident_expr("x"),
+                    )],
+                ),
+                None,
+            ),
+        ]);
+    }
+
+    #[test]
+    fn enum_wildcard_covers_missing() {
+        check_ok(vec![
+            enum_decl(
+                "Dir",
+                vec![
+                    ("Up", EnumVariantKind::Unit),
+                    ("Down", EnumVariantKind::Unit),
+                    ("Left", EnumVariantKind::Unit),
+                    ("Right", EnumVariantKind::Unit),
+                ],
+            ),
+            let_stmt("d", path_expr(vec!["Dir", "Up"]), None),
+            let_stmt(
+                "r",
+                match_expr(
+                    ident_expr("d"),
+                    vec![
+                        match_arm(
+                            Pattern::Ident {
+                                name: "Up".to_string(),
+                                mutable: false,
+                                span: S,
+                            },
+                            i64_expr(1),
+                        ),
+                        match_arm(Pattern::Wildcard(S), i64_expr(0)),
+                    ],
+                ),
+                None,
+            ),
+        ]);
+    }
+
+    #[test]
+    fn check_struct_literals() {
+        // valid field
+        check_ok(vec![
+            struct_decl(
+                "Point",
+                vec![("x", named_type("i64")), ("y", named_type("i64"))],
+            ),
+            let_stmt(
+                "p",
+                struct_lit("Point", vec![("x", i64_expr(1)), ("y", i64_expr(2))]),
+                None,
+            ),
+        ]);
+
+        // field type mismatch
+        let errs = check(vec![
+            struct_decl(
+                "Point",
+                vec![("x", named_type("i64")), ("y", named_type("i64"))],
+            ),
+            let_stmt(
+                "p",
+                struct_lit("Point", vec![("x", bool_expr(true)), ("y", i64_expr(2))]),
+                None,
+            ),
+        ]);
+        assert!(!errs.is_empty());
+
+        // missing field
+        let errs = check(vec![
+            struct_decl(
+                "Point",
+                vec![("x", named_type("i64")), ("y", named_type("i64"))],
+            ),
+            let_stmt("p", struct_lit("Point", vec![("x", i64_expr(1))]), None),
+        ]);
+        assert!(!errs.is_empty());
+
+        // extra field
+        let errs = check(vec![
+            struct_decl(
+                "Point",
+                vec![("x", named_type("i64")), ("y", named_type("i64"))],
+            ),
+            let_stmt(
+                "p",
+                struct_lit(
+                    "Point",
+                    vec![("x", i64_expr(1)), ("y", i64_expr(2)), ("z", i64_expr(3))],
+                ),
+                None,
+            ),
+        ]);
+        assert!(!errs.is_empty());
+
+        // unknown type
+        let errs = check(vec![let_stmt(
+            "p",
+            struct_lit("Nonexistent", vec![("x", i64_expr(1))]),
+            None,
+        )]);
+        assert!(!errs.is_empty());
+    }
+
+    #[test]
+    fn generic_struct_instantiation() {
+        // struct Pair<T> { first: T, second: T }
+        // let p = Pair { first: 1, second: 2 };
+        check_ok(vec![
+            generic_struct_decl(
+                "Pair",
+                vec!["T"],
+                vec![("first", named_type("T")), ("second", named_type("T"))],
+            ),
+            let_stmt(
+                "p",
+                struct_lit(
+                    "Pair",
+                    vec![("first", i64_expr(1)), ("second", i64_expr(2))],
+                ),
+                None,
+            ),
+        ]);
+    }
+
+    #[test]
+    fn generic_struct_field_type_mismatch() {
+        // struct Pair<T> { first: T, second: T }
+        // let p = Pair { first: 1, second: true };  <-- T cannot unify i64 and bool
+        let errs = check(vec![
+            generic_struct_decl(
+                "Pair",
+                vec!["T"],
+                vec![("first", named_type("T")), ("second", named_type("T"))],
+            ),
+            let_stmt(
+                "p",
+                struct_lit(
+                    "Pair",
+                    vec![("first", i64_expr(1)), ("second", bool_expr(true))],
+                ),
+                None,
+            ),
+        ]);
+        assert!(!errs.is_empty());
+    }
+
+    #[test]
+    fn mixed_integer_types_rejected() {
+        // i8 + i32 is a type mismatch
+        let errs = check(vec![let_stmt(
+            "x",
+            infix(int_expr(1, NumKind::I8), "+", int_expr(2, NumKind::I32)),
+            None,
+        )]);
+        assert!(!errs.is_empty());
+        assert!(errs.iter().any(|e| e.contains("i8") && e.contains("i32")));
+    }
+
+    #[test]
+    fn mixed_sign_integers_rejected() {
+        // u8 + i8 is a type mismatch
+        let errs = check(vec![let_stmt(
+            "x",
+            infix(int_expr(1, NumKind::U8), "+", int_expr(2, NumKind::I8)),
+            None,
+        )]);
+        assert!(!errs.is_empty());
+    }
+
+    #[test]
+    fn mixed_integer_no_cast_insertion() {
+        // Verify that mismatched integers produce errors, not Cast nodes.
+        let mut program = Program {
+            statements: vec![let_stmt(
+                "x",
+                infix(int_expr(1, NumKind::I8), "+", int_expr(2, NumKind::I16)),
+                None,
+            )],
+        };
+        let errs = TypeChecker::new().check_program(&mut program);
+        assert!(!errs.is_empty(), "expected type errors for i8 + i16");
+        if let Stmt::Let(ref ls) = program.statements[0]
+            && let Expr::Infix(ref inf) = ls.value
+        {
+            assert!(
+                !matches!(inf.lhs.as_ref(), Expr::Cast(_)),
+                "should not insert Cast node for mismatched types",
+            );
+        }
+    }
+
+    #[test]
+    fn mixed_width_u64_i128_rejected() {
+        // u64 + i128 is a type mismatch
+        let errs = check(vec![let_stmt(
+            "x",
+            infix(int_expr(1, NumKind::U64), "+", int_expr(2, NumKind::I128)),
+            None,
+        )]);
+        assert!(!errs.is_empty());
+    }
+
+    #[test]
+    fn mixed_width_comparison_rejected() {
+        // u8 < i16 is a type mismatch
+        let errs = check(vec![let_stmt(
+            "x",
+            infix(int_expr(1, NumKind::U8), "<", int_expr(2, NumKind::I16)),
+            None,
+        )]);
+        assert!(!errs.is_empty());
+    }
+
+    #[test]
+    fn impl_self_type_resolution() {
+        // struct Counter { val: i64 }
+        // impl Counter { fn get(self) -> i64 { self.val } }
+        check_ok(vec![
+            struct_decl("Counter", vec![("val", named_type("i64"))]),
+            impl_block(
+                named_type("Counter"),
+                None,
+                vec![method_def(
+                    "get",
+                    vec![("self", None)],
+                    Some(named_type("i64")),
+                    vec![expr_stmt(Expr::FieldAccess(FieldAccessExpr {
+                        object: Box::new(ident_expr("self")),
+                        field: "val".to_string(),
+                        span: S,
+                    }))],
+                )],
+            ),
+        ]);
+    }
+
+    #[test]
+    fn trait_method_signature_conformance() {
+        // trait Greet { fn greet(self) -> str; }
+        // struct Bot {}
+        // impl Greet for Bot { fn greet(self) -> str { "hi" } }
+        check_ok(vec![
+            trait_decl(
+                "Greet",
+                vec![trait_method(
+                    "greet",
+                    vec![("self", None)],
+                    Some(named_type("str")),
+                )],
+            ),
+            struct_decl("Bot", vec![]),
+            impl_block(
+                named_type("Bot"),
+                Some(named_type("Greet")),
+                vec![method_def(
+                    "greet",
+                    vec![("self", None)],
+                    Some(named_type("str")),
+                    vec![expr_stmt(str_expr("hi"))],
+                )],
+            ),
+        ]);
+    }
+
+    #[test]
+    fn trait_missing_method() {
+        // trait Greet { fn greet(self) -> str; }
+        // struct Bot {}
+        // impl Greet for Bot {}   <-- missing greet
+        let errs = check(vec![
+            trait_decl(
+                "Greet",
+                vec![trait_method(
+                    "greet",
+                    vec![("self", None)],
+                    Some(named_type("str")),
+                )],
+            ),
+            struct_decl("Bot", vec![]),
+            impl_block(named_type("Bot"), Some(named_type("Greet")), vec![]),
+        ]);
+        assert!(!errs.is_empty());
+        assert!(errs.iter().any(|e| e.contains("greet")));
+    }
+
+    #[test]
+    fn trait_method_signature_mismatch() {
+        // trait Greet { fn greet(self) -> str; }
+        // struct Bot {}
+        // impl Greet for Bot { fn greet(self) -> i64 { 1 } }
+        let errs = check(vec![
+            trait_decl(
+                "Greet",
+                vec![trait_method(
+                    "greet",
+                    vec![("self", None)],
+                    Some(named_type("str")),
+                )],
+            ),
+            struct_decl("Bot", vec![]),
+            impl_block(
+                named_type("Bot"),
+                Some(named_type("Greet")),
+                vec![method_def(
+                    "greet",
+                    vec![("self", None)],
+                    Some(named_type("i64")),
+                    vec![expr_stmt(i64_expr(1))],
+                )],
+            ),
+        ]);
+        assert!(!errs.is_empty());
+    }
+
+    #[test]
+    fn impl_unknown_trait() {
+        let errs = check(vec![
+            struct_decl("Bot", vec![]),
+            impl_block(named_type("Bot"), Some(named_type("Nonexistent")), vec![]),
+        ]);
+        assert!(!errs.is_empty());
+    }
+
+    #[test]
+    fn impl_unknown_self_type() {
+        let errs = check(vec![impl_block(
+            named_type("Nonexistent"),
+            None,
+            vec![method_def(
+                "foo",
+                vec![("self", None)],
+                Some(named_type("i64")),
+                vec![],
+            )],
+        )]);
+        assert!(!errs.is_empty());
+        assert!(errs.iter().any(|e| e.contains("Nonexistent")));
+    }
+
+    #[test]
+    fn numeric_overflow_detected() {
+        // let x: i8 = 200;  <-- overflow
+        let errs = check(vec![let_stmt("x", i64_expr(200), Some(named_type("i8")))]);
+        assert!(!errs.is_empty());
+        assert!(
+            errs.iter()
+                .any(|e| e.contains("overflow") || e.contains("200"))
+        );
+    }
+
+    #[test]
+    fn not_callable() {
+        let errs = check(vec![
+            let_stmt("x", i64_expr(5), None),
+            let_stmt("r", call(ident_expr("x"), vec![i64_expr(1)]), None),
+        ]);
+        assert!(!errs.is_empty());
+    }
+
+    #[test]
+    fn duplicate_struct_type() {
+        let errs = check(vec![struct_decl("Foo", vec![]), struct_decl("Foo", vec![])]);
+        assert!(!errs.is_empty());
+    }
+
+    #[test]
+    fn duplicate_enum_type() {
+        let errs = check(vec![
+            enum_decl("Color", vec![("Red", EnumVariantKind::Unit)]),
+            enum_decl("Color", vec![("Blue", EnumVariantKind::Unit)]),
+        ]);
+        assert!(!errs.is_empty());
+    }
+
+    #[test]
+    fn for_loop_infers_element_type() {
+        check_ok(vec![Stmt::For(ForStmt {
+            ident: "x".to_string(),
+            iterable: Box::new(Expr::Vector(Vector {
+                elements: vec![i64_expr(1), i64_expr(2)],
+                span: S,
+            })),
+            body: BlockStmt {
+                statements: vec![expr_stmt(ident_expr("x"))],
+                span: S,
+            },
+            label: None,
+            span: S,
+        })]);
+    }
+
+    #[test]
+    fn while_condition_must_be_bool() {
+        let errs = check(vec![Stmt::While(WhileStmt {
+            condition: Box::new(i64_expr(1)),
+            body: BlockStmt {
+                statements: vec![],
+                span: S,
+            },
+            label: None,
+            span: S,
+        })]);
+        assert!(!errs.is_empty());
+        assert!(errs[0].contains("bool"));
+    }
+
+    #[test]
+    fn generic_enum_option_instantiation() {
+        // enum MyOption<T> { Some(T), None }
+        // let x = MyOption::Some(42);
+        check_ok(vec![
+            generic_enum_decl(
+                "MyOption",
+                vec!["T"],
+                vec![
+                    ("Some", EnumVariantKind::Tuple(vec![named_type("T")])),
+                    ("None", EnumVariantKind::Unit),
+                ],
+            ),
+            let_stmt(
+                "x",
+                call(path_expr(vec!["MyOption", "Some"]), vec![i64_expr(42)]),
+                None,
+            ),
+        ]);
     }
 }

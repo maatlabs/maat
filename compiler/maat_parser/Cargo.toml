@@ -6,6 +6,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+winnow = "1"
 maat_span = { path = "../maat_span" }
 maat_errors = { path = "../maat_errors" }
 maat_lexer = { path = "../maat_lexer" }

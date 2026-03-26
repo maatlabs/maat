@@ -10,8 +10,8 @@ use std::path::PathBuf;
 
 use maat_ast::{Program, Stmt};
 use maat_errors::ModuleErrorKind;
-use maat_lexer::Lexer;
-use maat_parser::Parser;
+use maat_lexer::MaatLexer;
+use maat_parser::MaatParser;
 use maat_span::Span;
 
 use crate::{ModuleGraph, ModuleId, ModuleResult};
@@ -22,15 +22,23 @@ const STD_MATH: &str = include_str!("../../../library/std/math.maat");
 /// Embedded source for `std::string`.
 const STD_STRING: &str = include_str!("../../../library/std/string.maat");
 
-/// Embedded source for `std::collections`.
-const STD_COLLECTIONS: &str = include_str!("../../../library/std/collections.maat");
+/// Embedded source for `std::vec`.
+const STD_VEC: &str = include_str!("../../../library/std/vec.maat");
+
+/// Embedded source for `std::set`.
+const STD_SET: &str = include_str!("../../../library/std/set.maat");
+
+/// Embedded source for `std::map`.
+const STD_MAP: &str = include_str!("../../../library/std/map.maat");
 
 /// Returns the embedded source for a standard library module, if it exists.
 fn lookup_stdlib_source(module_name: &str) -> Option<&'static str> {
     match module_name {
         "math" => Some(STD_MATH),
         "string" => Some(STD_STRING),
-        "collections" => Some(STD_COLLECTIONS),
+        "vec" => Some(STD_VEC),
+        "set" => Some(STD_SET),
+        "map" => Some(STD_MAP),
         _ => None,
     }
 }
@@ -92,7 +100,7 @@ fn collect_std_imports(program: &Program) -> Vec<String> {
 
 /// Parses an embedded stdlib source string into a [`Program`].
 fn parse_stdlib_source(module_name: &str, source: &str) -> ModuleResult<Program> {
-    let mut parser = Parser::new(Lexer::new(source));
+    let mut parser = MaatParser::new(MaatLexer::new(source));
     let program = parser.parse();
     if parser.errors().is_empty() {
         Ok(program)
@@ -103,5 +111,170 @@ fn parse_stdlib_source(module_name: &str, source: &str) -> ModuleResult<Program>
             messages: parser.errors().iter().map(|e| e.to_string()).collect(),
         }
         .at(Span::ZERO, path))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_program(source: &str) -> Program {
+        let mut parser = MaatParser::new(MaatLexer::new(source));
+        parser.parse()
+    }
+
+    #[test]
+    fn lookup_known_modules() {
+        for name in &["math", "string", "vec", "set", "map"] {
+            assert!(
+                lookup_stdlib_source(name).is_some(),
+                "stdlib module `{name}` should be found"
+            );
+        }
+    }
+
+    #[test]
+    fn lookup_unknown_module_returns_none() {
+        assert!(lookup_stdlib_source("nonexistent").is_none());
+        assert!(lookup_stdlib_source("").is_none());
+        assert!(lookup_stdlib_source("io").is_none());
+    }
+
+    #[test]
+    fn all_stdlib_modules_parse_successfully() {
+        for name in &["math", "string", "vec", "set", "map"] {
+            let source = lookup_stdlib_source(name).expect("module should exist");
+            let result = parse_stdlib_source(name, source);
+            assert!(
+                result.is_ok(),
+                "stdlib module `{name}` should parse without errors: {:?}",
+                result.err()
+            );
+        }
+    }
+
+    #[test]
+    fn parse_invalid_source_returns_error() {
+        let result = parse_stdlib_source("test", "fn incomplete(");
+        assert!(result.is_err(), "invalid source should produce an error");
+    }
+
+    #[test]
+    fn collects_std_imports() {
+        // This test is purely syntactic: it extracts module names
+        // from `use std::X::...` paths without validating the imported item.
+        let source = "use std::math::abs;\nuse std::math::min;\nlet x: i64 = 1;";
+        let program = parse_program(source);
+        let names = collect_std_imports(&program);
+        assert_eq!(names.len(), 1);
+        assert_eq!(names[0], "math");
+    }
+
+    #[test]
+    fn deduplicates_std_imports() {
+        let source = "use std::math::abs;\nuse std::math::min;\nuse std::math::max;";
+        let program = parse_program(source);
+        let names = collect_std_imports(&program);
+        assert_eq!(
+            names.len(),
+            1,
+            "duplicate std::math imports should be deduplicated"
+        );
+        assert_eq!(names[0], "math");
+    }
+
+    #[test]
+    fn ignores_non_std_imports() {
+        let source = "use foo::bar;\nuse baz::qux;";
+        let program = parse_program(source);
+        let names = collect_std_imports(&program);
+        assert!(names.is_empty(), "non-std imports should be ignored");
+    }
+
+    #[test]
+    fn ignores_bare_std_import() {
+        let source = "use std;";
+        let program = parse_program(source);
+        let names = collect_std_imports(&program);
+        assert!(
+            names.is_empty(),
+            "bare `use std;` should produce no stdlib imports"
+        );
+    }
+
+    #[test]
+    fn inject_adds_stdlib_modules_to_graph() {
+        use std::fs;
+
+        let dir = tempfile::tempdir().expect("failed to create temp dir");
+        let main_path = dir.path().join("main.maat");
+        fs::write(&main_path, "use std::math::abs; abs(-1);").expect("write failed");
+
+        let mut graph = crate::resolve::resolve_module_graph(&main_path).unwrap();
+        let before = graph.len();
+        inject_stdlib_modules(&mut graph).unwrap();
+        let after = graph.len();
+        assert_eq!(
+            after,
+            before + 1,
+            "injecting std::math should add exactly one module"
+        );
+    }
+
+    #[test]
+    fn inject_unknown_stdlib_module_errors() {
+        use std::fs;
+
+        let dir = tempfile::tempdir().expect("failed to create temp dir");
+        let main_path = dir.path().join("main.maat");
+        fs::write(&main_path, "use std::fantasy::unicorn;").expect("write failed");
+
+        let result = crate::resolve::resolve_module_graph(&main_path);
+        assert!(
+            result.is_err(),
+            "importing non-existent stdlib module should fail"
+        );
+    }
+
+    #[test]
+    fn inject_multiple_stdlib_modules() {
+        use std::fs;
+
+        let dir = tempfile::tempdir().expect("failed to create temp dir");
+        let main_path = dir.path().join("main.maat");
+        fs::write(
+            &main_path,
+            "use std::math::abs;\nuse std::set::insert;\nabs(-1);",
+        )
+        .expect("write failed");
+
+        let mut graph = crate::resolve::resolve_module_graph(&main_path).unwrap();
+        let before = graph.len();
+        inject_stdlib_modules(&mut graph).unwrap();
+        let after = graph.len();
+        assert_eq!(
+            after,
+            before + 2,
+            "injecting std::math and std::set should add two modules"
+        );
+    }
+
+    #[test]
+    fn inject_deduplicates_stdlib_modules() {
+        use std::fs;
+
+        let dir = tempfile::tempdir().expect("failed to create temp dir");
+        let main_path = dir.path().join("main.maat");
+        fs::write(&main_path, "use std::math::abs;\nuse std::math::min;").expect("write failed");
+
+        let mut graph = crate::resolve::resolve_module_graph(&main_path).unwrap();
+        let before = graph.len();
+        inject_stdlib_modules(&mut graph).unwrap();
+        let after = graph.len();
+        assert_eq!(
+            after,
+            before + 1,
+            "multiple imports from same stdlib module should add it only once"
+        );
     }
 }

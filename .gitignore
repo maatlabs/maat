@@ -10,3 +10,6 @@ target
 
 # Compiled bytecode
 *.mtc
+
+# REPL history
+.maat_history
