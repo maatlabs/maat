@@ -26,7 +26,7 @@
 /// to maintain forward compatibility with Rust's keyword set.
 ///
 /// Sorted lexicographically for binary search.
-const RESERVED_KEYWORDS: &[&str] = &[
+pub const RESERVED_KEYWORDS: &[&str] = &[
     "abstract", "async", "await", "become", "box", "const", "crate", "do", "dyn", "extern",
     "final", "move", "override", "priv", "ref", "static", "super", "try", "type", "typeof",
     "unsafe", "unsized", "virtual", "yield",
@@ -36,7 +36,7 @@ const RESERVED_KEYWORDS: &[&str] = &[
 ///
 /// Includes primitive types, standard-library collection types, and
 /// builtin enum types. Sorted lexicographically for binary search.
-const RESERVED_TYPE_NAMES: &[&str] = &[
+pub const RESERVED_TYPE_NAMES: &[&str] = &[
     "Map",
     "Option",
     "ParseIntError",

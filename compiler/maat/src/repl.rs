@@ -14,8 +14,9 @@ use maat_ast::{Node, Stmt, fold_constants};
 use maat_codegen::{Compiler, SymbolsTable};
 use maat_errors::Error;
 use maat_eval::{expand_macros, extract_macros};
-use maat_lexer::MaatLexer;
+use maat_lexer::{KEYWORDS, MaatLexer};
 use maat_parser::MaatParser;
+use maat_parser::reserved::{RESERVED_KEYWORDS, RESERVED_TYPE_NAMES};
 use maat_runtime::{Env, Value};
 use maat_types::TypeChecker;
 use maat_vm::VM;
@@ -33,21 +34,19 @@ const REPL_SOURCE: &str = "<repl>";
 /// History file name, stored in the current working directory.
 const HISTORY_FILENAME: &str = ".maat_history";
 
-/// Maat keywords, used for tab completion and syntax highlighting.
-const KEYWORDS: &[&str] = &[
-    "let", "if", "else", "true", "false", "fn", "return", "macro", "as", "loop", "while", "for",
-    "in", "break", "continue", "where", "struct", "enum", "match", "impl", "trait", "self", "Self",
-    "mod", "use", "pub", "mut",
+/// Builtin macro names available for tab completion.
+const MACRO_NAMES: &[&str] = &[
+    "assert!",
+    "assert_eq!",
+    "panic!",
+    "print!",
+    "println!",
+    "todo!",
+    "unimplemented!",
 ];
 
-/// Builtin function names available at the top level.
-const BUILTIN_NAMES: &[&str] = &["print"];
-
-/// Type names available for completion.
-const TYPE_NAMES: &[&str] = &[
-    "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64", "u128", "usize", "bool",
-    "str", "Vector", "Set", "Map", "Option", "Result",
-];
+/// Macro-system identifiers (`quote`/`unquote`).
+const MACRO_IDENTS: &[&str] = &["quote", "unquote"];
 
 // ANSI escape sequences for syntax highlighting.
 const BOLD_CYAN: &str = "\x1b[1;36m";
@@ -81,8 +80,10 @@ impl Completer for MaatHelper {
 
         let candidates = KEYWORDS
             .iter()
-            .chain(BUILTIN_NAMES)
-            .chain(TYPE_NAMES)
+            .chain(RESERVED_KEYWORDS)
+            .chain(RESERVED_TYPE_NAMES)
+            .chain(MACRO_NAMES)
+            .chain(MACRO_IDENTS)
             .filter(|kw| kw.starts_with(word))
             .map(|kw| (*kw).to_owned())
             .collect();
@@ -95,9 +96,39 @@ impl Validator for MaatHelper {
     fn validate(&self, ctx: &mut ValidationContext<'_>) -> rustyline::Result<ValidationResult> {
         let input = ctx.input();
         let mut depth: i32 = 0;
+        let mut chars = input.chars().peekable();
 
-        for ch in input.chars() {
+        while let Some(ch) = chars.next() {
             match ch {
+                // Skip string contents so brackets inside strings don't
+                // affect depth.
+                '"' => {
+                    let mut escaped = false;
+                    for sc in chars.by_ref() {
+                        if escaped {
+                            escaped = false;
+                        } else if sc == '\\' {
+                            escaped = true;
+                        } else if sc == '"' {
+                            break;
+                        }
+                    }
+                }
+                // Skip char literal contents ('a', '\n', etc.).
+                '\'' if matches!(chars.peek(), Some(c) if *c != '\'') => {
+                    let mut escaped = false;
+                    for sc in chars.by_ref() {
+                        if escaped {
+                            escaped = false;
+                        } else if sc == '\\' {
+                            escaped = true;
+                        } else if sc == '\'' {
+                            break;
+                        }
+                    }
+                }
+                // Skip line comments.
+                '/' if matches!(chars.peek(), Some('/')) => break,
                 '{' | '(' | '[' => depth += 1,
                 '}' | ')' | ']' => depth -= 1,
                 _ => {}
@@ -116,6 +147,19 @@ impl Hinter for MaatHelper {
     type Hint = String;
 }
 
+/// Returns `true` if `word` is a Maat keyword (lexer keyword, reserved
+/// future keyword, or macro-system identifier).
+fn is_keyword(word: &str) -> bool {
+    KEYWORDS.binary_search(&word).is_ok()
+        || RESERVED_KEYWORDS.binary_search(&word).is_ok()
+        || MACRO_IDENTS.contains(&word)
+}
+
+/// Returns `true` if `word` is a builtin type name.
+fn is_type_name(word: &str) -> bool {
+    RESERVED_TYPE_NAMES.binary_search(&word).is_ok()
+}
+
 impl Highlighter for MaatHelper {
     fn highlight<'l>(&self, line: &'l str, _pos: usize) -> Cow<'l, str> {
         let mut result = String::new();
@@ -126,7 +170,7 @@ impl Highlighter for MaatHelper {
                 let start = i;
                 let mut end = i + ch.len_utf8();
                 while let Some(&(_, next)) = chars.peek() {
-                    if next.is_alphanumeric() || next == '_' {
+                    if next.is_alphanumeric() || next == '_' || next == '!' {
                         end += next.len_utf8();
                         chars.next();
                     } else {
@@ -134,8 +178,12 @@ impl Highlighter for MaatHelper {
                     }
                 }
                 let word = &line[start..end];
-                if KEYWORDS.contains(&word) {
+                if is_keyword(word) || MACRO_NAMES.contains(&word) {
                     result.push_str(BOLD_CYAN);
+                    result.push_str(word);
+                    result.push_str(ANSI_RESET);
+                } else if is_type_name(word) {
+                    result.push_str(YELLOW);
                     result.push_str(word);
                     result.push_str(ANSI_RESET);
                 } else {
@@ -158,6 +206,41 @@ impl Highlighter for MaatHelper {
                 result.push_str(GREEN);
                 result.push_str(&line[start..end]);
                 result.push_str(ANSI_RESET);
+            } else if ch == '\'' {
+                let start = i;
+                let rest = &line[i + 1..];
+                let is_label = rest.starts_with(|c: char| c.is_alphabetic() || c == '_')
+                    && !rest.contains('\'');
+                if is_label {
+                    let mut end = i + 1;
+                    while let Some(&(j, next)) = chars.peek() {
+                        if next.is_alphanumeric() || next == '_' {
+                            end = j + next.len_utf8();
+                            chars.next();
+                        } else {
+                            break;
+                        }
+                    }
+                    result.push_str(BOLD_CYAN);
+                    result.push_str(&line[start..end]);
+                    result.push_str(ANSI_RESET);
+                } else {
+                    let mut end = i + 1;
+                    let mut escaped = false;
+                    for (j, sc) in &mut chars {
+                        end = j + sc.len_utf8();
+                        if escaped {
+                            escaped = false;
+                        } else if sc == '\\' {
+                            escaped = true;
+                        } else if sc == '\'' {
+                            break;
+                        }
+                    }
+                    result.push_str(GREEN);
+                    result.push_str(&line[start..end]);
+                    result.push_str(ANSI_RESET);
+                }
             } else if ch.is_ascii_digit() {
                 let start = i;
                 let mut end = i + 1;
@@ -228,6 +311,7 @@ pub fn start_interactive() {
     let mut constants: Vec<Value> = Vec::new();
     let mut globals: Vec<Value> = Vec::new();
     let macro_env = Env::default();
+    let mut type_checker = TypeChecker::new();
 
     loop {
         let input = match editor.readline(PROMPT) {
@@ -265,7 +349,8 @@ pub fn start_interactive() {
             _ => unreachable!("expand_macros preserves Program variant"),
         };
 
-        let type_errors = TypeChecker::new().check_program(&mut program);
+        type_checker.check_program_mut(&mut program);
+        let type_errors = type_checker.drain_errors();
         if !type_errors.is_empty() {
             for err in &type_errors {
                 diagnostic::report_type_error(REPL_SOURCE, line, err);
@@ -355,6 +440,7 @@ mod tests {
         let mut constants: Vec<Value> = Vec::new();
         let mut globals: Vec<Value> = Vec::new();
         let macro_env = Env::default();
+        let mut type_checker = TypeChecker::new();
 
         loop {
             write!(writer, "{PROMPT}")?;
@@ -382,7 +468,8 @@ mod tests {
                 Node::Program(p) => p,
                 _ => unreachable!("expand_macros preserves Program variant"),
             };
-            let type_errors = TypeChecker::new().check_program(&mut program);
+            type_checker.check_program_mut(&mut program);
+            let type_errors = type_checker.drain_errors();
             if !type_errors.is_empty() {
                 for err in &type_errors {
                     diagnostic::report_type_error(REPL_SOURCE, line, err);
@@ -455,141 +542,153 @@ mod tests {
             .collect()
     }
 
+    /// Runs a REPL session and returns the non-empty lines printed after
+    /// each `>> ` prompt.
+    fn repl(input: &[u8]) -> Vec<String> {
+        let mut output = Vec::new();
+        start(input, &mut output).expect("REPL failed");
+        let raw = String::from_utf8(output).expect("Invalid UTF-8");
+        extract_output(&raw)
+    }
+
     #[test]
     fn eval_integer_expression() {
-        let input = b"5 + 10;\n";
-        let mut output = Vec::new();
-        start(&input[..], &mut output).expect("REPL failed");
-
-        let result = String::from_utf8(output).expect("Invalid UTF-8");
-        let outputs = extract_output(&result);
-        assert_eq!(outputs.len(), 1);
-        assert_eq!(outputs[0], "15");
-    }
-
-    #[test]
-    fn eval_let_statement() {
-        let input = b"let x = 5;\n";
-        let mut output = Vec::new();
-        start(&input[..], &mut output).expect("REPL failed");
-
-        let result = String::from_utf8(output).expect("Invalid UTF-8");
-        let outputs = extract_output(&result);
-        assert_eq!(outputs.len(), 0);
-    }
-
-    #[test]
-    fn eval_multiple_statements() {
-        let input = b"let x = 5;\nlet y = 10;\nx + y;\n";
-        let mut output = Vec::new();
-        start(&input[..], &mut output).expect("REPL failed");
-
-        let result = String::from_utf8(output).expect("Invalid UTF-8");
-        let outputs = extract_output(&result);
-        assert_eq!(outputs, vec!["15"]);
+        assert_eq!(repl(b"5 + 10;\n"), vec!["15"]);
     }
 
     #[test]
     fn eval_boolean_expression() {
-        let input = b"1 < 2;\ntrue == false;\n";
-        let mut output = Vec::new();
-        start(&input[..], &mut output).expect("REPL failed");
-
-        let result = String::from_utf8(output).expect("Invalid UTF-8");
-        let outputs = extract_output(&result);
-        assert_eq!(outputs, vec!["true", "false"]);
+        assert_eq!(repl(b"1 < 2;\ntrue == false;\n"), vec!["true", "false"]);
     }
 
     #[test]
-    fn eval_function_application() {
-        let input = b"let add = fn(x, y) { x + y; }; add(2, 3);\n";
-        let mut output = Vec::new();
-        start(&input[..], &mut output).expect("REPL failed");
-
-        let result = String::from_utf8(output).expect("Invalid UTF-8");
-        let outputs = extract_output(&result);
-        assert_eq!(outputs.len(), 1);
-        assert_eq!(outputs[0], "5");
+    fn eval_let_statement() {
+        assert!(repl(b"let x = 5;\n").is_empty());
     }
 
     #[test]
-    fn eval_closure() {
-        let input =
-            b"let newAdder = fn(x) { fn(y) { x + y } }; let addTwo = newAdder(2); addTwo(3);\n";
-        let mut output = Vec::new();
-        start(&input[..], &mut output).expect("REPL failed");
-
-        let result = String::from_utf8(output).expect("Invalid UTF-8");
-        let outputs = extract_output(&result);
-        assert_eq!(outputs.len(), 1);
-        assert_eq!(outputs[0], "5");
+    fn eval_multiple_statements() {
+        assert_eq!(repl(b"let x = 5;\nlet y = 10;\nx + y;\n"), vec!["15"]);
     }
 
     #[test]
     fn eval_empty_input() {
-        let input = b"\n";
-        let mut output = Vec::new();
-        start(&input[..], &mut output).expect("REPL failed");
-
-        let result = String::from_utf8(output).expect("Invalid UTF-8");
-        let outputs = extract_output(&result);
-        assert_eq!(outputs.len(), 0);
+        assert!(repl(b"\n").is_empty());
     }
 
     #[test]
     fn handle_eof() {
-        let input = b"";
         let mut output = Vec::new();
-        start(&input[..], &mut output).expect("REPL failed");
-
-        let result = String::from_utf8(output).expect("Invalid UTF-8");
-        assert!(result.starts_with(PROMPT));
-        assert_eq!(extract_output(&result).len(), 0);
+        start(&b""[..], &mut output).expect("REPL failed");
+        let raw = String::from_utf8(output).expect("Invalid UTF-8");
+        assert!(raw.starts_with(PROMPT));
+        assert!(extract_output(&raw).is_empty());
     }
 
     #[test]
-    fn report_parse_errors() {
-        let input = b"let x = ;\n";
-        let mut output = Vec::new();
-        start(&input[..], &mut output).expect("REPL failed");
-
-        // Parse errors now go to stderr via ariadne, so stdout output is empty
-        let result = String::from_utf8(output).expect("Invalid UTF-8");
-        let outputs = extract_output(&result);
-        assert_eq!(outputs.len(), 0);
+    fn eval_function_application() {
+        assert_eq!(
+            repl(b"let add = fn(x, y) { x + y; }; add(2, 3);\n"),
+            vec!["5"],
+        );
     }
 
     #[test]
-    fn report_vm_errors() {
-        let input = b"5 + true;\n";
-        let mut output = Vec::new();
-        start(&input[..], &mut output).expect("REPL failed");
-
-        // VM errors now go to stderr via ariadne, so stdout output is empty
-        let result = String::from_utf8(output).expect("Invalid UTF-8");
-        let outputs = extract_output(&result);
-        assert_eq!(outputs.len(), 0);
+    fn eval_closure() {
+        assert_eq!(
+            repl(
+                b"let newAdder = fn(x) { fn(y) { x + y } }; let addTwo = newAdder(2); addTwo(3);\n"
+            ),
+            vec!["5"],
+        );
     }
 
     #[test]
-    fn eval_macro_expansion() {
-        let input = b"let double = macro(x) { quote(unquote(x) * 2) };\ndouble(21);\n";
-        let mut output = Vec::new();
-        start(&input[..], &mut output).expect("REPL failed");
-
-        let result = String::from_utf8(output).expect("Invalid UTF-8");
-        let outputs = extract_output(&result);
-        assert_eq!(outputs, vec!["42"]);
+    fn eval_recursive_fibonacci() {
+        let input = b"let fibonacci = fn(x) { if x == 0 { 0 } else if x == 1 { return 1; } else { fibonacci(x - 1) + fibonacci(x - 2) } };\nfibonacci(15);\n";
+        assert_eq!(repl(input), vec!["610"]);
     }
 
     #[test]
     fn globals_persist_across_iterations() {
-        let input = b"let x = 42;\nx * 2;\n";
-        let mut output = Vec::new();
-        start(&input[..], &mut output).expect("REPL failed");
+        assert_eq!(repl(b"let x = 42;\nx * 2;\n"), vec!["84"]);
+    }
 
-        let result = String::from_utf8(output).expect("Invalid UTF-8");
-        let outputs = extract_output(&result);
-        assert_eq!(outputs, vec!["84"]);
+    #[test]
+    fn report_parse_errors() {
+        // Parse errors go to stderr via ariadne, so stdout output is empty.
+        assert!(repl(b"let x = ;\n").is_empty());
+    }
+
+    #[test]
+    fn report_type_errors() {
+        // `5 + true` is caught by the type checker.
+        assert!(repl(b"5 + true;\n").is_empty());
+    }
+
+    #[test]
+    fn eval_macro_double() {
+        assert_eq!(
+            repl(b"let double = macro(x) { quote(unquote(x) * 2) };\ndouble(21);\n"),
+            vec!["42"],
+        );
+    }
+
+    #[test]
+    fn eval_macro_unless() {
+        let input = b"let unless = macro(cond, cons, alt) { quote(if !(unquote(cond)) { unquote(cons); } else { unquote(alt); }) };\nunless(10 > 5, \"not greater\", \"greater\");\n";
+        assert_eq!(repl(input), vec!["greater"]);
+    }
+
+    #[test]
+    fn eval_char_literal() {
+        assert_eq!(repl(b"'a';\n"), vec!["a"]);
+    }
+
+    #[test]
+    fn eval_char_method() {
+        assert_eq!(repl(b"'z'.is_alphabetic();\n"), vec!["true"]);
+    }
+
+    #[test]
+    fn eval_tuple() {
+        assert_eq!(repl(b"(1, true, \"hello\");\n"), vec!["(1, true, hello)"]);
+    }
+
+    #[test]
+    fn eval_tuple_field_access() {
+        assert_eq!(repl(b"let t = (10, 20, 30);\nt.1;\n"), vec!["20"]);
+    }
+
+    #[test]
+    fn eval_vector_higher_order() {
+        assert_eq!(
+            repl(b"[1, 2, 3, 4].filter(fn(x: i64) -> bool { x % 2 == 0 }).map(fn(x: i64) -> i64 { x * 10 });\n"),
+            vec!["[20, 40]"],
+        );
+    }
+
+    #[test]
+    fn eval_map_literal() {
+        assert_eq!(
+            repl(b"{\"a\": 1, \"b\": 2}.contains_key(\"a\");\n"),
+            vec!["true"],
+        );
+    }
+
+    #[test]
+    fn eval_map_method_across_iterations() {
+        assert_eq!(
+            repl(b"let m = {\"x\": 10, \"y\": 20};\nm.len();\n"),
+            vec!["2"],
+        );
+    }
+
+    #[test]
+    fn eval_if_without_parens() {
+        assert_eq!(
+            repl(b"if 1 < 2 { \"yes\" } else { \"no\" };\n"),
+            vec!["yes"],
+        );
     }
 }

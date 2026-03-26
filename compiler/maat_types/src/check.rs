@@ -89,6 +89,15 @@ impl TypeChecker {
         &self.errors
     }
 
+    /// Drains and returns all accumulated type errors, leaving the
+    /// error buffer empty for the next check cycle.
+    ///
+    /// This is used by the REPL to persist a single `TypeChecker` across
+    /// iterations while collecting errors per-iteration.
+    pub fn drain_errors(&mut self) -> Vec<TypeError> {
+        std::mem::take(&mut self.errors)
+    }
+
     fn register_struct(&mut self, decl: &StructDecl) {
         if self.env.lookup_struct(&decl.name).is_some() {
             self.errors

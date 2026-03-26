@@ -25,7 +25,7 @@
 /// Implements Pratt-style operator precedence.
 mod prec;
 /// Reserved identifiers and type names.
-mod reserved;
+pub mod reserved;
 
 use std::cell::Cell;
 

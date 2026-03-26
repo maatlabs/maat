@@ -2,6 +2,17 @@
 
 use maat_span::Span;
 
+/// Language keywords recognized by the lexer.
+///
+/// This is the canonical list of keywords that the lexer produces as
+/// dedicated [`TokenKind`] variants (rather than [`TokenKind::Ident`]).
+/// Sorted lexicographically for binary search in completion engines.
+pub const KEYWORDS: &[&str] = &[
+    "Self", "as", "break", "continue", "else", "enum", "false", "fn", "for", "if", "impl", "in",
+    "let", "loop", "macro", "match", "mod", "mut", "pub", "return", "self", "struct", "trait",
+    "true", "use", "where", "while",
+];
+
 /// A lexical token in Maat.
 ///
 /// Tokens represent the smallest meaningful units of source code, such as
