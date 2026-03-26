@@ -173,7 +173,7 @@ impl TypeEnv {
             ("usize::default", Type::Usize),
             ("isize::default", Type::Isize),
             ("bool::default", Type::Bool),
-            ("str::default", Type::String),
+            ("str::default", Type::Str),
         ];
         for &(name, ref ret) in defaults {
             self.define_scheme(
@@ -278,8 +278,8 @@ impl TypeEnv {
             (
                 "Vector::join",
                 Type::Function(FnType {
-                    params: vec![Type::String],
-                    ret: Box::new(Type::String),
+                    params: vec![Type::Str],
+                    ret: Box::new(Type::Str),
                 }),
             ),
         ];
@@ -381,35 +381,35 @@ impl TypeEnv {
                 "str::trim",
                 Type::Function(FnType {
                     params: vec![],
-                    ret: Box::new(Type::String),
+                    ret: Box::new(Type::Str),
                 }),
             ),
             (
                 "str::contains",
                 Type::Function(FnType {
-                    params: vec![Type::String],
+                    params: vec![Type::Str],
                     ret: Box::new(Type::Bool),
                 }),
             ),
             (
                 "str::starts_with",
                 Type::Function(FnType {
-                    params: vec![Type::String],
+                    params: vec![Type::Str],
                     ret: Box::new(Type::Bool),
                 }),
             ),
             (
                 "str::ends_with",
                 Type::Function(FnType {
-                    params: vec![Type::String],
+                    params: vec![Type::Str],
                     ret: Box::new(Type::Bool),
                 }),
             ),
             (
                 "str::split",
                 Type::Function(FnType {
-                    params: vec![Type::String],
-                    ret: Box::new(Type::Vector(Box::new(Type::String))),
+                    params: vec![Type::Str],
+                    ret: Box::new(Type::Vector(Box::new(Type::Str))),
                 }),
             ),
         ];
@@ -447,7 +447,7 @@ impl TypeEnv {
                 name.to_string(),
                 BuiltinMethodScheme {
                     forall: vec![],
-                    self_type: Type::String,
+                    self_type: Type::Str,
                     fn_type,
                 },
             );
@@ -472,7 +472,7 @@ impl TypeEnv {
                 "char::to_string",
                 Type::Function(FnType {
                     params: vec![],
-                    ret: Box::new(Type::String),
+                    ret: Box::new(Type::Str),
                 }),
             ),
         ];
@@ -949,7 +949,7 @@ impl TypeEnv {
         let prefix = match receiver {
             Type::Vector(_) => "Vector",
             Type::Char => "char",
-            Type::String => "str",
+            Type::Str => "str",
             Type::Map(..) => "Map",
             Type::Set(_) => "Set",
             Type::Enum(name, _) if &**name == "Option" => "Option",
@@ -1268,7 +1268,7 @@ mod tests {
         env.register_builtins();
         let subst = Substitution::new();
         let i64_vector = Type::Vector(Box::new(Type::I64));
-        let str_vector = Type::Vector(Box::new(Type::String));
+        let str_vector = Type::Vector(Box::new(Type::Str));
 
         // Two separate instantiations should produce independent type variables.
         let (self1, fn1) = env

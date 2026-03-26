@@ -174,28 +174,28 @@ impl Value {
         matches!(self, Self::Integer(_))
     }
 
-    /// Returns a string representation of the value's type.
+    /// Returns the Maat type name for use in user-facing diagnostics.
     pub fn type_name(&self) -> &'static str {
         match self {
             Self::Unit => "()",
             Self::Integer(n) => n.type_name(),
-            Self::Bool(_) => "Bool",
-            Self::Char(_) => "Char",
-            Self::Str(_) => "Str",
-            Self::Tuple(_) => "Tuple",
+            Self::Bool(_) => "bool",
+            Self::Char(_) => "char",
+            Self::Str(_) => "str",
+            Self::Tuple(_) => "tuple",
             Self::Vector(_) => "Vector",
             Self::Map(_) => "Map",
-            Self::Function(_) => "Function",
-            Self::Macro(_) => "Macro",
-            Self::Quote(_) => "Quote",
-            Self::ReturnValue(_) => "ReturnValue",
-            Self::Break(_) => "Break",
-            Self::Continue => "Continue",
-            Self::Builtin(_) => "Builtin",
-            Self::CompiledFn(_) => "CompiledFn",
-            Self::Closure(_) => "Closure",
-            Self::Struct(_) => "Struct",
-            Self::EnumVariant(_) => "EnumVariant",
+            Self::Function(_) => "fn",
+            Self::Macro(_) => "macro",
+            Self::Quote(_) => "quote",
+            Self::ReturnValue(_) => "return",
+            Self::Break(_) => "break",
+            Self::Continue => "continue",
+            Self::Builtin(_) => "fn",
+            Self::CompiledFn(_) => "fn",
+            Self::Closure(_) => "fn",
+            Self::Struct(_) => "struct",
+            Self::EnumVariant(_) => "enum",
             Self::Set(_) => "Set",
             Self::Range(..) => "Range",
             Self::RangeInclusive(..) => "RangeInclusive",
@@ -462,35 +462,39 @@ impl TryFrom<Value> for Hashable {
     }
 }
 
+/// Writes a comma-separated list of displayable items to the formatter.
+fn write_comma_separated<I, T>(f: &mut fmt::Formatter<'_>, iter: I) -> fmt::Result
+where
+    I: IntoIterator<Item = T>,
+    T: fmt::Display,
+{
+    let mut iter = iter.into_iter();
+    if let Some(first) = iter.next() {
+        write!(f, "{first}")?;
+        for item in iter {
+            write!(f, ", {item}")?;
+        }
+    }
+    Ok(())
+}
+
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Unit => write!(f, "()"),
+            Self::Unit => f.write_str("()"),
             Self::Integer(v) => v.fmt(f),
             Self::Bool(v) => v.fmt(f),
             Self::Char(v) => v.fmt(f),
             Self::Str(v) => v.fmt(f),
             Self::Tuple(elems) => {
-                write!(
-                    f,
-                    "({})",
-                    elems
-                        .iter()
-                        .map(|e| format!("{e}"))
-                        .collect::<Vec<String>>()
-                        .join(", ")
-                )
+                f.write_str("(")?;
+                write_comma_separated(f, elems)?;
+                f.write_str(")")
             }
             Self::Vector(vector) => {
-                write!(
-                    f,
-                    "[{}]",
-                    vector
-                        .iter()
-                        .map(|e| format!("{e}"))
-                        .collect::<Vec<String>>()
-                        .join(", ")
-                )
+                f.write_str("[")?;
+                write_comma_separated(f, vector)?;
+                f.write_str("]")
             }
             Self::Map(v) => v.fmt(f),
             Self::Function(v) => v.fmt(f),
@@ -498,37 +502,25 @@ impl fmt::Display for Value {
             Self::Quote(v) => v.fmt(f),
             Self::ReturnValue(v) => v.fmt(f),
             Self::Break(v) => write!(f, "break {v}"),
-            Self::Continue => write!(f, "continue"),
-            Self::Builtin(_) => write!(f, "builtin function"),
+            Self::Continue => f.write_str("continue"),
+            Self::Builtin(_) => f.write_str("builtin function"),
             Self::CompiledFn(v) => write!(f, "CompiledFn[{v:p}]"),
             Self::Closure(v) => write!(f, "Closure[{:p}]", &v.func),
             Self::Struct(s) => {
                 write!(f, "Struct({}", s.type_index)?;
                 if !s.fields.is_empty() {
-                    write!(
-                        f,
-                        " {{ {} }}",
-                        s.fields
-                            .iter()
-                            .map(|v| format!("{v}"))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    )?;
+                    f.write_str(" { ")?;
+                    write_comma_separated(f, &s.fields)?;
+                    f.write_str(" }")?;
                 }
-                write!(f, ")")
+                f.write_str(")")
             }
             Self::EnumVariant(v) => {
                 write!(f, "EnumVariant({}::{})", v.type_index, v.tag)?;
                 if !v.fields.is_empty() {
-                    write!(
-                        f,
-                        "({})",
-                        v.fields
-                            .iter()
-                            .map(|e| format!("{e}"))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    )?;
+                    f.write_str("(")?;
+                    write_comma_separated(f, &v.fields)?;
+                    f.write_str(")")?;
                 }
                 Ok(())
             }
@@ -541,13 +533,17 @@ impl fmt::Display for Value {
 
 impl fmt::Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "fn({}) {{\n{}\n}}", self.params.join(", "), self.body)
+        f.write_str("fn(")?;
+        write_comma_separated(f, &self.params)?;
+        write!(f, ") {{\n{}\n}}", self.body)
     }
 }
 
 impl fmt::Display for Macro {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "macro({}) {{\n{}\n}}", self.params.join(", "), self.body)
+        f.write_str("macro(")?;
+        write_comma_separated(f, &self.params)?;
+        write!(f, ") {{\n{}\n}}", self.body)
     }
 }
 
@@ -559,29 +555,23 @@ impl fmt::Display for Quote {
 
 impl fmt::Display for Map {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{{{}}}",
-            self.pairs
-                .iter()
-                .map(|(key, value)| format!("{key}: {value}"))
-                .collect::<Vec<String>>()
-                .join(", ")
-        )
+        f.write_str("{")?;
+        let mut iter = self.pairs.iter();
+        if let Some((k, v)) = iter.next() {
+            write!(f, "{k}: {v}")?;
+            for (k, v) in iter {
+                write!(f, ", {k}: {v}")?;
+            }
+        }
+        f.write_str("}")
     }
 }
 
 impl fmt::Display for Set {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Set({{{}}})",
-            self.0
-                .iter()
-                .map(|elem| format!("{elem}"))
-                .collect::<Vec<String>>()
-                .join(", ")
-        )
+        f.write_str("Set({")?;
+        write_comma_separated(f, &self.0)?;
+        f.write_str("})")
     }
 }
 

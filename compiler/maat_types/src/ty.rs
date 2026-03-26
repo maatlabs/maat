@@ -29,7 +29,7 @@ pub enum Type {
     Usize,
     Bool,
     Char,
-    String,
+    Str,
     /// The unit type `()`, representing expressions that produce no value.
     Unit,
     Vector(Box<Type>),
@@ -299,7 +299,7 @@ impl fmt::Display for Type {
             Self::Usize => f.write_str("usize"),
             Self::Bool => f.write_str("bool"),
             Self::Char => f.write_str("char"),
-            Self::String => f.write_str("String"),
+            Self::Str => f.write_str("str"),
             Self::Unit => f.write_str("()"),
             Self::Vector(elem) => write!(f, "[{elem}]"),
             Self::Map(k, v) => write!(f, "{{{k}: {v}}}"),
@@ -319,13 +319,14 @@ impl fmt::Display for Type {
                 f.write_str(")")
             }
             Self::Function(fn_ty) => {
-                let params = fn_ty
-                    .params
-                    .iter()
-                    .map(|p| p.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "fn({params}) -> {}", fn_ty.ret)
+                f.write_str("fn(")?;
+                for (i, p) in fn_ty.params.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    write!(f, "{p}")?;
+                }
+                write!(f, ") -> {}", fn_ty.ret)
             }
             Self::Struct(name, args) | Self::Enum(name, args) => {
                 f.write_str(name)?;
@@ -343,11 +344,17 @@ impl fmt::Display for Type {
             }
             Self::Var(id) => write!(f, "?T{id}"),
             Self::Generic(name, bounds) => {
-                if bounds.is_empty() {
-                    f.write_str(name)
-                } else {
-                    write!(f, "{}: {}", name, bounds.join(" + "))
+                f.write_str(name)?;
+                if !bounds.is_empty() {
+                    f.write_str(": ")?;
+                    for (i, bound) in bounds.iter().enumerate() {
+                        if i > 0 {
+                            f.write_str(" + ")?;
+                        }
+                        f.write_str(bound)?;
+                    }
                 }
+                Ok(())
             }
             Self::Never => f.write_str("!"),
         }

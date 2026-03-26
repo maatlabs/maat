@@ -833,7 +833,7 @@ impl TypeExpr {
     }
 }
 
-/// A simple named type reference (e.g., `i64`, `bool`, `String`, `Point`).
+/// A simple named type reference (e.g., `i64`, `bool`, `str`, `Point`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NamedType {
     pub name: String,

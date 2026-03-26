@@ -189,21 +189,21 @@ impl Integer {
         }
     }
 
-    /// Returns the static type name (e.g., "I8").
+    /// Returns the type name (e.g., `"i8"`, `"u64"`).
     pub fn type_name(&self) -> &'static str {
         match self {
-            Integer::I8(_) => "I8",
-            Integer::I16(_) => "I16",
-            Integer::I32(_) => "I32",
-            Integer::I64(_) => "I64",
-            Integer::I128(_) => "I128",
-            Integer::Isize(_) => "Isize",
-            Integer::U8(_) => "U8",
-            Integer::U16(_) => "U16",
-            Integer::U32(_) => "U32",
-            Integer::U64(_) => "U64",
-            Integer::U128(_) => "U128",
-            Integer::Usize(_) => "Usize",
+            Integer::I8(_) => "i8",
+            Integer::I16(_) => "i16",
+            Integer::I32(_) => "i32",
+            Integer::I64(_) => "i64",
+            Integer::I128(_) => "i128",
+            Integer::Isize(_) => "isize",
+            Integer::U8(_) => "u8",
+            Integer::U16(_) => "u16",
+            Integer::U32(_) => "u32",
+            Integer::U64(_) => "u64",
+            Integer::U128(_) => "u128",
+            Integer::Usize(_) => "usize",
         }
     }
 

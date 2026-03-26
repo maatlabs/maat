@@ -260,7 +260,7 @@ fn option_builtin_type() {
 #[test]
 fn result_builtin_type() {
     assert_no_type_errors(
-        "fn handle(r: Result<i64, String>) -> i64 {
+        "fn handle(r: Result<i64, str>) -> i64 {
              match r { Ok(v) => v, Err(e) => 0 }
          }",
     );
@@ -291,7 +291,7 @@ fn result_builtin_type() {
         -1,
     );
     run_str(
-        r#"fn validate(x: i64) -> Result<i64, String> {
+        r#"fn validate(x: i64) -> Result<i64, str> {
              if (x > 0) { Ok(x) } else { Err("negative") }
          }
          let r = validate(-5);

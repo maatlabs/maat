@@ -487,7 +487,7 @@ impl TypeChecker {
             },
             Expr::Bool(_) => Type::Bool,
             Expr::Char(_) => Type::Char,
-            Expr::Str(_) => Type::String,
+            Expr::Str(_) => Type::Str,
             Expr::Ident(ident) => self
                 .env
                 .instantiate(&ident.value, &self.subst)
@@ -1150,7 +1150,7 @@ impl TypeChecker {
             },
             Expr::Bool(_) => Type::Bool,
             Expr::Char(_) => Type::Char,
-            Expr::Str(_) => Type::String,
+            Expr::Str(_) => Type::Str,
             _ => Type::Unit,
         }
     }
@@ -1524,9 +1524,9 @@ impl TypeChecker {
             "<" | ">" | "<=" | ">=" | "==" | "!="
         );
         // String concatenation and comparison
-        if lhs_resolved == Type::String && rhs_resolved == Type::String {
+        if lhs_resolved == Type::Str && rhs_resolved == Type::Str {
             if infix.operator == "+" {
-                return Type::String;
+                return Type::Str;
             }
             if is_comparison {
                 return Type::Bool;
@@ -1667,7 +1667,7 @@ impl TypeChecker {
         match ty {
             Type::Vector(_) => Some("Vector".to_string()),
             Type::Char => Some("char".to_string()),
-            Type::String => Some("str".to_string()),
+            Type::Str => Some("str".to_string()),
             Type::Map(..) => Some("Map".to_string()),
             Type::Set(_) => Some("Set".to_string()),
             Type::Struct(name, _) | Type::Enum(name, _) => Some(name.to_string()),

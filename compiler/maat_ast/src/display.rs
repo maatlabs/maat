@@ -4,6 +4,81 @@ use core::fmt;
 
 use crate::*;
 
+/// Writes a comma-separated list of displayable items to the formatter.
+fn write_comma_separated<I, T>(f: &mut fmt::Formatter<'_>, iter: I) -> fmt::Result
+where
+    I: IntoIterator<Item = T>,
+    T: fmt::Display,
+{
+    let mut iter = iter.into_iter();
+    if let Some(first) = iter.next() {
+        write!(f, "{first}")?;
+        for item in iter {
+            write!(f, ", {item}")?;
+        }
+    }
+    Ok(())
+}
+
+/// Writes items separated by a custom delimiter `sep`.
+fn write_separated_with<I, T>(f: &mut fmt::Formatter<'_>, iter: I, sep: &str) -> fmt::Result
+where
+    I: IntoIterator<Item = T>,
+    T: fmt::Display,
+{
+    let mut iter = iter.into_iter();
+    if let Some(first) = iter.next() {
+        write!(f, "{first}")?;
+        for item in iter {
+            f.write_str(sep)?;
+            write!(f, "{item}")?;
+        }
+    }
+    Ok(())
+}
+
+/// Writes a generic parameter list as `<T, U: Bound>`, or nothing if empty.
+fn write_generic_params(f: &mut fmt::Formatter<'_>, params: &[GenericParam]) -> fmt::Result {
+    if !params.is_empty() {
+        f.write_str("<")?;
+        write_comma_separated(f, params)?;
+        f.write_str(">")?;
+    }
+    Ok(())
+}
+
+/// Writes a typed parameter list to the formatter.
+fn write_params(f: &mut fmt::Formatter<'_>, params: &[TypedParam]) -> fmt::Result {
+    write_comma_separated(f, params)
+}
+
+/// Writes ` -> T` if a return type is present.
+fn write_return_type(f: &mut fmt::Formatter<'_>, ret: &Option<TypeExpr>) -> fmt::Result {
+    if let Some(ty) = ret {
+        write!(f, " -> {ty}")?;
+    }
+    Ok(())
+}
+
+/// Returns `"pub "` if the item is public, empty string otherwise.
+#[inline]
+fn visibility_modifier(vis: bool) -> &'static str {
+    if vis { "pub " } else { "" }
+}
+
+/// Renders documentation comment lines (`///`) above the item.
+///
+/// Each line of the stored doc string is emitted as a separate `///` line,
+/// reconstructing the original source form.
+fn fmt_doc_comment(f: &mut fmt::Formatter<'_>, doc: &Option<String>) -> fmt::Result {
+    if let Some(text) = doc {
+        for line in text.lines() {
+            writeln!(f, "///{line}")?;
+        }
+    }
+    Ok(())
+}
+
 impl fmt::Display for Node {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -26,23 +101,22 @@ impl fmt::Display for Program {
 impl fmt::Display for Stmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Let(s) => s.fmt(f)?,
-            Self::ReAssign(s) => s.fmt(f)?,
-            Self::Return(s) => s.fmt(f)?,
-            Self::Expr(s) => s.fmt(f)?,
-            Self::Block(s) => s.fmt(f)?,
-            Self::FuncDef(s) => s.fmt(f)?,
-            Self::Loop(s) => s.fmt(f)?,
-            Self::While(s) => s.fmt(f)?,
-            Self::For(s) => s.fmt(f)?,
-            Self::StructDecl(s) => s.fmt(f)?,
-            Self::EnumDecl(s) => s.fmt(f)?,
-            Self::TraitDecl(s) => s.fmt(f)?,
-            Self::ImplBlock(s) => s.fmt(f)?,
-            Self::Use(s) => s.fmt(f)?,
-            Self::Mod(s) => s.fmt(f)?,
+            Self::Let(s) => s.fmt(f),
+            Self::ReAssign(s) => s.fmt(f),
+            Self::Return(s) => s.fmt(f),
+            Self::Expr(s) => s.fmt(f),
+            Self::Block(s) => s.fmt(f),
+            Self::FuncDef(s) => s.fmt(f),
+            Self::Loop(s) => s.fmt(f),
+            Self::While(s) => s.fmt(f),
+            Self::For(s) => s.fmt(f),
+            Self::StructDecl(s) => s.fmt(f),
+            Self::EnumDecl(s) => s.fmt(f),
+            Self::TraitDecl(s) => s.fmt(f),
+            Self::ImplBlock(s) => s.fmt(f),
+            Self::Use(s) => s.fmt(f),
+            Self::Mod(s) => s.fmt(f),
         }
-        Ok(())
     }
 }
 
@@ -149,15 +223,9 @@ impl fmt::Display for Expr {
 
 impl fmt::Display for Vector {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "[{}]",
-            self.elements
-                .iter()
-                .map(|arr| format!("{arr}"))
-                .collect::<Vec<String>>()
-                .join(", ")
-        )
+        f.write_str("[")?;
+        write_comma_separated(f, &self.elements)?;
+        f.write_str("]")
     }
 }
 
@@ -169,15 +237,15 @@ impl fmt::Display for IndexExpr {
 
 impl fmt::Display for MapLit {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{{{}}}",
-            self.pairs
-                .iter()
-                .map(|(key, value)| format!("{key}: {value}"))
-                .collect::<Vec<String>>()
-                .join(", ")
-        )
+        f.write_str("{")?;
+        let mut iter = self.pairs.iter();
+        if let Some((k, v)) = iter.next() {
+            write!(f, "{k}: {v}")?;
+            for (k, v) in iter {
+                write!(f, ", {k}: {v}")?;
+            }
+        }
+        f.write_str("}")
     }
 }
 
@@ -206,104 +274,50 @@ impl fmt::Display for CondExpr {
 impl fmt::Display for FuncDef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt_doc_comment(f, &self.doc)?;
-        let params = self
-            .params
-            .iter()
-            .map(|p| p.to_string())
-            .collect::<Vec<_>>()
-            .join(", ");
-
-        let generics = if self.generic_params.is_empty() {
-            String::new()
-        } else {
-            format!(
-                "<{}>",
-                self.generic_params
-                    .iter()
-                    .map(|g| g.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-        };
-
-        let ret = self
-            .return_type
-            .as_ref()
-            .map_or(String::new(), |t| format!(" -> {t}"));
-
         let vis = visibility_modifier(self.is_public);
-        write!(
-            f,
-            "{vis}fn {}{generics}({params}){ret} {}",
-            self.name, self.body
-        )
+        write!(f, "{vis}fn {}", self.name)?;
+        write_generic_params(f, &self.generic_params)?;
+        f.write_str("(")?;
+        write_params(f, &self.params)?;
+        f.write_str(")")?;
+        write_return_type(f, &self.return_type)?;
+        write!(f, " {}", self.body)
     }
 }
 
 impl fmt::Display for Lambda {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let params = self
-            .params
-            .iter()
-            .map(|p| p.to_string())
-            .collect::<Vec<_>>()
-            .join(", ");
-
-        let generics = if self.generic_params.is_empty() {
-            String::new()
-        } else {
-            format!(
-                "<{}>",
-                self.generic_params
-                    .iter()
-                    .map(|g| g.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-        };
-
-        let ret = self
-            .return_type
-            .as_ref()
-            .map_or(String::new(), |t| format!(" -> {t}"));
-
-        write!(f, "fn{generics}({params}){ret} {}", self.body)
+        f.write_str("fn")?;
+        write_generic_params(f, &self.generic_params)?;
+        f.write_str("(")?;
+        write_params(f, &self.params)?;
+        f.write_str(")")?;
+        write_return_type(f, &self.return_type)?;
+        write!(f, " {}", self.body)
     }
 }
 
 impl fmt::Display for MacroLit {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "macro({}) {}", self.params.join(", "), self.body)
+        f.write_str("macro(")?;
+        write_comma_separated(f, &self.params)?;
+        write!(f, ") {}", self.body)
     }
 }
 
 impl fmt::Display for CallExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}({})",
-            self.function,
-            self.arguments
-                .iter()
-                .map(|call| format!("{call}"))
-                .collect::<Vec<String>>()
-                .join(", ")
-        )
+        write!(f, "{}(", self.function)?;
+        write_comma_separated(f, &self.arguments)?;
+        f.write_str(")")
     }
 }
 
 impl fmt::Display for MacroCallExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}!({})",
-            self.name,
-            self.arguments
-                .iter()
-                .map(|arg| format!("{arg}"))
-                .collect::<Vec<String>>()
-                .join(", ")
-        )
+        write!(f, "{}!(", self.name)?;
+        write_comma_separated(f, &self.arguments)?;
+        f.write_str(")")
     }
 }
 
@@ -342,7 +356,7 @@ impl fmt::Display for ForStmt {
 
 impl fmt::Display for BreakExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "break")?;
+        f.write_str("break")?;
         if let Some(label) = &self.label {
             write!(f, " '{label}")?;
         }
@@ -355,7 +369,7 @@ impl fmt::Display for BreakExpr {
 
 impl fmt::Display for ContinueExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "continue")?;
+        f.write_str("continue")?;
         if let Some(label) = &self.label {
             write!(f, " '{label}")?;
         }
@@ -367,8 +381,8 @@ impl fmt::Display for StructDecl {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt_doc_comment(f, &self.doc)?;
         let vis = visibility_modifier(self.is_public);
-        let generics = fmt_generic_params(&self.generic_params);
-        write!(f, "{vis}struct {}{generics}", self.name)?;
+        write!(f, "{vis}struct {}", self.name)?;
+        write_generic_params(f, &self.generic_params)?;
         if self.fields.is_empty() {
             write!(f, " {{}}")
         } else {
@@ -393,8 +407,8 @@ impl fmt::Display for EnumDecl {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt_doc_comment(f, &self.doc)?;
         let vis = visibility_modifier(self.is_public);
-        let generics = fmt_generic_params(&self.generic_params);
-        write!(f, "{vis}enum {}{generics}", self.name)?;
+        write!(f, "{vis}enum {}", self.name)?;
+        write_generic_params(f, &self.generic_params)?;
         if self.variants.is_empty() {
             write!(f, " {{}}")
         } else {
@@ -419,21 +433,14 @@ impl fmt::Display for EnumVariantKind {
         match self {
             Self::Unit => Ok(()),
             Self::Tuple(types) => {
-                let inner = types
-                    .iter()
-                    .map(|t| t.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "({inner})")
+                f.write_str("(")?;
+                write_comma_separated(f, types)?;
+                f.write_str(")")
             }
             Self::Struct(fields) => {
-                write!(f, " {{ ")?;
-                let inner = fields
-                    .iter()
-                    .map(|field| field.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "{inner} }}")
+                f.write_str(" { ")?;
+                write_comma_separated(f, fields)?;
+                f.write_str(" }")
             }
         }
     }
@@ -443,8 +450,8 @@ impl fmt::Display for TraitDecl {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt_doc_comment(f, &self.doc)?;
         let vis = visibility_modifier(self.is_public);
-        let generics = fmt_generic_params(&self.generic_params);
-        write!(f, "{vis}trait {}{generics}", self.name)?;
+        write!(f, "{vis}trait {}", self.name)?;
+        write_generic_params(f, &self.generic_params)?;
         if self.methods.is_empty() {
             write!(f, " {{}}")
         } else {
@@ -460,21 +467,15 @@ impl fmt::Display for TraitDecl {
 impl fmt::Display for TraitMethod {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt_doc_comment(f, &self.doc)?;
-        let generics = fmt_generic_params(&self.generic_params);
-        let params = self
-            .params
-            .iter()
-            .map(|p| p.to_string())
-            .collect::<Vec<_>>()
-            .join(", ");
-        let ret = self
-            .return_type
-            .as_ref()
-            .map_or(String::new(), |t| format!(" -> {t}"));
-        write!(f, "fn {}{generics}({params}){ret}", self.name)?;
+        write!(f, "fn {}", self.name)?;
+        write_generic_params(f, &self.generic_params)?;
+        f.write_str("(")?;
+        write_params(f, &self.params)?;
+        f.write_str(")")?;
+        write_return_type(f, &self.return_type)?;
         match &self.default_body {
             Some(body) => write!(f, " {body}"),
-            None => write!(f, ";"),
+            None => f.write_str(";"),
         }
     }
 }
@@ -482,10 +483,11 @@ impl fmt::Display for TraitMethod {
 impl fmt::Display for ImplBlock {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt_doc_comment(f, &self.doc)?;
-        let generics = fmt_generic_params(&self.generic_params);
+        f.write_str("impl")?;
+        write_generic_params(f, &self.generic_params)?;
         match &self.trait_name {
-            Some(t) => write!(f, "impl{generics} {t} for {}", self.self_type)?,
-            None => write!(f, "impl{generics} {}", self.self_type)?,
+            Some(t) => write!(f, " {t} for {}", self.self_type)?,
+            None => write!(f, " {}", self.self_type)?,
         }
         if self.methods.is_empty() {
             write!(f, " {{}}")
@@ -521,68 +523,46 @@ impl fmt::Display for MatchArm {
 
 impl fmt::Display for TupleExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let inner = self
-            .elements
-            .iter()
-            .map(|e| e.to_string())
-            .collect::<Vec<_>>()
-            .join(", ");
+        f.write_str("(")?;
+        write_comma_separated(f, &self.elements)?;
         if self.elements.len() == 1 {
-            write!(f, "({inner},)")
-        } else {
-            write!(f, "({inner})")
+            f.write_str(",")?;
         }
+        f.write_str(")")
     }
 }
 
 impl fmt::Display for Pattern {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Wildcard(_) => write!(f, "_"),
+            Self::Wildcard(_) => f.write_str("_"),
             Self::Ident { name, mutable, .. } => {
                 if *mutable {
                     write!(f, "mut {name}")
                 } else {
-                    write!(f, "{name}")
+                    f.write_str(name)
                 }
             }
             Self::Literal(expr) => write!(f, "{expr}"),
             Self::TupleStruct { path, fields, .. } => {
-                let inner = fields
-                    .iter()
-                    .map(|p| p.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "{path}({inner})")
+                write!(f, "{path}(")?;
+                write_comma_separated(f, fields)?;
+                f.write_str(")")
             }
             Self::Struct { path, fields, .. } => {
-                let inner = fields
-                    .iter()
-                    .map(|p| p.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "{path} {{ {inner} }}")
+                write!(f, "{path} {{ ")?;
+                write_comma_separated(f, fields)?;
+                f.write_str(" }")
             }
             Self::Tuple(fields, _) => {
-                let inner = fields
-                    .iter()
-                    .map(|p| p.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
+                f.write_str("(")?;
+                write_comma_separated(f, fields)?;
                 if fields.len() == 1 {
-                    write!(f, "({inner},)")
-                } else {
-                    write!(f, "({inner})")
+                    f.write_str(",")?;
                 }
+                f.write_str(")")
             }
-            Self::Or(patterns, _) => {
-                let inner = patterns
-                    .iter()
-                    .map(|p| p.to_string())
-                    .collect::<Vec<_>>()
-                    .join(" | ");
-                write!(f, "{inner}")
-            }
+            Self::Or(patterns, _) => write_separated_with(f, patterns, " | "),
         }
     }
 }
@@ -591,7 +571,7 @@ impl fmt::Display for PatternField {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.pattern {
             Some(pat) => write!(f, "{}: {pat}", self.name),
-            None => write!(f, "{}", self.name),
+            None => f.write_str(&self.name),
         }
     }
 }
@@ -604,34 +584,36 @@ impl fmt::Display for FieldAccessExpr {
 
 impl fmt::Display for MethodCallExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let args = self
-            .arguments
-            .iter()
-            .map(|a| a.to_string())
-            .collect::<Vec<_>>()
-            .join(", ");
-        write!(f, "{}.{}({args})", self.object, self.method)
+        write!(f, "{}.{}(", self.object, self.method)?;
+        write_comma_separated(f, &self.arguments)?;
+        f.write_str(")")
     }
 }
 
 impl fmt::Display for StructLitExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} {{ ", self.name)?;
-        let mut parts = self
-            .fields
-            .iter()
-            .map(|(name, val)| format!("{name}: {val}"))
-            .collect::<Vec<String>>();
-        if let Some(base) = &self.base {
-            parts.push(format!("..{base}"));
+        let mut first = true;
+        for (name, val) in &self.fields {
+            if !first {
+                f.write_str(", ")?;
+            }
+            write!(f, "{name}: {val}")?;
+            first = false;
         }
-        write!(f, "{} }}", parts.join(", "))
+        if let Some(base) = &self.base {
+            if !first {
+                f.write_str(", ")?;
+            }
+            write!(f, "..{base}")?;
+        }
+        f.write_str(" }")
     }
 }
 
 impl fmt::Display for PathExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.segments.join("::"))
+        write_separated_with(f, &self.segments, "::")
     }
 }
 
@@ -645,10 +627,15 @@ impl fmt::Display for RangeExpr {
 impl fmt::Display for UseStmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let vis = visibility_modifier(self.is_public);
-        let path = self.path.join("::");
+        write!(f, "{vis}use ")?;
+        write_separated_with(f, &self.path, "::")?;
         match &self.items {
-            Some(items) => write!(f, "{vis}use {path}::{{{}}};", items.join(", ")),
-            None => write!(f, "{vis}use {path};"),
+            Some(items) => {
+                f.write_str("::{")?;
+                write_comma_separated(f, items)?;
+                f.write_str("};")
+            }
+            None => f.write_str(";"),
         }
     }
 }
@@ -678,32 +665,22 @@ impl fmt::Display for TypeExpr {
             Self::Set(elem, _) => write!(f, "Set<{elem}>"),
             Self::Map(k, v, _) => write!(f, "{{{k}: {v}}}"),
             Self::Fn(params, ret, _) => {
-                let params = params
-                    .iter()
-                    .map(|p| p.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "fn({params}) -> {ret}")
+                f.write_str("fn(")?;
+                write_comma_separated(f, params)?;
+                write!(f, ") -> {ret}")
             }
             Self::Generic(name, args, _) => {
-                let args = args
-                    .iter()
-                    .map(|a| a.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "{name}<{args}>")
+                write!(f, "{name}<")?;
+                write_comma_separated(f, args)?;
+                f.write_str(">")
             }
             Self::Tuple(elems, _) => {
-                let inner = elems
-                    .iter()
-                    .map(|e| e.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
+                f.write_str("(")?;
+                write_comma_separated(f, elems)?;
                 if elems.len() == 1 {
-                    write!(f, "({inner},)")
-                } else {
-                    write!(f, "({inner})")
+                    f.write_str(",")?;
                 }
+                f.write_str(")")
             }
         }
     }
@@ -720,58 +697,17 @@ impl fmt::Display for TypedParam {
 
 impl fmt::Display for GenericParam {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.bounds.is_empty() {
-            f.write_str(&self.name)
-        } else {
-            let bounds = self
-                .bounds
-                .iter()
-                .map(|b| b.name.as_str())
-                .collect::<Vec<_>>()
-                .join(" + ");
-            write!(f, "{}: {bounds}", self.name)
+        f.write_str(&self.name)?;
+        if !self.bounds.is_empty() {
+            f.write_str(": ")?;
+            write_separated_with(f, self.bounds.iter().map(|b| b.name.as_str()), " + ")?;
         }
+        Ok(())
     }
 }
 
 impl fmt::Display for TraitBound {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.name)
-    }
-}
-
-/// Helper to check if an item's `is_public` field is set or not.
-/// If set, returns "pub", else "".
-#[inline]
-fn visibility_modifier(vis: bool) -> &'static str {
-    if vis { "pub " } else { "" }
-}
-
-/// Renders documentation comment lines (`///`) above the item.
-///
-/// Each line of the stored doc string is emitted as a separate `///` line,
-/// reconstructing the original source form.
-fn fmt_doc_comment(f: &mut fmt::Formatter<'_>, doc: &Option<String>) -> fmt::Result {
-    if let Some(text) = doc {
-        for line in text.lines() {
-            writeln!(f, "///{line}")?;
-        }
-    }
-    Ok(())
-}
-
-/// Formats a generic parameter list as `<T, U: Bound>`, or an empty string if empty.
-fn fmt_generic_params(params: &[GenericParam]) -> String {
-    if params.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "<{}>",
-            params
-                .iter()
-                .map(|g| g.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        )
     }
 }
