@@ -816,18 +816,18 @@ fn parse_int<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<Expr> {
     }
 
     let expr = match tok.kind {
-        TokenKind::I8 => parse_int_type!(i8, NumberKind::I8),
-        TokenKind::I16 => parse_int_type!(i16, NumberKind::I16),
-        TokenKind::I32 => parse_int_type!(i32, NumberKind::I32),
-        TokenKind::I64 => parse_int_type!(i64, NumberKind::I64),
-        TokenKind::I128 => parse_int_type!(i128, NumberKind::I128),
-        TokenKind::Isize => parse_int_type!(isize, NumberKind::Isize),
-        TokenKind::U8 => parse_int_type!(u8, NumberKind::U8),
-        TokenKind::U16 => parse_int_type!(u16, NumberKind::U16),
-        TokenKind::U32 => parse_int_type!(u32, NumberKind::U32),
-        TokenKind::U64 => parse_int_type!(u64, NumberKind::U64),
-        TokenKind::U128 => parse_int_type!(u128, NumberKind::U128),
-        TokenKind::Usize => parse_int_type!(usize, NumberKind::Usize),
+        TokenKind::I8 => parse_int_type!(i8, NumKind::I8),
+        TokenKind::I16 => parse_int_type!(i16, NumKind::I16),
+        TokenKind::I32 => parse_int_type!(i32, NumKind::I32),
+        TokenKind::I64 => parse_int_type!(i64, NumKind::I64),
+        TokenKind::I128 => parse_int_type!(i128, NumKind::I128),
+        TokenKind::Isize => parse_int_type!(isize, NumKind::Isize),
+        TokenKind::U8 => parse_int_type!(u8, NumKind::U8),
+        TokenKind::U16 => parse_int_type!(u16, NumKind::U16),
+        TokenKind::U32 => parse_int_type!(u32, NumKind::U32),
+        TokenKind::U64 => parse_int_type!(u64, NumKind::U64),
+        TokenKind::U128 => parse_int_type!(u128, NumKind::U128),
+        TokenKind::Usize => parse_int_type!(usize, NumKind::Usize),
         _ => unreachable!(),
     };
 
@@ -837,7 +837,7 @@ fn parse_int<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<Expr> {
 /// Parses a string literal.
 fn parse_string_literal<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<Expr> {
     let tok: Token<'src> = any.parse_next(input)?;
-    Ok(Expr::Str(Str {
+    Ok(Expr::Str(StrLit {
         value: tok.literal.to_owned(),
         span: tok.span,
     }))
@@ -848,7 +848,7 @@ fn parse_char_literal<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<Expr
     let tok: Token<'src> = any.parse_next(input)?;
     let ch = maat_ast::unescape_char(tok.literal)
         .ok_or_else(|| ErrMode::Backtrack(ContextError::new()))?;
-    Ok(Expr::CharLit(CharLit {
+    Ok(Expr::Char(CharLit {
         value: ch,
         span: tok.span,
     }))
@@ -874,7 +874,7 @@ fn parse_prefix_expression<'src>(
 /// Parses a boolean literal (`true` or `false`).
 fn parse_boolean<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<Expr> {
     let tok: Token<'src> = any.parse_next(input)?;
-    Ok(Expr::Bool(Bool {
+    Ok(Expr::Bool(BoolLit {
         value: tok.kind == TokenKind::True,
         span: tok.span,
     }))
@@ -1006,7 +1006,7 @@ fn parse_macro<'src>(input: &mut &'src [Token<'src>], depth: &Cell<usize>) -> Pa
     let body = parse_block(input, depth)?;
     let end = body.span;
 
-    Ok(Expr::Macro(Macro {
+    Ok(Expr::MacroLit(MacroLit {
         params,
         body,
         span: start.merge(end),
@@ -1043,7 +1043,7 @@ fn parse_map_literal<'src>(
     }
 
     let end = parse(input, TokenKind::RBrace)?.span;
-    Ok(Expr::Map(Map {
+    Ok(Expr::Map(MapLit {
         pairs,
         span: start.merge(end),
     }))
@@ -1138,7 +1138,7 @@ fn parse_match_arm<'src>(
         let block = parse_block(input, depth)?;
         let body_span = block.span;
         Expr::Cond(CondExpr {
-            condition: Box::new(Expr::Bool(Bool {
+            condition: Box::new(Expr::Bool(BoolLit {
                 value: true,
                 span: body_span,
             })),
@@ -1196,7 +1196,7 @@ fn parse_cast_expression<'src>(input: &mut &'src [Token<'src>], lhs: Expr) -> Pa
     let start = lhs.span();
     let type_tok = parse(input, TokenKind::Ident)?;
     let end = type_tok.span;
-    let target: NumberKind = NumberKind::from_suffix(type_tok.literal)
+    let target: NumKind = NumKind::from_suffix(type_tok.literal)
         .ok_or_else(|| ErrMode::Backtrack(ContextError::new()))?;
 
     Ok(Expr::Cast(CastExpr {
@@ -1365,14 +1365,14 @@ fn parse_single_pattern<'src>(
 
         TokenKind::True => {
             let tok: Token<'src> = any.parse_next(input)?;
-            Ok(Pattern::Literal(Box::new(Expr::Bool(Bool {
+            Ok(Pattern::Literal(Box::new(Expr::Bool(BoolLit {
                 value: true,
                 span: tok.span,
             }))))
         }
         TokenKind::False => {
             let tok: Token<'src> = any.parse_next(input)?;
-            Ok(Pattern::Literal(Box::new(Expr::Bool(Bool {
+            Ok(Pattern::Literal(Box::new(Expr::Bool(BoolLit {
                 value: false,
                 span: tok.span,
             }))))

@@ -105,7 +105,7 @@ fn fold_expression(expr: &mut Expr, errors: &mut Vec<TypeError>) {
             }
         }
         Expr::Lambda(e) => fold_block(&mut e.body, errors),
-        Expr::Macro(e) => fold_block(&mut e.body, errors),
+        Expr::MacroLit(e) => fold_block(&mut e.body, errors),
         Expr::Call(e) => {
             fold_expression(&mut e.function, errors);
             for arg in &mut e.arguments {
@@ -178,7 +178,7 @@ fn try_fold_prefix(prefix: &PrefixExpr, errors: &mut Vec<TypeError>) -> Option<E
             _ => None,
         },
         "!" => match prefix.operand.as_ref() {
-            Expr::Bool(b) => Some(Expr::Bool(Bool {
+            Expr::Bool(b) => Some(Expr::Bool(BoolLit {
                 value: !b.value,
                 span,
             })),
@@ -223,11 +223,11 @@ fn try_fold_infix(infix: &InfixExpr, errors: &mut Vec<TypeError>) -> Option<Expr
         }
 
         (Expr::Bool(l), Expr::Bool(r)) => match op {
-            "==" => Some(Expr::Bool(Bool {
+            "==" => Some(Expr::Bool(BoolLit {
                 value: l.value == r.value,
                 span,
             })),
-            "!=" => Some(Expr::Bool(Bool {
+            "!=" => Some(Expr::Bool(BoolLit {
                 value: l.value != r.value,
                 span,
             })),
@@ -253,7 +253,7 @@ fn try_fold_comparison(infix: &InfixExpr) -> Option<Expr> {
                 ">=" => l.value >= r.value,
                 _ => return None,
             };
-            Some(Expr::Bool(Bool { value, span }))
+            Some(Expr::Bool(BoolLit { value, span }))
         }
         _ => None,
     }

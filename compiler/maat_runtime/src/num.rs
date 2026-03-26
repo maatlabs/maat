@@ -6,7 +6,7 @@
 
 use std::fmt;
 
-use maat_ast::NumberKind;
+use maat_ast::NumKind;
 use serde::{Deserialize, Serialize};
 
 /// All supported runtime integer types.
@@ -98,14 +98,14 @@ macro_rules! checked_unary {
 }
 
 impl Integer {
-    pub fn cast_to(self, target: NumberKind) -> Result<Self, String> {
+    pub fn cast_to(self, target: NumKind) -> Result<Self, String> {
         Self::from_wide(self.to_wide(), target)
     }
 
     /// Converts a widened value to a specific target integer type.
     ///
     /// Returns an error if the value is out of range for the target type.
-    pub fn from_wide(wide: WideInt, target: NumberKind) -> Result<Self, String> {
+    pub fn from_wide(wide: WideInt, target: NumKind) -> Result<Self, String> {
         macro_rules! narrow {
             ($ty:ty, $variant:ident, $name:expr) => {
                 match wide {
@@ -120,18 +120,18 @@ impl Integer {
         }
 
         match target {
-            NumberKind::I8 => narrow!(i8, I8, "i8"),
-            NumberKind::I16 => narrow!(i16, I16, "i16"),
-            NumberKind::I32 => narrow!(i32, I32, "i32"),
-            NumberKind::I64 => narrow!(i64, I64, "i64"),
-            NumberKind::I128 => narrow!(i128, I128, "i128"),
-            NumberKind::Isize => narrow!(isize, Isize, "isize"),
-            NumberKind::U8 => narrow!(u8, U8, "u8"),
-            NumberKind::U16 => narrow!(u16, U16, "u16"),
-            NumberKind::U32 => narrow!(u32, U32, "u32"),
-            NumberKind::U64 => narrow!(u64, U64, "u64"),
-            NumberKind::U128 => narrow!(u128, U128, "u128"),
-            NumberKind::Usize => narrow!(usize, Usize, "usize"),
+            NumKind::I8 => narrow!(i8, I8, "i8"),
+            NumKind::I16 => narrow!(i16, I16, "i16"),
+            NumKind::I32 => narrow!(i32, I32, "i32"),
+            NumKind::I64 => narrow!(i64, I64, "i64"),
+            NumKind::I128 => narrow!(i128, I128, "i128"),
+            NumKind::Isize => narrow!(isize, Isize, "isize"),
+            NumKind::U8 => narrow!(u8, U8, "u8"),
+            NumKind::U16 => narrow!(u16, U16, "u16"),
+            NumKind::U32 => narrow!(u32, U32, "u32"),
+            NumKind::U64 => narrow!(u64, U64, "u64"),
+            NumKind::U128 => narrow!(u128, U128, "u128"),
+            NumKind::Usize => narrow!(usize, Usize, "usize"),
         }
     }
 
@@ -207,22 +207,22 @@ impl Integer {
         }
     }
 
-    /// Converts to an AST `NumberKind` + `i128` for splicing into quoted code.
+    /// Converts to an AST `NumKind` + `i128` for splicing into quoted code.
     /// Returns `None` if the value is a `U128` that does not fit in `i128`.
-    pub fn to_ast_literal(&self) -> Option<(NumberKind, i128)> {
+    pub fn to_ast_literal(&self) -> Option<(NumKind, i128)> {
         match *self {
-            Integer::I8(v) => Some((NumberKind::I8, v as i128)),
-            Integer::I16(v) => Some((NumberKind::I16, v as i128)),
-            Integer::I32(v) => Some((NumberKind::I32, v as i128)),
-            Integer::I64(v) => Some((NumberKind::I64, v as i128)),
-            Integer::I128(v) => Some((NumberKind::I128, v)),
-            Integer::Isize(v) => Some((NumberKind::Isize, v as i128)),
-            Integer::U8(v) => Some((NumberKind::U8, v as i128)),
-            Integer::U16(v) => Some((NumberKind::U16, v as i128)),
-            Integer::U32(v) => Some((NumberKind::U32, v as i128)),
-            Integer::U64(v) => Some((NumberKind::U64, v as i128)),
-            Integer::U128(v) => i128::try_from(v).ok().map(|v| (NumberKind::U128, v)),
-            Integer::Usize(v) => Some((NumberKind::Usize, v as i128)),
+            Integer::I8(v) => Some((NumKind::I8, v as i128)),
+            Integer::I16(v) => Some((NumKind::I16, v as i128)),
+            Integer::I32(v) => Some((NumKind::I32, v as i128)),
+            Integer::I64(v) => Some((NumKind::I64, v as i128)),
+            Integer::I128(v) => Some((NumKind::I128, v)),
+            Integer::Isize(v) => Some((NumKind::Isize, v as i128)),
+            Integer::U8(v) => Some((NumKind::U8, v as i128)),
+            Integer::U16(v) => Some((NumKind::U16, v as i128)),
+            Integer::U32(v) => Some((NumKind::U32, v as i128)),
+            Integer::U64(v) => Some((NumKind::U64, v as i128)),
+            Integer::U128(v) => i128::try_from(v).ok().map(|v| (NumKind::U128, v)),
+            Integer::Usize(v) => Some((NumKind::Usize, v as i128)),
         }
     }
 

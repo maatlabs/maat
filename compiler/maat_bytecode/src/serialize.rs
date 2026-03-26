@@ -116,7 +116,7 @@ impl Bytecode {
 mod tests {
     use std::rc::Rc;
 
-    use maat_runtime::{Closure, CompiledFn, Hashable, Integer, MapVal, Value};
+    use maat_runtime::{Closure, CompiledFn, Hashable, Integer, Map, Value};
     use maat_span::{SourceMap, Span};
 
     use super::*;
@@ -210,7 +210,7 @@ mod tests {
 
         let bc = Bytecode {
             instructions: Instructions::new(),
-            constants: vec![Value::Map(MapVal { pairs })],
+            constants: vec![Value::Map(Map { pairs })],
             source_map: SourceMap::new(),
             type_registry: vec![],
         };

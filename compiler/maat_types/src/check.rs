@@ -472,21 +472,21 @@ impl TypeChecker {
     fn infer_expression(&mut self, expr: &mut Expr) -> Type {
         match expr {
             Expr::Number(lit) => match lit.kind {
-                NumberKind::I8 => Type::I8,
-                NumberKind::I16 => Type::I16,
-                NumberKind::I32 => Type::I32,
-                NumberKind::I64 => Type::I64,
-                NumberKind::I128 => Type::I128,
-                NumberKind::Isize => Type::Isize,
-                NumberKind::U8 => Type::U8,
-                NumberKind::U16 => Type::U16,
-                NumberKind::U32 => Type::U32,
-                NumberKind::U64 => Type::U64,
-                NumberKind::U128 => Type::U128,
-                NumberKind::Usize => Type::Usize,
+                NumKind::I8 => Type::I8,
+                NumKind::I16 => Type::I16,
+                NumKind::I32 => Type::I32,
+                NumKind::I64 => Type::I64,
+                NumKind::I128 => Type::I128,
+                NumKind::Isize => Type::Isize,
+                NumKind::U8 => Type::U8,
+                NumKind::U16 => Type::U16,
+                NumKind::U32 => Type::U32,
+                NumKind::U64 => Type::U64,
+                NumKind::U128 => Type::U128,
+                NumKind::Usize => Type::Usize,
             },
             Expr::Bool(_) => Type::Bool,
-            Expr::CharLit(_) => Type::Char,
+            Expr::Char(_) => Type::Char,
             Expr::Str(_) => Type::String,
             Expr::Ident(ident) => self
                 .env
@@ -519,7 +519,7 @@ impl TypeChecker {
                 Type::Never
             }
             Expr::Continue(_) => Type::Never,
-            Expr::Macro(_) => self.env.fresh_var(),
+            Expr::MacroLit(_) => self.env.fresh_var(),
             Expr::Tuple(tuple) => {
                 let elem_types = tuple
                     .elements
@@ -556,7 +556,7 @@ impl TypeChecker {
     }
 
     /// Infers the key and value types of a map literal.
-    fn infer_map(&mut self, map: &mut Map) -> Type {
+    fn infer_map(&mut self, map: &mut MapLit) -> Type {
         if map.pairs.is_empty() {
             let k = self.env.fresh_var();
             let v = self.env.fresh_var();
@@ -1135,21 +1135,21 @@ impl TypeChecker {
     fn infer_literal_pattern_type(&self, expr: &Expr) -> Type {
         match expr {
             Expr::Number(lit) => match lit.kind {
-                NumberKind::I8 => Type::I8,
-                NumberKind::I16 => Type::I16,
-                NumberKind::I32 => Type::I32,
-                NumberKind::I64 => Type::I64,
-                NumberKind::I128 => Type::I128,
-                NumberKind::Isize => Type::Isize,
-                NumberKind::U8 => Type::U8,
-                NumberKind::U16 => Type::U16,
-                NumberKind::U32 => Type::U32,
-                NumberKind::U64 => Type::U64,
-                NumberKind::U128 => Type::U128,
-                NumberKind::Usize => Type::Usize,
+                NumKind::I8 => Type::I8,
+                NumKind::I16 => Type::I16,
+                NumKind::I32 => Type::I32,
+                NumKind::I64 => Type::I64,
+                NumKind::I128 => Type::I128,
+                NumKind::Isize => Type::Isize,
+                NumKind::U8 => Type::U8,
+                NumKind::U16 => Type::U16,
+                NumKind::U32 => Type::U32,
+                NumKind::U64 => Type::U64,
+                NumKind::U128 => Type::U128,
+                NumKind::Usize => Type::Usize,
             },
             Expr::Bool(_) => Type::Bool,
-            Expr::CharLit(_) => Type::Char,
+            Expr::Char(_) => Type::Char,
             Expr::Str(_) => Type::String,
             _ => Type::Null,
         }
@@ -1440,10 +1440,10 @@ impl TypeChecker {
             }
             Type::Bool => {
                 let has_true = match_expr.arms.iter().any(|arm| {
-                    matches!(&arm.pattern, Pattern::Literal(e) if matches!(e.as_ref(), Expr::Bool(Bool { value: true, .. })))
+                    matches!(&arm.pattern, Pattern::Literal(e) if matches!(e.as_ref(), Expr::Bool(BoolLit { value: true, .. })))
                 });
                 let has_false = match_expr.arms.iter().any(|arm| {
-                    matches!(&arm.pattern, Pattern::Literal(e) if matches!(e.as_ref(), Expr::Bool(Bool { value: false, .. })))
+                    matches!(&arm.pattern, Pattern::Literal(e) if matches!(e.as_ref(), Expr::Bool(BoolLit { value: false, .. })))
                 });
                 if !has_true || !has_false {
                     self.errors.push(
@@ -1742,7 +1742,7 @@ mod tests {
 
     const S: Span = Span::ZERO;
 
-    fn int_expr(value: i128, kind: NumberKind) -> Expr {
+    fn int_expr(value: i128, kind: NumKind) -> Expr {
         Expr::Number(Number {
             kind,
             value,
@@ -1752,15 +1752,15 @@ mod tests {
     }
 
     fn i64_expr(value: i128) -> Expr {
-        int_expr(value, NumberKind::I64)
+        int_expr(value, NumKind::I64)
     }
 
     fn bool_expr(value: bool) -> Expr {
-        Expr::Bool(Bool { value, span: S })
+        Expr::Bool(BoolLit { value, span: S })
     }
 
     fn str_expr(value: &str) -> Expr {
-        Expr::Str(Str {
+        Expr::Str(StrLit {
             value: value.to_string(),
             span: S,
         })
@@ -2127,7 +2127,7 @@ mod tests {
         check_ok(vec![let_stmt("x", i64_expr(10), Some(named_type("i64")))]);
         check_ok(vec![let_stmt(
             "x",
-            int_expr(5, NumberKind::I8),
+            int_expr(5, NumKind::I8),
             Some(named_type("i8")),
         )]);
     }
@@ -2145,11 +2145,7 @@ mod tests {
         {
             let errs = check(vec![let_stmt(
                 "x",
-                infix(
-                    int_expr(1, NumberKind::I8),
-                    "+",
-                    int_expr(2, NumberKind::I16),
-                ),
+                infix(int_expr(1, NumKind::I8), "+", int_expr(2, NumKind::I16)),
                 None,
             )]);
             assert!(!errs.is_empty());
@@ -2676,11 +2672,7 @@ mod tests {
         // i8 + i32 is a type mismatch
         let errs = check(vec![let_stmt(
             "x",
-            infix(
-                int_expr(1, NumberKind::I8),
-                "+",
-                int_expr(2, NumberKind::I32),
-            ),
+            infix(int_expr(1, NumKind::I8), "+", int_expr(2, NumKind::I32)),
             None,
         )]);
         assert!(!errs.is_empty());
@@ -2692,11 +2684,7 @@ mod tests {
         // u8 + i8 is a type mismatch
         let errs = check(vec![let_stmt(
             "x",
-            infix(
-                int_expr(1, NumberKind::U8),
-                "+",
-                int_expr(2, NumberKind::I8),
-            ),
+            infix(int_expr(1, NumKind::U8), "+", int_expr(2, NumKind::I8)),
             None,
         )]);
         assert!(!errs.is_empty());
@@ -2708,11 +2696,7 @@ mod tests {
         let mut program = Program {
             statements: vec![let_stmt(
                 "x",
-                infix(
-                    int_expr(1, NumberKind::I8),
-                    "+",
-                    int_expr(2, NumberKind::I16),
-                ),
+                infix(int_expr(1, NumKind::I8), "+", int_expr(2, NumKind::I16)),
                 None,
             )],
         };
@@ -2733,11 +2717,7 @@ mod tests {
         // u64 + i128 is a type mismatch
         let errs = check(vec![let_stmt(
             "x",
-            infix(
-                int_expr(1, NumberKind::U64),
-                "+",
-                int_expr(2, NumberKind::I128),
-            ),
+            infix(int_expr(1, NumKind::U64), "+", int_expr(2, NumKind::I128)),
             None,
         )]);
         assert!(!errs.is_empty());
@@ -2748,11 +2728,7 @@ mod tests {
         // u8 < i16 is a type mismatch
         let errs = check(vec![let_stmt(
             "x",
-            infix(
-                int_expr(1, NumberKind::U8),
-                "<",
-                int_expr(2, NumberKind::I16),
-            ),
+            infix(int_expr(1, NumKind::U8), "<", int_expr(2, NumKind::I16)),
             None,
         )]);
         assert!(!errs.is_empty());

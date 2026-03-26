@@ -158,18 +158,18 @@ pub struct ForStmt {
 pub enum Expr {
     Ident(Ident),
     Number(Number),
-    Bool(Bool),
-    Str(Str),
-    CharLit(CharLit),
+    Bool(BoolLit),
+    Str(StrLit),
+    Char(CharLit),
     Vector(Vector),
     Index(IndexExpr),
-    Map(Map),
+    Map(MapLit),
 
     Prefix(PrefixExpr),
     Infix(InfixExpr),
     Cond(CondExpr),
     Lambda(Lambda),
-    Macro(Macro),
+    MacroLit(MacroLit),
     Call(CallExpr),
     MacroCall(MacroCallExpr),
     Cast(CastExpr),
@@ -194,7 +194,7 @@ impl Expr {
             Self::Number(v) => v.span,
             Self::Bool(v) => v.span,
             Self::Str(v) => v.span,
-            Self::CharLit(v) => v.span,
+            Self::Char(v) => v.span,
             Self::Vector(v) => v.span,
             Self::Index(v) => v.span,
             Self::Map(v) => v.span,
@@ -202,7 +202,7 @@ impl Expr {
             Self::Infix(v) => v.span,
             Self::Cond(v) => v.span,
             Self::Lambda(v) => v.span,
-            Self::Macro(v) => v.span,
+            Self::MacroLit(v) => v.span,
             Self::Call(v) => v.span,
             Self::MacroCall(v) => v.span,
             Self::Cast(v) => v.span,
@@ -256,14 +256,14 @@ pub struct Ident {
 
 /// A boolean literal (`true` or `false`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Bool {
+pub struct BoolLit {
     pub value: bool,
     pub span: Span,
 }
 
 /// A string literal.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Str {
+pub struct StrLit {
     pub value: String,
     pub span: Span,
 }
@@ -296,7 +296,7 @@ pub struct TupleExpr {
 /// value fits within the target type's range before constructing this node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Number {
-    pub kind: NumberKind,
+    pub kind: NumKind,
     pub value: i128,
     pub radix: Radix,
     pub span: Span,
@@ -312,7 +312,7 @@ pub enum Radix {
 
 /// Target integer type of a numeric literal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum NumberKind {
+pub enum NumKind {
     I8,
     I16,
     I32,
@@ -327,7 +327,7 @@ pub enum NumberKind {
     Usize,
 }
 
-impl NumberKind {
+impl NumKind {
     /// Returns the type name as it appears in source code.
     pub fn as_str(self) -> &'static str {
         match self {
@@ -410,7 +410,7 @@ pub struct IndexExpr {
 
 /// Key-value map literal: `{ key: value, ... }`
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Map {
+pub struct MapLit {
     pub pairs: Vec<(Expr, Expr)>,
     pub span: Span,
 }
@@ -460,7 +460,7 @@ impl Lambda {
 
 /// Macro literal
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Macro {
+pub struct MacroLit {
     pub params: Vec<String>,
     pub body: BlockStmt,
     pub span: Span,
@@ -492,7 +492,7 @@ pub struct MacroCallExpr {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CastExpr {
     pub expr: Box<Expr>,
-    pub target: NumberKind,
+    pub target: NumKind,
     pub span: Span,
 }
 

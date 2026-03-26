@@ -1,4 +1,4 @@
-use maat_runtime::NumberKind;
+use maat_runtime::NumKind;
 
 /// Bytecode operation codes.
 ///
@@ -410,20 +410,20 @@ impl TypeTag {
     }
 
     /// Maps an integer bytecode type tag to a number type.
-    pub fn to_num_kind(&self) -> NumberKind {
+    pub fn to_num_kind(&self) -> NumKind {
         match self {
-            Self::I8 => NumberKind::I8,
-            Self::I16 => NumberKind::I16,
-            Self::I32 => NumberKind::I32,
-            Self::I64 => NumberKind::I64,
-            Self::I128 => NumberKind::I128,
-            Self::Isize => NumberKind::Isize,
-            Self::U8 => NumberKind::U8,
-            Self::U16 => NumberKind::U16,
-            Self::U32 => NumberKind::U32,
-            Self::U64 => NumberKind::U64,
-            Self::U128 => NumberKind::U128,
-            Self::Usize => NumberKind::Usize,
+            Self::I8 => NumKind::I8,
+            Self::I16 => NumKind::I16,
+            Self::I32 => NumKind::I32,
+            Self::I64 => NumKind::I64,
+            Self::I128 => NumKind::I128,
+            Self::Isize => NumKind::Isize,
+            Self::U8 => NumKind::U8,
+            Self::U16 => NumKind::U16,
+            Self::U32 => NumKind::U32,
+            Self::U64 => NumKind::U64,
+            Self::U128 => NumKind::U128,
+            Self::Usize => NumKind::Usize,
         }
     }
 }

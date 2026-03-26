@@ -11,8 +11,8 @@ use indexmap::IndexMap;
 use maat_bytecode::{Bytecode, MAX_FRAMES, MAX_GLOBALS, MAX_STACK_SIZE, Opcode, TypeTag};
 use maat_errors::{Result, VmError};
 use maat_runtime::{
-    BUILTINS, Closure, CompiledFn, EnumVariantVal, FALSE, Hashable, Integer, MapVal, NULL,
-    StructVal, TRUE, TypeDef, Value,
+    BUILTINS, Closure, CompiledFn, EnumVariantVal, FALSE, Hashable, Integer, Map, NULL, StructVal,
+    TRUE, TypeDef, Value,
 };
 use maat_span::{SourceMap, Span};
 
@@ -821,7 +821,7 @@ impl VM {
             pairs.insert(key, value);
         }
         self.sp = start;
-        Ok(Value::Map(MapVal { pairs }))
+        Ok(Value::Map(Map { pairs }))
     }
 
     /// Dispatches index operations to the appropriate handler.
@@ -851,7 +851,7 @@ impl VM {
     }
 
     /// Indexes into a map by key.
-    fn execute_map_index(&mut self, map: &MapVal, index: Value) -> Result<()> {
+    fn execute_map_index(&mut self, map: &Map, index: Value) -> Result<()> {
         let key = Hashable::try_from(index).map_err(|e| self.vm_error(e.to_string()))?;
         match map.pairs.get(&key) {
             Some(value) => self.push_stack(value.clone()),

@@ -14,7 +14,7 @@ use std::rc::Rc;
 pub use builtins::{BUILTIN_COUNT, BUILTINS, get_builtin};
 pub use env::Env;
 use indexmap::{IndexMap, IndexSet};
-pub use maat_ast::NumberKind;
+pub use maat_ast::NumKind;
 use maat_ast::{BlockStmt, Node, Number};
 use maat_errors::{Error, EvalError, Result};
 use maat_span::SourceMap;
@@ -47,12 +47,12 @@ pub enum Value {
     Tuple(Vec<Value>),
     /// A vector of values.
     Vector(Vec<Value>),
-    /// A map (key-value collection).
-    Map(MapVal),
+    /// An ordered map of key-value pairs, backed by [`IndexMap`].
+    Map(Map),
     /// A runtime function with parameters, body, and closure environment.
     Function(Function),
     /// A macro with parameters, body, and closure environment.
-    Macro(MacroVal),
+    Macro(Macro),
     /// A quoted AST node for metaprogramming.
     Quote(Box<Quote>),
     /// Wraps a return value for early function/block termination.
@@ -71,8 +71,8 @@ pub enum Value {
     Struct(StructVal),
     /// A user-defined enum variant instance.
     EnumVariant(EnumVariantVal),
-    /// An ordered set of unique hashable values, backed by `IndexSet`.
-    Set(IndexSet<Hashable>),
+    /// An ordered set of unique hashable values, backed by [`IndexSet`].
+    Set(Set),
     /// A half-open range `start..end`.
     Range(i64, i64),
     /// An inclusive range `start..=end`.
@@ -80,7 +80,7 @@ pub enum Value {
 }
 
 impl Value {
-    /// Converts a `Number` AST node into its corresponding runtime `Value`.
+    /// Converts a [`Number`] AST node into its corresponding runtime `Value`.
     ///
     /// The type checker validates that `lit.value` fits within the target type
     /// before this function is called. The `TryFrom` conversions enforce this
@@ -95,18 +95,18 @@ impl Value {
             };
         }
         match lit.kind {
-            NumberKind::I8 => narrow!(I8, i8),
-            NumberKind::I16 => narrow!(I16, i16),
-            NumberKind::I32 => narrow!(I32, i32),
-            NumberKind::I64 => narrow!(I64, i64),
-            NumberKind::I128 => Ok(Self::Integer(Integer::I128(lit.value))),
-            NumberKind::Isize => narrow!(Isize, isize),
-            NumberKind::U8 => narrow!(U8, u8),
-            NumberKind::U16 => narrow!(U16, u16),
-            NumberKind::U32 => narrow!(U32, u32),
-            NumberKind::U64 => narrow!(U64, u64),
-            NumberKind::U128 => narrow!(U128, u128),
-            NumberKind::Usize => narrow!(Usize, usize),
+            NumKind::I8 => narrow!(I8, i8),
+            NumKind::I16 => narrow!(I16, i16),
+            NumKind::I32 => narrow!(I32, i32),
+            NumKind::I64 => narrow!(I64, i64),
+            NumKind::I128 => Ok(Self::Integer(Integer::I128(lit.value))),
+            NumKind::Isize => narrow!(Isize, isize),
+            NumKind::U8 => narrow!(U8, u8),
+            NumKind::U16 => narrow!(U16, u16),
+            NumKind::U32 => narrow!(U32, u32),
+            NumKind::U64 => narrow!(U64, u64),
+            NumKind::U128 => narrow!(U128, u128),
+            NumKind::Usize => narrow!(Usize, usize),
         }
     }
 
@@ -127,7 +127,7 @@ impl Value {
                     span: Span::ZERO,
                 })))
             }
-            Value::Bool(b) => Some(Node::Expr(Expr::Bool(Bool {
+            Value::Bool(b) => Some(Node::Expr(Expr::Bool(BoolLit {
                 value: *b,
                 span: Span::ZERO,
             }))),
@@ -219,12 +219,12 @@ enum SerVal {
     Str(String),
     Tuple(Vec<Value>),
     Vector(Vec<Value>),
-    Map(MapVal),
+    Map(Map),
     CompiledFn(CompiledFn),
     Closure(Closure),
     Struct(StructVal),
     EnumVariant(EnumVariantVal),
-    Set(IndexSet<Hashable>),
+    Set(Set),
     Range(i64, i64),
     RangeInclusive(i64, i64),
 }
@@ -326,7 +326,7 @@ pub struct Function {
 
 /// Represents a runtime macro.
 #[derive(Debug, Clone, PartialEq)]
-pub struct MacroVal {
+pub struct Macro {
     pub params: Vec<String>,
     pub body: BlockStmt,
     pub env: Env,
@@ -434,9 +434,12 @@ pub struct VariantInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct MapVal {
+pub struct Map {
     pub pairs: IndexMap<Hashable, Value>,
 }
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct Set(IndexSet<Hashable>);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Hashable {
@@ -530,16 +533,7 @@ impl fmt::Display for Value {
                 }
                 Ok(())
             }
-            Self::Set(set) => {
-                write!(
-                    f,
-                    "Set({{{}}})",
-                    set.iter()
-                        .map(|v| format!("{v}"))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            }
+            Self::Set(v) => v.fmt(f),
             Self::Range(start, end) => write!(f, "{start}..{end}"),
             Self::RangeInclusive(start, end) => write!(f, "{start}..={end}"),
         }
@@ -552,7 +546,7 @@ impl fmt::Display for Function {
     }
 }
 
-impl fmt::Display for MacroVal {
+impl fmt::Display for Macro {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "macro({}) {{\n{}\n}}", self.params.join(", "), self.body)
     }
@@ -564,7 +558,7 @@ impl fmt::Display for Quote {
     }
 }
 
-impl fmt::Display for MapVal {
+impl fmt::Display for Map {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -572,6 +566,20 @@ impl fmt::Display for MapVal {
             self.pairs
                 .iter()
                 .map(|(key, value)| format!("{key}: {value}"))
+                .collect::<Vec<String>>()
+                .join(", ")
+        )
+    }
+}
+
+impl fmt::Display for Set {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Set({{{}}})",
+            self.0
+                .iter()
+                .map(|elem| format!("{elem}"))
                 .collect::<Vec<String>>()
                 .join(", ")
         )

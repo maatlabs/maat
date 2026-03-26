@@ -3,9 +3,9 @@ use std::rc::Rc;
 
 use maat_ast::{
     BlockStmt, BreakExpr, CondExpr, ContinueExpr, EnumVariantKind, Expr, FieldAccessExpr, ForStmt,
-    Ident, ImplBlock, InfixExpr, LoopStmt, MacroCallExpr, MatchExpr, MethodCallExpr, Node,
-    NumberKind, PathExpr, Pattern, Program, ReAssignStmt, Stmt, StructLitExpr, TryExpr, TryKind,
-    TypeExpr, WhileStmt,
+    Ident, ImplBlock, InfixExpr, LoopStmt, MacroCallExpr, MatchExpr, MethodCallExpr, Node, NumKind,
+    PathExpr, Pattern, Program, ReAssignStmt, Stmt, StructLitExpr, TryExpr, TryKind, TypeExpr,
+    WhileStmt,
 };
 use maat_bytecode::{
     Bytecode, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, MAX_ENUM_VARIANTS, Opcode,
@@ -740,7 +740,7 @@ impl Compiler {
                     .into())
                 }
             }
-            Expr::CharLit(c) => {
+            Expr::Char(c) => {
                 let index = self.add_constant(Value::Char(c.value))?;
                 self.emit(Opcode::Constant, &[index], span);
                 Ok(())
@@ -806,7 +806,7 @@ impl Compiler {
             Expr::Break(break_expr) => self.compile_break(break_expr),
             Expr::Continue(cont_expr) => self.compile_continue(cont_expr),
             Expr::MacroCall(mc) => self.compile_macro_call(mc),
-            Expr::Macro(_) => Err(CompileErrorKind::UnsupportedExpr {
+            Expr::MacroLit(_) => Err(CompileErrorKind::UnsupportedExpr {
                 expr_type: "macro literal".to_string(),
             }
             .at(span)
@@ -2587,20 +2587,20 @@ fn is_identifier(s: &str) -> bool {
 }
 
 /// Maps a source-level type annotation to a bytecode type tag.
-fn num_kind_to_tag(t: NumberKind) -> TypeTag {
+fn num_kind_to_tag(t: NumKind) -> TypeTag {
     match t {
-        NumberKind::I8 => TypeTag::I8,
-        NumberKind::I16 => TypeTag::I16,
-        NumberKind::I32 => TypeTag::I32,
-        NumberKind::I64 => TypeTag::I64,
-        NumberKind::I128 => TypeTag::I128,
-        NumberKind::Isize => TypeTag::Isize,
-        NumberKind::U8 => TypeTag::U8,
-        NumberKind::U16 => TypeTag::U16,
-        NumberKind::U32 => TypeTag::U32,
-        NumberKind::U64 => TypeTag::U64,
-        NumberKind::U128 => TypeTag::U128,
-        NumberKind::Usize => TypeTag::Usize,
+        NumKind::I8 => TypeTag::I8,
+        NumKind::I16 => TypeTag::I16,
+        NumKind::I32 => TypeTag::I32,
+        NumKind::I64 => TypeTag::I64,
+        NumKind::I128 => TypeTag::I128,
+        NumKind::Isize => TypeTag::Isize,
+        NumKind::U8 => TypeTag::U8,
+        NumKind::U16 => TypeTag::U16,
+        NumKind::U32 => TypeTag::U32,
+        NumKind::U64 => TypeTag::U64,
+        NumKind::U128 => TypeTag::U128,
+        NumKind::Usize => TypeTag::Usize,
     }
 }
 
@@ -2634,12 +2634,12 @@ mod tests {
 
     #[test]
     fn unsupported_prefix_operator() {
-        use maat_ast::{ExprStmt, Number, NumberKind, PrefixExpr, Radix};
+        use maat_ast::{ExprStmt, NumKind, Number, PrefixExpr, Radix};
 
         let expr = Expr::Prefix(PrefixExpr {
             operator: "~".to_string(),
             operand: Box::new(Expr::Number(Number {
-                kind: NumberKind::I64,
+                kind: NumKind::I64,
                 value: 5,
                 radix: Radix::Dec,
                 span: Span::ZERO,

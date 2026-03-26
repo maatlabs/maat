@@ -3,7 +3,7 @@ use maat_span::Span;
 
 fn one() -> Expr {
     Expr::Number(Number {
-        kind: NumberKind::I64,
+        kind: NumKind::I64,
         value: 1,
         radix: Radix::Dec,
         span: Span::ZERO,
@@ -12,7 +12,7 @@ fn one() -> Expr {
 
 fn two() -> Expr {
     Expr::Number(Number {
-        kind: NumberKind::I64,
+        kind: NumKind::I64,
         value: 2,
         radix: Radix::Dec,
         span: Span::ZERO,
@@ -21,7 +21,7 @@ fn two() -> Expr {
 
 fn turn_one_into_two(node: Node) -> Node {
     match node {
-        Node::Expr(Expr::Number(n)) if n.kind == NumberKind::I64 && n.value == 1 => {
+        Node::Expr(Expr::Number(n)) if n.kind == NumKind::I64 && n.value == 1 => {
             Node::Expr(Expr::Number(Number {
                 kind: n.kind,
                 value: 2,
@@ -118,7 +118,7 @@ fn transform_collections() {
             .iter()
             .all(|e| matches!(e, Expr::Number(n) if n.value == 2))
     );
-    let map = Expr::Map(Map {
+    let map = Expr::Map(MapLit {
         pairs: vec![(one(), one())],
         span: Span::ZERO,
     });

@@ -16,7 +16,7 @@ mod interpreter;
 
 pub use interpreter::{eval, eval_block_statement};
 use maat_ast::{Expr, Node, Program, Stmt, transform};
-use maat_runtime::{Env, MacroVal, Quote, Value};
+use maat_runtime::{Env, Macro, Quote, Value};
 
 /// The name of the `quote` special form for AST quoting.
 ///
@@ -49,9 +49,9 @@ pub fn extract_macros(mut program: Program, env: &Env) -> Program {
 
     for (i, stmt) in program.statements.iter().enumerate() {
         if let Stmt::Let(l) = stmt
-            && let Expr::Macro(m) = &l.value
+            && let Expr::MacroLit(m) = &l.value
         {
-            let val = Value::Macro(MacroVal {
+            let val = Value::Macro(Macro {
                 params: m.params.clone(),
                 body: m.body.clone(),
                 env: env.clone(),

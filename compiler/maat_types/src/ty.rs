@@ -11,7 +11,7 @@ pub type TypeVarId = u32;
 /// A concrete or polymorphic type in the type system.
 ///
 /// Mirrors the runtime value categories: numeric primitives, booleans, strings,
-/// compound types (arrays, maps, functions), user-defined types (structs,
+/// compound types (vectors, maps, functions), user-defined types (structs,
 /// enums), and inference-time placeholders (type variables and generics).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
@@ -96,18 +96,18 @@ impl Type {
         let span = expr.span();
 
         let kind = match *self {
-            Self::I8 => NumberKind::I8,
-            Self::I16 => NumberKind::I16,
-            Self::I32 => NumberKind::I32,
-            Self::I64 => NumberKind::I64,
-            Self::I128 => NumberKind::I128,
-            Self::Isize => NumberKind::Isize,
-            Self::U8 => NumberKind::U8,
-            Self::U16 => NumberKind::U16,
-            Self::U32 => NumberKind::U32,
-            Self::U64 => NumberKind::U64,
-            Self::U128 => NumberKind::U128,
-            Self::Usize => NumberKind::Usize,
+            Self::I8 => NumKind::I8,
+            Self::I16 => NumKind::I16,
+            Self::I32 => NumKind::I32,
+            Self::I64 => NumKind::I64,
+            Self::I128 => NumKind::I128,
+            Self::Isize => NumKind::Isize,
+            Self::U8 => NumKind::U8,
+            Self::U16 => NumKind::U16,
+            Self::U32 => NumKind::U32,
+            Self::U64 => NumKind::U64,
+            Self::U128 => NumKind::U128,
+            Self::Usize => NumKind::Usize,
             _ => return,
         };
 
@@ -160,42 +160,42 @@ impl Type {
         Some((self.is_signed(), width))
     }
 
-    /// Converts an internal `Type` to a `NumberKind` for generating cast nodes.
+    /// Converts an internal `Type` to a `NumKind` for generating cast nodes.
     ///
     /// Returns `None` for non-numeric types since cast nodes only support numeric targets.
-    pub fn to_number_kind(&self) -> Option<NumberKind> {
+    pub fn to_number_kind(&self) -> Option<NumKind> {
         match self {
-            Self::I8 => Some(NumberKind::I8),
-            Self::I16 => Some(NumberKind::I16),
-            Self::I32 => Some(NumberKind::I32),
-            Self::I64 => Some(NumberKind::I64),
-            Self::I128 => Some(NumberKind::I128),
-            Self::Isize => Some(NumberKind::Isize),
-            Self::U8 => Some(NumberKind::U8),
-            Self::U16 => Some(NumberKind::U16),
-            Self::U32 => Some(NumberKind::U32),
-            Self::U64 => Some(NumberKind::U64),
-            Self::U128 => Some(NumberKind::U128),
-            Self::Usize => Some(NumberKind::Usize),
+            Self::I8 => Some(NumKind::I8),
+            Self::I16 => Some(NumKind::I16),
+            Self::I32 => Some(NumKind::I32),
+            Self::I64 => Some(NumKind::I64),
+            Self::I128 => Some(NumKind::I128),
+            Self::Isize => Some(NumKind::Isize),
+            Self::U8 => Some(NumKind::U8),
+            Self::U16 => Some(NumKind::U16),
+            Self::U32 => Some(NumKind::U32),
+            Self::U64 => Some(NumKind::U64),
+            Self::U128 => Some(NumKind::U128),
+            Self::Usize => Some(NumKind::Usize),
             _ => None,
         }
     }
 
-    /// Converts a `NumberKind` (for `as` casts) to an internal `Type`.
-    pub fn from_number_kind(num: &NumberKind) -> Self {
+    /// Converts a `NumKind` (for `as` casts) to an internal `Type`.
+    pub fn from_number_kind(num: &NumKind) -> Self {
         match num {
-            NumberKind::I8 => Self::I8,
-            NumberKind::I16 => Self::I16,
-            NumberKind::I32 => Self::I32,
-            NumberKind::I64 => Self::I64,
-            NumberKind::I128 => Self::I128,
-            NumberKind::Isize => Self::Isize,
-            NumberKind::U8 => Self::U8,
-            NumberKind::U16 => Self::U16,
-            NumberKind::U32 => Self::U32,
-            NumberKind::U64 => Self::U64,
-            NumberKind::U128 => Self::U128,
-            NumberKind::Usize => Self::Usize,
+            NumKind::I8 => Self::I8,
+            NumKind::I16 => Self::I16,
+            NumKind::I32 => Self::I32,
+            NumKind::I64 => Self::I64,
+            NumKind::I128 => Self::I128,
+            NumKind::Isize => Self::Isize,
+            NumKind::U8 => Self::U8,
+            NumKind::U16 => Self::U16,
+            NumKind::U32 => Self::U32,
+            NumKind::U64 => Self::U64,
+            NumKind::U128 => Self::U128,
+            NumKind::Usize => Self::Usize,
         }
     }
 }

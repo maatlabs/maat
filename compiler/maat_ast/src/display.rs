@@ -121,7 +121,7 @@ impl fmt::Display for Expr {
 
             Self::Bool(e) => e.value.fmt(f),
             Self::Str(e) => e.value.fmt(f),
-            Self::CharLit(e) => e.value.fmt(f),
+            Self::Char(e) => e.value.fmt(f),
             Self::Vector(e) => e.fmt(f),
             Self::Index(e) => e.fmt(f),
             Self::Map(e) => e.fmt(f),
@@ -129,7 +129,7 @@ impl fmt::Display for Expr {
             Self::Infix(e) => e.fmt(f),
             Self::Cond(e) => e.fmt(f),
             Self::Lambda(e) => e.fmt(f),
-            Self::Macro(e) => e.fmt(f),
+            Self::MacroLit(e) => e.fmt(f),
             Self::Call(e) => e.fmt(f),
             Self::MacroCall(e) => e.fmt(f),
             Self::Cast(e) => e.fmt(f),
@@ -167,7 +167,7 @@ impl fmt::Display for IndexExpr {
     }
 }
 
-impl fmt::Display for Map {
+impl fmt::Display for MapLit {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -271,7 +271,7 @@ impl fmt::Display for Lambda {
     }
 }
 
-impl fmt::Display for Macro {
+impl fmt::Display for MacroLit {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "macro({}) {}", self.params.join(", "), self.body)
     }

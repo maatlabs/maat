@@ -4,8 +4,7 @@ use indexmap::IndexMap;
 use maat_ast::*;
 use maat_errors::{EvalError, Result};
 use maat_runtime::{
-    Env, FALSE, Function, Hashable, Integer, MacroVal, MapVal, NULL, Quote, TRUE, Value,
-    get_builtin,
+    Env, FALSE, Function, Hashable, Integer, Macro, Map, NULL, Quote, TRUE, Value, get_builtin,
 };
 
 use crate::{QUOTE, UNQUOTE};
@@ -67,7 +66,7 @@ pub fn eval(node: Node, env: &Env) -> Result<Value> {
             Expr::Number(v) => Ok(Value::from_number_literal(&v).map_err(EvalError::Number)?),
             Expr::Bool(b) => Ok(Value::Bool(b.value)),
             Expr::Str(s) => Ok(Value::Str(maat_ast::unescape_string(&s.value))),
-            Expr::CharLit(c) => Ok(Value::Char(c.value)),
+            Expr::Char(c) => Ok(Value::Char(c.value)),
             Expr::Tuple(tuple) => {
                 let elements = tuple
                     .elements
@@ -96,7 +95,7 @@ pub fn eval(node: Node, env: &Env) -> Result<Value> {
                 body: lambda.body,
                 env: env.clone(),
             })),
-            Expr::Macro(macro_lit) => Ok(Value::Macro(MacroVal {
+            Expr::MacroLit(macro_lit) => Ok(Value::Macro(Macro {
                 params: macro_lit.params,
                 body: macro_lit.body,
                 env: env.clone(),
@@ -293,7 +292,7 @@ fn eval_index_expression(idx_expr: IndexExpr, env: &Env) -> Result<Value> {
     }
 }
 
-fn eval_map_literal(expr: Map, env: &Env) -> Result<Value> {
+fn eval_map_literal(expr: MapLit, env: &Env) -> Result<Value> {
     let mut pairs = IndexMap::new();
     for (key_expr, val_expr) in &expr.pairs {
         let key = eval(Node::Expr(key_expr.clone()), env)?;
@@ -301,7 +300,7 @@ fn eval_map_literal(expr: Map, env: &Env) -> Result<Value> {
         let value = eval(Node::Expr(val_expr.clone()), env)?;
         pairs.insert(key, value);
     }
-    Ok(Value::Map(MapVal { pairs }))
+    Ok(Value::Map(Map { pairs }))
 }
 
 fn eval_prefix_expression(expr: PrefixExpr, env: &Env) -> Result<Value> {

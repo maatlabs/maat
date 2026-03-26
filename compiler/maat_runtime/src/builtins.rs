@@ -1,7 +1,7 @@
 use indexmap::{IndexMap, IndexSet};
 use maat_errors::{Error, EvalError, Result};
 
-use crate::{BuiltinFn, EnumVariantVal, Hashable, Integer, MapVal, NULL, Value};
+use crate::{BuiltinFn, EnumVariantVal, Hashable, Integer, Map, NULL, Set, Value};
 
 /// Type registry index for `Option`.
 const OPTION_TYPE_INDEX: u16 = 0;
@@ -319,7 +319,7 @@ fn vector_new(args: &[Value]) -> Result<Value> {
 /// Creates a new empty map.
 fn map_new(args: &[Value]) -> Result<Value> {
     expect_arg_count("Map::new", args, 0)?;
-    Ok(Value::Map(MapVal {
+    Ok(Value::Map(Map {
         pairs: IndexMap::new(),
     }))
 }
@@ -333,7 +333,7 @@ fn map_insert(args: &[Value]) -> Result<Value> {
             let key = Hashable::try_from(args[1].clone())?;
             let mut new_map = map.pairs.clone();
             new_map.insert(key, args[2].clone());
-            Ok(Value::Map(MapVal { pairs: new_map }))
+            Ok(Value::Map(Map { pairs: new_map }))
         }
         other => method_type_error(other, "insert", "Map"),
     }
@@ -374,7 +374,7 @@ fn map_remove(args: &[Value]) -> Result<Value> {
             let key = Hashable::try_from(args[1].clone())?;
             let mut new_map = map.pairs.clone();
             new_map.swap_remove(&key);
-            Ok(Value::Map(MapVal { pairs: new_map }))
+            Ok(Value::Map(Map { pairs: new_map }))
         }
         other => method_type_error(other, "remove", "Map"),
     }
@@ -416,7 +416,7 @@ fn map_values(args: &[Value]) -> Result<Value> {
 /// Creates a new empty set.
 fn set_new(args: &[Value]) -> Result<Value> {
     expect_arg_count("Set::new", args, 0)?;
-    Ok(Value::Set(IndexSet::new()))
+    Ok(Value::Set(Set(IndexSet::new())))
 }
 
 /// Returns a new set with the given value inserted. Receiver at `args[0]`, value at `args[1]`.
@@ -426,7 +426,7 @@ fn set_insert(args: &[Value]) -> Result<Value> {
         Value::Set(set) => {
             let key = Hashable::try_from(args[1].clone())?;
             let mut new_set = set.clone();
-            new_set.insert(key);
+            new_set.0.insert(key);
             Ok(Value::Set(new_set))
         }
         other => method_type_error(other, "insert", "Set"),
@@ -439,7 +439,7 @@ fn set_contains(args: &[Value]) -> Result<Value> {
     match &args[0] {
         Value::Set(set) => {
             let key = Hashable::try_from(args[1].clone())?;
-            Ok(Value::Bool(set.contains(&key)))
+            Ok(Value::Bool(set.0.contains(&key)))
         }
         other => method_type_error(other, "contains", "Set"),
     }
@@ -452,7 +452,7 @@ fn set_remove(args: &[Value]) -> Result<Value> {
         Value::Set(set) => {
             let key = Hashable::try_from(args[1].clone())?;
             let mut new_set = set.clone();
-            new_set.swap_remove(&key);
+            new_set.0.swap_remove(&key);
             Ok(Value::Set(new_set))
         }
         other => method_type_error(other, "remove", "Set"),
@@ -463,7 +463,7 @@ fn set_remove(args: &[Value]) -> Result<Value> {
 fn set_len(args: &[Value]) -> Result<Value> {
     expect_arg_count("Set::len", args, 1)?;
     match &args[0] {
-        Value::Set(set) => Ok(Value::Integer(Integer::Usize(set.len()))),
+        Value::Set(set) => Ok(Value::Integer(Integer::Usize(set.0.len()))),
         other => method_type_error(other, "len", "Set"),
     }
 }
@@ -474,6 +474,7 @@ fn set_to_vector(args: &[Value]) -> Result<Value> {
     match &args[0] {
         Value::Set(set) => {
             let arr = set
+                .0
                 .iter()
                 .map(|h| match h {
                     Hashable::Integer(v) => Value::Integer(*v),

@@ -23,7 +23,7 @@ pub type TransformFn<'a> = &'a mut dyn FnMut(Node) -> Node;
 /// let program = Program {
 ///     statements: vec![Stmt::Expr(ExprStmt {
 ///         value: Expr::Number(Number {
-///             kind: NumberKind::I64,
+///             kind: NumKind::I64,
 ///             value: 5,
 ///             radix: Radix::Dec,
 ///             span: Span::ZERO,
@@ -34,7 +34,7 @@ pub type TransformFn<'a> = &'a mut dyn FnMut(Node) -> Node;
 ///
 /// let result = transform(Node::Program(program), &mut |node| {
 ///     match node {
-///         Node::Expr(Expr::Number(mut n)) if n.kind == NumberKind::I64 => {
+///         Node::Expr(Expr::Number(mut n)) if n.kind == NumKind::I64 => {
 ///             n.value *= 2;
 ///             Node::Expr(Expr::Number(n))
 ///         }
@@ -297,13 +297,13 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                     Expr::Lambda(lambda)
                 }
 
-                Expr::Macro(mut macro_lit) => {
+                Expr::MacroLit(mut macro_lit) => {
                     macro_lit.body =
                         match transform(Node::Stmt(Stmt::Block(macro_lit.body)), transformer) {
                             Node::Stmt(Stmt::Block(b)) => b,
                             _ => unreachable!("Block transformation returned non-block"),
                         };
-                    Expr::Macro(macro_lit)
+                    Expr::MacroLit(macro_lit)
                 }
 
                 Expr::Call(mut call) => {

@@ -12,7 +12,7 @@ fn statements_display() {
         ident: "x".to_string(),
         type_annotation: None,
         value: Expr::Number(Number {
-            kind: NumberKind::I64,
+            kind: NumKind::I64,
             value: 100,
             radix: Radix::Dec,
             span: span(),
@@ -31,7 +31,7 @@ fn statements_display() {
         ident: "y".to_string(),
         type_annotation: Some(type_ann),
         value: Expr::Number(Number {
-            kind: NumberKind::U8,
+            kind: NumKind::U8,
             value: 0xff,
             radix: Radix::Hex,
             span: span(),
@@ -54,7 +54,7 @@ fn statements_display() {
         statements: vec![
             Stmt::Return(ReturnStmt {
                 value: Expr::Number(Number {
-                    kind: NumberKind::I32,
+                    kind: NumKind::I32,
                     value: 10,
                     radix: Radix::Dec,
                     span: span(),
@@ -79,7 +79,7 @@ fn statements_display() {
             ident: "x".to_string(),
             type_annotation: None,
             value: Expr::Number(Number {
-                kind: NumberKind::I32,
+                kind: NumKind::I32,
                 value: 42,
                 radix: Radix::Dec,
                 span: span(),
@@ -96,7 +96,7 @@ fn expressions_display() {
     let neg = PrefixExpr {
         operator: "-".to_string(),
         operand: Box::new(Expr::Number(Number {
-            kind: NumberKind::I32,
+            kind: NumKind::I32,
             value: 42,
             radix: Radix::Dec,
             span: span(),
@@ -107,14 +107,14 @@ fn expressions_display() {
 
     let add = InfixExpr {
         lhs: Box::new(Expr::Number(Number {
-            kind: NumberKind::I32,
+            kind: NumKind::I32,
             value: 1,
             radix: Radix::Dec,
             span: span(),
         })),
         operator: "+".to_string(),
         rhs: Box::new(Expr::Number(Number {
-            kind: NumberKind::I32,
+            kind: NumKind::I32,
             value: 2,
             radix: Radix::Dec,
             span: span(),
@@ -125,12 +125,12 @@ fn expressions_display() {
 
     let cast = CastExpr {
         expr: Box::new(Expr::Number(Number {
-            kind: NumberKind::I32,
+            kind: NumKind::I32,
             value: 42,
             radix: Radix::Dec,
             span: span(),
         })),
-        target: NumberKind::I64,
+        target: NumKind::I64,
         span: span(),
     };
     assert_eq!(cast.to_string(), "(42 as i64)");
@@ -141,7 +141,7 @@ fn expressions_display() {
             span: span(),
         })),
         index: Box::new(Expr::Number(Number {
-            kind: NumberKind::I32,
+            kind: NumKind::I32,
             value: 5,
             radix: Radix::Dec,
             span: span(),
@@ -162,13 +162,13 @@ fn collections_display() {
     let arr = Vector {
         elements: vec![
             Expr::Number(Number {
-                kind: NumberKind::I32,
+                kind: NumKind::I32,
                 value: 1,
                 radix: Radix::Dec,
                 span: span(),
             }),
             Expr::Number(Number {
-                kind: NumberKind::I32,
+                kind: NumKind::I32,
                 value: 2,
                 radix: Radix::Dec,
                 span: span(),
@@ -178,14 +178,14 @@ fn collections_display() {
     };
     assert_eq!(arr.to_string(), "[1, 2]");
 
-    let map = Map {
+    let map = MapLit {
         pairs: vec![(
-            Expr::Str(Str {
+            Expr::Str(StrLit {
                 value: "x".to_string(),
                 span: span(),
             }),
             Expr::Number(Number {
-                kind: NumberKind::I32,
+                kind: NumKind::I32,
                 value: 10,
                 radix: Radix::Dec,
                 span: span(),
@@ -209,7 +209,7 @@ fn control_flow_display() {
                 ident: "x".to_string(),
                 type_annotation: None,
                 value: Expr::Number(Number {
-                    kind: NumberKind::I32,
+                    kind: NumKind::I32,
                     value: 1,
                     radix: Radix::Dec,
                     span: span(),
@@ -225,7 +225,7 @@ fn control_flow_display() {
                 ident: "x".to_string(),
                 type_annotation: None,
                 value: Expr::Number(Number {
-                    kind: NumberKind::I32,
+                    kind: NumKind::I32,
                     value: 2,
                     radix: Radix::Dec,
                     span: span(),
@@ -291,7 +291,7 @@ fn control_flow_display() {
     let break_val = BreakExpr {
         label: None,
         value: Some(Box::new(Expr::Number(Number {
-            kind: NumberKind::I32,
+            kind: NumKind::I32,
             value: 42,
             radix: Radix::Dec,
             span: span(),
@@ -381,13 +381,13 @@ fn function_display() {
         })),
         arguments: vec![
             Expr::Number(Number {
-                kind: NumberKind::I32,
+                kind: NumKind::I32,
                 value: 1,
                 radix: Radix::Dec,
                 span: span(),
             }),
             Expr::Number(Number {
-                kind: NumberKind::I32,
+                kind: NumKind::I32,
                 value: 2,
                 radix: Radix::Dec,
                 span: span(),
@@ -397,7 +397,7 @@ fn function_display() {
     };
     assert_eq!(call.to_string(), "add(1, 2)");
 
-    let macro_lit = Macro {
+    let macro_lit = MacroLit {
         params: vec!["$a".to_string(), "$b".to_string()],
         body: BlockStmt {
             statements: vec![Stmt::Expr(ExprStmt {
