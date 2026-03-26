@@ -158,9 +158,9 @@ Example session:
 15
 
 >> let fibonacci = fn(x) {
-..     if (x == 0) {
+..     if x == 0 {
 ..         0
-..     } else if (x == 1) {
+..     } else if x == 1 {
 ..         return 1;
 ..     } else {
 ..         fibonacci(x - 1) + fibonacci(x - 2)
@@ -171,7 +171,7 @@ Example session:
 
 >> let map = fn(arr, f) {
 ..     let iter = fn(arr, acc) {
-..         if (arr.len() == 0) {
+..         if arr.len() == 0 {
 ..             acc
 ..         } else {
 ..             iter(arr.split_first(), acc.push(f(arr.first().unwrap())))
@@ -184,7 +184,7 @@ Example session:
 
 >> let unless = macro(cond, cons, alt) {
 ..     quote(
-..         if (!(unquote(cond))) {
+..         if !(unquote(cond)) {
 ..             unquote(cons);
 ..         } else {
 ..             unquote(alt);
@@ -289,9 +289,9 @@ cargo doc --all-features --no-deps --open
 
 Maat uses a multi-module compilation pipeline. Source files are parsed into per-module ASTs, organized into a dependency graph by `maat_module`, type-checked independently with cross-module visibility enforcement, compiled to bytecode by a shared `maat_codegen` compiler instance (which implicitly links all modules into a single instruction stream), and executed on the stack-based `maat_vm`. The `maat_eval` crate (the tree-walking evaluator) is reduced to a macro-expansion-only engine (`define_macros`/`expand_macros`).
 
-The type checker infers types for each module using Hindley-Milner inference (Algorithm W), with imported bindings injected from dependency modules' public exports. Type annotations are optional--the inference engine deduces types from usage--but can be provided on `let` bindings, function parameters, and return types for documentation or to constrain polymorphism. Generic functions with parametric polymorphism are supported (`fn identity<T>(x: T) -> T { x }`).
+The type checker infers types for each module using Hindley-Milner inference (Algorithm W), with imported bindings injected from dependency modules' public exports. Type annotations are optional--the inference engine deduces types from usage--but can be provided on `let` bindings, function parameters, and return types for documentation or to constrain polymorphism. Generic functions with parametric polymorphism are supported (`fn identity<T>(x: T) -> T { x }`). Tuples, `char`, `Map<K, V>`, `Set<T>`, and `Vector<T>` are all first-class types with full inference support.
 
-Custom types follow Rust syntax: `struct`, `enum` (with unit, tuple, and struct variants), `trait`, and `impl` blocks (both inherent and trait impls). Pattern matching via `match` supports literal, identifier, tuple-struct, wildcard, and or-patterns. Methods are statically dispatched via compile-time type-directed dispatch. `Option<T>` and `Result<T, E>` are pre-registered as language-level enums. Range syntax (`0..10` and `0..=10`) produces first-class `Range`/`RangeInclusive` values and integrates with `for..in` loops.
+Custom types follow Rust syntax: `struct`, `enum` (with unit, tuple, and struct variants), `trait`, and `impl` blocks (both inherent and trait impls). Pattern matching via `match` supports literal, identifier, tuple-struct, wildcard, and or-patterns. Methods are statically dispatched via compile-time type-directed dispatch. `Option<T>` and `Result<T, E>` are pre-registered as language-level enums with full method suites (`map`, `and_then`, `unwrap_or`, etc.) and the `?` operator for ergonomic error propagation. Range syntax (`0..10` and `0..=10`) produces first-class `Range`/`RangeInclusive` values and integrates with `for..in` loops.
 
 Errors are reported with precise `file:line:col` locations using source maps and [`ariadne`](https://docs.rs/ariadne) diagnostics. Compiled bytecode can be serialized to `.mtc` files and deserialized for later execution, enabling the `build`/`exec` workflow.
 
@@ -301,13 +301,13 @@ Errors are reported with precise `file:line:col` locations using source maps and
 | --------------- | ---------------------------------------------------------------- |
 | `maat_span`     | Source location tracking and span management                     |
 | `maat_errors`   | Unified error handling with `Result` type alias                  |
-| `maat_lexer`    | Tokenization and lexical analysis                                |
+| `maat_lexer`    | `logos` compile-time DFA tokenizer                               |
 | `maat_ast`      | Abstract Syntax Tree definitions and transformations             |
-| `maat_parser`   | Pratt parser with operator precedence                            |
+| `maat_parser`   | `winnow` combinator-based parser                                 |
 | `maat_eval`     | Macro expansion engine (`quote`/`unquote`)                       |
 | `maat_runtime`  | Value system, built-in functions, and compiled types             |
 | `maat_types`    | Hindley-Milner type inference (Algorithm W)                      |
-| `maat_bytecode` | Instruction set encoding/decoding and serialization (43 opcodes) |
+| `maat_bytecode` | Instruction set encoding/decoding and serialization (44 opcodes) |
 | `maat_codegen`  | AST-to-bytecode compiler with scope analysis                     |
 | `maat_module`   | Module resolution, dependency graph, and multi-module pipeline   |
 | `maat_vm`       | Stack-based virtual machine                                      |
@@ -328,11 +328,11 @@ All 13 crates enforce `#![forbid(unsafe_code)]`. The compiler and VM have been h
 
 ## Status
 
-Maat is currently at version 0.10 and is still going through several improvements in order to deliver the best-in-class experience as a fully-fledged Turing-complete ZK programming language.
+Maat is currently at version 0.11 and is still going through several improvements in order to deliver the best-in-class experience as a fully-fledged Turing-complete ZK programming language.
 
 ## Disclaimer
 
-Early adopters should be aware that Maat 0.10 is a transient accomplishment towards Maat 1.0, for which a formal audit process is expected. In the meantime, we invite you to know and experiment with Maat, but we don't recommend using it to build mission-critical systems.
+Early adopters should be aware that Maat 0.11 is a transient accomplishment towards Maat 1.0, for which a formal audit process is expected. In the meantime, we invite you to know and experiment with Maat, but we don't recommend using it to build mission-critical systems.
 
 ## Acknowledgments
 
