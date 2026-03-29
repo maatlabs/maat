@@ -2,82 +2,8 @@
 
 use core::fmt;
 
+use crate::format::*;
 use crate::*;
-
-/// Writes a comma-separated list of displayable items to the formatter.
-fn write_comma_separated<I, T>(f: &mut fmt::Formatter<'_>, iter: I) -> fmt::Result
-where
-    I: IntoIterator<Item = T>,
-    T: fmt::Display,
-{
-    let mut iter = iter.into_iter();
-    if let Some(first) = iter.next() {
-        write!(f, "{first}")?;
-        for item in iter {
-            write!(f, ", {item}")?;
-        }
-    }
-    Ok(())
-}
-
-/// Writes items separated by a custom delimiter `sep`.
-fn write_separated_with<I, T>(f: &mut fmt::Formatter<'_>, iter: I, sep: &str) -> fmt::Result
-where
-    I: IntoIterator<Item = T>,
-    T: fmt::Display,
-{
-    let mut iter = iter.into_iter();
-    if let Some(first) = iter.next() {
-        write!(f, "{first}")?;
-        for item in iter {
-            f.write_str(sep)?;
-            write!(f, "{item}")?;
-        }
-    }
-    Ok(())
-}
-
-/// Writes a generic parameter list as `<T, U: Bound>`, or nothing if empty.
-fn write_generic_params(f: &mut fmt::Formatter<'_>, params: &[GenericParam]) -> fmt::Result {
-    if !params.is_empty() {
-        f.write_str("<")?;
-        write_comma_separated(f, params)?;
-        f.write_str(">")?;
-    }
-    Ok(())
-}
-
-/// Writes a typed parameter list to the formatter.
-fn write_params(f: &mut fmt::Formatter<'_>, params: &[TypedParam]) -> fmt::Result {
-    write_comma_separated(f, params)
-}
-
-/// Writes ` -> T` if a return type is present.
-fn write_return_type(f: &mut fmt::Formatter<'_>, ret: &Option<TypeExpr>) -> fmt::Result {
-    if let Some(ty) = ret {
-        write!(f, " -> {ty}")?;
-    }
-    Ok(())
-}
-
-/// Returns `"pub "` if the item is public, empty string otherwise.
-#[inline]
-fn visibility_modifier(vis: bool) -> &'static str {
-    if vis { "pub " } else { "" }
-}
-
-/// Renders documentation comment lines (`///`) above the item.
-///
-/// Each line of the stored doc string is emitted as a separate `///` line,
-/// reconstructing the original source form.
-fn fmt_doc_comment(f: &mut fmt::Formatter<'_>, doc: &Option<String>) -> fmt::Result {
-    if let Some(text) = doc {
-        for line in text.lines() {
-            writeln!(f, "///{line}")?;
-        }
-    }
-    Ok(())
-}
 
 impl fmt::Display for Node {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

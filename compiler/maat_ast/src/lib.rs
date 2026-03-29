@@ -5,9 +5,11 @@
 
 mod display;
 mod fold;
+mod format;
 mod transform;
 
 pub use fold::fold_constants;
+pub use format::{FmtSegment, parse_format_string};
 use maat_span::Span;
 pub use transform::{TransformFn, transform};
 
