@@ -12,17 +12,6 @@ use crate::{
     VariantDef, VariantKind, resolve_type_expr,
 };
 
-/// Polymorphic method signature for a built-in type.
-#[derive(Debug, Clone)]
-struct BuiltinMethodScheme {
-    /// Type variables universally quantified in this method.
-    forall: Vec<TypeVarId>,
-    /// The self-type pattern (e.g., `[?T0]` for vector methods).
-    self_type: Type,
-    /// The method's function type (parameters exclude `self`).
-    fn_type: Type,
-}
-
 /// Lexically scoped type environment.
 pub struct TypeEnv {
     bindings: Vec<(String, TypeScheme)>,
@@ -33,6 +22,17 @@ pub struct TypeEnv {
     traits: IndexMap<String, TraitDef>,
     impls: Vec<ImplDef>,
     builtin_method_schemes: IndexMap<String, BuiltinMethodScheme>,
+}
+
+/// Polymorphic method signature for a built-in type.
+#[derive(Debug, Clone)]
+struct BuiltinMethodScheme {
+    /// Type variables universally quantified in this method.
+    forall: Vec<TypeVarId>,
+    /// The self-type pattern (e.g., `[?T0]` for vector methods).
+    self_type: Type,
+    /// The method's function type (parameters exclude `self`).
+    fn_type: Type,
 }
 
 impl Default for TypeEnv {
@@ -1116,7 +1116,7 @@ impl TypeEnv {
     /// variables that do not appear free in the environment.
     pub fn generalize(&self, ty: &Type, subst: &Substitution) -> TypeScheme {
         let resolved = subst.apply(ty);
-        let ty_vars = free_type_vars(&resolved);
+        let ty_vars = resolved.free_type_vars();
         let env_vars = self.free_env_vars(subst);
         let forall = ty_vars
             .difference(&env_vars)
@@ -1133,7 +1133,7 @@ impl TypeEnv {
         let mut vars = HashSet::new();
         for (_, scheme) in &self.bindings {
             let resolved = subst.apply(&scheme.ty);
-            let scheme_free = free_type_vars(&resolved);
+            let scheme_free = resolved.free_type_vars();
             let quantified = scheme
                 .forall
                 .iter()
@@ -1159,38 +1159,6 @@ impl TypeEnv {
                 .expect("scope_starts checked non-empty");
             self.bindings.truncate(start);
         }
-    }
-}
-
-/// Collects all free type variables in a type.
-pub fn free_type_vars(ty: &Type) -> HashSet<TypeVarId> {
-    let mut vars = HashSet::new();
-    collect_free_vars(ty, &mut vars);
-    vars
-}
-
-fn collect_free_vars(ty: &Type, vars: &mut HashSet<TypeVarId>) {
-    match ty {
-        Type::Var(id) => {
-            vars.insert(*id);
-        }
-        Type::Vector(elem) | Type::Set(elem) | Type::Range(elem) => collect_free_vars(elem, vars),
-        Type::Map(k, v) => {
-            collect_free_vars(k, vars);
-            collect_free_vars(v, vars);
-        }
-        Type::Function(FnType { params, ret }) => {
-            for p in params {
-                collect_free_vars(p, vars);
-            }
-            collect_free_vars(ret, vars);
-        }
-        Type::Struct(_, args) | Type::Enum(_, args) => {
-            for a in args {
-                collect_free_vars(a, vars);
-            }
-        }
-        _ => {}
     }
 }
 

@@ -1,5 +1,6 @@
 //! Core type representations for the type system.
 
+use std::collections::HashSet;
 use std::fmt;
 use std::rc::Rc;
 
@@ -85,122 +86,6 @@ impl TypeScheme {
     }
 }
 
-impl Type {
-    /// Rewrites a literal `expr`ession to match `self`'s numeric type.
-    ///
-    /// Called after the `TypeChecker`'s range checking has confirmed the value fits. For negated
-    /// literals, the prefix is collapsed into a single signed literal node.
-    pub fn coerce_literal(&self, expr: &mut Expr) {
-        let Some(value) = expr.extract_integer_value() else {
-            return;
-        };
-        let span = expr.span();
-
-        let kind = match *self {
-            Self::I8 => NumKind::I8,
-            Self::I16 => NumKind::I16,
-            Self::I32 => NumKind::I32,
-            Self::I64 => NumKind::I64,
-            Self::I128 => NumKind::I128,
-            Self::Isize => NumKind::Isize,
-            Self::U8 => NumKind::U8,
-            Self::U16 => NumKind::U16,
-            Self::U32 => NumKind::U32,
-            Self::U64 => NumKind::U64,
-            Self::U128 => NumKind::U128,
-            Self::Usize => NumKind::Usize,
-            _ => return,
-        };
-
-        *expr = Expr::Number(Number {
-            kind,
-            value,
-            radix: Radix::Dec,
-            span,
-        });
-    }
-
-    /// Returns `true` if this is any integer type (signed or unsigned).
-    pub fn is_integer(&self) -> bool {
-        self.is_signed() || self.is_unsigned()
-    }
-
-    /// Returns `true` if this is a signed integer type.
-    pub fn is_signed(&self) -> bool {
-        matches!(
-            self,
-            Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::I128 | Self::Isize
-        )
-    }
-
-    /// Returns `true` if this is an unsigned integer type.
-    pub fn is_unsigned(&self) -> bool {
-        matches!(
-            self,
-            Self::U8 | Self::U16 | Self::U32 | Self::U64 | Self::U128 | Self::Usize
-        )
-    }
-
-    /// Returns the bit width for integer types, treating `isize`/`usize` as 64-bit.
-    ///
-    /// Returns `None` for non-integer types.
-    pub fn int_bit_width(&self) -> Option<u32> {
-        match self {
-            Self::I8 | Self::U8 => Some(8),
-            Self::I16 | Self::U16 => Some(16),
-            Self::I32 | Self::U32 => Some(32),
-            Self::I64 | Self::U64 | Self::Isize | Self::Usize => Some(64),
-            Self::I128 | Self::U128 => Some(128),
-            _ => None,
-        }
-    }
-
-    /// Returns `(is_signed, bit_width)` for an integer type.
-    pub fn int_sign_bit_width(&self) -> Option<(bool, u32)> {
-        let width = self.int_bit_width()?;
-        Some((self.is_signed(), width))
-    }
-
-    /// Converts an internal `Type` to a `NumKind` for generating cast nodes.
-    ///
-    /// Returns `None` for non-numeric types since cast nodes only support numeric targets.
-    pub fn to_number_kind(&self) -> Option<NumKind> {
-        match self {
-            Self::I8 => Some(NumKind::I8),
-            Self::I16 => Some(NumKind::I16),
-            Self::I32 => Some(NumKind::I32),
-            Self::I64 => Some(NumKind::I64),
-            Self::I128 => Some(NumKind::I128),
-            Self::Isize => Some(NumKind::Isize),
-            Self::U8 => Some(NumKind::U8),
-            Self::U16 => Some(NumKind::U16),
-            Self::U32 => Some(NumKind::U32),
-            Self::U64 => Some(NumKind::U64),
-            Self::U128 => Some(NumKind::U128),
-            Self::Usize => Some(NumKind::Usize),
-            _ => None,
-        }
-    }
-
-    /// Converts a `NumKind` (for `as` casts) to an internal `Type`.
-    pub fn from_number_kind(num: &NumKind) -> Self {
-        match num {
-            NumKind::I8 => Self::I8,
-            NumKind::I16 => Self::I16,
-            NumKind::I32 => Self::I32,
-            NumKind::I64 => Self::I64,
-            NumKind::I128 => Self::I128,
-            NumKind::Isize => Self::Isize,
-            NumKind::U8 => Self::U8,
-            NumKind::U16 => Self::U16,
-            NumKind::U32 => Self::U32,
-            NumKind::U64 => Self::U64,
-            NumKind::U128 => Self::U128,
-            NumKind::Usize => Self::Usize,
-        }
-    }
-}
-
 /// A registered struct definition in the type registry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StructDef {
@@ -280,6 +165,204 @@ pub struct ImplDef {
     pub trait_name: Option<String>,
     /// Methods defined in this impl block: `(method_name, function_type)`.
     pub methods: Vec<(String, Type)>,
+}
+
+impl Type {
+    /// Rewrites a literal `expr`ession to match `self`'s numeric type.
+    ///
+    /// Called after the `TypeChecker`'s range checking has confirmed the value fits. For negated
+    /// literals, the prefix is collapsed into a single signed literal node.
+    pub fn coerce_literal(&self, expr: &mut Expr) {
+        let Some(value) = expr.extract_integer_value() else {
+            return;
+        };
+        let span = expr.span();
+
+        let kind = match *self {
+            Self::I8 => NumKind::I8,
+            Self::I16 => NumKind::I16,
+            Self::I32 => NumKind::I32,
+            Self::I64 => NumKind::I64,
+            Self::I128 => NumKind::I128,
+            Self::Isize => NumKind::Isize,
+            Self::U8 => NumKind::U8,
+            Self::U16 => NumKind::U16,
+            Self::U32 => NumKind::U32,
+            Self::U64 => NumKind::U64,
+            Self::U128 => NumKind::U128,
+            Self::Usize => NumKind::Usize,
+            _ => return,
+        };
+
+        *expr = Expr::Number(Number {
+            kind,
+            value,
+            radix: Radix::Dec,
+            span,
+        });
+    }
+
+    /// Collects all free type variables in a type.
+    pub fn free_type_vars(&self) -> HashSet<TypeVarId> {
+        let mut vars = HashSet::new();
+        self.collect_free_vars(&mut vars);
+        vars
+    }
+
+    fn collect_free_vars(&self, vars: &mut HashSet<TypeVarId>) {
+        match self {
+            Self::Var(id) => {
+                vars.insert(*id);
+            }
+            Self::Vector(elem) | Self::Set(elem) | Self::Range(elem) => {
+                elem.collect_free_vars(vars)
+            }
+            Self::Map(key, val) => {
+                key.collect_free_vars(vars);
+                val.collect_free_vars(vars);
+            }
+            Self::Function(FnType { params, ret }) => {
+                for param in params {
+                    param.collect_free_vars(vars);
+                }
+                ret.collect_free_vars(vars);
+            }
+            Self::Struct(_, args) | Self::Enum(_, args) => {
+                for arg in args {
+                    arg.collect_free_vars(vars);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Returns `true` if this is any integer type (signed or unsigned).
+    pub fn is_integer(&self) -> bool {
+        self.is_signed() || self.is_unsigned()
+    }
+
+    /// Returns `true` if this is a signed integer type.
+    pub fn is_signed(&self) -> bool {
+        matches!(
+            self,
+            Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::I128 | Self::Isize
+        )
+    }
+
+    /// Returns `true` if this is an unsigned integer type.
+    pub fn is_unsigned(&self) -> bool {
+        matches!(
+            self,
+            Self::U8 | Self::U16 | Self::U32 | Self::U64 | Self::U128 | Self::Usize
+        )
+    }
+
+    /// Converts a `NumKind` (for `as` casts) to an internal `Type`.
+    pub fn from_number_kind(num: &NumKind) -> Self {
+        match num {
+            NumKind::I8 => Self::I8,
+            NumKind::I16 => Self::I16,
+            NumKind::I32 => Self::I32,
+            NumKind::I64 => Self::I64,
+            NumKind::I128 => Self::I128,
+            NumKind::Isize => Self::Isize,
+            NumKind::U8 => Self::U8,
+            NumKind::U16 => Self::U16,
+            NumKind::U32 => Self::U32,
+            NumKind::U64 => Self::U64,
+            NumKind::U128 => Self::U128,
+            NumKind::Usize => Self::Usize,
+        }
+    }
+
+    /// Infers the type of a literal expression used in a pattern context.
+    pub fn from_literal_expr(expr: &Expr) -> Self {
+        match expr {
+            Expr::Number(lit) => match lit.kind {
+                NumKind::I8 => Self::I8,
+                NumKind::I16 => Self::I16,
+                NumKind::I32 => Self::I32,
+                NumKind::I64 => Self::I64,
+                NumKind::I128 => Self::I128,
+                NumKind::Isize => Self::Isize,
+                NumKind::U8 => Self::U8,
+                NumKind::U16 => Self::U16,
+                NumKind::U32 => Self::U32,
+                NumKind::U64 => Self::U64,
+                NumKind::U128 => Self::U128,
+                NumKind::Usize => Self::Usize,
+            },
+            Expr::Bool(_) => Self::Bool,
+            Expr::Char(_) => Self::Char,
+            Expr::Str(_) => Self::Str,
+            _ => Self::Unit,
+        }
+    }
+
+    /// Maps a resolved type to the dispatch prefix used in builtin qualified names.
+    ///
+    /// Returns `Some("Vector")` for vector types, `Some("str")` for strings,
+    /// `Some("Map")` for map types, `Some("Set")` for set types, and
+    /// `Some(name)` for user-defined structs/enums. Returns `None` for
+    /// unresolved type variables or primitive types that have no inherent methods.
+    pub fn receiver_name(&self) -> Option<String> {
+        match self {
+            Self::Vector(_) => Some("Vector".to_string()),
+            Self::Char => Some("char".to_string()),
+            Self::Str => Some("str".to_string()),
+            Self::Map(..) => Some("Map".to_string()),
+            Self::Set(_) => Some("Set".to_string()),
+            Self::Struct(name, _) | Self::Enum(name, _) => Some(name.to_string()),
+            _ => None,
+        }
+    }
+}
+
+/// Returns `true` if converting `source` to `target` is a lossless widening.
+///
+/// Accepted conversions mirror Rust's `From` impls for integer types:
+/// - Signed widening: `i8-->i16-->i32-->i64-->i128`
+/// - Unsigned widening: `u8-->u16-->u32-->u64-->u128`
+/// - Unsigned-->signed where the target is strictly wider:
+///   `u8-->i16`, `u16-->i32`, `u32-->i64`, `u64-->i128`
+pub fn is_lossless_conversion(source: &Type, target: &Type) -> bool {
+    use Type::*;
+    matches!(
+        (source, target),
+        // Signed widening chain
+        (I8, I16)
+            | (I8, I32)
+            | (I8, I64)
+            | (I8, I128)
+            | (I16, I32)
+            | (I16, I64)
+            | (I16, I128)
+            | (I32, I64)
+            | (I32, I128)
+            | (I64, I128)
+            // Unsigned widening chain
+            | (U8, U16)
+            | (U8, U32)
+            | (U8, U64)
+            | (U8, U128)
+            | (U16, U32)
+            | (U16, U64)
+            | (U16, U128)
+            | (U32, U64)
+            | (U32, U128)
+            | (U64, U128)
+            // Safe cross-sign (unsigned --> strictly wider signed)
+            | (U8, I16)
+            | (U8, I32)
+            | (U8, I64)
+            | (U8, I128)
+            | (U16, I32)
+            | (U16, I64)
+            | (U16, I128)
+            | (U32, I64)
+            | (U32, I128)
+            | (U64, I128)
+    )
 }
 
 impl fmt::Display for Type {

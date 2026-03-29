@@ -4,7 +4,7 @@
 //! [`ModuleExports`] so that downstream modules can import them via
 //! `use` statements.
 
-use maat_types::ty::{EnumDef, ImplDef, StructDef, TraitDef, TypeScheme};
+use maat_types::{EnumDef, ImplDef, StructDef, TraitDef, TypeScheme};
 
 /// The set of publicly visible items exported by a module.
 ///

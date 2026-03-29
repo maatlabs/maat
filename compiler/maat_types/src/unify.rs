@@ -1,17 +1,9 @@
 //! Type unification and substitution for Hindley-Milner inference.
 
 use indexmap::IndexMap;
+use maat_errors::TypeErrorKind;
 
 use crate::{FnType, Type, TypeVarId};
-
-/// Unification error details.
-#[derive(Debug, Clone)]
-pub enum UnifyError {
-    /// These two types cannot be unified.
-    Mismatch(Type, Type),
-    /// A type variable occurs in the type it would be bound to (infinite type).
-    OccursCheck(TypeVarId, Type),
-}
 
 /// A mapping from type variables to their resolved types.
 #[derive(Debug, Clone, Default)]
@@ -25,32 +17,39 @@ impl Substitution {
         Self::default()
     }
 
-    /// Binds a type variable to a type.
-    pub fn bind(&mut self, var: TypeVarId, ty: Type) {
-        self.map.insert(var, ty);
-    }
-
-    /// Binds a type variable to a type, performing the `occurs` check.
-    fn bind_var(&mut self, var: TypeVarId, ty: &Type) -> Result<(), UnifyError> {
-        if self.occurs(var, ty) {
-            return Err(UnifyError::OccursCheck(var, ty.clone()));
-        }
-        self.bind(var, ty.clone());
-        Ok(())
-    }
-
-    /// Returns `true` if the type variable `var` occurs anywhere in `ty`.
-    fn occurs(&self, var: TypeVarId, ty: &Type) -> bool {
+    /// Applies this substitution to a type, recursively resolving all type variables.
+    ///
+    /// # Stack depth
+    ///
+    /// The `Type::Var` branch recurses through chained variable bindings
+    /// (`?0 -> ?1 -> ?2 -> ... -> T`). In well-formed substitutions produced by
+    /// `unify`, chain depth is bounded by the number of distinct type variables
+    /// in the program. However, pathologically deep chains could exhaust the
+    /// call stack in debug builds (where frames are larger and tail-call
+    /// optimization is absent). This is acceptable for the current compiler
+    /// because real Maat programs produce substitution chains of trivial depth.
+    pub fn apply(&self, ty: &Type) -> Type {
         match ty {
-            Type::Var(id) => *id == var,
-            Type::Vector(elem) | Type::Set(elem) | Type::Range(elem) => self.occurs(var, elem),
-            Type::Map(k, v) => self.occurs(var, k) || self.occurs(var, v),
-            Type::Function(fn_ty) => {
-                fn_ty.params.iter().any(|p| self.occurs(var, p)) || self.occurs(var, &fn_ty.ret)
+            Type::Var(id) => match self.get(id) {
+                Some(resolved) => self.apply(resolved),
+                None => ty.clone(),
+            },
+            Type::Vector(elem) => Type::Vector(Box::new(self.apply(elem))),
+            Type::Set(elem) => Type::Set(Box::new(self.apply(elem))),
+            Type::Range(elem) => Type::Range(Box::new(self.apply(elem))),
+            Type::Map(k, v) => Type::Map(Box::new(self.apply(k)), Box::new(self.apply(v))),
+            Type::Function(fn_ty) => Type::Function(FnType {
+                params: fn_ty.params.iter().map(|p| self.apply(p)).collect(),
+                ret: Box::new(self.apply(&fn_ty.ret)),
+            }),
+            Type::Struct(name, args) => {
+                Type::Struct(name.clone(), args.iter().map(|a| self.apply(a)).collect())
             }
-            Type::Tuple(elems) => elems.iter().any(|e| self.occurs(var, e)),
-            Type::Struct(_, args) | Type::Enum(_, args) => args.iter().any(|a| self.occurs(var, a)),
-            _ => false,
+            Type::Enum(name, args) => {
+                Type::Enum(name.clone(), args.iter().map(|a| self.apply(a)).collect())
+            }
+            Type::Tuple(elems) => Type::Tuple(elems.iter().map(|e| self.apply(e)).collect()),
+            _ => ty.clone(),
         }
     }
 
@@ -108,45 +107,59 @@ impl Substitution {
         }
     }
 
-    /// Applies this substitution to a type, recursively resolving all type variables.
-    ///
-    /// # Stack depth
-    ///
-    /// The `Type::Var` branch recurses through chained variable bindings
-    /// (`?0 -> ?1 -> ?2 -> ... -> T`). In well-formed substitutions produced by
-    /// `unify`, chain depth is bounded by the number of distinct type variables
-    /// in the program. However, pathologically deep chains could exhaust the
-    /// call stack in debug builds (where frames are larger and tail-call
-    /// optimization is absent). This is acceptable for the current compiler
-    /// because real Maat programs produce substitution chains of trivial depth.
-    pub fn apply(&self, ty: &Type) -> Type {
-        match ty {
-            Type::Var(id) => match self.get(id) {
-                Some(resolved) => self.apply(resolved),
-                None => ty.clone(),
-            },
-            Type::Vector(elem) => Type::Vector(Box::new(self.apply(elem))),
-            Type::Set(elem) => Type::Set(Box::new(self.apply(elem))),
-            Type::Range(elem) => Type::Range(Box::new(self.apply(elem))),
-            Type::Map(k, v) => Type::Map(Box::new(self.apply(k)), Box::new(self.apply(v))),
-            Type::Function(fn_ty) => Type::Function(FnType {
-                params: fn_ty.params.iter().map(|p| self.apply(p)).collect(),
-                ret: Box::new(self.apply(&fn_ty.ret)),
-            }),
-            Type::Struct(name, args) => {
-                Type::Struct(name.clone(), args.iter().map(|a| self.apply(a)).collect())
-            }
-            Type::Enum(name, args) => {
-                Type::Enum(name.clone(), args.iter().map(|a| self.apply(a)).collect())
-            }
-            Type::Tuple(elems) => Type::Tuple(elems.iter().map(|e| self.apply(e)).collect()),
-            _ => ty.clone(),
-        }
-    }
-
     /// Looks up the binding for a type variable.
     pub fn get(&self, var: &TypeVarId) -> Option<&Type> {
         self.map.get(var)
+    }
+
+    /// Binds a type variable to a type.
+    pub fn bind(&mut self, var: TypeVarId, ty: Type) {
+        self.map.insert(var, ty);
+    }
+
+    /// Binds a type variable to a type, performing the `occurs` check.
+    fn bind_var(&mut self, var: TypeVarId, ty: &Type) -> Result<(), UnifyError> {
+        if self.occurs(var, ty) {
+            return Err(UnifyError::OccursCheck(var, ty.clone()));
+        }
+        self.bind(var, ty.clone());
+        Ok(())
+    }
+
+    /// Returns `true` if the type variable `var` occurs anywhere in `ty`.
+    fn occurs(&self, var: TypeVarId, ty: &Type) -> bool {
+        match ty {
+            Type::Var(id) => *id == var,
+            Type::Vector(elem) | Type::Set(elem) | Type::Range(elem) => self.occurs(var, elem),
+            Type::Map(k, v) => self.occurs(var, k) || self.occurs(var, v),
+            Type::Function(fn_ty) => {
+                fn_ty.params.iter().any(|p| self.occurs(var, p)) || self.occurs(var, &fn_ty.ret)
+            }
+            Type::Tuple(elems) => elems.iter().any(|e| self.occurs(var, e)),
+            Type::Struct(_, args) | Type::Enum(_, args) => args.iter().any(|a| self.occurs(var, a)),
+            _ => false,
+        }
+    }
+}
+
+/// Unification error details.
+#[derive(Debug, Clone)]
+pub enum UnifyError {
+    /// These two types cannot be unified.
+    Mismatch(Type, Type),
+    /// A type variable occurs in the type it would be bound to (infinite type).
+    OccursCheck(TypeVarId, Type),
+}
+
+impl UnifyError {
+    pub fn to_type_error(&self) -> TypeErrorKind {
+        match self {
+            Self::Mismatch(a, b) => TypeErrorKind::Mismatch {
+                expected: a.to_string(),
+                found: b.to_string(),
+            },
+            Self::OccursCheck(id, ty) => TypeErrorKind::OccursCheck(format!("?T{id} in {ty}")),
+        }
     }
 }
 
