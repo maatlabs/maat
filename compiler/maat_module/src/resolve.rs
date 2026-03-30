@@ -15,17 +15,6 @@ use maat_span::Span;
 
 use crate::{ModuleGraph, ModuleId, ModuleResult};
 
-/// DFS coloring for cycle detection.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Color {
-    /// Not yet visited.
-    White,
-    /// Currently on the DFS stack (visiting descendants).
-    Gray,
-    /// Fully processed (all descendants visited).
-    Black,
-}
-
 /// Resolves the complete module dependency graph starting from `entry`.
 ///
 /// Parses all reachable source files, builds the DAG, detects cycles,
@@ -52,6 +41,17 @@ pub fn resolve_module_graph(entry: &Path) -> ModuleResult<ModuleGraph> {
     crate::stdlib::inject_stdlib_modules(&mut resolver.graph)?;
     resolver.compute_topo_order()?;
     Ok(resolver.graph)
+}
+
+/// DFS coloring for cycle detection.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Color {
+    /// Not yet visited.
+    White,
+    /// Currently on the DFS stack (visiting descendants).
+    Gray,
+    /// Fully processed (all descendants visited).
+    Black,
 }
 
 /// Internal state for the recursive module resolution pass.
