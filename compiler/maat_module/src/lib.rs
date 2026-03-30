@@ -22,8 +22,9 @@
 //! produced.
 #![forbid(unsafe_code)]
 
-mod exports;
+pub mod exports;
 mod graph;
+pub mod imports;
 mod pipeline;
 mod resolve;
 mod stdlib;
@@ -33,7 +34,8 @@ use maat_errors::ModuleError;
 /// A specialized [`Result`] type for module resolution operations.
 pub type ModuleResult<T> = std::result::Result<T, ModuleError>;
 
-pub use exports::ModuleExports;
+pub use exports::{self as module_exports, ModuleExports};
 pub use graph::{ModuleGraph, ModuleId, ModuleNode};
+pub use imports::{self as module_imports, ImportKind, ResolvedImport};
 pub use pipeline::{check_and_compile, check_exports};
 pub use resolve::resolve_module_graph;
