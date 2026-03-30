@@ -112,6 +112,9 @@ pub enum TypeErrorKind {
     #[error("numeric overflow: `{value}` out of range for `{target}`")]
     NumericOverflow { value: String, target: String },
 
+    #[error("division by zero: `{value}`")]
+    DivisionByZero { value: String },
+
     #[error("unknown type `{0}`")]
     UnknownType(String),
 
