@@ -25,7 +25,7 @@
 /// Implements Pratt-style operator precedence.
 mod prec;
 /// Reserved identifiers and type names.
-mod reserved;
+pub mod reserved;
 
 use std::cell::Cell;
 
@@ -228,7 +228,17 @@ impl<'src> MaatParser<'src> {
                     let span = input.first().map_or(Span::ZERO, |t| t.span);
                     let msg = match e {
                         ErrMode::Backtrack(ref ctx) | ErrMode::Cut(ref ctx) => {
-                            format!("{ctx:?}")
+                            let display = format!("{ctx}");
+                            if display.trim().is_empty() {
+                                match input.first() {
+                                    Some(t) if !t.literal.is_empty() => {
+                                        format!("unexpected token `{}`", t.literal)
+                                    }
+                                    _ => "unexpected end of input".to_string(),
+                                }
+                            } else {
+                                display
+                            }
                         }
                         ErrMode::Incomplete(_) => "incomplete input".into(),
                     };

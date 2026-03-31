@@ -326,13 +326,23 @@ Unless you explicitly state otherwise, any contribution intentionally submitted 
 
 All 13 crates enforce `#![forbid(unsafe_code)]`. The compiler and VM have been hardened against adversarial input with resource limits, checked arithmetic, and safe type conversions. See [`SECURITY.md`](./SECURITY.md) for the full threat model.
 
+## Roadmap
+
+Maat's development follows a phased milestone plan.
+
+| Milestone | Focus                                                               | Status      |
+| --------- | ------------------------------------------------------------------- | ----------- |
+| **1**     | Rust-native, ZK-correct-by-design, working compiler                 | **Current** |
+| **2**     | STARK-based ZK backend (proof generation and verification)          | Planned     |
+| **3**     | Advanced type system (linear types, effect system) and self-hosting | Planned     |
+
 ## Status
 
-Maat is currently at version 0.11 and is still going through several improvements in order to deliver the best-in-class experience as a fully-fledged Turing-complete ZK programming language.
+Maat is currently at version `0.11.1` (Milestone 1). The compiler frontend, type system, module system, bytecode VM, and CLI toolchain are functional and tested. This is the first public release.
 
 ## Disclaimer
 
-Early adopters should be aware that Maat 0.11 is a transient accomplishment towards Maat 1.0, for which a formal audit process is expected. In the meantime, we invite you to know and experiment with Maat, but we don't recommend using it to build mission-critical systems.
+Early adopters should be aware that Maat `0.11.1` is a step toward Maat 1.0, for which a formal audit process is expected. In the meantime, we invite you to explore and experiment with Maat, but we do not recommend using it to build mission-critical systems.
 
 ## Acknowledgments
 

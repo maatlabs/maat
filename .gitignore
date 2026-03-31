@@ -13,3 +13,13 @@ target
 
 # REPL history
 .maat_history
+
+# Profiling artifacts
+*.profraw
+*.profdata
+perf.data*
+
+# Editor swap files
+*.swp
+*.swo
+*~

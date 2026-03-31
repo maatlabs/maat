@@ -210,13 +210,18 @@ fn try_fold_infix(infix: &InfixExpr, errors: &mut Vec<TypeError>) -> Option<Expr
                     span,
                 })),
                 _ => {
-                    errors.push(
+                    let is_division = matches!(op, "/" | "%");
+                    let error = if is_division && r.value == 0 {
+                        TypeErrorKind::DivisionByZero {
+                            value: format!("{} {op} {}", l.value, r.value),
+                        }
+                    } else {
                         TypeErrorKind::NumericOverflow {
                             value: format!("{} {op} {}", l.value, r.value),
                             target: l.kind.as_str().to_string(),
                         }
-                        .at(span),
-                    );
+                    };
+                    errors.push(error.at(span));
                     None
                 }
             }

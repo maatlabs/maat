@@ -31,18 +31,6 @@ const STD_SET: &str = include_str!("../../../library/std/set.maat");
 /// Embedded source for `std::map`.
 const STD_MAP: &str = include_str!("../../../library/std/map.maat");
 
-/// Returns the embedded source for a standard library module, if it exists.
-fn lookup_stdlib_source(module_name: &str) -> Option<&'static str> {
-    match module_name {
-        "math" => Some(STD_MATH),
-        "string" => Some(STD_STRING),
-        "vec" => Some(STD_VEC),
-        "set" => Some(STD_SET),
-        "map" => Some(STD_MAP),
-        _ => None,
-    }
-}
-
 /// Scans all modules in the graph for `use std::X` imports and adds the
 /// corresponding standard library modules to the graph.
 ///
@@ -96,6 +84,18 @@ fn collect_std_imports(program: &Program) -> Vec<String> {
         }
     }
     names
+}
+
+/// Returns the embedded source for a standard library module, if it exists.
+fn lookup_stdlib_source(module_name: &str) -> Option<&'static str> {
+    match module_name {
+        "math" => Some(STD_MATH),
+        "string" => Some(STD_STRING),
+        "vec" => Some(STD_VEC),
+        "set" => Some(STD_SET),
+        "map" => Some(STD_MAP),
+        _ => None,
+    }
 }
 
 /// Parses an embedded stdlib source string into a [`Program`].

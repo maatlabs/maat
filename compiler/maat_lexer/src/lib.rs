@@ -14,7 +14,7 @@ mod token;
 use logos::{Filter, Lexer, Logos, Skip};
 use maat_span::Span;
 use num::{NumSuffix, NumToken};
-pub use token::{Token, TokenKind};
+pub use token::{KEYWORDS, Token, TokenKind};
 
 /// The main lexer/tokenizer for Maat.
 ///

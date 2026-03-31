@@ -73,7 +73,7 @@ println!("{}", s.starts_with("Hello"));
 println!("{}", s.ends_with("!"));
 println!("{}", s.trim());
 
-let words = s.split(" ");
+let words = s.split(", ");
 println!("{}", words);
 println!("{}", words.join("-"));
 

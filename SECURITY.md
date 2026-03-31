@@ -1,6 +1,6 @@
 # Security Policy & Threat Model
 
-This document describes the trust boundaries, attacker model, and mitigations for the Maat compiler toolchain. It covers the current state as of v0.10.0 and will be updated as subsequent versions introduce new attack surfaces.
+This document describes the trust boundaries, attacker model, and mitigations for the Maat compiler toolchain. It covers the current state as of v0.11.1 and will be updated as subsequent versions introduce new attack surfaces.
 
 ## Trust Boundaries
 
@@ -29,17 +29,17 @@ Source (.maat) --> Compiler Pipeline --> Bytecode (.mtc) --> VM Execution
 
 | Attack vector                      | Mitigation                                                                | Location                      |
 | ---------------------------------- | ------------------------------------------------------------------------- | ----------------------------- |
-| Deeply nested expressions          | Parser nesting depth cap (`MAX_NESTING_DEPTH = 256`)                      | `maat_parser/src/parser.rs`   |
+| Deeply nested expressions          | Parser nesting depth cap (`MAX_NESTING_DEPTH = 256`)                      | `maat_parser/src/lib.rs`      |
 | Extremely long programs            | Constant pool size limit (`MAX_CONSTANT_POOL_SIZE = 65535`)               | `maat_bytecode/src/lib.rs`    |
-| Integer overflow in literals       | Type checker validates literal range via `check_literal_range()`          | `maat_types/src/check.rs`     |
-| Integer overflow in arithmetic     | VM uses `checked_add/sub/mul/div/rem/neg/shl/shr` for all operations      | `maat_vm/src/num.rs`          |
-| Narrowing `as` casts               | VM uses `TryFrom` with range-check errors in `narrow_int()`               | `maat_vm/src/lib.rs`          |
-| Literal-to-object truncation       | `from_number_literal()` returns `Result` via `TryFrom` (defense-in-depth) | `maat_runtime/src/object.rs`  |
+| Integer overflow in literals       | Type checker validates literal range via `check_literal_range()`          | `maat_types/src/lib.rs`       |
+| Integer overflow in arithmetic     | VM uses `checked_add/sub/mul/div/rem/neg/shl/shr` for all operations      | `maat_vm/src/lib.rs`          |
+| Narrowing `as` casts               | VM uses `TryFrom` with range-check errors via `Integer::cast_to()`        | `maat_runtime/src/num.rs`     |
+| Literal-to-object truncation       | `from_number_literal()` returns `Result` via `TryFrom` (defense-in-depth) | `maat_runtime/src/lib.rs`     |
 | Stack overflow via recursion       | VM frame stack limit (`MAX_FRAMES = 1024`)                                | `maat_bytecode/src/lib.rs`    |
 | Stack exhaustion                   | VM stack size limit (`MAX_STACK_SIZE = 2048`)                             | `maat_bytecode/src/lib.rs`    |
 | Enum with >256 variants            | Rejected at compile time (`MAX_ENUM_VARIANTS = 256`)                      | `maat_bytecode/src/lib.rs`    |
 | Circular module imports            | Detected and rejected by module resolver                                  | `maat_module/src/resolve.rs`  |
-| Private item leakage via `pub use` | `pub use` only re-exports items already accessible to the module          | `maat_module/src/pipeline.rs` |
+| Private item leakage via `pub use` | `pub use` only re-exports items already accessible to the module          | `maat_module/src/lib.rs`      |
 
 ### Attacker 2: Malicious `.mtc` Bytecode
 
@@ -77,7 +77,7 @@ Source (.maat) --> Compiler Pipeline --> Bytecode (.mtc) --> VM Execution
 
 **Not yet mitigated:**
 
-- **Infinite loops:** The VM does not impose an instruction execution limit. Programs with `loop {}` will run indefinitely. This is intentional for v0.10.0 —- execution limits will be enforced by the ZK trace-generating VM in subsequent versions, where every instruction has a provable cost.
+- **Infinite loops:** The VM does not impose an instruction execution limit. Programs with `loop {}` will run indefinitely. This is intentional for v0.11.1 —- execution limits will be enforced by the ZK trace-generating VM in subsequent versions, where every instruction has a provable cost.
 - **Algorithmic complexity attacks:** Hash map key collisions are not defended against (Rust's `IndexMap` uses default hashing). This is acceptable for the current single-user execution model.
 
 ## Memory Safety
@@ -88,7 +88,7 @@ All 13 crates in the workspace enforce `#![forbid(unsafe_code)]`. The compiler t
 
 All integer arithmetic in the VM uses Rust's `checked_*` methods. Overflow, underflow, division by zero, and out-of-range shifts produce runtime errors with diagnostic messages —- never silent wrapping or undefined behavior.
 
-The constant folding pass (`maat_ast/src/ast/fold.rs`) uses identical checked arithmetic and validates that folded results fit within the target type's range.
+The constant folding pass (`maat_ast/src/fold.rs`) uses identical checked arithmetic and validates that folded results fit within the target type's range.
 
 Type conversions (`as` casts in Maat source) go through `TryFrom` with range validation. Out-of-range conversions produce runtime errors, not silent truncation.
 
@@ -112,7 +112,7 @@ All five compiler pipeline stages have been fuzz-tested with `cargo-fuzz` (libFu
 - `fuzz_compiler` —- well-typed programs --> compilation
 - `fuzz_deserializer` —- arbitrary bytes --> bytecode deserialization
 
-Results: zero crashes across ~7.3M total fuzz runs (60s per target). See `fuzz/` for targets, corpus, and instructions.
+Results: zero crashes across ~10.7M total fuzz runs (60s per target). See `fuzz/` for targets, corpus, and instructions.
 
 ## Property-Based Testing
 
@@ -128,4 +128,4 @@ See `tests/tests/properties.rs` for the full test suite.
 
 ## Reporting Vulnerabilities
 
-If you discover a security vulnerability, please report it via [GitHub Issues](https://github.com/maatlabs/maat/issues) with the `security` label. For critical vulnerabilities, please email the maintainers directly.
+If you discover a security vulnerability, please report it via [GitHub Security Advisories](https://github.com/maatlabs/maat/security/advisories/new). For non-critical issues, you may also open a [GitHub Issue](https://github.com/maatlabs/maat/issues) with the `security` label.

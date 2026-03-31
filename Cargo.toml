@@ -20,10 +20,11 @@ default-members = ["compiler/maat"]
 exclude = ["fuzz"]
 
 [workspace.package]
-version = "0.11.0"
+version = "0.11.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/maatlabs/maat"
+readme = "README.md"
 
 [workspace.dependencies]
 ariadne = "0.6"

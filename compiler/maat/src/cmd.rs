@@ -65,7 +65,7 @@ pub fn execute(path: &Path) {
     };
     let mut vm = VM::new(bytecode);
     if let Err(e) = vm.run() {
-        eprintln!("{}: vm error: {e}", path.display());
+        eprintln!("error: {}: {e}", path.display());
         process::exit(1);
     }
     if let Some(result) = vm.last_popped_stack_elem()
@@ -87,7 +87,7 @@ pub fn run(path: &Path) {
     let bytecode = compile_source(path);
     let mut vm = VM::new(bytecode);
     if let Err(e) = vm.run() {
-        eprintln!("{}: vm error: {}", path.display(), e);
+        eprintln!("error: {}: {}", path.display(), e);
         process::exit(1);
     }
     if let Some(result) = vm.last_popped_stack_elem()

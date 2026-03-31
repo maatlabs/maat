@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] - 2026-03-31
+
+REPL bug fixes and public release. CLI diagnostics also improved for better error reporting. Minor internal module/crate reorganization.
+
+### Changed
+
+- **`maat_module`**: Consolidated API -- free functions converted to methods on `ModuleExports` and `ResolvedImport`; tightened module visibility
+- **Parse error messages**: Replaced raw `ContextError { context: [], cause: None }` debug output with human-readable `unexpected token \`X\`` messages
+- **VM error messages**: Fixed `vm error: vm error:` stutter in CLI error output for runtime errors
+
+### Fixed
+
+- REPL bug fixes from v0.11.0 regression
+
+### Security
+
+- Update the security policy and threat model document (`SECURITY.md`)
+- Added copyright lines to MIT and Apache-2.0 license files
+- Added `.gitignore` exclusions for profiling artifacts
+- Added license declaration to fuzz crate `Cargo.toml`
+
 ## [0.11.0] - 2026-03-26
 
 Major language ergonomics and compiler infrastructure release. Maat's compiler frontend has been rebuilt on industrial-strength foundations: `logos` for lexing and `winnow` for parsing. The language gains tuples, `char`, the `?` operator, `Map<K, V>`, higher-order collection methods, builtin macros (`println!`, `assert!`, `panic!`), and Rust-native control-flow syntax (no mandatory parentheses on `if`/`while`). The runtime value system has been overhauled to cleanly separate AST nodes from runtime values, `Null` has been replaced with typed `Unit`, and `Array` has been renamed to `Vector`. Implicit numeric promotion has been removed in favor of explicit conversions.
@@ -850,6 +871,7 @@ When adding entries to this changelog for future releases:
 3. **Audience**: Write for users, not developers (focus on impact, not implementation)
 4. **Links**: Add comparison links at the bottom: `[0.2.0]: https://github.com/maatlabs/maat/compare/v0.1.0...v0.2.0`
 
+[0.11.1]: https://github.com/maatlabs/maat/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/maatlabs/maat/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/maatlabs/maat/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/maatlabs/maat/compare/v0.8.0...v0.9.0

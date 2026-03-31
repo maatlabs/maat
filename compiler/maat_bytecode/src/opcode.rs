@@ -426,6 +426,24 @@ impl TypeTag {
             Self::Usize => NumKind::Usize,
         }
     }
+
+    /// Maps a source-level type annotation to a bytecode type tag.
+    pub fn from_num_kind(t: NumKind) -> Self {
+        match t {
+            NumKind::I8 => Self::I8,
+            NumKind::I16 => Self::I16,
+            NumKind::I32 => Self::I32,
+            NumKind::I64 => Self::I64,
+            NumKind::I128 => Self::I128,
+            NumKind::Isize => Self::Isize,
+            NumKind::U8 => Self::U8,
+            NumKind::U16 => Self::U16,
+            NumKind::U32 => Self::U32,
+            NumKind::U64 => Self::U64,
+            NumKind::U128 => Self::U128,
+            NumKind::Usize => Self::Usize,
+        }
+    }
 }
 
 #[cfg(test)]
