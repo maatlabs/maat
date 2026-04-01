@@ -1,9 +1,13 @@
 [package]
 name = "maat_span"
+description = "Source span and location types for the Maat compiler"
+keywords = ["compiler", "maat", "zero-knowledge", "zk", "span"]
+categories = ["compilers"]
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 
 [dependencies]
 serde.workspace = true

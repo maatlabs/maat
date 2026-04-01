@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.2] - 2026-04-01
+
+`crates.io` publication release. All 13 crates published to `crates.io`, enabling `cargo install maat` as the canonical install path.
+
+### Changed
+
+- **All `Cargo.toml` files**: Added `description`, `keywords`, `categories`, and `homepage` metadata required for `crates.io` publication
+- **Internal path dependencies**: Added `version` alongside `path` in all internal dep entries so `crates.io` consumers resolve by version while local workspace builds continue using paths
+- **Workspace version**: Bumped to `0.11.2`
+
+---
+
 ## [0.11.1] - 2026-03-31
 
 REPL bug fixes and public release. CLI diagnostics also improved for better error reporting. Minor internal module/crate reorganization.

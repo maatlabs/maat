@@ -1,10 +1,14 @@
 [package]
 name = "maat_errors"
+description = "Compiler error types and diagnostic infrastructure for the Maat programming language"
+keywords = ["compiler", "maat", "zero-knowledge", "zk", "errors"]
+categories = ["compilers"]
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 
 [dependencies]
-maat_span = { path = "../maat_span" }
+maat_span = { path = "../maat_span", version = "0.11.2" }
 thiserror = "2.0"

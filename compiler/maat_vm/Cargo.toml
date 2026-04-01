@@ -1,19 +1,23 @@
 [package]
 name = "maat_vm"
+description = "Stack-based virtual machine for executing Maat bytecode"
+keywords = ["compiler", "maat", "zero-knowledge", "vm", "zk"]
+categories = ["compilers"]
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 
 [dependencies]
 indexmap.workspace = true
-maat_bytecode = { path = "../maat_bytecode" }
-maat_errors = { path = "../maat_errors" }
-maat_runtime = { path = "../maat_runtime" }
-maat_span = { path = "../maat_span" }
+maat_bytecode = { path = "../maat_bytecode", version = "0.11.2" }
+maat_errors = { path = "../maat_errors", version = "0.11.2" }
+maat_runtime = { path = "../maat_runtime", version = "0.11.2" }
+maat_span = { path = "../maat_span", version = "0.11.2" }
 
 [dev-dependencies]
-maat_ast = { path = "../maat_ast" }
-maat_codegen = { path = "../maat_codegen" }
-maat_lexer = { path = "../maat_lexer" }
-maat_parser = { path = "../maat_parser" }
+maat_ast = { path = "../maat_ast", version = "0.11.2" }
+maat_codegen = { path = "../maat_codegen", version = "0.11.2" }
+maat_lexer = { path = "../maat_lexer", version = "0.11.2" }
+maat_parser = { path = "../maat_parser", version = "0.11.2" }

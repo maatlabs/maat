@@ -23,13 +23,21 @@ Source files written in Maat use the `.maat` extension. Compiled bytecode files 
 
 ### Installation
 
-Clone the repository and build the project:
+Install the latest release directly from [crates.io](https://crates.io/crates/maat):
+
+```bash
+cargo install maat
+```
+
+Or build from source:
 
 ```bash
 git clone https://github.com/maatlabs/maat.git
 cd maat
 cargo build --release
 ```
+
+> **Note (source builds):** When running from a source build instead of `cargo install`, substitute `cargo run --release --` for `maat` in all commands below (e.g., `cargo run --release -- run file.maat`).
 
 ### The `maat` Binary
 
@@ -45,7 +53,7 @@ Maat provides a single binary with four subcommands:
 To see version information:
 
 ```bash
-cargo run --release -- --version
+maat --version
 ```
 
 ### Running Source Files
@@ -53,14 +61,14 @@ cargo run --release -- --version
 Compile and execute a Maat source file in a single step:
 
 ```bash
-cargo run --release -- run examples/hello_world.maat
+maat run examples/hello_world.maat
 ```
 
 Or use the build-then-execute workflow for faster repeated execution:
 
 ```bash
-cargo run --release -- build examples/hello_world.maat -o hello_world.mtc
-cargo run --release -- exec hello_world.mtc
+maat build examples/hello_world.maat -o hello_world.mtc
+maat exec hello_world.mtc
 ```
 
 ### Multi-Module Projects
@@ -114,14 +122,14 @@ fn internal_helper() -> i64 { 0 }
 Run it:
 
 ```bash
-cargo run --release -- run my_project/main.maat
+maat run my_project/main.maat
 ```
 
 Build it to a single `.mtc`:
 
 ```bash
-cargo run --release -- build my_project/main.maat -o my_project.mtc
-cargo run --release -- exec my_project.mtc
+maat build my_project/main.maat -o my_project.mtc
+maat exec my_project.mtc
 ```
 
 Key rules:
@@ -139,7 +147,7 @@ A working multi-module example is included at `examples/modules/`.
 Start an interactive REPL session. The REPL compiles each line to bytecode and executes it on the VM:
 
 ```bash
-cargo run --release -- repl
+maat repl
 ```
 
 Example session:
@@ -338,11 +346,11 @@ Maat's development follows a phased milestone plan.
 
 ## Status
 
-Maat is currently at version `0.11.1` (Milestone 1). The compiler frontend, type system, module system, bytecode VM, and CLI toolchain are functional and tested. This is the first public release.
+Maat is currently at version `0.11.2` (Milestone 1). The compiler frontend, type system, module system, bytecode VM, and CLI toolchain are functional and tested. This is the first public release.
 
 ## Disclaimer
 
-Early adopters should be aware that Maat `0.11.1` is a step toward Maat 1.0, for which a formal audit process is expected. In the meantime, we invite you to explore and experiment with Maat, but we do not recommend using it to build mission-critical systems.
+Early adopters should be aware that Maat `0.11.2` is a step toward Maat 1.0, for which a formal audit process is expected. In the meantime, we invite you to explore and experiment with Maat, but we do not recommend using it to build mission-critical systems.
 
 ## Acknowledgments
 

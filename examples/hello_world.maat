@@ -4,7 +4,7 @@ let greeting = "Hello, Maat!";
 println!("{greeting}");
 
 let language = "Maat";
-let version = "0.11.1";
+let version = "0.11.2";
 println!("Welcome to {language} v{version}");
 
 // Numeric bindings and basic expressions

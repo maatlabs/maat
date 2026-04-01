@@ -1,13 +1,17 @@
 [package]
 name = "maat_parser"
+description = "Combinator-based parser for the Maat programming language"
+keywords = ["compiler", "maat", "zero-knowledge", "parser", "zk"]
+categories = ["compilers", "parser-implementations"]
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 
 [dependencies]
 winnow = "1"
-maat_span = { path = "../maat_span" }
-maat_errors = { path = "../maat_errors" }
-maat_lexer = { path = "../maat_lexer" }
-maat_ast = { path = "../maat_ast" }
+maat_span = { path = "../maat_span", version = "0.11.2" }
+maat_errors = { path = "../maat_errors", version = "0.11.2" }
+maat_lexer = { path = "../maat_lexer", version = "0.11.2" }
+maat_ast = { path = "../maat_ast", version = "0.11.2" }

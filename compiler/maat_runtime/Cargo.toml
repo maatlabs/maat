@@ -1,14 +1,18 @@
 [package]
 name = "maat_runtime"
+description = "Runtime value types for the Maat virtual machine"
+keywords = ["compiler", "maat", "zero-knowledge", "runtime", "zk"]
+categories = ["compilers"]
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 
 [dependencies]
 indexmap.workspace = true
 serde.workspace = true
 
-maat_ast = { path = "../maat_ast" }
-maat_errors = { path = "../maat_errors" }
-maat_span = { path = "../maat_span" }
+maat_ast = { path = "../maat_ast", version = "0.11.2" }
+maat_errors = { path = "../maat_errors", version = "0.11.2" }
+maat_span = { path = "../maat_span", version = "0.11.2" }

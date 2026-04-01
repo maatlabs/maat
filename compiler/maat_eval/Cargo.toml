@@ -1,12 +1,16 @@
 [package]
 name = "maat_eval"
+description = "Tree-walking interpreter for the Maat programming language"
+keywords = ["compiler", "maat", "zero-knowledge", "interpreter", "zk"]
+categories = ["compilers"]
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 
 [dependencies]
 indexmap.workspace = true
-maat_ast = { path = "../maat_ast" }
-maat_errors = { path = "../maat_errors" }
-maat_runtime = { path = "../maat_runtime" }
+maat_ast = { path = "../maat_ast", version = "0.11.2" }
+maat_errors = { path = "../maat_errors", version = "0.11.2" }
+maat_runtime = { path = "../maat_runtime", version = "0.11.2" }

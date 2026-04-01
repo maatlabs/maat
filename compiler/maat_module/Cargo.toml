@@ -1,20 +1,24 @@
 [package]
 name = "maat_module"
+description = "Module system and multi-file compilation for the Maat programming language"
+keywords = ["compiler", "maat", "zero-knowledge", "modules", "zk"]
+categories = ["compilers"]
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 
 [dependencies]
-maat_ast = { path = "../maat_ast" }
-maat_bytecode = { path = "../maat_bytecode" }
-maat_codegen = { path = "../maat_codegen" }
-maat_errors = { path = "../maat_errors" }
-maat_lexer = { path = "../maat_lexer" }
-maat_parser = { path = "../maat_parser" }
-maat_runtime = { path = "../maat_runtime" }
-maat_span = { path = "../maat_span" }
-maat_types = { path = "../maat_types" }
+maat_ast = { path = "../maat_ast", version = "0.11.2" }
+maat_bytecode = { path = "../maat_bytecode", version = "0.11.2" }
+maat_codegen = { path = "../maat_codegen", version = "0.11.2" }
+maat_errors = { path = "../maat_errors", version = "0.11.2" }
+maat_lexer = { path = "../maat_lexer", version = "0.11.2" }
+maat_parser = { path = "../maat_parser", version = "0.11.2" }
+maat_runtime = { path = "../maat_runtime", version = "0.11.2" }
+maat_span = { path = "../maat_span", version = "0.11.2" }
+maat_types = { path = "../maat_types", version = "0.11.2" }
 
 [dev-dependencies]
 tempfile = "3"

@@ -1,28 +1,32 @@
 [package]
 name = "maat"
+description = "The Maat programming language -- Rust-native syntax for writing zero-knowledge proofs"
+keywords = ["compiler", "maat", "zero-knowledge", "zk", "cryptography"]
+categories = ["compilers", "command-line-utilities"]
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 
 [[bin]]
 name = "maat"
 path = "src/main.rs"
 
 [dependencies]
-ariadne.workspace = true
+ariadne = "0.6"
 clap = { version = "4", features = ["derive"] }
-rustyline = { version = "15", features = ["with-file-history", "derive"] }
+rustyline = { version = "18", features = ["with-file-history", "derive"] }
 
-maat_ast = { path = "../maat_ast" }
-maat_bytecode = { path = "../maat_bytecode" }
-maat_codegen = { path = "../maat_codegen" }
-maat_errors = { path = "../maat_errors" }
-maat_eval = { path = "../maat_eval" }
-maat_lexer = { path = "../maat_lexer" }
-maat_module = { path = "../maat_module" }
-maat_parser = { path = "../maat_parser" }
-maat_runtime = { path = "../maat_runtime" }
-maat_types = { path = "../maat_types" }
-maat_span = { path = "../maat_span" }
-maat_vm = { path = "../maat_vm" }
+maat_ast = { path = "../maat_ast", version = "0.11.2" }
+maat_bytecode = { path = "../maat_bytecode", version = "0.11.2" }
+maat_codegen = { path = "../maat_codegen", version = "0.11.2" }
+maat_errors = { path = "../maat_errors", version = "0.11.2" }
+maat_eval = { path = "../maat_eval", version = "0.11.2" }
+maat_lexer = { path = "../maat_lexer", version = "0.11.2" }
+maat_module = { path = "../maat_module", version = "0.11.2" }
+maat_parser = { path = "../maat_parser", version = "0.11.2" }
+maat_runtime = { path = "../maat_runtime", version = "0.11.2" }
+maat_types = { path = "../maat_types", version = "0.11.2" }
+maat_span = { path = "../maat_span", version = "0.11.2" }
+maat_vm = { path = "../maat_vm", version = "0.11.2" }

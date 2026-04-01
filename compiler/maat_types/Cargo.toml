@@ -1,12 +1,16 @@
 [package]
 name = "maat_types"
+description = "Hindley-Milner type inference engine for the Maat programming language"
+keywords = ["compiler", "maat", "zero-knowledge", "types", "zk"]
+categories = ["compilers"]
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 
 [dependencies]
 indexmap.workspace = true
-maat_ast = { path = "../maat_ast" }
-maat_errors = { path = "../maat_errors" }
-maat_span = { path = "../maat_span" }
+maat_ast = { path = "../maat_ast", version = "0.11.2" }
+maat_errors = { path = "../maat_errors", version = "0.11.2" }
+maat_span = { path = "../maat_span", version = "0.11.2" }
