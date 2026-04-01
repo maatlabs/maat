@@ -319,6 +319,7 @@ Errors are reported with precise `file:line:col` locations using source maps and
 | `maat_codegen`  | AST-to-bytecode compiler with scope analysis                     |
 | `maat_module`   | Module resolution, dependency graph, and multi-module pipeline   |
 | `maat_vm`       | Stack-based virtual machine                                      |
+| `maat_stdlib`   | Embedded standard library sources (`std::math`, `std::vec`, …)   |
 
 ## Contributing
 
@@ -332,7 +333,7 @@ Unless you explicitly state otherwise, any contribution intentionally submitted 
 
 ## Security
 
-All 13 crates enforce `#![forbid(unsafe_code)]`. The compiler and VM have been hardened against adversarial input with resource limits, checked arithmetic, and safe type conversions. See [`SECURITY.md`](./SECURITY.md) for the full threat model.
+All 14 crates enforce `#![forbid(unsafe_code)]`. The compiler and VM have been hardened against adversarial input with resource limits, checked arithmetic, and safe type conversions. See [`SECURITY.md`](./SECURITY.md) for the full threat model.
 
 ## Roadmap
 

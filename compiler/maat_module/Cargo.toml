@@ -10,6 +10,7 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
+maat_stdlib = { path = "../../library", version = "0.11.2" }
 maat_ast = { path = "../maat_ast", version = "0.11.2" }
 maat_bytecode = { path = "../maat_bytecode", version = "0.11.2" }
 maat_codegen = { path = "../maat_codegen", version = "0.11.2" }

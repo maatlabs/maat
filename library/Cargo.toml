@@ -1,0 +1,10 @@
+[package]
+name = "maat_stdlib"
+description = "Standard library sources for the Maat programming language"
+keywords = ["compiler", "maat", "zero-knowledge", "stdlib", "zk"]
+categories = ["compilers"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true

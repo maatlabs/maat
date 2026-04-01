@@ -14,6 +14,7 @@ members = [
     "compiler/maat_vm",
     "compiler/maat_module",
     "compiler/maat",
+    "library",
     "tests",
 ]
 default-members = ["compiler/maat"]

@@ -13,23 +13,9 @@ use maat_errors::ModuleErrorKind;
 use maat_lexer::MaatLexer;
 use maat_parser::MaatParser;
 use maat_span::Span;
+use maat_stdlib::{STD_MAP, STD_MATH, STD_SET, STD_STRING, STD_VEC};
 
 use crate::{ModuleGraph, ModuleId, ModuleResult};
-
-/// Embedded source for `std::math`.
-const STD_MATH: &str = include_str!("../../../library/std/math.maat");
-
-/// Embedded source for `std::string`.
-const STD_STRING: &str = include_str!("../../../library/std/string.maat");
-
-/// Embedded source for `std::vec`.
-const STD_VEC: &str = include_str!("../../../library/std/vec.maat");
-
-/// Embedded source for `std::set`.
-const STD_SET: &str = include_str!("../../../library/std/set.maat");
-
-/// Embedded source for `std::map`.
-const STD_MAP: &str = include_str!("../../../library/std/map.maat");
 
 /// Scans all modules in the graph for `use std::X` imports and adds the
 /// corresponding standard library modules to the graph.
