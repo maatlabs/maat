@@ -21,6 +21,7 @@ enum TestValue {
     Map(Vec<(i64, i64)>),
     Range(i64, i64),
     RangeInclusive(i64, i64),
+    Char(char),
     Unit,
 }
 
@@ -178,6 +179,12 @@ fn run_vm_test(input: &str, expected: TestValue) {
                 stack_elem
             );
         }
+        TestValue::Char(exp) => match stack_elem {
+            Value::Char(val) => {
+                assert_eq!(val, exp, "wrong char value for input: {input}")
+            }
+            _ => panic!("expected char, got: {stack_elem:?}"),
+        },
         TestValue::Unit => {
             assert_eq!(
                 stack_elem,
@@ -617,7 +624,7 @@ fn stack_underflow() {
 }
 
 #[test]
-fn closures() {
+fn lambda_expressions() {
     let cases = vec![
         (
             "let newClosure = fn(a) { fn() { a; }; }; let closure = newClosure(99); closure();",
@@ -642,6 +649,47 @@ fn closures() {
         (
             "let newClosure = fn(a, b) { let one = fn() { a; }; let two = fn() { b; }; fn() { one() + two(); }; }; let closure = newClosure(9, 90); closure();",
             TestValue::I64(99),
+        ),
+    ];
+    for (input, expected) in cases {
+        run_vm_test(input, expected);
+    }
+}
+
+#[test]
+fn pipe_closures() {
+    let cases = vec![
+        // Single expression body
+        (
+            "let double = |x: i64| x * 2; double(5);",
+            TestValue::I64(10),
+        ),
+        // Block body
+        (
+            "let add = |x: i64, y: i64| { x + y }; add(3, 4);",
+            TestValue::I64(7),
+        ),
+        // Zero-parameter closure
+        ("let f = || 42; f();", TestValue::I64(42)),
+        // Closure capturing outer variable
+        (
+            "let base = 100; let offset = |x: i64| base + x; offset(5);",
+            TestValue::I64(105),
+        ),
+        // Nested pipe closures
+        (
+            "let make_adder = |a: i64| |b: i64| a + b; let add5 = make_adder(5); add5(10);",
+            TestValue::I64(15),
+        ),
+        // Pipe closure as argument to higher-order function
+        (
+            "let apply = fn(f, x: i64) { f(x) }; apply(|x: i64| x * x, 7);",
+            TestValue::I64(49),
+        ),
+        // With return type annotation
+        (
+            "let inc = |x: i64| -> i64 { x + 1 }; inc(9);",
+            TestValue::I64(10),
         ),
     ];
     for (input, expected) in cases {
@@ -747,6 +795,19 @@ fn cast_expressions() {
     for (input, expected) in cases {
         run_vm_test(input, expected);
     }
+    // Char ↔ integer casts
+    let char_cases = vec![
+        ("'a' as u32", TestValue::U32(97)),
+        ("'A' as i64", TestValue::I64(65)),
+        ("'z' as u8", TestValue::U8(122)),
+        ("65u32 as char", TestValue::Char('A')),
+        ("97 as char", TestValue::Char('a')),
+        ("0x1F600 as char", TestValue::Char('\u{1F600}')),
+    ];
+    for (input, expected) in char_cases {
+        run_vm_test(input, expected);
+    }
+
     // Cast errors
     let error_cases = vec![
         ("256 as u8", "out of range for u8"),
@@ -1293,6 +1354,44 @@ fn string_operations() {
     run_vm_test(r#""" + "" + "hello""#, TestValue::Str("hello".to_string()));
     // Escape sequences
     run_vm_test(r#"let s = "line1\nline2"; s.len()"#, TestValue::Usize(11));
+}
+
+#[test]
+fn format_macro() {
+    // Simple literal
+    run_vm_test(r#"format!("hello")"#, TestValue::Str("hello".to_string()));
+    // Empty format
+    run_vm_test(r#"format!("")"#, TestValue::Str(String::new()));
+    // Positional argument
+    run_vm_test(
+        r#"format!("x = {}", 42)"#,
+        TestValue::Str("x = 42".to_string()),
+    );
+    // Multiple positional arguments
+    run_vm_test(
+        r#"format!("{} + {} = {}", 1, 2, 3)"#,
+        TestValue::Str("1 + 2 = 3".to_string()),
+    );
+    // Named capture
+    run_vm_test(
+        r#"let name = "world"; format!("hello {name}")"#,
+        TestValue::Str("hello world".to_string()),
+    );
+    // Mixed positional and named captures
+    run_vm_test(
+        r#"let greeting = "hi"; format!("{greeting}, {}!", "there")"#,
+        TestValue::Str("hi, there!".to_string()),
+    );
+    // Escaped braces
+    run_vm_test(
+        r#"format!("{{escaped}}")"#,
+        TestValue::Str("{escaped}".to_string()),
+    );
+    // Use format result in further computation
+    run_vm_test(
+        r#"let s = format!("count: {}", 5); s.len()"#,
+        TestValue::Usize(8),
+    );
 }
 
 #[test]

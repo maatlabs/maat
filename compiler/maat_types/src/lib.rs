@@ -532,7 +532,7 @@ impl TypeChecker {
             Expr::MacroCall(mc) => self.check_macro_call(mc),
             Expr::Cast(cast) => {
                 self.infer_expression(&mut cast.expr);
-                Type::from_number_kind(&cast.target)
+                Type::from_cast_target(&cast.target)
             }
             Expr::Break(break_expr) => {
                 if let Some(val) = &mut break_expr.value {
@@ -770,6 +770,7 @@ impl TypeChecker {
         }
         match mc.name.as_str() {
             "panic" | "todo" | "unimplemented" => Type::Never,
+            "format" => Type::Str,
             _ => Type::Unit,
         }
     }

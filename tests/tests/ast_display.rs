@@ -130,7 +130,7 @@ fn expressions_display() {
             radix: Radix::Dec,
             span: span(),
         })),
-        target: NumKind::I64,
+        target: CastTarget::Num(NumKind::I64),
         span: span(),
     };
     assert_eq!(cast.to_string(), "(42 as i64)");

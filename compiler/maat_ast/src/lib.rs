@@ -494,8 +494,36 @@ pub struct MacroCallExpr {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CastExpr {
     pub expr: Box<Expr>,
-    pub target: NumKind,
+    pub target: CastTarget,
     pub span: Span,
+}
+
+/// Target type of an `as` cast expression.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CastTarget {
+    /// Cast to a numeric type (`i8`, `u32`, etc.).
+    Num(NumKind),
+    /// Cast to `char` (valid for integer values in the Unicode scalar range).
+    Char,
+}
+
+impl CastTarget {
+    /// Returns the type name as it appears in source code.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Num(k) => k.as_str(),
+            Self::Char => "char",
+        }
+    }
+
+    /// Parses a type-name token into a cast target.
+    pub fn from_type_name(s: &str) -> Option<Self> {
+        if s == "char" {
+            Some(Self::Char)
+        } else {
+            NumKind::from_suffix(s).map(Self::Num)
+        }
+    }
 }
 
 /// A break expression: `break`, `break <value>`, or `break 'label [<value>]`.

@@ -11,7 +11,7 @@ mod symbol;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use maat_ast::{FmtSegment, parse_format_string, *};
+use maat_ast::{FmtSegment, parse_format_string, unescape_string, *};
 use maat_bytecode::{
     Bytecode, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, MAX_ENUM_VARIANTS, Opcode,
     TypeTag, encode,
@@ -638,7 +638,7 @@ impl Compiler {
                 Ok(())
             }
             Expr::Str(s) => {
-                let constant = Value::Str(maat_ast::unescape_string(&s.value));
+                let constant = Value::Str(unescape_string(&s.value));
                 let index = self.add_constant(constant)?;
                 self.emit(Opcode::Constant, &[index], span);
                 Ok(())
@@ -684,7 +684,7 @@ impl Compiler {
             }
             Expr::Cast(cast) => {
                 self.compile_expression(&cast.expr)?;
-                let tag = TypeTag::from_num_kind(cast.target);
+                let tag = TypeTag::from_cast_target(cast.target);
                 self.emit(Opcode::Convert, &[tag.to_byte() as usize], span);
                 Ok(())
             }
@@ -2092,6 +2092,7 @@ impl Compiler {
     fn compile_macro_call(&mut self, mc: &MacroCallExpr) -> Result<()> {
         let span = mc.span;
         match mc.name.as_str() {
+            "format" => self.compile_format_macro(&mc.arguments, span),
             "print" => self.compile_print_macro(&mc.arguments, false, span),
             "println" => self.compile_print_macro(&mc.arguments, true, span),
             "assert" => self.compile_assert_macro(&mc.arguments, span),
@@ -2115,6 +2116,77 @@ impl Compiler {
         }
     }
 
+    /// Compiles `format!(fmt, args...)` into a string concatenation sequence.
+    fn compile_format_macro(&mut self, args: &[Expr], span: Span) -> Result<()> {
+        if args.is_empty() {
+            let idx = self.add_constant(Value::Str(String::new()))?;
+            self.emit(Opcode::Constant, &[idx], span);
+            return Ok(());
+        }
+
+        let fmt = match &args[0] {
+            Expr::Str(s) => unescape_string(&s.value),
+            _ => {
+                return Err(CompileErrorKind::MacroExpectsFormatString {
+                    macro_name: "format".to_string(),
+                }
+                .at(span)
+                .into());
+            }
+        };
+
+        let segments = parse_format_string(&fmt);
+        let placeholder_count = segments
+            .iter()
+            .filter(|s| matches!(s, FmtSegment::Arg))
+            .count();
+        let value_args = &args[1..];
+        if placeholder_count != value_args.len() {
+            return Err(CompileErrorKind::FormatArgCountMismatch {
+                placeholders: placeholder_count,
+                arguments: value_args.len(),
+            }
+            .at(span)
+            .into());
+        }
+
+        let mut arg_idx = 0;
+        let mut pieces = 0usize;
+
+        for segment in &segments {
+            match segment {
+                FmtSegment::Literal(text) => {
+                    let idx = self.add_constant(Value::Str(text.clone()))?;
+                    self.emit(Opcode::Constant, &[idx], span);
+                    pieces += 1;
+                }
+                FmtSegment::Arg => {
+                    self.emit_builtin_call_expr("__to_string", &value_args[arg_idx], span)?;
+                    arg_idx += 1;
+                    pieces += 1;
+                }
+                FmtSegment::Capture(name) => {
+                    let ident_expr = Expr::Ident(Ident {
+                        value: name.clone(),
+                        span,
+                    });
+                    self.emit_builtin_call_expr("__to_string", &ident_expr, span)?;
+                    pieces += 1;
+                }
+            }
+            if pieces > 1 {
+                self.emit(Opcode::Add, &[], span);
+            }
+        }
+
+        if pieces == 0 {
+            let idx = self.add_constant(Value::Str(String::new()))?;
+            self.emit(Opcode::Constant, &[idx], span);
+        }
+
+        Ok(())
+    }
+
     /// Compiles `print!(fmt, args...)` or `println!(fmt, args...)`.
     fn compile_print_macro(&mut self, args: &[Expr], newline: bool, span: Span) -> Result<()> {
         let macro_name = if newline { "println" } else { "print" };
@@ -2130,7 +2202,7 @@ impl Compiler {
             return self.emit_builtin_call("__print_str", &[Value::Str(String::new())], span);
         }
         let fmt = match &args[0] {
-            Expr::Str(s) => maat_ast::unescape_string(&s.value),
+            Expr::Str(s) => unescape_string(&s.value),
             _ => {
                 return Err(CompileErrorKind::MacroExpectsFormatString {
                     macro_name: macro_name.to_string(),
@@ -2279,7 +2351,7 @@ impl Compiler {
         }
 
         let fmt = match &args[0] {
-            Expr::Str(s) => maat_ast::unescape_string(&s.value),
+            Expr::Str(s) => unescape_string(&s.value),
             _ => {
                 return Err(CompileErrorKind::MacroExpectsFormatString {
                     macro_name: "panic".to_string(),

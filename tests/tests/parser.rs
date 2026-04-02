@@ -484,6 +484,66 @@ fn parse_functions() {
 }
 
 #[test]
+fn parse_pipe_closures() {
+    // Single-parameter pipe closure
+    let program = parse("|x| x");
+    let Stmt::Expr(ExprStmt {
+        value: Expr::Lambda(func),
+        ..
+    }) = expect_single_stmt(&program)
+    else {
+        panic!("expected Lambda expression");
+    };
+    assert_eq!(func.param_names().collect::<Vec<_>>(), vec!["x"]);
+    assert_eq!(func.body.statements.len(), 1);
+
+    // Multi-parameter pipe closure with block body
+    let program = parse("|x, y| { x + y; }");
+    let Stmt::Expr(ExprStmt {
+        value: Expr::Lambda(func),
+        ..
+    }) = expect_single_stmt(&program)
+    else {
+        panic!("expected Lambda expression");
+    };
+    assert_eq!(func.param_names().collect::<Vec<_>>(), vec!["x", "y"]);
+    assert_eq!(func.body.statements.len(), 1);
+
+    // Zero-parameter pipe closure
+    let program = parse("|| 42");
+    let Stmt::Expr(ExprStmt {
+        value: Expr::Lambda(func),
+        ..
+    }) = expect_single_stmt(&program)
+    else {
+        panic!("expected Lambda expression");
+    };
+    assert!(func.param_names().collect::<Vec<_>>().is_empty());
+
+    // Typed parameters
+    let program = parse("|x: i64, y: bool| x");
+    let Stmt::Expr(ExprStmt {
+        value: Expr::Lambda(func),
+        ..
+    }) = expect_single_stmt(&program)
+    else {
+        panic!("expected Lambda expression");
+    };
+    assert_eq!(func.param_names().collect::<Vec<_>>(), vec!["x", "y"]);
+
+    // With return type annotation
+    let program = parse("|x: i64| -> i64 { x + 1; }");
+    let Stmt::Expr(ExprStmt {
+        value: Expr::Lambda(func),
+        ..
+    }) = expect_single_stmt(&program)
+    else {
+        panic!("expected Lambda expression");
+    };
+    assert!(func.return_type.is_some());
+}
+
+#[test]
 fn parse_call_expressions() {
     // Single call with expressions
     let program = parse("add(1, 2 * 3, 4 + 5);");

@@ -12,7 +12,7 @@ use maat_bytecode::{Bytecode, MAX_FRAMES, MAX_GLOBALS, MAX_STACK_SIZE, Opcode, T
 use maat_errors::{Result, VmError};
 use maat_runtime::{
     BUILTINS, Closure, CompiledFn, EnumVariantVal, FALSE, Hashable, Integer, Map, StructVal, TRUE,
-    TypeDef, UNIT, Value,
+    TypeDef, UNIT, Value, WideInt,
 };
 use maat_span::{SourceMap, Span};
 
@@ -763,15 +763,39 @@ impl VM {
     /// Widening conversions always succeed. Narrowing conversions that would
     /// lose data produce a runtime error.
     fn convert_value(&self, value: &Value, target: TypeTag) -> Result<Value> {
-        let num_kind = target.to_num_kind();
+        if target == TypeTag::Char {
+            return match value {
+                Value::Integer(val) => {
+                    let scalar = match val.to_wide() {
+                        WideInt::Signed(v) => u32::try_from(v).ok().and_then(char::from_u32),
+                        WideInt::Unsigned(v) => u32::try_from(v).ok().and_then(char::from_u32),
+                    };
+                    scalar.map(Value::Char).ok_or_else(|| {
+                        self.vm_error(format!("value {} is not a valid Unicode scalar value", val,))
+                    })
+                }
+                other => Err(self.vm_error(format!("cannot cast {} as char", other.type_name(),))),
+            };
+        }
+
+        let num_kind = target
+            .to_num_kind()
+            .ok_or_else(|| self.vm_error(format!("unknown conversion target: {target:?}")))?;
+
         match value {
+            Value::Char(ch) => {
+                Integer::from_wide(WideInt::Unsigned(u128::from(*ch as u32)), num_kind)
+                    .map(Value::Integer)
+                    .map_err(|e| self.vm_error(e))
+            }
             Value::Integer(val) => val
                 .cast_to(num_kind)
                 .map(Value::Integer)
                 .map_err(|e| self.vm_error(e)),
             other => Err(self.vm_error(format!(
-                "cannot cast {} to a numeric type",
-                other.type_name()
+                "cannot cast {} to {}",
+                other.type_name(),
+                num_kind.as_str(),
             ))),
         }
     }

@@ -275,6 +275,14 @@ impl Type {
         }
     }
 
+    /// Maps a cast target to the corresponding type.
+    pub fn from_cast_target(target: &CastTarget) -> Self {
+        match target {
+            CastTarget::Num(k) => Self::from_number_kind(k),
+            CastTarget::Char => Self::Char,
+        }
+    }
+
     /// Infers the type of a literal expression used in a pattern context.
     pub fn from_literal_expr(expr: &Expr) -> Self {
         match expr {
