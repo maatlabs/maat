@@ -1012,6 +1012,48 @@ fn for_loops() {
 }
 
 #[test]
+fn for_map_iteration() {
+    // Sum all values in a map
+    run_vm_test(
+        r#"
+        let m = {"a": 1, "b": 2, "c": 3};
+        let mut total = 0;
+        for (k, v) in m {
+            total += v;
+        }
+        total;
+        "#,
+        TestValue::I64(6),
+    );
+    // Sum all keys and values from a map
+    run_vm_test(
+        r#"
+        let m = {1: 10, 2: 20};
+        let mut sum_keys = 0;
+        let mut sum_vals = 0;
+        for (k, v) in m {
+            sum_keys += k;
+            sum_vals += v;
+        }
+        sum_keys + sum_vals;
+        "#,
+        TestValue::I64(33),
+    );
+    // Empty map iteration
+    run_vm_test(
+        r#"
+        let m: Map<i64, i64> = {};
+        let mut count = 0;
+        for (k, v) in m {
+            count += 1;
+        }
+        count;
+        "#,
+        TestValue::I64(0),
+    );
+}
+
+#[test]
 fn comments() {
     run_vm_test("let x = 5; // this is a comment\nx", TestValue::I64(5));
     run_vm_test("let x = /* inline */ 10; x", TestValue::I64(10));
@@ -1993,4 +2035,166 @@ fn cmp_min_max_clamp() {
     // Typed variants
     run_vm_test("cmp::min(10i32, 20i32)", TestValue::I32(10));
     run_vm_test("cmp::max(10i32, 20i32)", TestValue::I32(20));
+}
+
+#[test]
+fn vector_higher_order_methods() {
+    // map
+    run_vm_test(
+        "[1, 2, 3].map(|x: i64| x * 10)",
+        TestValue::IntVector(vec![10, 20, 30]),
+    );
+    run_vm_test("[].map(|x: i64| x + 1)", TestValue::IntVector(vec![]));
+
+    // filter
+    run_vm_test(
+        "[1, 2, 3, 4, 5].filter(|x: i64| x > 3)",
+        TestValue::IntVector(vec![4, 5]),
+    );
+    run_vm_test(
+        "[1, 2, 3].filter(|x: i64| x > 100)",
+        TestValue::IntVector(vec![]),
+    );
+
+    // fold
+    run_vm_test(
+        "[1, 2, 3, 4].fold(0, |acc: i64, x: i64| acc + x)",
+        TestValue::I64(10),
+    );
+    run_vm_test(
+        "[1, 2, 3].fold(1, |acc: i64, x: i64| acc * x)",
+        TestValue::I64(6),
+    );
+
+    // any / all
+    run_vm_test("[1, 2, 3].any(|x: i64| x == 2)", TestValue::Bool(true));
+    run_vm_test("[1, 2, 3].any(|x: i64| x == 5)", TestValue::Bool(false));
+    run_vm_test("[2, 4, 6].all(|x: i64| x % 2 == 0)", TestValue::Bool(true));
+    run_vm_test("[2, 4, 5].all(|x: i64| x % 2 == 0)", TestValue::Bool(false));
+
+    // find
+    run_vm_test(
+        "[10, 20, 30].find(|x: i64| x > 15).unwrap()",
+        TestValue::I64(20),
+    );
+    run_vm_test(
+        "[1, 2, 3].find(|x: i64| x > 100).is_none()",
+        TestValue::Bool(true),
+    );
+
+    // position
+    run_vm_test(
+        "[10, 20, 30].position(|x: i64| x == 20).unwrap()",
+        TestValue::Usize(1),
+    );
+    run_vm_test(
+        "[10, 20, 30].position(|x: i64| x == 99).is_none()",
+        TestValue::Bool(true),
+    );
+
+    // for_each (returns unit; use a side-channel to verify execution)
+    run_vm_test(
+        "let mut sum = 0; [1, 2, 3].for_each(|x: i64| { sum = sum + x; }); sum",
+        TestValue::I64(6),
+    );
+
+    // flat_map
+    run_vm_test(
+        "[1, 2, 3].flat_map(|x: i64| [x, x * 10])",
+        TestValue::IntVector(vec![1, 10, 2, 20, 3, 30]),
+    );
+    run_vm_test("[].flat_map(|x: i64| [x])", TestValue::IntVector(vec![]));
+}
+
+#[test]
+fn vector_builtin_methods_extended() {
+    // rev
+    run_vm_test("[1, 2, 3].rev()", TestValue::IntVector(vec![3, 2, 1]));
+    run_vm_test("[].rev()", TestValue::IntVector(vec![]));
+
+    // count
+    run_vm_test("[1, 2, 3, 4, 5].count()", TestValue::Usize(5));
+    run_vm_test("[].count()", TestValue::Usize(0));
+
+    // take
+    run_vm_test(
+        "[1, 2, 3, 4, 5].take(3)",
+        TestValue::IntVector(vec![1, 2, 3]),
+    );
+    run_vm_test("[1, 2].take(10)", TestValue::IntVector(vec![1, 2]));
+    run_vm_test("[1, 2, 3].take(0)", TestValue::IntVector(vec![]));
+
+    // skip
+    run_vm_test(
+        "[1, 2, 3, 4, 5].skip(2)",
+        TestValue::IntVector(vec![3, 4, 5]),
+    );
+    run_vm_test("[1, 2].skip(10)", TestValue::IntVector(vec![]));
+    run_vm_test("[1, 2, 3].skip(0)", TestValue::IntVector(vec![1, 2, 3]));
+
+    // dedup
+    run_vm_test(
+        "[1, 1, 2, 2, 3].dedup()",
+        TestValue::IntVector(vec![1, 2, 3]),
+    );
+    run_vm_test(
+        "[1, 2, 1, 2].dedup()",
+        TestValue::IntVector(vec![1, 2, 1, 2]),
+    );
+    run_vm_test("[].dedup()", TestValue::IntVector(vec![]));
+
+    // chain
+    run_vm_test(
+        "[1, 2].chain([3, 4])",
+        TestValue::IntVector(vec![1, 2, 3, 4]),
+    );
+    run_vm_test("[].chain([1])", TestValue::IntVector(vec![1]));
+
+    // contains
+    run_vm_test("[1, 2, 3].contains(2)", TestValue::Bool(true));
+    run_vm_test("[1, 2, 3].contains(5)", TestValue::Bool(false));
+    run_vm_test("[].contains(1)", TestValue::Bool(false));
+
+    // sum
+    run_vm_test("[1, 2, 3, 4].sum()", TestValue::I64(10));
+    run_vm_test("[].sum()", TestValue::I64(0));
+
+    // product
+    run_vm_test("[1, 2, 3, 4].product()", TestValue::I64(24));
+    run_vm_test("[].product()", TestValue::I64(1));
+
+    // min / max
+    run_vm_test("[3, 1, 2].min().unwrap()", TestValue::I64(1));
+    run_vm_test("[3, 1, 2].max().unwrap()", TestValue::I64(3));
+    run_vm_test("[].min().is_none()", TestValue::Bool(true));
+    run_vm_test("[].max().is_none()", TestValue::Bool(true));
+
+    // enumerate
+    run_vm_test("[10, 20, 30].enumerate().len()", TestValue::Usize(3));
+
+    // zip
+    run_vm_test("[1, 2, 3].zip([4, 5, 6]).len()", TestValue::Usize(3));
+    run_vm_test("[1, 2, 3].zip([4, 5]).len()", TestValue::Usize(2));
+
+    // windows
+    run_vm_test("[1, 2, 3, 4].windows(2).len()", TestValue::Usize(3));
+    run_vm_test("[1, 2, 3, 4].windows(3).len()", TestValue::Usize(2));
+
+    // chunks
+    run_vm_test("[1, 2, 3, 4, 5].chunks(2).len()", TestValue::Usize(3));
+
+    // chaining extended methods
+    run_vm_test(
+        "[5, 3, 1, 4, 2].rev().take(3)",
+        TestValue::IntVector(vec![2, 4, 1]),
+    );
+    run_vm_test(
+        "[1, 1, 2, 2, 3].dedup().rev()",
+        TestValue::IntVector(vec![3, 2, 1]),
+    );
+    run_vm_test("[1, 2, 3].map(|x: i64| x * 2).sum()", TestValue::I64(12));
+    run_vm_test(
+        "[1, 2, 3, 4, 5].filter(|x: i64| x % 2 == 0).count()",
+        TestValue::Usize(2),
+    );
 }

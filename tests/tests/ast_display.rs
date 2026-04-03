@@ -259,6 +259,7 @@ fn control_flow_display() {
     let for_stmt = ForStmt {
         label: None,
         ident: "i".to_string(),
+        pattern: None,
         iterable: Box::new(Expr::Ident(Ident {
             value: "0..10".to_string(),
             span: span(),

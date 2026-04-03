@@ -146,10 +146,14 @@ pub struct WhileStmt {
 
 /// An iterator loop: `for <ident> in <iterable> { <body> }` or
 /// `'label: for <ident> in <iterable> { <body> }`.
+///
+/// When `pattern` is `Some`, tuple destructuring is active
+/// (e.g., `for (k, v) in map { ... }`) and `ident` is `"_"`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ForStmt {
     pub label: Option<String>,
     pub ident: String,
+    pub pattern: Option<Pattern>,
     pub iterable: Box<Expr>,
     pub body: BlockStmt,
     pub span: Span,
@@ -313,8 +317,20 @@ pub enum Radix {
 }
 
 /// Target integer type of a numeric literal.
+///
+/// `Int` represents an unsuffixed literal whose concrete type is determined
+/// by type inference. After type checking, every `Int` node is rewritten to
+/// a concrete variant (defaulting to `I64` when no constraint exists).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NumKind {
+    /// An unsuffixed integer literal awaiting type inference.
+    ///
+    /// Initially created with `type_var = 0` by the parser; the type checker
+    /// overwrites this with the actual inference variable id. After inference,
+    /// a defaulting pass resolves this to a concrete `NumKind`.
+    Int {
+        type_var: u32,
+    },
     I8,
     I16,
     I32,
@@ -331,8 +347,11 @@ pub enum NumKind {
 
 impl NumKind {
     /// Returns the type name as it appears in source code.
+    ///
+    /// For `Int` (unsuffixed) literals this returns `"{int}"`.
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::Int { .. } => "{int}",
             Self::I8 => "i8",
             Self::I16 => "i16",
             Self::I32 => "i32",
@@ -378,6 +397,7 @@ impl NumKind {
     /// Returns `true` if `value` fits within the range of `self`.
     pub fn fits(&self, value: i128) -> bool {
         match self {
+            Self::Int { .. } => true,
             Self::I8 => i8::try_from(value).is_ok(),
             Self::I16 => i16::try_from(value).is_ok(),
             Self::I32 => i32::try_from(value).is_ok(),

@@ -98,6 +98,42 @@ macro_rules! checked_unary {
 }
 
 impl Integer {
+    /// Returns zero in the same numeric type as `self`.
+    pub fn zero(&self) -> Self {
+        match self {
+            Self::I8(_) => Self::I8(0),
+            Self::I16(_) => Self::I16(0),
+            Self::I32(_) => Self::I32(0),
+            Self::I64(_) => Self::I64(0),
+            Self::I128(_) => Self::I128(0),
+            Self::Isize(_) => Self::Isize(0),
+            Self::U8(_) => Self::U8(0),
+            Self::U16(_) => Self::U16(0),
+            Self::U32(_) => Self::U32(0),
+            Self::U64(_) => Self::U64(0),
+            Self::U128(_) => Self::U128(0),
+            Self::Usize(_) => Self::Usize(0),
+        }
+    }
+
+    /// Returns one in the same numeric type as `self`.
+    pub fn one(&self) -> Self {
+        match self {
+            Self::I8(_) => Self::I8(1),
+            Self::I16(_) => Self::I16(1),
+            Self::I32(_) => Self::I32(1),
+            Self::I64(_) => Self::I64(1),
+            Self::I128(_) => Self::I128(1),
+            Self::Isize(_) => Self::Isize(1),
+            Self::U8(_) => Self::U8(1),
+            Self::U16(_) => Self::U16(1),
+            Self::U32(_) => Self::U32(1),
+            Self::U64(_) => Self::U64(1),
+            Self::U128(_) => Self::U128(1),
+            Self::Usize(_) => Self::Usize(1),
+        }
+    }
+
     pub fn cast_to(self, target: NumKind) -> Result<Self, String> {
         Self::from_wide(self.to_wide(), target)
     }
@@ -120,10 +156,10 @@ impl Integer {
         }
 
         match target {
+            NumKind::Int { .. } | NumKind::I64 => narrow!(i64, I64, "i64"),
             NumKind::I8 => narrow!(i8, I8, "i8"),
             NumKind::I16 => narrow!(i16, I16, "i16"),
             NumKind::I32 => narrow!(i32, I32, "i32"),
-            NumKind::I64 => narrow!(i64, I64, "i64"),
             NumKind::I128 => narrow!(i128, I128, "i128"),
             NumKind::Isize => narrow!(isize, Isize, "isize"),
             NumKind::U8 => narrow!(u8, U8, "u8"),

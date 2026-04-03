@@ -589,7 +589,8 @@ fn parse_expression_inner<'src>(
 ) -> ParseResult<Expr> {
     let mut expr = match peek(input) {
         TokenKind::Ident => parse_identifier(input, depth)?,
-        TokenKind::I8
+        TokenKind::Int
+        | TokenKind::I8
         | TokenKind::I16
         | TokenKind::I32
         | TokenKind::I64
@@ -828,6 +829,7 @@ fn parse_int<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<Expr> {
     }
 
     let expr = match tok.kind {
+        TokenKind::Int => parse_int_type!(i128, NumKind::Int { type_var: 0 }),
         TokenKind::I8 => parse_int_type!(i8, NumKind::I8),
         TokenKind::I16 => parse_int_type!(i16, NumKind::I16),
         TokenKind::I32 => parse_int_type!(i32, NumKind::I32),
@@ -1325,7 +1327,7 @@ fn parse_field_or_method_call<'src>(
         return try_split_chained_field_access(input, object);
     }
 
-    let is_numeric_field = matches!(next, TokenKind::I64);
+    let is_numeric_field = matches!(next, TokenKind::I64 | TokenKind::Int);
     let member_tok = if is_numeric_field {
         any.parse_next(input)?
     } else {
@@ -1478,7 +1480,8 @@ fn parse_single_pattern<'src>(
             }))))
         }
 
-        TokenKind::I8
+        TokenKind::Int
+        | TokenKind::I8
         | TokenKind::I16
         | TokenKind::I32
         | TokenKind::I64
@@ -1693,9 +1696,18 @@ fn parse_for_stmt<'src>(
     label: Option<String>,
 ) -> ParseResult<ForStmt> {
     let start = parse(input, TokenKind::For)?.span;
-    let ident_tok = parse(input, TokenKind::Ident)?;
-    reject_reserved_ident(ident_tok.literal)?;
-    let ident = ident_tok.literal.to_string();
+
+    let (ident, pattern) = if peek(input) == TokenKind::LParen {
+        let pat_start = parse(input, TokenKind::LParen)?.span;
+        let (fields, pat_end) = parse_pattern_list(input, TokenKind::RParen, depth)?;
+        let pattern = Pattern::Tuple(fields, pat_start.merge(pat_end));
+        ("_".to_string(), Some(pattern))
+    } else {
+        let ident_tok = parse(input, TokenKind::Ident)?;
+        reject_reserved_ident(ident_tok.literal)?;
+        (ident_tok.literal.to_string(), None)
+    };
+
     parse(input, TokenKind::In)?;
     let iterable = Box::new(parse_expression(input, MIN_BP, depth)?);
     parse(input, TokenKind::LBrace)?;
@@ -1704,6 +1716,7 @@ fn parse_for_stmt<'src>(
     Ok(ForStmt {
         label,
         ident,
+        pattern,
         iterable,
         body,
         span: start.merge(end),

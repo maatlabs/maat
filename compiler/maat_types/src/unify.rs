@@ -30,7 +30,7 @@ impl Substitution {
     /// because real Maat programs produce substitution chains of trivial depth.
     pub fn apply(&self, ty: &Type) -> Type {
         match ty {
-            Type::Var(id) => match self.get(id) {
+            Type::Var(id) | Type::IntVar(id) => match self.get(id) {
                 Some(resolved) => self.apply(resolved),
                 None => ty.clone(),
             },
@@ -66,6 +66,15 @@ impl Substitution {
         match (&a, &b) {
             _ if a == b => Ok(()),
             (Type::Never, _) | (_, Type::Never) => Ok(()),
+            // IntVar unifies with any integer type or another IntVar.
+            (Type::IntVar(id), other) | (other, Type::IntVar(id))
+                if other.is_integer() || matches!(other, Type::Var(_)) =>
+            {
+                self.bind_var(*id, other)
+            }
+            (Type::IntVar(_), other) | (other, Type::IntVar(_)) => {
+                Err(UnifyError::Mismatch(other.clone(), Type::I64))
+            }
             (Type::Var(id), _) => self.bind_var(*id, &b),
             (_, Type::Var(id)) => self.bind_var(*id, &a),
             (Type::Vector(ea), Type::Vector(eb)) => self.unify(ea, eb),
@@ -112,6 +121,17 @@ impl Substitution {
         self.map.get(var)
     }
 
+    /// Resolves a type, defaulting any remaining `IntVar`s to `i64`.
+    ///
+    /// Called after inference completes to produce fully concrete types.
+    pub fn default_int_vars(&self, ty: &Type) -> Type {
+        let resolved = self.apply(ty);
+        match resolved {
+            Type::IntVar(_) => Type::I64,
+            _ => resolved,
+        }
+    }
+
     /// Binds a type variable to a type.
     pub fn bind(&mut self, var: TypeVarId, ty: Type) {
         self.map.insert(var, ty);
@@ -129,7 +149,7 @@ impl Substitution {
     /// Returns `true` if the type variable `var` occurs anywhere in `ty`.
     fn occurs(&self, var: TypeVarId, ty: &Type) -> bool {
         match ty {
-            Type::Var(id) => *id == var,
+            Type::Var(id) | Type::IntVar(id) => *id == var,
             Type::Vector(elem) | Type::Set(elem) | Type::Range(elem) => self.occurs(var, elem),
             Type::Map(k, v) => self.occurs(var, k) || self.occurs(var, v),
             Type::Function(fn_ty) => {

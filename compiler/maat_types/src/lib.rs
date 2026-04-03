@@ -95,6 +95,201 @@ impl TypeChecker {
         for stmt in &mut program.statements {
             self.check_statement(stmt);
         }
+        Self::resolve_inferred_literals(&self.subst, program);
+    }
+
+    /// Resolves all `NumKind::Int` literals to concrete integer types.
+    fn resolve_inferred_literals(subst: &Substitution, program: &mut Program) {
+        for stmt in &mut program.statements {
+            Self::resolve_literals_in_stmt(subst, stmt);
+        }
+    }
+
+    /// Resolves `NumKind::Int` literals within a single statement, iteratively.
+    fn resolve_literals_in_stmt(subst: &Substitution, stmt: &mut Stmt) {
+        match stmt {
+            Stmt::Let(let_stmt) => Self::resolve_literals_in_expr(subst, &mut let_stmt.value),
+            Stmt::ReAssign(assign) => Self::resolve_literals_in_expr(subst, &mut assign.value),
+            Stmt::Return(ret) => Self::resolve_literals_in_expr(subst, &mut ret.value),
+            Stmt::Expr(expr_stmt) => Self::resolve_literals_in_expr(subst, &mut expr_stmt.value),
+            Stmt::Block(block) => {
+                for s in &mut block.statements {
+                    Self::resolve_literals_in_stmt(subst, s);
+                }
+            }
+            Stmt::FuncDef(fn_item) => {
+                for s in &mut fn_item.body.statements {
+                    Self::resolve_literals_in_stmt(subst, s);
+                }
+            }
+            Stmt::Loop(loop_stmt) => {
+                for s in &mut loop_stmt.body.statements {
+                    Self::resolve_literals_in_stmt(subst, s);
+                }
+            }
+            Stmt::While(while_stmt) => {
+                Self::resolve_literals_in_expr(subst, &mut while_stmt.condition);
+                for s in &mut while_stmt.body.statements {
+                    Self::resolve_literals_in_stmt(subst, s);
+                }
+            }
+            Stmt::For(for_stmt) => {
+                Self::resolve_literals_in_expr(subst, &mut for_stmt.iterable);
+                for s in &mut for_stmt.body.statements {
+                    Self::resolve_literals_in_stmt(subst, s);
+                }
+            }
+            Stmt::Mod(mod_stmt) => {
+                if let Some(body) = &mut mod_stmt.body {
+                    for s in body {
+                        Self::resolve_literals_in_stmt(subst, s);
+                    }
+                }
+            }
+            Stmt::StructDecl(_)
+            | Stmt::EnumDecl(_)
+            | Stmt::TraitDecl(_)
+            | Stmt::ImplBlock(_)
+            | Stmt::Use(_) => {}
+        }
+    }
+
+    /// Resolves `NumKind::Int` literals within an expression tree.
+    fn resolve_literals_in_expr(subst: &Substitution, expr: &mut Expr) {
+        match expr {
+            Expr::Number(lit) if matches!(lit.kind, NumKind::Int { .. }) => {
+                if let NumKind::Int { type_var } = lit.kind {
+                    let resolved = subst.default_int_vars(&Type::IntVar(type_var));
+                    lit.kind = Self::type_to_num_kind(&resolved);
+                }
+            }
+            Expr::Infix(infix) => {
+                Self::resolve_literals_in_expr(subst, &mut infix.lhs);
+                Self::resolve_literals_in_expr(subst, &mut infix.rhs);
+            }
+            Expr::Prefix(prefix) => {
+                Self::resolve_literals_in_expr(subst, &mut prefix.operand);
+            }
+            Expr::Call(call) => {
+                Self::resolve_literals_in_expr(subst, &mut call.function);
+                for arg in &mut call.arguments {
+                    Self::resolve_literals_in_expr(subst, arg);
+                }
+            }
+            Expr::MacroCall(mc) => {
+                for arg in &mut mc.arguments {
+                    Self::resolve_literals_in_expr(subst, arg);
+                }
+            }
+            Expr::MethodCall(mc) => {
+                Self::resolve_literals_in_expr(subst, &mut mc.object);
+                for arg in &mut mc.arguments {
+                    Self::resolve_literals_in_expr(subst, arg);
+                }
+            }
+            Expr::Index(idx) => {
+                Self::resolve_literals_in_expr(subst, &mut idx.expr);
+                Self::resolve_literals_in_expr(subst, &mut idx.index);
+            }
+            Expr::FieldAccess(fa) => {
+                Self::resolve_literals_in_expr(subst, &mut fa.object);
+            }
+            Expr::Cast(cast) => {
+                Self::resolve_literals_in_expr(subst, &mut cast.expr);
+            }
+            Expr::Try(try_expr) => {
+                Self::resolve_literals_in_expr(subst, &mut try_expr.expr);
+            }
+            Expr::Vector(vec) => {
+                for elem in &mut vec.elements {
+                    Self::resolve_literals_in_expr(subst, elem);
+                }
+            }
+            Expr::Map(map) => {
+                for (k, v) in &mut map.pairs {
+                    Self::resolve_literals_in_expr(subst, k);
+                    Self::resolve_literals_in_expr(subst, v);
+                }
+            }
+            Expr::Tuple(tuple) => {
+                for elem in &mut tuple.elements {
+                    Self::resolve_literals_in_expr(subst, elem);
+                }
+            }
+            Expr::Range(range) => {
+                Self::resolve_literals_in_expr(subst, &mut range.start);
+                Self::resolve_literals_in_expr(subst, &mut range.end);
+            }
+            Expr::Cond(cond) => {
+                Self::resolve_literals_in_expr(subst, &mut cond.condition);
+                for s in &mut cond.consequence.statements {
+                    Self::resolve_literals_in_stmt(subst, s);
+                }
+                if let Some(alt) = &mut cond.alternative {
+                    for s in &mut alt.statements {
+                        Self::resolve_literals_in_stmt(subst, s);
+                    }
+                }
+            }
+            Expr::Lambda(lambda) => {
+                for s in &mut lambda.body.statements {
+                    Self::resolve_literals_in_stmt(subst, s);
+                }
+            }
+            Expr::MacroLit(macro_lit) => {
+                for s in &mut macro_lit.body.statements {
+                    Self::resolve_literals_in_stmt(subst, s);
+                }
+            }
+            Expr::Match(match_expr) => {
+                Self::resolve_literals_in_expr(subst, &mut match_expr.scrutinee);
+                for arm in &mut match_expr.arms {
+                    Self::resolve_literals_in_expr(subst, &mut arm.body);
+                    if let Some(guard) = &mut arm.guard {
+                        Self::resolve_literals_in_expr(subst, guard);
+                    }
+                }
+            }
+            Expr::Break(break_expr) => {
+                if let Some(val) = &mut break_expr.value {
+                    Self::resolve_literals_in_expr(subst, val);
+                }
+            }
+            Expr::StructLit(struct_lit) => {
+                for (_, val) in &mut struct_lit.fields {
+                    Self::resolve_literals_in_expr(subst, val);
+                }
+                if let Some(base) = &mut struct_lit.base {
+                    Self::resolve_literals_in_expr(subst, base);
+                }
+            }
+            Expr::Number(_)
+            | Expr::Bool(_)
+            | Expr::Str(_)
+            | Expr::Char(_)
+            | Expr::Ident(_)
+            | Expr::Continue(_)
+            | Expr::PathExpr(_) => {}
+        }
+    }
+
+    /// Maps a resolved integer `Type` to the corresponding `NumKind`.
+    fn type_to_num_kind(ty: &Type) -> NumKind {
+        match ty {
+            Type::I8 => NumKind::I8,
+            Type::I16 => NumKind::I16,
+            Type::I32 => NumKind::I32,
+            Type::I64 => NumKind::I64,
+            Type::I128 => NumKind::I128,
+            Type::Isize => NumKind::Isize,
+            Type::U8 => NumKind::U8,
+            Type::U16 => NumKind::U16,
+            Type::U32 => NumKind::U32,
+            Type::U64 => NumKind::U64,
+            Type::U128 => NumKind::U128,
+            Type::Usize => NumKind::Usize,
+            _ => NumKind::I64,
+        }
     }
 
     /// Returns the accumulated type errors.
@@ -269,11 +464,12 @@ impl TypeChecker {
                 let elem_ty = match resolved {
                     Type::Vector(elem) => *elem,
                     Type::Range(elem) => *elem,
+                    Type::Map(k, v) => Type::Tuple(vec![*k, *v]),
                     Type::Var(_) => self.env.fresh_var(),
                     _ => {
                         self.errors.push(
                             TypeErrorKind::Mismatch {
-                                expected: "[T] or Range<T>".to_string(),
+                                expected: "[T], Range<T>, or Map<K, V>".to_string(),
                                 found: resolved.to_string(),
                             }
                             .at(for_stmt.iterable.span()),
@@ -282,7 +478,11 @@ impl TypeChecker {
                     }
                 };
                 self.env.push_scope();
-                self.env.define_var(&for_stmt.ident, elem_ty);
+                if let Some(pattern) = &for_stmt.pattern {
+                    self.check_pattern(pattern, &elem_ty);
+                } else {
+                    self.env.define_var(&for_stmt.ident, elem_ty);
+                }
                 self.check_block(&mut for_stmt.body);
                 self.env.pop_scope();
             }
@@ -506,6 +706,13 @@ impl TypeChecker {
                 NumKind::U64 => Type::U64,
                 NumKind::U128 => Type::U128,
                 NumKind::Usize => Type::Usize,
+                NumKind::Int { ref mut type_var } => {
+                    let ty = self.env.fresh_int_var();
+                    if let Type::IntVar(id) = ty {
+                        *type_var = id;
+                    }
+                    ty
+                }
             },
             Expr::Bool(_) => Type::Bool,
             Expr::Char(_) => Type::Char,
@@ -1548,18 +1755,26 @@ impl TypeChecker {
         // Numeric operations: both operands must be the same integer type.
         if lhs_resolved.is_integer() && rhs_resolved.is_integer() {
             if lhs_resolved != rhs_resolved {
-                self.errors.push(
-                    TypeErrorKind::NumericMismatch {
-                        expected: lhs_resolved.to_string(),
-                        found: rhs_resolved.to_string(),
+                if matches!(lhs_resolved, Type::IntVar(_))
+                    || matches!(rhs_resolved, Type::IntVar(_))
+                {
+                    if let Err(e) = self.subst.unify(&lhs_resolved, &rhs_resolved) {
+                        self.report_unify_error(e, infix.span);
                     }
-                    .at(infix.span),
-                );
+                } else {
+                    self.errors.push(
+                        TypeErrorKind::NumericMismatch {
+                            expected: lhs_resolved.to_string(),
+                            found: rhs_resolved.to_string(),
+                        }
+                        .at(infix.span),
+                    );
+                }
             }
             return if is_comparison {
                 Type::Bool
             } else {
-                lhs_resolved
+                self.subst.apply(&lhs_resolved)
             };
         }
         if matches!(lhs_resolved, Type::Var(_)) || matches!(rhs_resolved, Type::Var(_)) {

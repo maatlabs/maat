@@ -100,7 +100,7 @@ impl Value {
             NumKind::I8 => narrow!(I8, i8),
             NumKind::I16 => narrow!(I16, i16),
             NumKind::I32 => narrow!(I32, i32),
-            NumKind::I64 => narrow!(I64, i64),
+            NumKind::I64 | NumKind::Int { .. } => narrow!(I64, i64),
             NumKind::I128 => Ok(Self::Integer(Integer::I128(lit.value))),
             NumKind::Isize => narrow!(Isize, isize),
             NumKind::U8 => narrow!(U8, u8),

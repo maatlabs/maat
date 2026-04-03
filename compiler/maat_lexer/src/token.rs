@@ -131,6 +131,8 @@ pub enum TokenKind {
     /// A character literal (`'a'`, `'\n'`, `'\u{1F600}'`).
     Char,
 
+    /// An unsuffixed integer literal whose concrete type is determined by inference.
+    Int,
     /// An 8-bit signed integer literal.
     I8,
     /// A 16-bit signed integer literal.

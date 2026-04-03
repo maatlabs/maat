@@ -111,6 +111,21 @@ define_builtins! {
     "Vector::push" => vector_push,
     "Vector::new" => vector_new,
     "Vector::join" => vector_join,
+    "Vector::rev" => vector_rev,
+    "Vector::count" => vector_count,
+    "Vector::take" => vector_take,
+    "Vector::skip" => vector_skip,
+    "Vector::dedup" => vector_dedup,
+    "Vector::chain" => vector_chain,
+    "Vector::contains" => vector_contains,
+    "Vector::enumerate" => vector_enumerate,
+    "Vector::zip" => vector_zip,
+    "Vector::windows" => vector_windows,
+    "Vector::chunks" => vector_chunks,
+    "Vector::sum" => vector_sum,
+    "Vector::product" => vector_product,
+    "Vector::min" => vector_min,
+    "Vector::max" => vector_max,
 
     "Map::new" => map_new,
     "Map::insert" => map_insert,
@@ -314,6 +329,315 @@ fn vector_join(args: &[Value]) -> Result<Value> {
 fn vector_new(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::new", args, 0)?;
     Ok(Value::Vector(Vec::new()))
+}
+
+/// Returns a reversed copy of the vector.
+fn vector_rev(args: &[Value]) -> Result<Value> {
+    expect_arg_count("Vector::rev", args, 1)?;
+    match &args[0] {
+        Value::Vector(v) => {
+            let mut reversed = v.clone();
+            reversed.reverse();
+            Ok(Value::Vector(reversed))
+        }
+        other => method_type_error(other, "rev", "Vector"),
+    }
+}
+
+/// Returns the number of elements (alias for `len`).
+fn vector_count(args: &[Value]) -> Result<Value> {
+    vector_len(args)
+}
+
+/// Returns the first `n` elements.
+fn vector_take(args: &[Value]) -> Result<Value> {
+    expect_arg_count("Vector::take", args, 2)?;
+    match (&args[0], &args[1]) {
+        (Value::Vector(v), Value::Integer(Integer::Usize(n))) => {
+            let taken = v.iter().take(*n).cloned().collect();
+            Ok(Value::Vector(taken))
+        }
+        (Value::Vector(_), other) => Err(EvalError::Builtin(format!(
+            "Vector::take: expected usize, got {}",
+            other.type_name()
+        ))
+        .into()),
+        (other, _) => method_type_error(other, "take", "Vector"),
+    }
+}
+
+/// Skips the first `n` elements.
+fn vector_skip(args: &[Value]) -> Result<Value> {
+    expect_arg_count("Vector::skip", args, 2)?;
+    match (&args[0], &args[1]) {
+        (Value::Vector(v), Value::Integer(Integer::Usize(n))) => {
+            let skipped = v.iter().skip(*n).cloned().collect();
+            Ok(Value::Vector(skipped))
+        }
+        (Value::Vector(_), other) => Err(EvalError::Builtin(format!(
+            "Vector::skip: expected usize, got {}",
+            other.type_name()
+        ))
+        .into()),
+        (other, _) => method_type_error(other, "skip", "Vector"),
+    }
+}
+
+/// Removes consecutive duplicate elements.
+fn vector_dedup(args: &[Value]) -> Result<Value> {
+    expect_arg_count("Vector::dedup", args, 1)?;
+    match &args[0] {
+        Value::Vector(v) => {
+            let mut deduped = Vec::with_capacity(v.len());
+            for item in v {
+                if deduped.last() != Some(item) {
+                    deduped.push(item.clone());
+                }
+            }
+            Ok(Value::Vector(deduped))
+        }
+        other => method_type_error(other, "dedup", "Vector"),
+    }
+}
+
+/// Concatenates two vectors.
+fn vector_chain(args: &[Value]) -> Result<Value> {
+    expect_arg_count("Vector::chain", args, 2)?;
+    match (&args[0], &args[1]) {
+        (Value::Vector(a), Value::Vector(b)) => {
+            let mut chained = a.clone();
+            chained.extend_from_slice(b);
+            Ok(Value::Vector(chained))
+        }
+        (Value::Vector(_), other) => Err(EvalError::Builtin(format!(
+            "Vector::chain: expected Vector, got {}",
+            other.type_name()
+        ))
+        .into()),
+        (other, _) => method_type_error(other, "chain", "Vector"),
+    }
+}
+
+/// Returns `true` if the vector contains the given element.
+fn vector_contains(args: &[Value]) -> Result<Value> {
+    expect_arg_count("Vector::contains", args, 2)?;
+    match &args[0] {
+        Value::Vector(v) => Ok(Value::Bool(v.contains(&args[1]))),
+        other => method_type_error(other, "contains", "Vector"),
+    }
+}
+
+/// Returns a vector of `(index, element)` tuples.
+fn vector_enumerate(args: &[Value]) -> Result<Value> {
+    expect_arg_count("Vector::enumerate", args, 1)?;
+    match &args[0] {
+        Value::Vector(v) => {
+            let pairs = v
+                .iter()
+                .enumerate()
+                .map(|(i, val)| Value::Tuple(vec![Value::Integer(Integer::Usize(i)), val.clone()]))
+                .collect();
+            Ok(Value::Vector(pairs))
+        }
+        other => method_type_error(other, "enumerate", "Vector"),
+    }
+}
+
+/// Zips two vectors into a vector of tuples.
+fn vector_zip(args: &[Value]) -> Result<Value> {
+    expect_arg_count("Vector::zip", args, 2)?;
+    match (&args[0], &args[1]) {
+        (Value::Vector(a), Value::Vector(b)) => {
+            let zipped = a
+                .iter()
+                .zip(b.iter())
+                .map(|(x, y)| Value::Tuple(vec![x.clone(), y.clone()]))
+                .collect();
+            Ok(Value::Vector(zipped))
+        }
+        (Value::Vector(_), other) => Err(EvalError::Builtin(format!(
+            "Vector::zip: expected Vector, got {}",
+            other.type_name()
+        ))
+        .into()),
+        (other, _) => method_type_error(other, "zip", "Vector"),
+    }
+}
+
+/// Returns sliding windows of size `n`.
+fn vector_windows(args: &[Value]) -> Result<Value> {
+    expect_arg_count("Vector::windows", args, 2)?;
+    match (&args[0], &args[1]) {
+        (Value::Vector(v), Value::Integer(Integer::Usize(n))) => {
+            if *n == 0 {
+                return Err(EvalError::Builtin(
+                    "Vector::windows: window size must be > 0".to_string(),
+                )
+                .into());
+            }
+            let windows = v.windows(*n).map(|w| Value::Vector(w.to_vec())).collect();
+            Ok(Value::Vector(windows))
+        }
+        (Value::Vector(_), other) => Err(EvalError::Builtin(format!(
+            "Vector::windows: expected usize, got {}",
+            other.type_name()
+        ))
+        .into()),
+        (other, _) => method_type_error(other, "windows", "Vector"),
+    }
+}
+
+/// Returns non-overlapping chunks of size `n`.
+fn vector_chunks(args: &[Value]) -> Result<Value> {
+    expect_arg_count("Vector::chunks", args, 2)?;
+    match (&args[0], &args[1]) {
+        (Value::Vector(v), Value::Integer(Integer::Usize(n))) => {
+            if *n == 0 {
+                return Err(EvalError::Builtin(
+                    "Vector::chunks: chunk size must be > 0".to_string(),
+                )
+                .into());
+            }
+            let chunks = v.chunks(*n).map(|c| Value::Vector(c.to_vec())).collect();
+            Ok(Value::Vector(chunks))
+        }
+        (Value::Vector(_), other) => Err(EvalError::Builtin(format!(
+            "Vector::chunks: expected usize, got {}",
+            other.type_name()
+        ))
+        .into()),
+        (other, _) => method_type_error(other, "chunks", "Vector"),
+    }
+}
+
+/// Returns the sum of all integer elements. Empty vector returns 0.
+fn vector_sum(args: &[Value]) -> Result<Value> {
+    expect_arg_count("Vector::sum", args, 1)?;
+    match &args[0] {
+        Value::Vector(v) => {
+            if v.is_empty() {
+                return Ok(Value::Integer(Integer::I64(0)));
+            }
+            let mut acc = match &v[0] {
+                Value::Integer(i) => i.zero(),
+                other => {
+                    return Err(EvalError::Builtin(format!(
+                        "Vector::sum: expected integer elements, got {}",
+                        other.type_name()
+                    ))
+                    .into());
+                }
+            };
+            for item in v {
+                match item {
+                    Value::Integer(i) => {
+                        acc = acc.checked_add(*i).ok_or_else(|| {
+                            EvalError::Builtin("Vector::sum: overflow".to_string())
+                        })?;
+                    }
+                    other => {
+                        return Err(EvalError::Builtin(format!(
+                            "Vector::sum: expected integer, got {}",
+                            other.type_name()
+                        ))
+                        .into());
+                    }
+                }
+            }
+            Ok(Value::Integer(acc))
+        }
+        other => method_type_error(other, "sum", "Vector"),
+    }
+}
+
+/// Returns the product of all integer elements. Empty vector returns 1.
+fn vector_product(args: &[Value]) -> Result<Value> {
+    expect_arg_count("Vector::product", args, 1)?;
+    match &args[0] {
+        Value::Vector(v) => {
+            if v.is_empty() {
+                return Ok(Value::Integer(Integer::I64(1)));
+            }
+            let mut acc = match &v[0] {
+                Value::Integer(i) => i.one(),
+                other => {
+                    return Err(EvalError::Builtin(format!(
+                        "Vector::product: expected integer elements, got {}",
+                        other.type_name()
+                    ))
+                    .into());
+                }
+            };
+            for item in v {
+                match item {
+                    Value::Integer(i) => {
+                        acc = acc.checked_mul(*i).ok_or_else(|| {
+                            EvalError::Builtin("Vector::product: overflow".to_string())
+                        })?;
+                    }
+                    other => {
+                        return Err(EvalError::Builtin(format!(
+                            "Vector::product: expected integer, got {}",
+                            other.type_name()
+                        ))
+                        .into());
+                    }
+                }
+            }
+            Ok(Value::Integer(acc))
+        }
+        other => method_type_error(other, "product", "Vector"),
+    }
+}
+
+/// Returns the minimum element, or `None` if empty.
+fn vector_min(args: &[Value]) -> Result<Value> {
+    expect_arg_count("Vector::min", args, 1)?;
+    match &args[0] {
+        Value::Vector(v) => {
+            if v.is_empty() {
+                return Ok(option_wrap(None));
+            }
+            let mut min = &v[0];
+            for item in &v[1..] {
+                match (item, min) {
+                    (Value::Integer(a), Value::Integer(b))
+                        if a.partial_cmp(b) == Some(std::cmp::Ordering::Less) =>
+                    {
+                        min = item;
+                    }
+                    _ => {}
+                }
+            }
+            Ok(option_wrap(Some(min.clone())))
+        }
+        other => method_type_error(other, "min", "Vector"),
+    }
+}
+
+/// Returns the maximum element, or `None` if empty.
+fn vector_max(args: &[Value]) -> Result<Value> {
+    expect_arg_count("Vector::max", args, 1)?;
+    match &args[0] {
+        Value::Vector(v) => {
+            if v.is_empty() {
+                return Ok(option_wrap(None));
+            }
+            let mut max = &v[0];
+            for item in &v[1..] {
+                match (item, max) {
+                    (Value::Integer(a), Value::Integer(b))
+                        if a.partial_cmp(b) == Some(std::cmp::Ordering::Greater) =>
+                    {
+                        max = item;
+                    }
+                    _ => {}
+                }
+            }
+            Ok(option_wrap(Some(max.clone())))
+        }
+        other => method_type_error(other, "max", "Vector"),
+    }
 }
 
 /// Creates a new empty map.

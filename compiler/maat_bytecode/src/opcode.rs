@@ -438,7 +438,7 @@ impl TypeTag {
             NumKind::I8 => Self::I8,
             NumKind::I16 => Self::I16,
             NumKind::I32 => Self::I32,
-            NumKind::I64 => Self::I64,
+            NumKind::I64 | NumKind::Int { .. } => Self::I64,
             NumKind::I128 => Self::I128,
             NumKind::Isize => Self::Isize,
             NumKind::U8 => Self::U8,
