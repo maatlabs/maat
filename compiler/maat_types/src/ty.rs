@@ -288,6 +288,25 @@ impl Type {
         }
     }
 
+    /// Maps a resolved integer `Type` to the corresponding `NumKind`.
+    pub fn to_number_kind(&self) -> NumKind {
+        match self {
+            Self::I8 => NumKind::I8,
+            Self::I16 => NumKind::I16,
+            Self::I32 => NumKind::I32,
+            Self::I64 => NumKind::I64,
+            Self::I128 => NumKind::I128,
+            Self::Isize => NumKind::Isize,
+            Self::U8 => NumKind::U8,
+            Self::U16 => NumKind::U16,
+            Self::U32 => NumKind::U32,
+            Self::U64 => NumKind::U64,
+            Self::U128 => NumKind::U128,
+            Self::Usize => NumKind::Usize,
+            _ => NumKind::I64,
+        }
+    }
+
     /// Maps a cast target to the corresponding type.
     pub fn from_cast_target(target: &CastTarget) -> Self {
         match target {
