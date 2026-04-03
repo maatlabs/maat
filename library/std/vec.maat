@@ -10,10 +10,29 @@
 //   v.last()                    -> Option<T>     — last element, or None if empty
 //   v.split_first()             -> Vector<T>     — all elements except the first (empty if empty)
 //   v[i]                        -> T             — element at index i (panics if out of bounds)
+//   v.contains(x)               -> bool          — true if x is in the vector
+//   v.min()                     -> Option<T>     — smallest element, or None if empty
+//   v.max()                     -> Option<T>     — largest element, or None if empty
 //
 // Building:
 //   v.push(x)                   -> Vector<T>     — new vector with x appended
 //   v.join(sep)                 -> str           — elements joined into a string
+//   v.rev()                     -> Vector<T>     — reversed copy
+//   v.take(n)                   -> Vector<T>     — first n elements
+//   v.skip(n)                   -> Vector<T>     — all elements after the first n
+//   v.dedup()                   -> Vector<T>     — consecutive duplicates removed
+//   v.chain(other)              -> Vector<T>     — concatenate two vectors
+//   v.windows(n)                -> Vector<Vector<T>> — sliding windows of size n
+//   v.chunks(n)                 -> Vector<Vector<T>> — non-overlapping chunks of size n
+//
+// Aggregation:
+//   v.count()                   -> usize         — number of elements (alias for len)
+//   v.sum()                     -> T             — sum of all elements
+//   v.product()                 -> T             — product of all elements
+//
+// Transformation:
+//   v.enumerate()               -> Vector<(usize, T)> — pairs each element with its index
+//   v.zip(other)                -> Vector<(T, U)>     — pair elements from two vectors
 //
 // Higher-order iterators (compiler-desugared, no runtime overhead):
 //   v.map(fn(T) -> U)           -> Vector<U>     — apply f to each element
@@ -21,6 +40,11 @@
 //   v.fold(init, fn(U, T) -> U) -> U             — accumulate via f(acc, elem)
 //   v.any(fn(T) -> bool)        -> bool          — true if f returns true for any element
 //   v.all(fn(T) -> bool)        -> bool          — true if f returns true for all elements
+//   v.find(fn(T) -> bool)       -> Option<T>     — first element where f returns true
+//   v.position(fn(T) -> bool)   -> Option<usize> — index of first element where f returns true
+//   v.for_each(fn(T) -> ())     -> ()            — apply f to each element for side effects
+//   v.flat_map(fn(T) -> Vector<U>) -> Vector<U>  — map then flatten one level
 //
+// All methods return new values; vectors are never mutated in place.
 // Iterators support chaining:
-//   [1, 2, 3, 4].filter(fn(x: i64) -> bool { x % 2 == 0 }).map(fn(x: i64) -> i64 { x * 10 })
+//   [1, 2, 3, 4].filter(|x| x % 2 == 0).map(|x| x * 10)

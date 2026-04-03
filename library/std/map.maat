@@ -1,2 +1,21 @@
-// Map<K, V> methods are available directly via method syntax on Map values.
-// Construction: literal syntax {k: v} or Map::new(), then m.insert(k, v), m.get(k), etc.
+// Map<K, V> — an insertion-ordered key-value collection.
+//
+// Construction:
+//   let m = { "a": 1, "b": 2 };    // literal syntax
+//   let m = Map::new();            // empty map
+//
+// Access:
+//   m.get(key)                  -> Option<V>     — value for key, or None if absent
+//   m.contains_key(key)         -> bool          — true if key is present
+//   m.len()                     -> usize         — number of entries
+//   m.keys()                    -> Vector<K>     — all keys in insertion order
+//   m.values()                  -> Vector<V>     — all values in insertion order
+//
+// Building:
+//   m.insert(key, value)        -> Map<K, V>     — new map with the entry added/updated
+//   m.remove(key)               -> Map<K, V>     — new map with the key removed
+//
+// Iteration:
+//   for (k, v) in m { ... }    — iterate over key-value pairs in insertion order
+//
+// All methods return new values; maps are never mutated in place.
