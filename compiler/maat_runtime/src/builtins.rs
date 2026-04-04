@@ -165,11 +165,17 @@ define_builtins! {
     "Option::unwrap_or" => option_unwrap_or,
     "Option::is_some" => option_is_some,
     "Option::is_none" => option_is_none,
+    "Option::ok" => option_ok,
+    "Option::flatten" => option_flatten,
+    "Option::zip" => option_zip,
 
     "Result::unwrap" => result_unwrap,
     "Result::unwrap_or" => result_unwrap_or,
     "Result::is_ok" => result_is_ok,
     "Result::is_err" => result_is_err,
+    "Result::unwrap_err" => result_unwrap_err,
+    "Result::ok" => result_ok,
+    "Result::err" => result_err,
 
     "i16::from" => i16_from,
     "i32::from" => i32_from,
@@ -1096,6 +1102,144 @@ fn result_is_err(args: &[Value]) -> Result<Value> {
             Ok(Value::Bool(v.tag == ERR_TAG))
         }
         other => method_type_error(other, "is_err", "Result"),
+    }
+}
+
+/// Converts `Some(x)` to `Ok(x)`, or `None` to `Err(())`.
+fn option_ok(args: &[Value]) -> Result<Value> {
+    expect_arg_count("Option::ok", args, 1)?;
+    match &args[0] {
+        Value::EnumVariant(v) if v.type_index == OPTION_TYPE_INDEX && v.tag == SOME_TAG => {
+            Ok(Value::EnumVariant(EnumVariantVal {
+                type_index: RESULT_TYPE_INDEX,
+                tag: OK_TAG,
+                fields: vec![v.fields[0].clone()],
+            }))
+        }
+        Value::EnumVariant(v) if v.type_index == OPTION_TYPE_INDEX && v.tag == NONE_TAG => {
+            Ok(Value::EnumVariant(EnumVariantVal {
+                type_index: RESULT_TYPE_INDEX,
+                tag: ERR_TAG,
+                fields: vec![Value::Unit],
+            }))
+        }
+        other => method_type_error(other, "ok", "Option"),
+    }
+}
+
+/// Collapses `Some(Some(x))` to `Some(x)`, or `Some(None)` / `None` to `None`.
+fn option_flatten(args: &[Value]) -> Result<Value> {
+    expect_arg_count("Option::flatten", args, 1)?;
+    match &args[0] {
+        Value::EnumVariant(v) if v.type_index == OPTION_TYPE_INDEX && v.tag == SOME_TAG => {
+            match &v.fields[0] {
+                inner @ Value::EnumVariant(iv) if iv.type_index == OPTION_TYPE_INDEX => {
+                    Ok(inner.clone())
+                }
+                _ => Err(EvalError::Builtin(
+                    "called `Option::flatten()` on a non-nested Option".to_string(),
+                )
+                .into()),
+            }
+        }
+        Value::EnumVariant(v) if v.type_index == OPTION_TYPE_INDEX && v.tag == NONE_TAG => {
+            Ok(args[0].clone())
+        }
+        other => method_type_error(other, "flatten", "Option"),
+    }
+}
+
+/// Combines two `Option`s into `Some((a, b))` if both are `Some`, otherwise `None`.
+fn option_zip(args: &[Value]) -> Result<Value> {
+    expect_arg_count("Option::zip", args, 2)?;
+    match (&args[0], &args[1]) {
+        (Value::EnumVariant(a), Value::EnumVariant(b))
+            if a.type_index == OPTION_TYPE_INDEX
+                && a.tag == SOME_TAG
+                && b.type_index == OPTION_TYPE_INDEX
+                && b.tag == SOME_TAG =>
+        {
+            Ok(Value::EnumVariant(EnumVariantVal {
+                type_index: OPTION_TYPE_INDEX,
+                tag: SOME_TAG,
+                fields: vec![Value::Tuple(vec![a.fields[0].clone(), b.fields[0].clone()])],
+            }))
+        }
+        (Value::EnumVariant(a), Value::EnumVariant(b))
+            if a.type_index == OPTION_TYPE_INDEX && b.type_index == OPTION_TYPE_INDEX =>
+        {
+            Ok(Value::EnumVariant(EnumVariantVal {
+                type_index: OPTION_TYPE_INDEX,
+                tag: NONE_TAG,
+                fields: vec![],
+            }))
+        }
+        _ => Err(EvalError::Builtin("Option::zip requires two Option values".to_string()).into()),
+    }
+}
+
+/// Extracts the `Err` value, or produces a runtime error on `Ok`.
+fn result_unwrap_err(args: &[Value]) -> Result<Value> {
+    expect_arg_count("Result::unwrap_err", args, 1)?;
+    match &args[0] {
+        Value::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX && v.tag == ERR_TAG => {
+            Ok(v.fields[0].clone())
+        }
+        Value::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX && v.tag == OK_TAG => {
+            let ok_val = v
+                .fields
+                .first()
+                .map_or("unknown".to_string(), |e| format!("{e}"));
+            Err(EvalError::Builtin(format!(
+                "called `Result::unwrap_err()` on an `Ok` value: {ok_val}"
+            ))
+            .into())
+        }
+        other => method_type_error(other, "unwrap_err", "Result"),
+    }
+}
+
+/// Converts `Ok(x)` to `Some(x)`, or `Err(_)` to `None`.
+fn result_ok(args: &[Value]) -> Result<Value> {
+    expect_arg_count("Result::ok", args, 1)?;
+    match &args[0] {
+        Value::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX && v.tag == OK_TAG => {
+            Ok(Value::EnumVariant(EnumVariantVal {
+                type_index: OPTION_TYPE_INDEX,
+                tag: SOME_TAG,
+                fields: vec![v.fields[0].clone()],
+            }))
+        }
+        Value::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX && v.tag == ERR_TAG => {
+            Ok(Value::EnumVariant(EnumVariantVal {
+                type_index: OPTION_TYPE_INDEX,
+                tag: NONE_TAG,
+                fields: vec![],
+            }))
+        }
+        other => method_type_error(other, "ok", "Result"),
+    }
+}
+
+/// Converts `Err(e)` to `Some(e)`, or `Ok(_)` to `None`.
+fn result_err(args: &[Value]) -> Result<Value> {
+    expect_arg_count("Result::err", args, 1)?;
+    match &args[0] {
+        Value::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX && v.tag == ERR_TAG => {
+            Ok(Value::EnumVariant(EnumVariantVal {
+                type_index: OPTION_TYPE_INDEX,
+                tag: SOME_TAG,
+                fields: vec![v.fields[0].clone()],
+            }))
+        }
+        Value::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX && v.tag == OK_TAG => {
+            Ok(Value::EnumVariant(EnumVariantVal {
+                type_index: OPTION_TYPE_INDEX,
+                tag: NONE_TAG,
+                fields: vec![],
+            }))
+        }
+        other => method_type_error(other, "err", "Result"),
     }
 }
 

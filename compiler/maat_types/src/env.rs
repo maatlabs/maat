@@ -848,7 +848,37 @@ impl TypeEnv {
                         params: vec![t.clone()],
                         ret: Box::new(option_u.clone()),
                     })],
-                    ret: Box::new(option_u),
+                    ret: Box::new(option_u.clone()),
+                }),
+            ),
+            (
+                "Option::unwrap_or_else",
+                vec![t_id],
+                Type::Function(FnType {
+                    params: vec![Type::Function(FnType {
+                        params: vec![],
+                        ret: Box::new(t.clone()),
+                    })],
+                    ret: Box::new(t.clone()),
+                }),
+            ),
+            (
+                "Option::ok",
+                option_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Enum(Rc::from("Result"), vec![t.clone(), Type::Unit])),
+                }),
+            ),
+            (
+                "Option::zip",
+                vec![t_id, u_id],
+                Type::Function(FnType {
+                    params: vec![Type::Enum(Rc::from("Option"), vec![u.clone()])],
+                    ret: Box::new(Type::Enum(
+                        Rc::from("Option"),
+                        vec![Type::Tuple(vec![t.clone(), u.clone()])],
+                    )),
                 }),
             ),
         ];
@@ -862,6 +892,22 @@ impl TypeEnv {
                 },
             );
         }
+
+        let flatten_inner_id = self.next_var;
+        self.next_var += 1;
+        let flatten_inner = Type::Var(flatten_inner_id);
+        let option_inner = Type::Enum(Rc::from("Option"), vec![flatten_inner.clone()]);
+        self.builtin_method_schemes.insert(
+            "Option::flatten".to_string(),
+            BuiltinMethodScheme {
+                forall: vec![flatten_inner_id],
+                self_type: Type::Enum(Rc::from("Option"), vec![option_inner]),
+                fn_type: Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Enum(Rc::from("Option"), vec![flatten_inner])),
+                }),
+            },
+        );
 
         // impl Result<T, E>
         let rt_id = self.next_var;
@@ -877,6 +923,10 @@ impl TypeEnv {
         self.next_var += 1;
         let ru = Type::Var(ru_id);
         let result_u = Type::Enum(Rc::from("Result"), vec![ru.clone(), re.clone()]);
+
+        let rf_id = self.next_var;
+        self.next_var += 1;
+        let rf = Type::Var(rf_id);
 
         let result_methods: Vec<(&str, Vec<TypeVarId>, Type)> = vec![
             (
@@ -927,10 +977,67 @@ impl TypeEnv {
                 vec![rt_id, re_id, ru_id],
                 Type::Function(FnType {
                     params: vec![Type::Function(FnType {
-                        params: vec![rt],
+                        params: vec![rt.clone()],
                         ret: Box::new(result_u.clone()),
                     })],
                     ret: Box::new(result_u),
+                }),
+            ),
+            (
+                "Result::map_err",
+                vec![rt_id, re_id, rf_id],
+                Type::Function(FnType {
+                    params: vec![Type::Function(FnType {
+                        params: vec![re.clone()],
+                        ret: Box::new(rf.clone()),
+                    })],
+                    ret: Box::new(Type::Enum(Rc::from("Result"), vec![rt.clone(), rf.clone()])),
+                }),
+            ),
+            (
+                "Result::unwrap_err",
+                result_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(re.clone()),
+                }),
+            ),
+            (
+                "Result::unwrap_or_else",
+                vec![rt_id, re_id],
+                Type::Function(FnType {
+                    params: vec![Type::Function(FnType {
+                        params: vec![re.clone()],
+                        ret: Box::new(rt.clone()),
+                    })],
+                    ret: Box::new(rt.clone()),
+                }),
+            ),
+            (
+                "Result::ok",
+                result_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Enum(Rc::from("Option"), vec![rt.clone()])),
+                }),
+            ),
+            (
+                "Result::err",
+                result_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Enum(Rc::from("Option"), vec![re.clone()])),
+                }),
+            ),
+            (
+                "Result::or_else",
+                vec![rt_id, re_id, rf_id],
+                Type::Function(FnType {
+                    params: vec![Type::Function(FnType {
+                        params: vec![re.clone()],
+                        ret: Box::new(Type::Enum(Rc::from("Result"), vec![rt.clone(), rf.clone()])),
+                    })],
+                    ret: Box::new(Type::Enum(Rc::from("Result"), vec![rt, rf])),
                 }),
             ),
         ];

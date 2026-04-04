@@ -572,3 +572,184 @@ fn result_and_then_returns_err() {
         -99,
     );
 }
+
+#[test]
+fn option_unwrap_or_else_some() {
+    run_i64("Some(42).unwrap_or_else(|| 0)", 42);
+}
+
+#[test]
+fn option_unwrap_or_else_none() {
+    run_i64("let x: Option<i64> = None; x.unwrap_or_else(|| 99)", 99);
+}
+
+#[test]
+fn option_ok_some() {
+    run_i64("match Some(10).ok() { Ok(v) => v, Err(_) => -1 }", 10);
+}
+
+#[test]
+fn option_ok_none() {
+    run_i64(
+        "let x: Option<i64> = None; match x.ok() { Ok(v) => v, Err(_) => -1 }",
+        -1,
+    );
+}
+
+#[test]
+fn option_flatten_some_some() {
+    run_i64(
+        "let x = Some(Some(42)); match x.flatten() { Some(v) => v, None => -1 }",
+        42,
+    );
+}
+
+#[test]
+fn option_flatten_some_none() {
+    run_i64(
+        "let inner: Option<i64> = None; let x = Some(inner); match x.flatten() { Some(v) => v, None => -1 }",
+        -1,
+    );
+}
+
+#[test]
+fn option_flatten_none() {
+    // Construct a None that the type checker infers as Option<Option<i64>>
+    // by branching: one arm produces Some(Some(v)), the other produces None.
+    run_i64(
+        "fn test(flag: bool) -> i64 {
+            let x = if flag { Some(Some(100)) } else { None };
+            match x.flatten() { Some(v) => v, None => -1 }
+         }
+         test(true)",
+        100,
+    );
+}
+
+#[test]
+fn option_zip_both_some() {
+    run_i64(
+        "match Some(1).zip(Some(2)) { Some(pair) => pair.0 + pair.1, None => -1 }",
+        3,
+    );
+}
+
+#[test]
+fn option_zip_first_none() {
+    run_i64(
+        "let a: Option<i64> = None; match a.zip(Some(2)) { Some(pair) => pair.0 + pair.1, None => -1 }",
+        -1,
+    );
+}
+
+#[test]
+fn option_zip_second_none() {
+    run_i64(
+        "let b: Option<i64> = None; match Some(1).zip(b) { Some(pair) => pair.0 + pair.1, None => -1 }",
+        -1,
+    );
+}
+
+#[test]
+fn result_map_err_ok() {
+    run_i64(
+        "let r: Result<i64, i64> = Ok(10);
+         match r.map_err(|e| e * 2) { Ok(v) => v, Err(e) => e }",
+        10,
+    );
+}
+
+#[test]
+fn result_map_err_err() {
+    run_i64(
+        "let r: Result<i64, i64> = Err(5);
+         match r.map_err(|e| e * 2) { Ok(v) => v, Err(e) => e }",
+        10,
+    );
+}
+
+#[test]
+fn result_unwrap_err_on_err() {
+    run_i64("let r: Result<i64, i64> = Err(42); r.unwrap_err()", 42);
+}
+
+#[test]
+#[should_panic(expected = "vm error")]
+fn result_unwrap_err_on_ok() {
+    run("let r: Result<i64, i64> = Ok(1); r.unwrap_err()");
+}
+
+#[test]
+fn result_unwrap_or_else_ok() {
+    run_i64(
+        "let r: Result<i64, i64> = Ok(42); r.unwrap_or_else(|e| e * 10)",
+        42,
+    );
+}
+
+#[test]
+fn result_unwrap_or_else_err() {
+    run_i64(
+        "let r: Result<i64, i64> = Err(5); r.unwrap_or_else(|e| e * 10)",
+        50,
+    );
+}
+
+#[test]
+fn result_ok_on_ok() {
+    run_i64(
+        "let r: Result<i64, i64> = Ok(42); match r.ok() { Some(v) => v, None => -1 }",
+        42,
+    );
+}
+
+#[test]
+fn result_ok_on_err() {
+    run_i64(
+        "let r: Result<i64, i64> = Err(5); match r.ok() { Some(v) => v, None => -1 }",
+        -1,
+    );
+}
+
+#[test]
+fn result_err_on_err() {
+    run_i64(
+        "let r: Result<i64, i64> = Err(42); match r.err() { Some(e) => e, None => -1 }",
+        42,
+    );
+}
+
+#[test]
+fn result_err_on_ok() {
+    run_i64(
+        "let r: Result<i64, i64> = Ok(5); match r.err() { Some(e) => e, None => -1 }",
+        -1,
+    );
+}
+
+#[test]
+fn result_or_else_ok() {
+    run_i64(
+        "let r: Result<i64, i64> = Ok(42);
+         match r.or_else(|e| Err(e * 2)) { Ok(v) => v, Err(e) => e }",
+        42,
+    );
+}
+
+#[test]
+fn result_or_else_err_to_ok() {
+    run_i64(
+        "let r: Result<i64, i64> = Err(5);
+         match r.or_else(|e| Ok(e * 10)) { Ok(v) => v, Err(e) => e }",
+        50,
+    );
+}
+
+#[test]
+fn result_or_else_err_to_err() {
+    run_i64(
+        "let r: Result<i64, i64> = Err(3);
+         match r.or_else(|e| Err(e + 100)) { Ok(v) => v, Err(e) => e }",
+        103,
+    );
+}

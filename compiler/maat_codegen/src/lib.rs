@@ -456,10 +456,10 @@ impl Compiler {
         self.load_symbol(&i_sym, span);
         let _elem_sym = self.define_and_set(&for_stmt.ident, false, span)?;
 
-        // body
         self.compile_block_statement(&for_stmt.body)?;
 
-        self.finalize_counting_loop(&i_sym, loop_start, exit_jump, span)
+        let elem_kind = range.kind.as_ref();
+        self.finalize_counting_loop(&i_sym, loop_start, exit_jump, elem_kind, span)
     }
 
     /// Compiles a `for x in array_expr` loop via index-based desugaring.
@@ -526,7 +526,7 @@ impl Compiler {
         // body
         self.compile_block_statement(&for_stmt.body)?;
 
-        self.finalize_counting_loop(&i_sym, loop_start, exit_jump, span)
+        self.finalize_counting_loop(&i_sym, loop_start, exit_jump, None, span)
     }
 
     /// Compiles `for (k, v) in map { body }` by iterating over the map's
@@ -617,7 +617,7 @@ impl Compiler {
             .expect("compile_for_map requires a pattern");
         self.compile_let_destructure(pattern, span)?;
         self.compile_block_statement(&for_stmt.body)?;
-        self.finalize_counting_loop(&i_sym, loop_start, exit_jump, span)
+        self.finalize_counting_loop(&i_sym, loop_start, exit_jump, None, span)
     }
 
     /// Emits the shared tail of a counting for-loop: increment, jump back,
@@ -627,11 +627,15 @@ impl Compiler {
         i_sym: &Symbol,
         loop_start: usize,
         exit_jump: usize,
+        elem_kind: Option<&NumKind>,
         span: Span,
     ) -> Result<()> {
         let continue_target = self.current_instructions().len();
         self.load_symbol(i_sym, span);
-        let one_idx = self.add_constant(Value::Integer(Integer::I64(1)))?;
+        let one = elem_kind
+            .map(Integer::one_of_kind)
+            .unwrap_or(Integer::I64(1));
+        let one_idx = self.add_constant(Value::Integer(one))?;
         self.emit(Opcode::Constant, &[one_idx], span);
         self.emit(Opcode::Add, &[], span);
         self.emit_set_symbol(i_sym, span);
@@ -1373,13 +1377,17 @@ impl Compiler {
     /// Returns `true` if this method call should be desugared into inline
     /// bytecode rather than dispatched as a builtin call.
     ///
-    /// `Option::map`, `Option::and_then`, `Result::map`, and `Result::and_then`
-    /// accept closures that require VM-level invocation. These are compiled
-    /// as inline match + call sequences instead of builtin function calls.
+    /// Higher-order methods on `Option`, `Result`, and `Vector` accept closures
+    /// that require VM-level invocation. These are compiled as inline match +
+    /// call sequences instead of builtin function calls.
     fn is_desugared_higher_order(&self, mc: &MethodCallExpr) -> bool {
         matches!(
             (mc.receiver.as_deref(), mc.method.as_str()),
-            (Some("Option" | "Result"), "map" | "and_then")
+            (Some("Option"), "map" | "and_then" | "unwrap_or_else")
+                | (
+                    Some("Result"),
+                    "map" | "and_then" | "map_err" | "unwrap_or_else" | "or_else"
+                )
                 | (
                     Some("Vector"),
                     "map"
@@ -1405,21 +1413,28 @@ impl Compiler {
         }
     }
 
-    /// Compiles `Option::map`, `Option::and_then`, `Result::map`, or
-    /// `Result::and_then` as inline bytecode equivalent to a match expression.
-    ///
-    /// For `opt.map(f)`:
-    /// ```text
-    /// match opt { Some(x) => Some(f(x)), None => None }
-    /// ```
-    ///
-    /// For `opt.and_then(f)`:
-    /// ```text
-    /// match opt { Some(x) => f(x), None => None }
-    /// ```
-    ///
-    /// Result variants follow the same pattern with Ok/Err.
+    /// Compiles higher-order `Option`/`Result` methods as inline bytecode
+    /// equivalent to match expressions. Dispatches by method name to the
+    /// appropriate pattern.
     fn compile_option_result_higher_order(&mut self, mc: &MethodCallExpr) -> Result<()> {
+        match mc.method.as_str() {
+            "map" | "and_then" => self.compile_option_result_map_like(mc),
+            "unwrap_or_else" => self.compile_option_result_unwrap_or_else(mc),
+            "map_err" => self.compile_result_map_err(mc),
+            "or_else" => self.compile_result_or_else(mc),
+            _ => unreachable!("unhandled Option/Result HOF: {}", mc.method),
+        }
+    }
+
+    /// Compiles `Option::map`, `Option::and_then`, `Result::map`, or
+    /// `Result::and_then` as inline bytecode.
+    ///
+    /// Pattern: apply `f` to the success payload, pass through the failure arm.
+    /// ```text
+    /// opt.map(f)      => match opt { Some(x) => Some(f(x)), None => None }
+    /// opt.and_then(f) => match opt { Some(x) => f(x),       None => None }
+    /// ```
+    fn compile_option_result_map_like(&mut self, mc: &MethodCallExpr) -> Result<()> {
         let span = mc.span;
         let is_option = mc.receiver.as_deref() == Some("Option");
         let is_map = mc.method == "map";
@@ -1462,6 +1477,127 @@ impl Compiler {
         } else {
             // `Result::Err`: the scrutinee is already the Err variant; keep it.
         }
+        let end = self.current_instructions().len();
+        self.replace_operand(jump_to_end, end)?;
+        Ok(())
+    }
+
+    /// Compiles `Option::unwrap_or_else(f)` and `Result::unwrap_or_else(f)`.
+    ///
+    /// ```text
+    /// opt.unwrap_or_else(f) => match opt { Some(x) => x, None => f() }
+    /// res.unwrap_or_else(f) => match res { Ok(x) => x,   Err(e) => f(e) }
+    /// ```
+    fn compile_option_result_unwrap_or_else(&mut self, mc: &MethodCallExpr) -> Result<()> {
+        let span = mc.span;
+        let is_option = mc.receiver.as_deref() == Some("Option");
+        let success_tag: usize = 0;
+
+        let id = self.for_loop_counter;
+        self.for_loop_counter += 1;
+        let fn_name = format!("__hof_fn_{id}");
+        let val_name = format!("__hof_val_{id}");
+
+        self.compile_expression(&mc.arguments[0])?;
+        let fn_sym = self.define_and_set(&fn_name, false, span)?;
+
+        self.compile_expression(&mc.object)?;
+
+        let match_tag_pos = self.emit(Opcode::MatchTag, &[success_tag, Self::JUMP], span);
+        self.emit(Opcode::GetField, &[0], span);
+        let jump_to_end = self.emit(Opcode::Jump, &[Self::JUMP], span);
+
+        let fail_arm = self.current_instructions().len();
+        self.replace_match_tag_target(match_tag_pos, fail_arm)?;
+
+        if is_option {
+            self.emit(Opcode::Pop, &[], span);
+            self.load_symbol(&fn_sym, span);
+            self.emit(Opcode::Call, &[0], span);
+        } else {
+            self.emit(Opcode::GetField, &[0], span);
+            let val_sym = self.define_and_set(&val_name, false, span)?;
+            self.load_symbol(&fn_sym, span);
+            self.load_symbol(&val_sym, span);
+            self.emit(Opcode::Call, &[1], span);
+        }
+
+        let end = self.current_instructions().len();
+        self.replace_operand(jump_to_end, end)?;
+        Ok(())
+    }
+
+    /// Compiles `Result::map_err(f)`.
+    ///
+    /// ```text
+    /// res.map_err(f) => match res { Ok(x) => Ok(x), Err(e) => Err(f(e)) }
+    /// ```
+    fn compile_result_map_err(&mut self, mc: &MethodCallExpr) -> Result<()> {
+        let span = mc.span;
+        let ok_tag: usize = 0;
+        let err_construct: usize = (1 << 8) | 1; // Result type_index=1, Err tag=1
+
+        let id = self.for_loop_counter;
+        self.for_loop_counter += 1;
+        let fn_name = format!("__hof_fn_{id}");
+        let val_name = format!("__hof_val_{id}");
+
+        self.compile_expression(&mc.arguments[0])?;
+        let fn_sym = self.define_and_set(&fn_name, false, span)?;
+
+        self.compile_expression(&mc.object)?;
+
+        let match_tag_pos = self.emit(Opcode::MatchTag, &[ok_tag, Self::JUMP], span);
+        let jump_to_end = self.emit(Opcode::Jump, &[Self::JUMP], span);
+
+        let err_arm = self.current_instructions().len();
+        self.replace_match_tag_target(match_tag_pos, err_arm)?;
+
+        self.emit(Opcode::GetField, &[0], span);
+        let val_sym = self.define_and_set(&val_name, false, span)?;
+
+        self.load_symbol(&fn_sym, span);
+        self.load_symbol(&val_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+        self.emit(Opcode::Construct, &[err_construct, 1], span);
+
+        let end = self.current_instructions().len();
+        self.replace_operand(jump_to_end, end)?;
+        Ok(())
+    }
+
+    /// Compiles `Result::or_else(f)`.
+    ///
+    /// ```text
+    /// res.or_else(f) => match res { Ok(x) => Ok(x), Err(e) => f(e) }
+    /// ```
+    fn compile_result_or_else(&mut self, mc: &MethodCallExpr) -> Result<()> {
+        let span = mc.span;
+        let ok_tag: usize = 0;
+
+        let id = self.for_loop_counter;
+        self.for_loop_counter += 1;
+        let fn_name = format!("__hof_fn_{id}");
+        let val_name = format!("__hof_val_{id}");
+
+        self.compile_expression(&mc.arguments[0])?;
+        let fn_sym = self.define_and_set(&fn_name, false, span)?;
+
+        self.compile_expression(&mc.object)?;
+
+        let match_tag_pos = self.emit(Opcode::MatchTag, &[ok_tag, Self::JUMP], span);
+        let jump_to_end = self.emit(Opcode::Jump, &[Self::JUMP], span);
+
+        let err_arm = self.current_instructions().len();
+        self.replace_match_tag_target(match_tag_pos, err_arm)?;
+
+        self.emit(Opcode::GetField, &[0], span);
+        let val_sym = self.define_and_set(&val_name, false, span)?;
+
+        self.load_symbol(&fn_sym, span);
+        self.load_symbol(&val_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+
         let end = self.current_instructions().len();
         self.replace_operand(jump_to_end, end)?;
         Ok(())
