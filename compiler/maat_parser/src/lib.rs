@@ -1429,6 +1429,7 @@ fn parse_range_expression<'src>(
         start: Box::new(start_expr),
         end: Box::new(end_expr),
         inclusive,
+        kind: None,
         span,
     }))
 }

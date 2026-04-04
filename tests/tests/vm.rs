@@ -19,8 +19,8 @@ enum TestValue {
     Str(String),
     IntVector(Vec<i64>),
     Map(Vec<(i64, i64)>),
-    Range(i64, i64),
-    RangeInclusive(i64, i64),
+    Range(Integer, Integer),
+    RangeInclusive(Integer, Integer),
     Char(char),
     Unit,
 }
@@ -1294,8 +1294,34 @@ fn range_for_loop() {
 
 #[test]
 fn range_expression_standalone() {
-    run_vm_test("0..10", TestValue::Range(0, 10));
-    run_vm_test("1..=5", TestValue::RangeInclusive(1, 5));
+    run_vm_test("0..10", TestValue::Range(Integer::I64(0), Integer::I64(10)));
+    run_vm_test(
+        "1..=5",
+        TestValue::RangeInclusive(Integer::I64(1), Integer::I64(5)),
+    );
+    // Typed-integer ranges
+    run_vm_test(
+        "0u8..255u8",
+        TestValue::Range(Integer::U8(0), Integer::U8(255)),
+    );
+    run_vm_test(
+        "0i32..=100i32",
+        TestValue::RangeInclusive(Integer::I32(0), Integer::I32(100)),
+    );
+    // Typed for-loop iteration
+    run_vm_test(
+        r#"
+        fn test() -> u32 {
+            let mut sum = 0u32;
+            for i in 1u32..=10u32 {
+                sum += i;
+            }
+            sum
+        }
+        test()
+        "#,
+        TestValue::U32(55),
+    );
 }
 
 #[test]

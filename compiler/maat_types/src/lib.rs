@@ -688,16 +688,18 @@ impl TypeChecker {
         if let Err(e) = self.subst.unify(&start_resolved, &end_resolved) {
             self.report_unify_error(e, range.span);
         }
-        if !start_resolved.is_integer() && !matches!(start_resolved, Type::Var(_)) {
+        let elem_ty = self.subst.apply(&start_resolved);
+        if !elem_ty.is_integer() && !matches!(elem_ty, Type::Var(_) | Type::IntVar(_)) {
             self.errors.push(
                 TypeErrorKind::Mismatch {
                     expected: "integer".to_string(),
-                    found: start_resolved.to_string(),
+                    found: elem_ty.to_string(),
                 }
                 .at(range.span),
             );
         }
-        Type::Range(Box::new(self.subst.apply(&start_resolved)))
+        range.kind = Some(elem_ty.to_number_kind());
+        Type::Range(Box::new(elem_ty))
     }
 
     /// Type-checks a function call expression.

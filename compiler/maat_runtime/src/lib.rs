@@ -75,10 +75,10 @@ pub enum Value {
     EnumVariant(EnumVariantVal),
     /// An ordered set of unique hashable values, backed by [`IndexSet`].
     Set(Set),
-    /// A half-open range `start..end`.
-    Range(i64, i64),
-    /// An inclusive range `start..=end`.
-    RangeInclusive(i64, i64),
+    /// A half-open range `start..end`, generic over all integer types.
+    Range(Integer, Integer),
+    /// An inclusive range `start..=end`, generic over all integer types.
+    RangeInclusive(Integer, Integer),
 }
 
 impl Value {
@@ -224,8 +224,8 @@ enum SerVal {
     Struct(StructVal),
     EnumVariant(EnumVariantVal),
     Set(Set),
-    Range(i64, i64),
-    RangeInclusive(i64, i64),
+    Range(Integer, Integer),
+    RangeInclusive(Integer, Integer),
 }
 
 impl Serialize for Value {

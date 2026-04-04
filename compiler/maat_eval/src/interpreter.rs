@@ -115,14 +115,16 @@ pub fn eval(node: Node, env: &Env) -> Result<Value> {
                 let start = eval(Node::Expr(*range.start), env)?;
                 let end = eval(Node::Expr(*range.end), env)?;
                 match (start, end) {
-                    (Value::Integer(Integer::I64(s)), Value::Integer(Integer::I64(e))) => {
+                    (Value::Integer(s), Value::Integer(e)) => {
                         if range.inclusive {
                             Ok(Value::RangeInclusive(s, e))
                         } else {
                             Ok(Value::Range(s, e))
                         }
                     }
-                    _ => Err(EvalError::Builtin("range bounds must be i64".to_string()).into()),
+                    _ => {
+                        Err(EvalError::Builtin("range bounds must be integers".to_string()).into())
+                    }
                 }
             }
             Expr::MacroCall(_)

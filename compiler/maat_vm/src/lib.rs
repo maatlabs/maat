@@ -437,13 +437,13 @@ impl VM {
                     self.push_stack(value)?;
                 }
                 Opcode::MakeRange => {
-                    let end = self.pop_i64("Range")?;
-                    let start = self.pop_i64("Range")?;
+                    let end = self.pop_integer("Range")?;
+                    let start = self.pop_integer("Range")?;
                     self.push_stack(Value::Range(start, end))?;
                 }
                 Opcode::MakeRangeInclusive => {
-                    let end = self.pop_i64("RangeInclusive")?;
-                    let start = self.pop_i64("RangeInclusive")?;
+                    let end = self.pop_integer("RangeInclusive")?;
+                    let start = self.pop_integer("RangeInclusive")?;
                     self.push_stack(Value::RangeInclusive(start, end))?;
                 }
             }
@@ -567,14 +567,14 @@ impl VM {
         Ok(self.stack[self.sp].clone())
     }
 
-    /// Pops a value from the stack and extracts it as `i64`.
+    /// Pops a value from the stack and extracts it as an [`Integer`].
     ///
     /// Used by range construction opcodes where both bounds must be integers.
-    fn pop_i64(&mut self, context: &str) -> Result<i64> {
+    fn pop_integer(&mut self, context: &str) -> Result<Integer> {
         match self.pop_stack()? {
-            Value::Integer(Integer::I64(v)) => Ok(v),
+            Value::Integer(v) => Ok(v),
             other => Err(self.vm_error(format!(
-                "{context} bounds must be i64, got {}",
+                "{context} bounds must be integer, got {}",
                 other.type_name()
             ))),
         }

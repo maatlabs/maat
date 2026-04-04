@@ -225,6 +225,24 @@ impl Integer {
         }
     }
 
+    /// Returns the multiplicative identity (1) for the given `NumKind`.
+    pub fn one_of_kind(kind: &NumKind) -> Self {
+        match kind {
+            NumKind::I8 => Integer::I8(1),
+            NumKind::I16 => Integer::I16(1),
+            NumKind::I32 => Integer::I32(1),
+            NumKind::I64 | NumKind::Int { .. } => Integer::I64(1),
+            NumKind::I128 => Integer::I128(1),
+            NumKind::Isize => Integer::Isize(1),
+            NumKind::U8 => Integer::U8(1),
+            NumKind::U16 => Integer::U16(1),
+            NumKind::U32 => Integer::U32(1),
+            NumKind::U64 => Integer::U64(1),
+            NumKind::U128 => Integer::U128(1),
+            NumKind::Usize => Integer::Usize(1),
+        }
+    }
+
     /// Returns the type name (e.g., `"i8"`, `"u64"`).
     pub fn type_name(&self) -> &'static str {
         match self {

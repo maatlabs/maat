@@ -839,6 +839,9 @@ pub struct RangeExpr {
     pub end: Box<Expr>,
     /// Whether this is an inclusive range (`..=`).
     pub inclusive: bool,
+    /// The resolved element `NumKind`, populated by the type checker.
+    /// Used by codegen to emit correctly-typed loop increments.
+    pub kind: Option<NumKind>,
     pub span: Span,
 }
 

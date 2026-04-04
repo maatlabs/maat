@@ -183,13 +183,15 @@ pub enum Opcode {
     /// Operands: none
     Shr = 40,
 
-    /// Construct a half-open `Range` from two i64 values on the stack.
+    /// Construct a half-open `Range` from two integer values on the stack.
     /// Pops `end` then `start`, pushes `Value::Range(start, end)`.
+    /// Both bounds must be the same integer type.
     /// Operands: none
     MakeRange = 41,
 
-    /// Construct an inclusive `RangeInclusive` from two i64 values on the stack.
+    /// Construct an inclusive `RangeInclusive` from two integer values on the stack.
     /// Pops `end` then `start`, pushes `Value::RangeInclusive(start, end)`.
+    /// Both bounds must be the same integer type.
     /// Operands: none
     MakeRangeInclusive = 42,
 
