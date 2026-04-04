@@ -1,15 +1,21 @@
-# Maat
+<div align="center">
+  <h1>Maat</h1>
+  <h2>Turing-complete programming language for writing zero-knowledge proofs (ZKPs)</h2>
+  <img src="./assets/maat-lang-transparent-logo.png" alt="Logo" height="200" width="200">
+  <br />
+</div>
 
-<p align="center">
-  <img src="./assets/maat-lang-transparent-logo.png" alt="Logo" width="200">
-</p>
+<div align="center">
+<br />
 
 [![Crates.io](https://img.shields.io/crates/v/maat.svg)](https://crates.io/crates/maat)
 [![Documentation](https://docs.rs/maat/badge.svg)](https://docs.rs/maat)
 [![CI](https://github.com/maatlabs/maat/workflows/CI/badge.svg)](https://github.com/maatlabs/maat/actions)
 [![License](https://img.shields.io/crates/l/maat.svg)](https://github.com/maatlabs/maat#license)
 
-Turing-complete programming language for writing zero-knowledge proofs (ZKPs).
+</div>
+
+---
 
 **WARNING:** This is a research project. It has not been audited and may contain bugs and security flaws. This implementation is NOT ready for production use.
 
