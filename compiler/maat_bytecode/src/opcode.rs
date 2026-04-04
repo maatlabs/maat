@@ -1,4 +1,4 @@
-use maat_runtime::NumKind;
+use maat_runtime::{CastTarget, NumKind};
 
 /// Bytecode operation codes.
 ///
@@ -183,13 +183,15 @@ pub enum Opcode {
     /// Operands: none
     Shr = 40,
 
-    /// Construct a half-open `Range` from two i64 values on the stack.
+    /// Construct a half-open `Range` from two integer values on the stack.
     /// Pops `end` then `start`, pushes `Value::Range(start, end)`.
+    /// Both bounds must be the same integer type.
     /// Operands: none
     MakeRange = 41,
 
-    /// Construct an inclusive `RangeInclusive` from two i64 values on the stack.
+    /// Construct an inclusive `RangeInclusive` from two integer values on the stack.
     /// Pops `end` then `start`, pushes `Value::RangeInclusive(start, end)`.
+    /// Both bounds must be the same integer type.
     /// Operands: none
     MakeRangeInclusive = 42,
 
@@ -361,9 +363,9 @@ impl Opcode {
     }
 }
 
-/// Numeric type tags for the `OpConvert` instruction operand.
+/// Type tags for the `OpConvert` instruction operand.
 ///
-/// Each variant corresponds to a runtime numeric type and is encoded
+/// Each variant corresponds to a runtime type and is encoded
 /// as a single byte in the instruction stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
@@ -380,6 +382,7 @@ pub enum TypeTag {
     U64 = 9,
     U128 = 10,
     Usize = 11,
+    Char = 12,
 }
 
 impl TypeTag {
@@ -399,6 +402,7 @@ impl TypeTag {
             9 => Some(Self::U64),
             10 => Some(Self::U128),
             11 => Some(Self::Usize),
+            12 => Some(Self::Char),
             _ => None,
         }
     }
@@ -409,31 +413,34 @@ impl TypeTag {
         self as u8
     }
 
-    /// Maps an integer bytecode type tag to a number type.
-    pub fn to_num_kind(&self) -> NumKind {
+    /// Maps a numeric bytecode type tag to a number type.
+    ///
+    /// Returns `None` for `Char`, which has no `NumKind` equivalent.
+    pub fn to_num_kind(self) -> Option<NumKind> {
         match self {
-            Self::I8 => NumKind::I8,
-            Self::I16 => NumKind::I16,
-            Self::I32 => NumKind::I32,
-            Self::I64 => NumKind::I64,
-            Self::I128 => NumKind::I128,
-            Self::Isize => NumKind::Isize,
-            Self::U8 => NumKind::U8,
-            Self::U16 => NumKind::U16,
-            Self::U32 => NumKind::U32,
-            Self::U64 => NumKind::U64,
-            Self::U128 => NumKind::U128,
-            Self::Usize => NumKind::Usize,
+            Self::I8 => Some(NumKind::I8),
+            Self::I16 => Some(NumKind::I16),
+            Self::I32 => Some(NumKind::I32),
+            Self::I64 => Some(NumKind::I64),
+            Self::I128 => Some(NumKind::I128),
+            Self::Isize => Some(NumKind::Isize),
+            Self::U8 => Some(NumKind::U8),
+            Self::U16 => Some(NumKind::U16),
+            Self::U32 => Some(NumKind::U32),
+            Self::U64 => Some(NumKind::U64),
+            Self::U128 => Some(NumKind::U128),
+            Self::Usize => Some(NumKind::Usize),
+            Self::Char => None,
         }
     }
 
-    /// Maps a source-level type annotation to a bytecode type tag.
+    /// Maps a source-level numeric type annotation to a bytecode type tag.
     pub fn from_num_kind(t: NumKind) -> Self {
         match t {
             NumKind::I8 => Self::I8,
             NumKind::I16 => Self::I16,
             NumKind::I32 => Self::I32,
-            NumKind::I64 => Self::I64,
+            NumKind::I64 | NumKind::Int { .. } => Self::I64,
             NumKind::I128 => Self::I128,
             NumKind::Isize => Self::Isize,
             NumKind::U8 => Self::U8,
@@ -442,6 +449,14 @@ impl TypeTag {
             NumKind::U64 => Self::U64,
             NumKind::U128 => Self::U128,
             NumKind::Usize => Self::Usize,
+        }
+    }
+
+    /// Maps a source-level cast target to a bytecode type tag.
+    pub fn from_cast_target(t: CastTarget) -> Self {
+        match t {
+            CastTarget::Num(k) => Self::from_num_kind(k),
+            CastTarget::Char => Self::Char,
         }
     }
 }

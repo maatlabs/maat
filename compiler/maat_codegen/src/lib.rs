@@ -11,7 +11,7 @@ mod symbol;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use maat_ast::{FmtSegment, parse_format_string, *};
+use maat_ast::{FmtSegment, parse_format_string, unescape_string, *};
 use maat_bytecode::{
     Bytecode, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, MAX_ENUM_VARIANTS, Opcode,
     TypeTag, encode,
@@ -312,6 +312,8 @@ impl Compiler {
             Stmt::For(for_stmt) => {
                 if matches!(*for_stmt.iterable, Expr::Range(_)) {
                     self.compile_for_range(for_stmt)?;
+                } else if for_stmt.pattern.is_some() {
+                    self.compile_for_map(for_stmt)?;
                 } else {
                     self.compile_for_array(for_stmt)?;
                 }
@@ -454,10 +456,10 @@ impl Compiler {
         self.load_symbol(&i_sym, span);
         let _elem_sym = self.define_and_set(&for_stmt.ident, false, span)?;
 
-        // body
         self.compile_block_statement(&for_stmt.body)?;
 
-        self.finalize_counting_loop(&i_sym, loop_start, exit_jump, span)
+        let elem_kind = range.kind.as_ref();
+        self.finalize_counting_loop(&i_sym, loop_start, exit_jump, elem_kind, span)
     }
 
     /// Compiles a `for x in array_expr` loop via index-based desugaring.
@@ -524,7 +526,98 @@ impl Compiler {
         // body
         self.compile_block_statement(&for_stmt.body)?;
 
-        self.finalize_counting_loop(&i_sym, loop_start, exit_jump, span)
+        self.finalize_counting_loop(&i_sym, loop_start, exit_jump, None, span)
+    }
+
+    /// Compiles `for (k, v) in map { body }` by iterating over the map's
+    /// insertion-ordered keys and indexing each value.
+    ///
+    /// Desugars to:
+    /// ```text
+    /// let __iter = map;
+    /// let __keys = Map::keys(__iter);
+    /// let __len  = Vector::len(__keys);
+    /// let __i    = 0;
+    /// loop:
+    ///   if __i >= __len: exit
+    ///   let __key = __keys[__i];
+    ///   let __val = __iter[__key];
+    ///   let (k, v) = (__key, __val);  // destructure
+    ///   <body>
+    ///   __i += 1
+    /// ```
+    fn compile_for_map(&mut self, for_stmt: &ForStmt) -> Result<()> {
+        let span = for_stmt.span;
+        let id = self.for_loop_counter;
+        self.for_loop_counter += 1;
+
+        let iter_name = format!("__miter_{id}");
+        let keys_name = format!("__mkeys_{id}");
+        let len_name = format!("__mlen_{id}");
+        let i_name = format!("__mi_{id}");
+
+        // __iter = map
+        self.compile_expression(&for_stmt.iterable)?;
+        let iter_sym = self.define_and_set(&iter_name, false, span)?;
+
+        // __keys = Map::keys(__iter)
+        let keys_builtin = self.resolve_or_error("Map::keys", span)?;
+        self.load_symbol(&keys_builtin, span);
+        self.load_symbol(&iter_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+        let keys_sym = self.define_and_set(&keys_name, false, span)?;
+
+        // __len = Vector::len(__keys)
+        let len_builtin = self.resolve_or_error("Vector::len", span)?;
+        self.load_symbol(&len_builtin, span);
+        self.load_symbol(&keys_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+        let len_sym = self.define_and_set(&len_name, false, span)?;
+
+        // __i = 0
+        let zero_idx = self.add_constant(Value::Integer(Integer::I64(0)))?;
+        self.emit(Opcode::Constant, &[zero_idx], span);
+        let i_sym = self.define_and_set(&i_name, false, span)?;
+
+        // loop_start: __i < __len
+        let loop_start = self.current_instructions().len();
+        self.loop_contexts.push(LoopContext {
+            label: for_stmt.label.clone(),
+            continue_target: None,
+            break_jumps: Vec::new(),
+            continue_jumps: Vec::new(),
+        });
+        self.load_symbol(&i_sym, span);
+        self.load_symbol(&len_sym, span);
+        self.emit(Opcode::LessThan, &[], span);
+        let exit_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+
+        // key = __keys[__i]
+        self.load_symbol(&keys_sym, span);
+        self.load_symbol(&i_sym, span);
+        self.emit(Opcode::Index, &[], span);
+
+        // value = __iter[key]
+        let key_name = format!("__mkey_{id}");
+        let key_sym = self.define_and_set(&key_name, false, span)?;
+
+        self.load_symbol(&iter_sym, span);
+        self.load_symbol(&key_sym, span);
+        self.emit(Opcode::Index, &[], span);
+
+        let val_name = format!("__mval_{id}");
+        let val_sym = self.define_and_set(&val_name, false, span)?;
+        self.load_symbol(&key_sym, span);
+        self.load_symbol(&val_sym, span);
+        self.emit(Opcode::Tuple, &[2], span);
+
+        let pattern = for_stmt
+            .pattern
+            .as_ref()
+            .expect("compile_for_map requires a pattern");
+        self.compile_let_destructure(pattern, span)?;
+        self.compile_block_statement(&for_stmt.body)?;
+        self.finalize_counting_loop(&i_sym, loop_start, exit_jump, None, span)
     }
 
     /// Emits the shared tail of a counting for-loop: increment, jump back,
@@ -534,11 +627,15 @@ impl Compiler {
         i_sym: &Symbol,
         loop_start: usize,
         exit_jump: usize,
+        elem_kind: Option<&NumKind>,
         span: Span,
     ) -> Result<()> {
         let continue_target = self.current_instructions().len();
         self.load_symbol(i_sym, span);
-        let one_idx = self.add_constant(Value::Integer(Integer::I64(1)))?;
+        let one = elem_kind
+            .map(Integer::one_of_kind)
+            .unwrap_or(Integer::I64(1));
+        let one_idx = self.add_constant(Value::Integer(one))?;
         self.emit(Opcode::Constant, &[one_idx], span);
         self.emit(Opcode::Add, &[], span);
         self.emit_set_symbol(i_sym, span);
@@ -638,7 +735,7 @@ impl Compiler {
                 Ok(())
             }
             Expr::Str(s) => {
-                let constant = Value::Str(maat_ast::unescape_string(&s.value));
+                let constant = Value::Str(unescape_string(&s.value));
                 let index = self.add_constant(constant)?;
                 self.emit(Opcode::Constant, &[index], span);
                 Ok(())
@@ -684,7 +781,7 @@ impl Compiler {
             }
             Expr::Cast(cast) => {
                 self.compile_expression(&cast.expr)?;
-                let tag = TypeTag::from_num_kind(cast.target);
+                let tag = TypeTag::from_cast_target(cast.target);
                 self.emit(Opcode::Convert, &[tag.to_byte() as usize], span);
                 Ok(())
             }
@@ -1280,14 +1377,29 @@ impl Compiler {
     /// Returns `true` if this method call should be desugared into inline
     /// bytecode rather than dispatched as a builtin call.
     ///
-    /// `Option::map`, `Option::and_then`, `Result::map`, and `Result::and_then`
-    /// accept closures that require VM-level invocation. These are compiled
-    /// as inline match + call sequences instead of builtin function calls.
+    /// Higher-order methods on `Option`, `Result`, and `Vector` accept closures
+    /// that require VM-level invocation. These are compiled as inline match +
+    /// call sequences instead of builtin function calls.
     fn is_desugared_higher_order(&self, mc: &MethodCallExpr) -> bool {
         matches!(
             (mc.receiver.as_deref(), mc.method.as_str()),
-            (Some("Option" | "Result"), "map" | "and_then")
-                | (Some("Vector"), "map" | "filter" | "fold" | "any" | "all")
+            (Some("Option"), "map" | "and_then" | "unwrap_or_else")
+                | (
+                    Some("Result"),
+                    "map" | "and_then" | "map_err" | "unwrap_or_else" | "or_else"
+                )
+                | (
+                    Some("Vector"),
+                    "map"
+                        | "filter"
+                        | "fold"
+                        | "any"
+                        | "all"
+                        | "find"
+                        | "position"
+                        | "for_each"
+                        | "flat_map"
+                )
         )
     }
 
@@ -1301,21 +1413,28 @@ impl Compiler {
         }
     }
 
-    /// Compiles `Option::map`, `Option::and_then`, `Result::map`, or
-    /// `Result::and_then` as inline bytecode equivalent to a match expression.
-    ///
-    /// For `opt.map(f)`:
-    /// ```text
-    /// match opt { Some(x) => Some(f(x)), None => None }
-    /// ```
-    ///
-    /// For `opt.and_then(f)`:
-    /// ```text
-    /// match opt { Some(x) => f(x), None => None }
-    /// ```
-    ///
-    /// Result variants follow the same pattern with Ok/Err.
+    /// Compiles higher-order `Option`/`Result` methods as inline bytecode
+    /// equivalent to match expressions. Dispatches by method name to the
+    /// appropriate pattern.
     fn compile_option_result_higher_order(&mut self, mc: &MethodCallExpr) -> Result<()> {
+        match mc.method.as_str() {
+            "map" | "and_then" => self.compile_option_result_map_like(mc),
+            "unwrap_or_else" => self.compile_option_result_unwrap_or_else(mc),
+            "map_err" => self.compile_result_map_err(mc),
+            "or_else" => self.compile_result_or_else(mc),
+            _ => unreachable!("unhandled Option/Result HOF: {}", mc.method),
+        }
+    }
+
+    /// Compiles `Option::map`, `Option::and_then`, `Result::map`, or
+    /// `Result::and_then` as inline bytecode.
+    ///
+    /// Pattern: apply `f` to the success payload, pass through the failure arm.
+    /// ```text
+    /// opt.map(f)      => match opt { Some(x) => Some(f(x)), None => None }
+    /// opt.and_then(f) => match opt { Some(x) => f(x),       None => None }
+    /// ```
+    fn compile_option_result_map_like(&mut self, mc: &MethodCallExpr) -> Result<()> {
         let span = mc.span;
         let is_option = mc.receiver.as_deref() == Some("Option");
         let is_map = mc.method == "map";
@@ -1363,6 +1482,127 @@ impl Compiler {
         Ok(())
     }
 
+    /// Compiles `Option::unwrap_or_else(f)` and `Result::unwrap_or_else(f)`.
+    ///
+    /// ```text
+    /// opt.unwrap_or_else(f) => match opt { Some(x) => x, None => f() }
+    /// res.unwrap_or_else(f) => match res { Ok(x) => x,   Err(e) => f(e) }
+    /// ```
+    fn compile_option_result_unwrap_or_else(&mut self, mc: &MethodCallExpr) -> Result<()> {
+        let span = mc.span;
+        let is_option = mc.receiver.as_deref() == Some("Option");
+        let success_tag: usize = 0;
+
+        let id = self.for_loop_counter;
+        self.for_loop_counter += 1;
+        let fn_name = format!("__hof_fn_{id}");
+        let val_name = format!("__hof_val_{id}");
+
+        self.compile_expression(&mc.arguments[0])?;
+        let fn_sym = self.define_and_set(&fn_name, false, span)?;
+
+        self.compile_expression(&mc.object)?;
+
+        let match_tag_pos = self.emit(Opcode::MatchTag, &[success_tag, Self::JUMP], span);
+        self.emit(Opcode::GetField, &[0], span);
+        let jump_to_end = self.emit(Opcode::Jump, &[Self::JUMP], span);
+
+        let fail_arm = self.current_instructions().len();
+        self.replace_match_tag_target(match_tag_pos, fail_arm)?;
+
+        if is_option {
+            self.emit(Opcode::Pop, &[], span);
+            self.load_symbol(&fn_sym, span);
+            self.emit(Opcode::Call, &[0], span);
+        } else {
+            self.emit(Opcode::GetField, &[0], span);
+            let val_sym = self.define_and_set(&val_name, false, span)?;
+            self.load_symbol(&fn_sym, span);
+            self.load_symbol(&val_sym, span);
+            self.emit(Opcode::Call, &[1], span);
+        }
+
+        let end = self.current_instructions().len();
+        self.replace_operand(jump_to_end, end)?;
+        Ok(())
+    }
+
+    /// Compiles `Result::map_err(f)`.
+    ///
+    /// ```text
+    /// res.map_err(f) => match res { Ok(x) => Ok(x), Err(e) => Err(f(e)) }
+    /// ```
+    fn compile_result_map_err(&mut self, mc: &MethodCallExpr) -> Result<()> {
+        let span = mc.span;
+        let ok_tag: usize = 0;
+        let err_construct: usize = (1 << 8) | 1; // Result type_index=1, Err tag=1
+
+        let id = self.for_loop_counter;
+        self.for_loop_counter += 1;
+        let fn_name = format!("__hof_fn_{id}");
+        let val_name = format!("__hof_val_{id}");
+
+        self.compile_expression(&mc.arguments[0])?;
+        let fn_sym = self.define_and_set(&fn_name, false, span)?;
+
+        self.compile_expression(&mc.object)?;
+
+        let match_tag_pos = self.emit(Opcode::MatchTag, &[ok_tag, Self::JUMP], span);
+        let jump_to_end = self.emit(Opcode::Jump, &[Self::JUMP], span);
+
+        let err_arm = self.current_instructions().len();
+        self.replace_match_tag_target(match_tag_pos, err_arm)?;
+
+        self.emit(Opcode::GetField, &[0], span);
+        let val_sym = self.define_and_set(&val_name, false, span)?;
+
+        self.load_symbol(&fn_sym, span);
+        self.load_symbol(&val_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+        self.emit(Opcode::Construct, &[err_construct, 1], span);
+
+        let end = self.current_instructions().len();
+        self.replace_operand(jump_to_end, end)?;
+        Ok(())
+    }
+
+    /// Compiles `Result::or_else(f)`.
+    ///
+    /// ```text
+    /// res.or_else(f) => match res { Ok(x) => Ok(x), Err(e) => f(e) }
+    /// ```
+    fn compile_result_or_else(&mut self, mc: &MethodCallExpr) -> Result<()> {
+        let span = mc.span;
+        let ok_tag: usize = 0;
+
+        let id = self.for_loop_counter;
+        self.for_loop_counter += 1;
+        let fn_name = format!("__hof_fn_{id}");
+        let val_name = format!("__hof_val_{id}");
+
+        self.compile_expression(&mc.arguments[0])?;
+        let fn_sym = self.define_and_set(&fn_name, false, span)?;
+
+        self.compile_expression(&mc.object)?;
+
+        let match_tag_pos = self.emit(Opcode::MatchTag, &[ok_tag, Self::JUMP], span);
+        let jump_to_end = self.emit(Opcode::Jump, &[Self::JUMP], span);
+
+        let err_arm = self.current_instructions().len();
+        self.replace_match_tag_target(match_tag_pos, err_arm)?;
+
+        self.emit(Opcode::GetField, &[0], span);
+        let val_sym = self.define_and_set(&val_name, false, span)?;
+
+        self.load_symbol(&fn_sym, span);
+        self.load_symbol(&val_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+
+        let end = self.current_instructions().len();
+        self.replace_operand(jump_to_end, end)?;
+        Ok(())
+    }
+
     /// Compiles `Vector::map`, `Vector::filter`, `Vector::fold`, `Vector::any`,
     /// and `Vector::all` as inline loop desugaring.
     ///
@@ -1380,6 +1620,10 @@ impl Compiler {
             "fold" => self.compile_vector_fold(mc),
             "any" => self.compile_vector_any_all(mc, true),
             "all" => self.compile_vector_any_all(mc, false),
+            "find" => self.compile_vector_find(mc),
+            "position" => self.compile_vector_position(mc),
+            "for_each" => self.compile_vector_for_each(mc),
+            "flat_map" => self.compile_vector_flat_map(mc),
             _ => unreachable!("is_desugared_higher_order already validated method"),
         }
     }
@@ -1778,6 +2022,277 @@ impl Compiler {
         Ok(())
     }
 
+    /// Compiles `vec.find(f)`, returning `Some(elem)` for the first element
+    /// where `f(elem)` is true, or `None` if no match.
+    fn compile_vector_find(&mut self, mc: &MethodCallExpr) -> Result<()> {
+        let span = mc.span;
+        let id = self.for_loop_counter;
+        self.for_loop_counter += 1;
+
+        let fn_name = format!("__vfind_fn_{id}");
+        let iter_name = format!("__vfind_iter_{id}");
+        let len_name = format!("__vfind_len_{id}");
+        let i_name = format!("__vfind_i_{id}");
+        let elem_name = format!("__vfind_elem_{id}");
+
+        self.compile_expression(&mc.arguments[0])?;
+        let fn_sym = self.define_and_set(&fn_name, false, span)?;
+
+        self.compile_expression(&mc.object)?;
+        let iter_sym = self.define_and_set(&iter_name, false, span)?;
+
+        let len_builtin = self.resolve_or_error("Vector::len", span)?;
+        self.load_symbol(&len_builtin, span);
+        self.load_symbol(&iter_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+        let len_sym = self.define_and_set(&len_name, false, span)?;
+
+        let zero_idx = self.add_constant(Value::Integer(Integer::I64(0)))?;
+        self.emit(Opcode::Constant, &[zero_idx], span);
+        let i_sym = self.define_and_set(&i_name, true, span)?;
+
+        let loop_start = self.current_instructions().len();
+        self.load_symbol(&i_sym, span);
+        self.load_symbol(&len_sym, span);
+        self.emit(Opcode::LessThan, &[], span);
+        let exit_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+
+        self.load_symbol(&iter_sym, span);
+        self.load_symbol(&i_sym, span);
+        self.emit(Opcode::Index, &[], span);
+        let elem_sym = self.define_and_set(&elem_name, false, span)?;
+
+        self.load_symbol(&fn_sym, span);
+        self.load_symbol(&elem_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+
+        let continue_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+
+        self.load_symbol(&elem_sym, span);
+        let some_tag = 0usize; // Option type_index=0, Some tag=0
+        self.emit(Opcode::Construct, &[some_tag, 1], span);
+        let early_exit = self.emit(Opcode::Jump, &[Self::JUMP], span);
+
+        let continue_target = self.current_instructions().len();
+        self.replace_operand(continue_jump, continue_target)?;
+
+        self.load_symbol(&i_sym, span);
+        let one_idx = self.add_constant(Value::Integer(Integer::I64(1)))?;
+        self.emit(Opcode::Constant, &[one_idx], span);
+        self.emit(Opcode::Add, &[], span);
+        self.emit_set_symbol(&i_sym, span);
+        self.emit(Opcode::Jump, &[loop_start], span);
+
+        let default_target = self.current_instructions().len();
+        self.replace_operand(exit_jump, default_target)?;
+        let none_tag = 1usize; // Option None tag=1
+        self.emit(Opcode::Construct, &[none_tag, 0], span);
+
+        let end = self.current_instructions().len();
+        self.replace_operand(early_exit, end)?;
+        Ok(())
+    }
+
+    /// Compiles `vec.position(f)`, returning `Some(index)` for the first element
+    /// where `f(elem)` is true, or `None` if no match.
+    fn compile_vector_position(&mut self, mc: &MethodCallExpr) -> Result<()> {
+        let span = mc.span;
+        let id = self.for_loop_counter;
+        self.for_loop_counter += 1;
+
+        let fn_name = format!("__vpos_fn_{id}");
+        let iter_name = format!("__vpos_iter_{id}");
+        let len_name = format!("__vpos_len_{id}");
+        let i_name = format!("__vpos_i_{id}");
+        let elem_name = format!("__vpos_elem_{id}");
+
+        self.compile_expression(&mc.arguments[0])?;
+        let fn_sym = self.define_and_set(&fn_name, false, span)?;
+
+        self.compile_expression(&mc.object)?;
+        let iter_sym = self.define_and_set(&iter_name, false, span)?;
+
+        let len_builtin = self.resolve_or_error("Vector::len", span)?;
+        self.load_symbol(&len_builtin, span);
+        self.load_symbol(&iter_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+        let len_sym = self.define_and_set(&len_name, false, span)?;
+
+        let zero_idx = self.add_constant(Value::Integer(Integer::Usize(0)))?;
+        self.emit(Opcode::Constant, &[zero_idx], span);
+        let i_sym = self.define_and_set(&i_name, true, span)?;
+
+        let loop_start = self.current_instructions().len();
+        self.load_symbol(&i_sym, span);
+        self.load_symbol(&len_sym, span);
+        self.emit(Opcode::LessThan, &[], span);
+        let exit_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+
+        self.load_symbol(&iter_sym, span);
+        self.load_symbol(&i_sym, span);
+        self.emit(Opcode::Index, &[], span);
+        let elem_sym = self.define_and_set(&elem_name, false, span)?;
+
+        self.load_symbol(&fn_sym, span);
+        self.load_symbol(&elem_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+
+        let continue_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+
+        self.load_symbol(&i_sym, span);
+        let some_tag = 0usize;
+        self.emit(Opcode::Construct, &[some_tag, 1], span);
+        let early_exit = self.emit(Opcode::Jump, &[Self::JUMP], span);
+
+        let continue_target = self.current_instructions().len();
+        self.replace_operand(continue_jump, continue_target)?;
+
+        self.load_symbol(&i_sym, span);
+        let one_idx = self.add_constant(Value::Integer(Integer::Usize(1)))?;
+        self.emit(Opcode::Constant, &[one_idx], span);
+        self.emit(Opcode::Add, &[], span);
+        self.emit_set_symbol(&i_sym, span);
+        self.emit(Opcode::Jump, &[loop_start], span);
+
+        let default_target = self.current_instructions().len();
+        self.replace_operand(exit_jump, default_target)?;
+        let none_tag = 1usize;
+        self.emit(Opcode::Construct, &[none_tag, 0], span);
+
+        let end = self.current_instructions().len();
+        self.replace_operand(early_exit, end)?;
+        Ok(())
+    }
+
+    /// Compiles `vec.for_each(f)`, applying `f` to each element and discarding
+    /// results. Returns unit.
+    fn compile_vector_for_each(&mut self, mc: &MethodCallExpr) -> Result<()> {
+        let span = mc.span;
+        let id = self.for_loop_counter;
+        self.for_loop_counter += 1;
+
+        let fn_name = format!("__vfe_fn_{id}");
+        let iter_name = format!("__vfe_iter_{id}");
+        let len_name = format!("__vfe_len_{id}");
+        let i_name = format!("__vfe_i_{id}");
+        let elem_name = format!("__vfe_elem_{id}");
+
+        self.compile_expression(&mc.arguments[0])?;
+        let fn_sym = self.define_and_set(&fn_name, false, span)?;
+
+        self.compile_expression(&mc.object)?;
+        let iter_sym = self.define_and_set(&iter_name, false, span)?;
+
+        let len_builtin = self.resolve_or_error("Vector::len", span)?;
+        self.load_symbol(&len_builtin, span);
+        self.load_symbol(&iter_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+        let len_sym = self.define_and_set(&len_name, false, span)?;
+
+        let zero_idx = self.add_constant(Value::Integer(Integer::I64(0)))?;
+        self.emit(Opcode::Constant, &[zero_idx], span);
+        let i_sym = self.define_and_set(&i_name, true, span)?;
+
+        let loop_start = self.current_instructions().len();
+        self.load_symbol(&i_sym, span);
+        self.load_symbol(&len_sym, span);
+        self.emit(Opcode::LessThan, &[], span);
+        let exit_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+
+        self.load_symbol(&iter_sym, span);
+        self.load_symbol(&i_sym, span);
+        self.emit(Opcode::Index, &[], span);
+        let elem_sym = self.define_and_set(&elem_name, false, span)?;
+
+        self.load_symbol(&fn_sym, span);
+        self.load_symbol(&elem_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+        self.emit(Opcode::Pop, &[], span);
+
+        // __i += 1
+        self.load_symbol(&i_sym, span);
+        let one_idx = self.add_constant(Value::Integer(Integer::I64(1)))?;
+        self.emit(Opcode::Constant, &[one_idx], span);
+        self.emit(Opcode::Add, &[], span);
+        self.emit_set_symbol(&i_sym, span);
+        self.emit(Opcode::Jump, &[loop_start], span);
+
+        let loop_exit = self.current_instructions().len();
+        self.replace_operand(exit_jump, loop_exit)?;
+
+        let unit_idx = self.add_constant(Value::Unit)?;
+        self.emit(Opcode::Constant, &[unit_idx], span);
+        Ok(())
+    }
+
+    /// Compiles `vec.flat_map(f)`, applying `f` to each element (producing a
+    /// vector), then concatenating all results into a single vector.
+    fn compile_vector_flat_map(&mut self, mc: &MethodCallExpr) -> Result<()> {
+        let span = mc.span;
+        let id = self.for_loop_counter;
+        self.for_loop_counter += 1;
+
+        let fn_name = format!("__vfm_fn_{id}");
+        let iter_name = format!("__vfm_iter_{id}");
+        let len_name = format!("__vfm_len_{id}");
+        let result_name = format!("__vfm_result_{id}");
+        let i_name = format!("__vfm_i_{id}");
+        let elem_name = format!("__vfm_elem_{id}");
+
+        self.compile_expression(&mc.arguments[0])?;
+        let fn_sym = self.define_and_set(&fn_name, false, span)?;
+
+        self.compile_expression(&mc.object)?;
+        let iter_sym = self.define_and_set(&iter_name, false, span)?;
+
+        let len_builtin = self.resolve_or_error("Vector::len", span)?;
+        self.load_symbol(&len_builtin, span);
+        self.load_symbol(&iter_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+        let len_sym = self.define_and_set(&len_name, false, span)?;
+
+        self.emit(Opcode::Vector, &[0], span);
+        let result_sym = self.define_and_set(&result_name, true, span)?;
+
+        let zero_idx = self.add_constant(Value::Integer(Integer::I64(0)))?;
+        self.emit(Opcode::Constant, &[zero_idx], span);
+        let i_sym = self.define_and_set(&i_name, true, span)?;
+
+        let loop_start = self.current_instructions().len();
+        self.load_symbol(&i_sym, span);
+        self.load_symbol(&len_sym, span);
+        self.emit(Opcode::LessThan, &[], span);
+        let exit_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+
+        self.load_symbol(&iter_sym, span);
+        self.load_symbol(&i_sym, span);
+        self.emit(Opcode::Index, &[], span);
+        let elem_sym = self.define_and_set(&elem_name, false, span)?;
+
+        // __result = Vector::chain(__result, __fn(__elem))
+        let chain_builtin = self.resolve_or_error("Vector::chain", span)?;
+        self.load_symbol(&chain_builtin, span);
+        self.load_symbol(&result_sym, span);
+        self.load_symbol(&fn_sym, span);
+        self.load_symbol(&elem_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+        self.emit(Opcode::Call, &[2], span);
+        self.emit_set_symbol(&result_sym, span);
+
+        // __i += 1
+        self.load_symbol(&i_sym, span);
+        let one_idx = self.add_constant(Value::Integer(Integer::I64(1)))?;
+        self.emit(Opcode::Constant, &[one_idx], span);
+        self.emit(Opcode::Add, &[], span);
+        self.emit_set_symbol(&i_sym, span);
+        self.emit(Opcode::Jump, &[loop_start], span);
+
+        let loop_exit = self.current_instructions().len();
+        self.replace_operand(exit_jump, loop_exit)?;
+        self.load_symbol(&result_sym, span);
+        Ok(())
+    }
+
     /// Compiles the try operator (`expr?`).
     ///
     /// Desugars to an inline match:
@@ -2092,6 +2607,7 @@ impl Compiler {
     fn compile_macro_call(&mut self, mc: &MacroCallExpr) -> Result<()> {
         let span = mc.span;
         match mc.name.as_str() {
+            "format" => self.compile_format_macro(&mc.arguments, span),
             "print" => self.compile_print_macro(&mc.arguments, false, span),
             "println" => self.compile_print_macro(&mc.arguments, true, span),
             "assert" => self.compile_assert_macro(&mc.arguments, span),
@@ -2115,6 +2631,77 @@ impl Compiler {
         }
     }
 
+    /// Compiles `format!(fmt, args...)` into a string concatenation sequence.
+    fn compile_format_macro(&mut self, args: &[Expr], span: Span) -> Result<()> {
+        if args.is_empty() {
+            let idx = self.add_constant(Value::Str(String::new()))?;
+            self.emit(Opcode::Constant, &[idx], span);
+            return Ok(());
+        }
+
+        let fmt = match &args[0] {
+            Expr::Str(s) => unescape_string(&s.value),
+            _ => {
+                return Err(CompileErrorKind::MacroExpectsFormatString {
+                    macro_name: "format".to_string(),
+                }
+                .at(span)
+                .into());
+            }
+        };
+
+        let segments = parse_format_string(&fmt);
+        let placeholder_count = segments
+            .iter()
+            .filter(|s| matches!(s, FmtSegment::Arg))
+            .count();
+        let value_args = &args[1..];
+        if placeholder_count != value_args.len() {
+            return Err(CompileErrorKind::FormatArgCountMismatch {
+                placeholders: placeholder_count,
+                arguments: value_args.len(),
+            }
+            .at(span)
+            .into());
+        }
+
+        let mut arg_idx = 0;
+        let mut pieces = 0usize;
+
+        for segment in &segments {
+            match segment {
+                FmtSegment::Literal(text) => {
+                    let idx = self.add_constant(Value::Str(text.clone()))?;
+                    self.emit(Opcode::Constant, &[idx], span);
+                    pieces += 1;
+                }
+                FmtSegment::Arg => {
+                    self.emit_builtin_call_expr("__to_string", &value_args[arg_idx], span)?;
+                    arg_idx += 1;
+                    pieces += 1;
+                }
+                FmtSegment::Capture(name) => {
+                    let ident_expr = Expr::Ident(Ident {
+                        value: name.clone(),
+                        span,
+                    });
+                    self.emit_builtin_call_expr("__to_string", &ident_expr, span)?;
+                    pieces += 1;
+                }
+            }
+            if pieces > 1 {
+                self.emit(Opcode::Add, &[], span);
+            }
+        }
+
+        if pieces == 0 {
+            let idx = self.add_constant(Value::Str(String::new()))?;
+            self.emit(Opcode::Constant, &[idx], span);
+        }
+
+        Ok(())
+    }
+
     /// Compiles `print!(fmt, args...)` or `println!(fmt, args...)`.
     fn compile_print_macro(&mut self, args: &[Expr], newline: bool, span: Span) -> Result<()> {
         let macro_name = if newline { "println" } else { "print" };
@@ -2130,7 +2717,7 @@ impl Compiler {
             return self.emit_builtin_call("__print_str", &[Value::Str(String::new())], span);
         }
         let fmt = match &args[0] {
-            Expr::Str(s) => maat_ast::unescape_string(&s.value),
+            Expr::Str(s) => unescape_string(&s.value),
             _ => {
                 return Err(CompileErrorKind::MacroExpectsFormatString {
                     macro_name: macro_name.to_string(),
@@ -2279,7 +2866,7 @@ impl Compiler {
         }
 
         let fmt = match &args[0] {
-            Expr::Str(s) => maat_ast::unescape_string(&s.value),
+            Expr::Str(s) => unescape_string(&s.value),
             _ => {
                 return Err(CompileErrorKind::MacroExpectsFormatString {
                     macro_name: "panic".to_string(),

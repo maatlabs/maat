@@ -276,7 +276,11 @@ impl fmt::Display for ForStmt {
         if let Some(label) = &self.label {
             write!(f, "'{label}: ")?;
         }
-        write!(f, "for {} in {} {}", self.ident, self.iterable, self.body)
+        if let Some(pattern) = &self.pattern {
+            write!(f, "for {} in {} {}", pattern, self.iterable, self.body)
+        } else {
+            write!(f, "for {} in {} {}", self.ident, self.iterable, self.body)
+        }
     }
 }
 

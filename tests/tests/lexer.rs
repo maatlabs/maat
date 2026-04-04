@@ -27,12 +27,12 @@ if (5 < 10) {
         (TokenKind::Let, "let"),
         (TokenKind::Ident, "five"),
         (TokenKind::Assign, "="),
-        (TokenKind::I64, "5"),
+        (TokenKind::Int, "5"),
         (TokenKind::Semicolon, ";"),
         (TokenKind::Let, "let"),
         (TokenKind::Ident, "ten"),
         (TokenKind::Assign, "="),
-        (TokenKind::I64, "10"),
+        (TokenKind::Int, "10"),
         (TokenKind::Semicolon, ";"),
         (TokenKind::Let, "let"),
         (TokenKind::Ident, "add"),
@@ -64,19 +64,19 @@ if (5 < 10) {
         (TokenKind::Minus, "-"),
         (TokenKind::Slash, "/"),
         (TokenKind::Asterisk, "*"),
-        (TokenKind::I64, "5"),
+        (TokenKind::Int, "5"),
         (TokenKind::Semicolon, ";"),
-        (TokenKind::I64, "5"),
+        (TokenKind::Int, "5"),
         (TokenKind::Less, "<"),
-        (TokenKind::I64, "10"),
+        (TokenKind::Int, "10"),
         (TokenKind::Greater, ">"),
-        (TokenKind::I64, "5"),
+        (TokenKind::Int, "5"),
         (TokenKind::Semicolon, ";"),
         (TokenKind::If, "if"),
         (TokenKind::LParen, "("),
-        (TokenKind::I64, "5"),
+        (TokenKind::Int, "5"),
         (TokenKind::Less, "<"),
-        (TokenKind::I64, "10"),
+        (TokenKind::Int, "10"),
         (TokenKind::RParen, ")"),
         (TokenKind::LBrace, "{"),
         (TokenKind::Return, "return"),
@@ -89,13 +89,13 @@ if (5 < 10) {
         (TokenKind::False, "false"),
         (TokenKind::Semicolon, ";"),
         (TokenKind::RBrace, "}"),
-        (TokenKind::I64, "10"),
+        (TokenKind::Int, "10"),
         (TokenKind::Equal, "=="),
-        (TokenKind::I64, "10"),
+        (TokenKind::Int, "10"),
         (TokenKind::Semicolon, ";"),
-        (TokenKind::I64, "10"),
+        (TokenKind::Int, "10"),
         (TokenKind::NotEqual, "!="),
-        (TokenKind::I64, "9"),
+        (TokenKind::Int, "9"),
         (TokenKind::Semicolon, ";"),
         (TokenKind::Eof, ""),
     ];
@@ -264,9 +264,9 @@ fn non_decimal_literals() {
     // Binary
     let source = "0b1010 0B1111 0b0";
     let expected = [
-        (TokenKind::I64, "0b1010"),
-        (TokenKind::I64, "0B1111"),
-        (TokenKind::I64, "0b0"),
+        (TokenKind::Int, "0b1010"),
+        (TokenKind::Int, "0B1111"),
+        (TokenKind::Int, "0b0"),
         (TokenKind::Eof, ""),
     ];
     let mut lexer = MaatLexer::new(source);
@@ -278,9 +278,9 @@ fn non_decimal_literals() {
     // Octal
     let source = "0o755 0O644 0o0";
     let expected = [
-        (TokenKind::I64, "0o755"),
-        (TokenKind::I64, "0O644"),
-        (TokenKind::I64, "0o0"),
+        (TokenKind::Int, "0o755"),
+        (TokenKind::Int, "0O644"),
+        (TokenKind::Int, "0o0"),
         (TokenKind::Eof, ""),
     ];
     let mut lexer = MaatLexer::new(source);
@@ -292,11 +292,11 @@ fn non_decimal_literals() {
     // Hex
     let source = "0xff 0xFF 0x0 0xDEADBEEF 0X1a2B";
     let expected = [
-        (TokenKind::I64, "0xff"),
-        (TokenKind::I64, "0xFF"),
-        (TokenKind::I64, "0x0"),
-        (TokenKind::I64, "0xDEADBEEF"),
-        (TokenKind::I64, "0X1a2B"),
+        (TokenKind::Int, "0xff"),
+        (TokenKind::Int, "0xFF"),
+        (TokenKind::Int, "0x0"),
+        (TokenKind::Int, "0xDEADBEEF"),
+        (TokenKind::Int, "0X1a2B"),
         (TokenKind::Eof, ""),
     ];
     let mut lexer = MaatLexer::new(source);
@@ -391,15 +391,15 @@ fn typed_integer_suffixes() {
     // Suffix boundary checking (invalid suffixes become separate idents)
     let source = "42i641 42u641 42i12 42u12 42isizes";
     let expected = [
-        (TokenKind::I64, "42"),
+        (TokenKind::Int, "42"),
         (TokenKind::Ident, "i641"),
-        (TokenKind::I64, "42"),
+        (TokenKind::Int, "42"),
         (TokenKind::Ident, "u641"),
-        (TokenKind::I64, "42"),
+        (TokenKind::Int, "42"),
         (TokenKind::Ident, "i12"),
-        (TokenKind::I64, "42"),
+        (TokenKind::Int, "42"),
         (TokenKind::Ident, "u12"),
-        (TokenKind::I64, "42"),
+        (TokenKind::Int, "42"),
         (TokenKind::Ident, "isizes"),
         (TokenKind::Eof, ""),
     ];
@@ -432,7 +432,7 @@ fn typed_integer_suffixes() {
 fn integer_followed_by_dot_method() {
     let source = "5.abs()";
     let expected = [
-        (TokenKind::I64, "5"),
+        (TokenKind::Int, "5"),
         (TokenKind::Dot, "."),
         (TokenKind::Ident, "abs"),
         (TokenKind::LParen, "("),
@@ -452,11 +452,11 @@ fn arrays_and_hashes() {
     let source = r#"[1, 2, 3]; {"key": "value"}; arr[0]"#;
     let expected = [
         (TokenKind::LBracket, "["),
-        (TokenKind::I64, "1"),
+        (TokenKind::Int, "1"),
         (TokenKind::Comma, ","),
-        (TokenKind::I64, "2"),
+        (TokenKind::Int, "2"),
         (TokenKind::Comma, ","),
-        (TokenKind::I64, "3"),
+        (TokenKind::Int, "3"),
         (TokenKind::RBracket, "]"),
         (TokenKind::Semicolon, ";"),
         (TokenKind::LBrace, "{"),
@@ -467,7 +467,7 @@ fn arrays_and_hashes() {
         (TokenKind::Semicolon, ";"),
         (TokenKind::Ident, "arr"),
         (TokenKind::LBracket, "["),
-        (TokenKind::I64, "0"),
+        (TokenKind::Int, "0"),
         (TokenKind::RBracket, "]"),
         (TokenKind::Eof, ""),
     ];
@@ -512,12 +512,12 @@ fn custom_type_tokens() {
 fn range_tokens() {
     let source = "0..10 0..=10 x.method()";
     let expected = [
-        (TokenKind::I64, "0"),
+        (TokenKind::Int, "0"),
         (TokenKind::DotDot, ".."),
-        (TokenKind::I64, "10"),
-        (TokenKind::I64, "0"),
+        (TokenKind::Int, "10"),
+        (TokenKind::Int, "0"),
         (TokenKind::DotDotEqual, "..="),
-        (TokenKind::I64, "10"),
+        (TokenKind::Int, "10"),
         (TokenKind::Ident, "x"),
         (TokenKind::Dot, "."),
         (TokenKind::Ident, "method"),

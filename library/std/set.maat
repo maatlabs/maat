@@ -1,2 +1,17 @@
-// Set<T> methods are available directly via method syntax on Set values.
-// Construction: Set::new(), then s.insert(value), s.contains(value), etc.
+// Set<T> — an insertion-ordered collection of unique elements.
+//
+// Construction:
+//   let s = Set::new();             // empty set
+//
+// Access:
+//   s.contains(value)           -> bool          — true if value is present
+//   s.len()                     -> usize         — number of elements
+//
+// Building:
+//   s.insert(value)             -> Set<T>        — new set with the element added
+//   s.remove(value)             -> Set<T>        — new set with the element removed
+//
+// Conversion:
+//   s.to_vector()               -> Vector<T>     — elements as a vector in insertion order
+//
+// All methods return new values; sets are never mutated in place.

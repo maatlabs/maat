@@ -98,6 +98,42 @@ macro_rules! checked_unary {
 }
 
 impl Integer {
+    /// Returns zero in the same numeric type as `self`.
+    pub fn zero(&self) -> Self {
+        match self {
+            Self::I8(_) => Self::I8(0),
+            Self::I16(_) => Self::I16(0),
+            Self::I32(_) => Self::I32(0),
+            Self::I64(_) => Self::I64(0),
+            Self::I128(_) => Self::I128(0),
+            Self::Isize(_) => Self::Isize(0),
+            Self::U8(_) => Self::U8(0),
+            Self::U16(_) => Self::U16(0),
+            Self::U32(_) => Self::U32(0),
+            Self::U64(_) => Self::U64(0),
+            Self::U128(_) => Self::U128(0),
+            Self::Usize(_) => Self::Usize(0),
+        }
+    }
+
+    /// Returns one in the same numeric type as `self`.
+    pub fn one(&self) -> Self {
+        match self {
+            Self::I8(_) => Self::I8(1),
+            Self::I16(_) => Self::I16(1),
+            Self::I32(_) => Self::I32(1),
+            Self::I64(_) => Self::I64(1),
+            Self::I128(_) => Self::I128(1),
+            Self::Isize(_) => Self::Isize(1),
+            Self::U8(_) => Self::U8(1),
+            Self::U16(_) => Self::U16(1),
+            Self::U32(_) => Self::U32(1),
+            Self::U64(_) => Self::U64(1),
+            Self::U128(_) => Self::U128(1),
+            Self::Usize(_) => Self::Usize(1),
+        }
+    }
+
     pub fn cast_to(self, target: NumKind) -> Result<Self, String> {
         Self::from_wide(self.to_wide(), target)
     }
@@ -120,10 +156,10 @@ impl Integer {
         }
 
         match target {
+            NumKind::Int { .. } | NumKind::I64 => narrow!(i64, I64, "i64"),
             NumKind::I8 => narrow!(i8, I8, "i8"),
             NumKind::I16 => narrow!(i16, I16, "i16"),
             NumKind::I32 => narrow!(i32, I32, "i32"),
-            NumKind::I64 => narrow!(i64, I64, "i64"),
             NumKind::I128 => narrow!(i128, I128, "i128"),
             NumKind::Isize => narrow!(isize, Isize, "isize"),
             NumKind::U8 => narrow!(u8, U8, "u8"),
@@ -138,72 +174,90 @@ impl Integer {
     /// Widens the integer to a unified signed/unsigned representation.
     pub fn to_wide(self) -> WideInt {
         match self {
-            Integer::I8(v) => WideInt::Signed(v as i128),
-            Integer::I16(v) => WideInt::Signed(v as i128),
-            Integer::I32(v) => WideInt::Signed(v as i128),
-            Integer::I64(v) => WideInt::Signed(v as i128),
-            Integer::I128(v) => WideInt::Signed(v),
-            Integer::Isize(v) => WideInt::Signed(v as i128),
-            Integer::U8(v) => WideInt::Unsigned(v as u128),
-            Integer::U16(v) => WideInt::Unsigned(v as u128),
-            Integer::U32(v) => WideInt::Unsigned(v as u128),
-            Integer::U64(v) => WideInt::Unsigned(v as u128),
-            Integer::U128(v) => WideInt::Unsigned(v),
-            Integer::Usize(v) => WideInt::Unsigned(v as u128),
+            Self::I8(v) => WideInt::Signed(v as i128),
+            Self::I16(v) => WideInt::Signed(v as i128),
+            Self::I32(v) => WideInt::Signed(v as i128),
+            Self::I64(v) => WideInt::Signed(v as i128),
+            Self::I128(v) => WideInt::Signed(v),
+            Self::Isize(v) => WideInt::Signed(v as i128),
+            Self::U8(v) => WideInt::Unsigned(v as u128),
+            Self::U16(v) => WideInt::Unsigned(v as u128),
+            Self::U32(v) => WideInt::Unsigned(v as u128),
+            Self::U64(v) => WideInt::Unsigned(v as u128),
+            Self::U128(v) => WideInt::Unsigned(v),
+            Self::Usize(v) => WideInt::Unsigned(v as u128),
         }
     }
 
     /// Convert to `i128` for cross-type comparison (fails for `U128` > `i128::MAX`).
     pub fn to_i128(&self) -> Option<i128> {
         match *self {
-            Integer::I8(v) => Some(v as i128),
-            Integer::I16(v) => Some(v as i128),
-            Integer::I32(v) => Some(v as i128),
-            Integer::I64(v) => Some(v as i128),
-            Integer::I128(v) => Some(v),
-            Integer::Isize(v) => Some(v as i128),
-            Integer::U8(v) => Some(v as i128),
-            Integer::U16(v) => Some(v as i128),
-            Integer::U32(v) => Some(v as i128),
-            Integer::U64(v) => Some(v as i128),
-            Integer::U128(v) => i128::try_from(v).ok(),
-            Integer::Usize(v) => Some(v as i128),
+            Self::I8(v) => Some(v as i128),
+            Self::I16(v) => Some(v as i128),
+            Self::I32(v) => Some(v as i128),
+            Self::I64(v) => Some(v as i128),
+            Self::I128(v) => Some(v),
+            Self::Isize(v) => Some(v as i128),
+            Self::U8(v) => Some(v as i128),
+            Self::U16(v) => Some(v as i128),
+            Self::U32(v) => Some(v as i128),
+            Self::U64(v) => Some(v as i128),
+            Self::U128(v) => i128::try_from(v).ok(),
+            Self::Usize(v) => Some(v as i128),
         }
     }
 
     /// Convert to `usize` for indexing (fails for negative values or overflow).
     pub fn to_usize(&self) -> Option<usize> {
         match *self {
-            Integer::I8(v) => usize::try_from(v).ok(),
-            Integer::I16(v) => usize::try_from(v).ok(),
-            Integer::I32(v) => usize::try_from(v).ok(),
-            Integer::I64(v) => usize::try_from(v).ok(),
-            Integer::I128(v) => usize::try_from(v).ok(),
-            Integer::Isize(v) => usize::try_from(v).ok(),
-            Integer::U8(v) => Some(v as usize),
-            Integer::U16(v) => Some(v as usize),
-            Integer::U32(v) => Some(v as usize),
-            Integer::U64(v) => usize::try_from(v).ok(),
-            Integer::U128(v) => usize::try_from(v).ok(),
-            Integer::Usize(v) => Some(v),
+            Self::I8(v) => usize::try_from(v).ok(),
+            Self::I16(v) => usize::try_from(v).ok(),
+            Self::I32(v) => usize::try_from(v).ok(),
+            Self::I64(v) => usize::try_from(v).ok(),
+            Self::I128(v) => usize::try_from(v).ok(),
+            Self::Isize(v) => usize::try_from(v).ok(),
+            Self::U8(v) => Some(v as usize),
+            Self::U16(v) => Some(v as usize),
+            Self::U32(v) => Some(v as usize),
+            Self::U64(v) => usize::try_from(v).ok(),
+            Self::U128(v) => usize::try_from(v).ok(),
+            Self::Usize(v) => Some(v),
+        }
+    }
+
+    /// Returns the multiplicative identity (1) for the given `NumKind`.
+    pub fn one_of_kind(kind: &NumKind) -> Self {
+        match kind {
+            NumKind::I8 => Self::I8(1),
+            NumKind::I16 => Self::I16(1),
+            NumKind::I32 => Self::I32(1),
+            NumKind::I64 | NumKind::Int { .. } => Self::I64(1),
+            NumKind::I128 => Self::I128(1),
+            NumKind::Isize => Self::Isize(1),
+            NumKind::U8 => Self::U8(1),
+            NumKind::U16 => Self::U16(1),
+            NumKind::U32 => Self::U32(1),
+            NumKind::U64 => Self::U64(1),
+            NumKind::U128 => Self::U128(1),
+            NumKind::Usize => Self::Usize(1),
         }
     }
 
     /// Returns the type name (e.g., `"i8"`, `"u64"`).
     pub fn type_name(&self) -> &'static str {
         match self {
-            Integer::I8(_) => "i8",
-            Integer::I16(_) => "i16",
-            Integer::I32(_) => "i32",
-            Integer::I64(_) => "i64",
-            Integer::I128(_) => "i128",
-            Integer::Isize(_) => "isize",
-            Integer::U8(_) => "u8",
-            Integer::U16(_) => "u16",
-            Integer::U32(_) => "u32",
-            Integer::U64(_) => "u64",
-            Integer::U128(_) => "u128",
-            Integer::Usize(_) => "usize",
+            Self::I8(_) => "i8",
+            Self::I16(_) => "i16",
+            Self::I32(_) => "i32",
+            Self::I64(_) => "i64",
+            Self::I128(_) => "i128",
+            Self::Isize(_) => "isize",
+            Self::U8(_) => "u8",
+            Self::U16(_) => "u16",
+            Self::U32(_) => "u32",
+            Self::U64(_) => "u64",
+            Self::U128(_) => "u128",
+            Self::Usize(_) => "usize",
         }
     }
 
@@ -211,18 +265,18 @@ impl Integer {
     /// Returns `None` if the value is a `U128` that does not fit in `i128`.
     pub fn to_ast_literal(&self) -> Option<(NumKind, i128)> {
         match *self {
-            Integer::I8(v) => Some((NumKind::I8, v as i128)),
-            Integer::I16(v) => Some((NumKind::I16, v as i128)),
-            Integer::I32(v) => Some((NumKind::I32, v as i128)),
-            Integer::I64(v) => Some((NumKind::I64, v as i128)),
-            Integer::I128(v) => Some((NumKind::I128, v)),
-            Integer::Isize(v) => Some((NumKind::Isize, v as i128)),
-            Integer::U8(v) => Some((NumKind::U8, v as i128)),
-            Integer::U16(v) => Some((NumKind::U16, v as i128)),
-            Integer::U32(v) => Some((NumKind::U32, v as i128)),
-            Integer::U64(v) => Some((NumKind::U64, v as i128)),
-            Integer::U128(v) => i128::try_from(v).ok().map(|v| (NumKind::U128, v)),
-            Integer::Usize(v) => Some((NumKind::Usize, v as i128)),
+            Self::I8(v) => Some((NumKind::I8, v as i128)),
+            Self::I16(v) => Some((NumKind::I16, v as i128)),
+            Self::I32(v) => Some((NumKind::I32, v as i128)),
+            Self::I64(v) => Some((NumKind::I64, v as i128)),
+            Self::I128(v) => Some((NumKind::I128, v)),
+            Self::Isize(v) => Some((NumKind::Isize, v as i128)),
+            Self::U8(v) => Some((NumKind::U8, v as i128)),
+            Self::U16(v) => Some((NumKind::U16, v as i128)),
+            Self::U32(v) => Some((NumKind::U32, v as i128)),
+            Self::U64(v) => Some((NumKind::U64, v as i128)),
+            Self::U128(v) => i128::try_from(v).ok().map(|v| (NumKind::U128, v)),
+            Self::Usize(v) => Some((NumKind::Usize, v as i128)),
         }
     }
 
@@ -255,18 +309,18 @@ impl Integer {
     /// Returns `Some(Ordering)` if they are the same variant, otherwise `None`.
     pub fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         match (self, other) {
-            (Integer::I8(l), Integer::I8(r)) => l.partial_cmp(r),
-            (Integer::I16(l), Integer::I16(r)) => l.partial_cmp(r),
-            (Integer::I32(l), Integer::I32(r)) => l.partial_cmp(r),
-            (Integer::I64(l), Integer::I64(r)) => l.partial_cmp(r),
-            (Integer::I128(l), Integer::I128(r)) => l.partial_cmp(r),
-            (Integer::Isize(l), Integer::Isize(r)) => l.partial_cmp(r),
-            (Integer::U8(l), Integer::U8(r)) => l.partial_cmp(r),
-            (Integer::U16(l), Integer::U16(r)) => l.partial_cmp(r),
-            (Integer::U32(l), Integer::U32(r)) => l.partial_cmp(r),
-            (Integer::U64(l), Integer::U64(r)) => l.partial_cmp(r),
-            (Integer::U128(l), Integer::U128(r)) => l.partial_cmp(r),
-            (Integer::Usize(l), Integer::Usize(r)) => l.partial_cmp(r),
+            (Self::I8(l), Self::I8(r)) => l.partial_cmp(r),
+            (Self::I16(l), Self::I16(r)) => l.partial_cmp(r),
+            (Self::I32(l), Self::I32(r)) => l.partial_cmp(r),
+            (Self::I64(l), Self::I64(r)) => l.partial_cmp(r),
+            (Self::I128(l), Self::I128(r)) => l.partial_cmp(r),
+            (Self::Isize(l), Self::Isize(r)) => l.partial_cmp(r),
+            (Self::U8(l), Self::U8(r)) => l.partial_cmp(r),
+            (Self::U16(l), Self::U16(r)) => l.partial_cmp(r),
+            (Self::U32(l), Self::U32(r)) => l.partial_cmp(r),
+            (Self::U64(l), Self::U64(r)) => l.partial_cmp(r),
+            (Self::U128(l), Self::U128(r)) => l.partial_cmp(r),
+            (Self::Usize(l), Self::Usize(r)) => l.partial_cmp(r),
             _ => None,
         }
     }
@@ -299,12 +353,12 @@ impl Integer {
     /// Checked negation (only for signed types).
     pub fn checked_neg(self) -> Option<Self> {
         match self {
-            Integer::I8(v) => v.checked_neg().map(Integer::I8),
-            Integer::I16(v) => v.checked_neg().map(Integer::I16),
-            Integer::I32(v) => v.checked_neg().map(Integer::I32),
-            Integer::I64(v) => v.checked_neg().map(Integer::I64),
-            Integer::I128(v) => v.checked_neg().map(Integer::I128),
-            Integer::Isize(v) => v.checked_neg().map(Integer::Isize),
+            Self::I8(v) => v.checked_neg().map(Self::I8),
+            Self::I16(v) => v.checked_neg().map(Self::I16),
+            Self::I32(v) => v.checked_neg().map(Self::I32),
+            Self::I64(v) => v.checked_neg().map(Self::I64),
+            Self::I128(v) => v.checked_neg().map(Self::I128),
+            Self::Isize(v) => v.checked_neg().map(Self::Isize),
             _ => None,
         }
     }
@@ -313,18 +367,18 @@ impl Integer {
 impl fmt::Display for Integer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Integer::I8(v) => v.fmt(f),
-            Integer::I16(v) => v.fmt(f),
-            Integer::I32(v) => v.fmt(f),
-            Integer::I64(v) => v.fmt(f),
-            Integer::I128(v) => v.fmt(f),
-            Integer::Isize(v) => v.fmt(f),
-            Integer::U8(v) => v.fmt(f),
-            Integer::U16(v) => v.fmt(f),
-            Integer::U32(v) => v.fmt(f),
-            Integer::U64(v) => v.fmt(f),
-            Integer::U128(v) => v.fmt(f),
-            Integer::Usize(v) => v.fmt(f),
+            Self::I8(v) => v.fmt(f),
+            Self::I16(v) => v.fmt(f),
+            Self::I32(v) => v.fmt(f),
+            Self::I64(v) => v.fmt(f),
+            Self::I128(v) => v.fmt(f),
+            Self::Isize(v) => v.fmt(f),
+            Self::U8(v) => v.fmt(f),
+            Self::U16(v) => v.fmt(f),
+            Self::U32(v) => v.fmt(f),
+            Self::U64(v) => v.fmt(f),
+            Self::U128(v) => v.fmt(f),
+            Self::Usize(v) => v.fmt(f),
         }
     }
 }

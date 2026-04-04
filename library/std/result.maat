@@ -1,4 +1,4 @@
-// Result<T, E> represents either success (Ok(T)) or failure (Err(E)).
+// Result<T, E> — represents either success (Ok(T)) or failure (Err(E)).
 //
 // Construction:
 //   let r = Ok(42);
@@ -7,10 +7,27 @@
 // Pattern matching:
 //   match r { Ok(v) => v, Err(e) => handle(e) }
 //
-// Methods:
-//   r.unwrap()            -> T       (panics if Err)
-//   r.unwrap_or(def)      -> T       (returns def if Err)
-//   r.is_ok()             -> bool
-//   r.is_err()            -> bool
-//   r.map(fn(T) -> U)     -> Result<U, E>
-//   r.and_then(fn(T) -> Result<U, E>) -> Result<U, E>
+// Inspection:
+//   r.is_ok()                              -> bool       — true if Ok
+//   r.is_err()                             -> bool       — true if Err
+//
+// Unwrapping:
+//   r.unwrap()                             -> T          — success value (panics if Err)
+//   r.unwrap_or(default)                   -> T          — success value, or default if Err
+//   r.unwrap_or_else(fn(E) -> T)           -> T          — success value, or compute from error
+//   r.unwrap_err()                         -> E          — error value (panics if Ok)
+//
+// Transformation:
+//   r.map(fn(T) -> U)                      -> Result<U, E>  — apply f to success value
+//   r.map_err(fn(E) -> F)                  -> Result<T, F>  — apply f to error value
+//   r.and_then(fn(T) -> Result<U, E>)      -> Result<U, E>  — chain on success, flattening
+//   r.or_else(fn(E) -> Result<T, F>)       -> Result<T, F>  — chain on failure, flattening
+//
+// Conversion:
+//   r.ok()                                 -> Option<T>  — Ok(x) to Some(x), Err to None
+//   r.err()                                -> Option<E>  — Err(e) to Some(e), Ok to None
+//
+// Higher-order methods (map, map_err, and_then, unwrap_or_else, or_else) are
+// compiler-desugared into match expressions. No runtime overhead.
+//
+// All methods return new values; Results are never mutated in place.

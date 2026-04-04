@@ -438,7 +438,7 @@ fn lex_radix_number(src: &mut Lexer<'_, RawToken>) -> NumToken {
     let value_len = src.slice().len() as u32;
     let kind = try_read_suffix(src)
         .map(NumSuffix::to_token_kind)
-        .unwrap_or(TokenKind::I64);
+        .unwrap_or(TokenKind::Int);
     NumToken { kind, value_len }
 }
 
@@ -460,7 +460,7 @@ fn lex_decimal_number(src: &mut Lexer<'_, RawToken>) -> NumToken {
 
     let kind = try_read_suffix(src)
         .map(NumSuffix::to_token_kind)
-        .unwrap_or(TokenKind::I64);
+        .unwrap_or(TokenKind::Int);
     NumToken { kind, value_len }
 }
 

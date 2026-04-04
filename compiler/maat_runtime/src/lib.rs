@@ -14,8 +14,8 @@ use std::rc::Rc;
 pub use builtins::{BUILTIN_COUNT, BUILTINS, get_builtin};
 pub use env::Env;
 use indexmap::{IndexMap, IndexSet};
-pub use maat_ast::NumKind;
 use maat_ast::{BlockStmt, Node, Number};
+pub use maat_ast::{CastTarget, NumKind};
 use maat_errors::{Error, EvalError, Result};
 use maat_span::SourceMap;
 pub use num::{Integer, WideInt};
@@ -75,10 +75,10 @@ pub enum Value {
     EnumVariant(EnumVariantVal),
     /// An ordered set of unique hashable values, backed by [`IndexSet`].
     Set(Set),
-    /// A half-open range `start..end`.
-    Range(i64, i64),
-    /// An inclusive range `start..=end`.
-    RangeInclusive(i64, i64),
+    /// A half-open range `start..end`, generic over all integer types.
+    Range(Integer, Integer),
+    /// An inclusive range `start..=end`, generic over all integer types.
+    RangeInclusive(Integer, Integer),
 }
 
 impl Value {
@@ -100,7 +100,7 @@ impl Value {
             NumKind::I8 => narrow!(I8, i8),
             NumKind::I16 => narrow!(I16, i16),
             NumKind::I32 => narrow!(I32, i32),
-            NumKind::I64 => narrow!(I64, i64),
+            NumKind::I64 | NumKind::Int { .. } => narrow!(I64, i64),
             NumKind::I128 => Ok(Self::Integer(Integer::I128(lit.value))),
             NumKind::Isize => narrow!(Isize, isize),
             NumKind::U8 => narrow!(U8, u8),
@@ -224,8 +224,8 @@ enum SerVal {
     Struct(StructVal),
     EnumVariant(EnumVariantVal),
     Set(Set),
-    Range(i64, i64),
-    RangeInclusive(i64, i64),
+    Range(Integer, Integer),
+    RangeInclusive(Integer, Integer),
 }
 
 impl Serialize for Value {

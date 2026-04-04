@@ -95,6 +95,7 @@ impl TypeChecker {
         for stmt in &mut program.statements {
             self.check_statement(stmt);
         }
+        self.subst.resolve_inferred_literals(program);
     }
 
     /// Returns the accumulated type errors.
@@ -269,11 +270,12 @@ impl TypeChecker {
                 let elem_ty = match resolved {
                     Type::Vector(elem) => *elem,
                     Type::Range(elem) => *elem,
+                    Type::Map(k, v) => Type::Tuple(vec![*k, *v]),
                     Type::Var(_) => self.env.fresh_var(),
                     _ => {
                         self.errors.push(
                             TypeErrorKind::Mismatch {
-                                expected: "[T] or Range<T>".to_string(),
+                                expected: "[T], Range<T>, or Map<K, V>".to_string(),
                                 found: resolved.to_string(),
                             }
                             .at(for_stmt.iterable.span()),
@@ -282,7 +284,11 @@ impl TypeChecker {
                     }
                 };
                 self.env.push_scope();
-                self.env.define_var(&for_stmt.ident, elem_ty);
+                if let Some(pattern) = &for_stmt.pattern {
+                    self.check_pattern(pattern, &elem_ty);
+                } else {
+                    self.env.define_var(&for_stmt.ident, elem_ty);
+                }
                 self.check_block(&mut for_stmt.body);
                 self.env.pop_scope();
             }
@@ -506,6 +512,13 @@ impl TypeChecker {
                 NumKind::U64 => Type::U64,
                 NumKind::U128 => Type::U128,
                 NumKind::Usize => Type::Usize,
+                NumKind::Int { ref mut type_var } => {
+                    let ty = self.env.fresh_int_var();
+                    if let Type::IntVar(id) = ty {
+                        *type_var = id;
+                    }
+                    ty
+                }
             },
             Expr::Bool(_) => Type::Bool,
             Expr::Char(_) => Type::Char,
@@ -532,7 +545,7 @@ impl TypeChecker {
             Expr::MacroCall(mc) => self.check_macro_call(mc),
             Expr::Cast(cast) => {
                 self.infer_expression(&mut cast.expr);
-                Type::from_number_kind(&cast.target)
+                Type::from_cast_target(&cast.target)
             }
             Expr::Break(break_expr) => {
                 if let Some(val) = &mut break_expr.value {
@@ -675,16 +688,18 @@ impl TypeChecker {
         if let Err(e) = self.subst.unify(&start_resolved, &end_resolved) {
             self.report_unify_error(e, range.span);
         }
-        if !start_resolved.is_integer() && !matches!(start_resolved, Type::Var(_)) {
+        let elem_ty = self.subst.apply(&start_resolved);
+        if !elem_ty.is_integer() && !matches!(elem_ty, Type::Var(_) | Type::IntVar(_)) {
             self.errors.push(
                 TypeErrorKind::Mismatch {
                     expected: "integer".to_string(),
-                    found: start_resolved.to_string(),
+                    found: elem_ty.to_string(),
                 }
                 .at(range.span),
             );
         }
-        Type::Range(Box::new(self.subst.apply(&start_resolved)))
+        range.kind = Some(elem_ty.to_number_kind());
+        Type::Range(Box::new(elem_ty))
     }
 
     /// Type-checks a function call expression.
@@ -770,6 +785,7 @@ impl TypeChecker {
         }
         match mc.name.as_str() {
             "panic" | "todo" | "unimplemented" => Type::Never,
+            "format" => Type::Str,
             _ => Type::Unit,
         }
     }
@@ -1547,18 +1563,26 @@ impl TypeChecker {
         // Numeric operations: both operands must be the same integer type.
         if lhs_resolved.is_integer() && rhs_resolved.is_integer() {
             if lhs_resolved != rhs_resolved {
-                self.errors.push(
-                    TypeErrorKind::NumericMismatch {
-                        expected: lhs_resolved.to_string(),
-                        found: rhs_resolved.to_string(),
+                if matches!(lhs_resolved, Type::IntVar(_))
+                    || matches!(rhs_resolved, Type::IntVar(_))
+                {
+                    if let Err(e) = self.subst.unify(&lhs_resolved, &rhs_resolved) {
+                        self.report_unify_error(e, infix.span);
                     }
-                    .at(infix.span),
-                );
+                } else {
+                    self.errors.push(
+                        TypeErrorKind::NumericMismatch {
+                            expected: lhs_resolved.to_string(),
+                            found: rhs_resolved.to_string(),
+                        }
+                        .at(infix.span),
+                    );
+                }
             }
             return if is_comparison {
                 Type::Bool
             } else {
-                lhs_resolved
+                self.subst.apply(&lhs_resolved)
             };
         }
         if matches!(lhs_resolved, Type::Var(_)) || matches!(rhs_resolved, Type::Var(_)) {

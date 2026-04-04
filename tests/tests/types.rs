@@ -1157,6 +1157,7 @@ fn duplicate_enum_type() {
 fn for_loop_infers_element_type() {
     check_ok(vec![Stmt::For(ForStmt {
         ident: "x".to_string(),
+        pattern: None,
         iterable: Box::new(Expr::Vector(Vector {
             elements: vec![i64_expr(1), i64_expr(2)],
             span: S,

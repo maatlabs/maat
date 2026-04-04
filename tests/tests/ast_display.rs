@@ -130,7 +130,7 @@ fn expressions_display() {
             radix: Radix::Dec,
             span: span(),
         })),
-        target: NumKind::I64,
+        target: CastTarget::Num(NumKind::I64),
         span: span(),
     };
     assert_eq!(cast.to_string(), "(42 as i64)");
@@ -259,6 +259,7 @@ fn control_flow_display() {
     let for_stmt = ForStmt {
         label: None,
         ident: "i".to_string(),
+        pattern: None,
         iterable: Box::new(Expr::Ident(Ident {
             value: "0..10".to_string(),
             span: span(),

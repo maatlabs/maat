@@ -49,6 +49,11 @@ pub enum Type {
     Enum(Rc<str>, Vec<Type>),
     /// A type variable introduced during inference (Algorithm W).
     Var(TypeVarId),
+    /// An integer-constrained type variable for unsuffixed integer literals.
+    ///
+    /// Behaves like `Var` during unification but only accepts integer types.
+    /// Defaults to `I64` when no constraint is found after inference completes.
+    IntVar(TypeVarId),
     /// A named generic type parameter with optional trait bounds.
     Generic(Rc<str>, Vec<String>),
     /// The bottom type (diverging expressions like `break`, `continue`, `return`).
@@ -211,7 +216,7 @@ impl Type {
 
     fn collect_free_vars(&self, vars: &mut HashSet<TypeVarId>) {
         match self {
-            Self::Var(id) => {
+            Self::Var(id) | Self::IntVar(id) => {
                 vars.insert(*id);
             }
             Self::Vector(elem) | Self::Set(elem) | Self::Range(elem) => {
@@ -238,7 +243,7 @@ impl Type {
 
     /// Returns `true` if this is any integer type (signed or unsigned).
     pub fn is_integer(&self) -> bool {
-        self.is_signed() || self.is_unsigned()
+        self.is_signed() || self.is_unsigned() || matches!(self, Self::IntVar(_))
     }
 
     /// Returns `true` if this is a signed integer type.
@@ -257,7 +262,12 @@ impl Type {
         )
     }
 
-    /// Converts a `NumKind` (for `as` casts) to an internal `Type`.
+    /// Converts a concrete `NumKind` to an internal `Type`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called with `NumKind::Int`; use the type checker's
+    /// inference machinery for unsuffixed literals instead.
     pub fn from_number_kind(num: &NumKind) -> Self {
         match num {
             NumKind::I8 => Self::I8,
@@ -272,6 +282,36 @@ impl Type {
             NumKind::U64 => Self::U64,
             NumKind::U128 => Self::U128,
             NumKind::Usize => Self::Usize,
+            NumKind::Int { .. } => {
+                unreachable!("Int literals must be resolved by type inference")
+            }
+        }
+    }
+
+    /// Maps a resolved integer `Type` to the corresponding `NumKind`.
+    pub fn to_number_kind(&self) -> NumKind {
+        match self {
+            Self::I8 => NumKind::I8,
+            Self::I16 => NumKind::I16,
+            Self::I32 => NumKind::I32,
+            Self::I64 => NumKind::I64,
+            Self::I128 => NumKind::I128,
+            Self::Isize => NumKind::Isize,
+            Self::U8 => NumKind::U8,
+            Self::U16 => NumKind::U16,
+            Self::U32 => NumKind::U32,
+            Self::U64 => NumKind::U64,
+            Self::U128 => NumKind::U128,
+            Self::Usize => NumKind::Usize,
+            _ => NumKind::I64,
+        }
+    }
+
+    /// Maps a cast target to the corresponding type.
+    pub fn from_cast_target(target: &CastTarget) -> Self {
+        match target {
+            CastTarget::Num(k) => Self::from_number_kind(k),
+            CastTarget::Char => Self::Char,
         }
     }
 
@@ -282,7 +322,7 @@ impl Type {
                 NumKind::I8 => Self::I8,
                 NumKind::I16 => Self::I16,
                 NumKind::I32 => Self::I32,
-                NumKind::I64 => Self::I64,
+                NumKind::I64 | NumKind::Int { .. } => Self::I64,
                 NumKind::I128 => Self::I128,
                 NumKind::Isize => Self::Isize,
                 NumKind::U8 => Self::U8,
@@ -426,6 +466,7 @@ impl fmt::Display for Type {
                 Ok(())
             }
             Self::Var(id) => write!(f, "?T{id}"),
+            Self::IntVar(id) => write!(f, "?Int{id}"),
             Self::Generic(name, bounds) => {
                 f.write_str(name)?;
                 if !bounds.is_empty() {

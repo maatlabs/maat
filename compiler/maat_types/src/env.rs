@@ -271,7 +271,7 @@ impl TypeEnv {
             (
                 "Vector::push",
                 Type::Function(FnType {
-                    params: vec![elem],
+                    params: vec![elem.clone()],
                     ret: Box::new(vector_ty.clone()),
                 }),
             ),
@@ -280,6 +280,83 @@ impl TypeEnv {
                 Type::Function(FnType {
                     params: vec![Type::Str],
                     ret: Box::new(Type::Str),
+                }),
+            ),
+            (
+                "Vector::rev",
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(vector_ty.clone()),
+                }),
+            ),
+            (
+                "Vector::count",
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Usize),
+                }),
+            ),
+            (
+                "Vector::take",
+                Type::Function(FnType {
+                    params: vec![Type::Usize],
+                    ret: Box::new(vector_ty.clone()),
+                }),
+            ),
+            (
+                "Vector::skip",
+                Type::Function(FnType {
+                    params: vec![Type::Usize],
+                    ret: Box::new(vector_ty.clone()),
+                }),
+            ),
+            (
+                "Vector::dedup",
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(vector_ty.clone()),
+                }),
+            ),
+            (
+                "Vector::chain",
+                Type::Function(FnType {
+                    params: vec![vector_ty.clone()],
+                    ret: Box::new(vector_ty.clone()),
+                }),
+            ),
+            (
+                "Vector::contains",
+                Type::Function(FnType {
+                    params: vec![elem.clone()],
+                    ret: Box::new(Type::Bool),
+                }),
+            ),
+            (
+                "Vector::sum",
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(elem.clone()),
+                }),
+            ),
+            (
+                "Vector::product",
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(elem.clone()),
+                }),
+            ),
+            (
+                "Vector::min",
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Enum(Rc::from("Option"), vec![elem.clone()])),
+                }),
+            ),
+            (
+                "Vector::max",
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Enum(Rc::from("Option"), vec![elem.clone()])),
                 }),
             ),
         ];
@@ -329,7 +406,7 @@ impl TypeEnv {
                         out.clone(),
                         Type::Function(FnType {
                             params: vec![out.clone(), Type::Var(elem_id)],
-                            ret: Box::new(out),
+                            ret: Box::new(out.clone()),
                         }),
                     ],
                     ret: Box::new(Type::Var(out_id)),
@@ -355,6 +432,88 @@ impl TypeEnv {
                         ret: Box::new(Type::Bool),
                     })],
                     ret: Box::new(Type::Bool),
+                }),
+            ),
+            (
+                "Vector::find",
+                forall.clone(),
+                Type::Function(FnType {
+                    params: vec![Type::Function(FnType {
+                        params: vec![Type::Var(elem_id)],
+                        ret: Box::new(Type::Bool),
+                    })],
+                    ret: Box::new(Type::Enum(Rc::from("Option"), vec![Type::Var(elem_id)])),
+                }),
+            ),
+            (
+                "Vector::position",
+                forall.clone(),
+                Type::Function(FnType {
+                    params: vec![Type::Function(FnType {
+                        params: vec![Type::Var(elem_id)],
+                        ret: Box::new(Type::Bool),
+                    })],
+                    ret: Box::new(Type::Enum(Rc::from("Option"), vec![Type::Usize])),
+                }),
+            ),
+            (
+                "Vector::for_each",
+                forall.clone(),
+                Type::Function(FnType {
+                    params: vec![Type::Function(FnType {
+                        params: vec![Type::Var(elem_id)],
+                        ret: Box::new(Type::Unit),
+                    })],
+                    ret: Box::new(Type::Unit),
+                }),
+            ),
+            (
+                "Vector::enumerate",
+                forall.clone(),
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Vector(Box::new(Type::Tuple(vec![
+                        Type::Usize,
+                        Type::Var(elem_id),
+                    ])))),
+                }),
+            ),
+            (
+                "Vector::zip",
+                vec![elem_id, out_id],
+                Type::Function(FnType {
+                    params: vec![Type::Vector(Box::new(out.clone()))],
+                    ret: Box::new(Type::Vector(Box::new(Type::Tuple(vec![
+                        Type::Var(elem_id),
+                        out.clone(),
+                    ])))),
+                }),
+            ),
+            (
+                "Vector::flat_map",
+                vec![elem_id, out_id],
+                Type::Function(FnType {
+                    params: vec![Type::Function(FnType {
+                        params: vec![Type::Var(elem_id)],
+                        ret: Box::new(Type::Vector(Box::new(out.clone()))),
+                    })],
+                    ret: Box::new(Type::Vector(Box::new(out.clone()))),
+                }),
+            ),
+            (
+                "Vector::windows",
+                forall.clone(),
+                Type::Function(FnType {
+                    params: vec![Type::Usize],
+                    ret: Box::new(Type::Vector(Box::new(vector_ty.clone()))),
+                }),
+            ),
+            (
+                "Vector::chunks",
+                forall.clone(),
+                Type::Function(FnType {
+                    params: vec![Type::Usize],
+                    ret: Box::new(Type::Vector(Box::new(vector_ty.clone()))),
                 }),
             ),
         ];
@@ -689,7 +848,37 @@ impl TypeEnv {
                         params: vec![t.clone()],
                         ret: Box::new(option_u.clone()),
                     })],
-                    ret: Box::new(option_u),
+                    ret: Box::new(option_u.clone()),
+                }),
+            ),
+            (
+                "Option::unwrap_or_else",
+                vec![t_id],
+                Type::Function(FnType {
+                    params: vec![Type::Function(FnType {
+                        params: vec![],
+                        ret: Box::new(t.clone()),
+                    })],
+                    ret: Box::new(t.clone()),
+                }),
+            ),
+            (
+                "Option::ok",
+                option_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Enum(Rc::from("Result"), vec![t.clone(), Type::Unit])),
+                }),
+            ),
+            (
+                "Option::zip",
+                vec![t_id, u_id],
+                Type::Function(FnType {
+                    params: vec![Type::Enum(Rc::from("Option"), vec![u.clone()])],
+                    ret: Box::new(Type::Enum(
+                        Rc::from("Option"),
+                        vec![Type::Tuple(vec![t.clone(), u.clone()])],
+                    )),
                 }),
             ),
         ];
@@ -703,6 +892,22 @@ impl TypeEnv {
                 },
             );
         }
+
+        let flatten_inner_id = self.next_var;
+        self.next_var += 1;
+        let flatten_inner = Type::Var(flatten_inner_id);
+        let option_inner = Type::Enum(Rc::from("Option"), vec![flatten_inner.clone()]);
+        self.builtin_method_schemes.insert(
+            "Option::flatten".to_string(),
+            BuiltinMethodScheme {
+                forall: vec![flatten_inner_id],
+                self_type: Type::Enum(Rc::from("Option"), vec![option_inner]),
+                fn_type: Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Enum(Rc::from("Option"), vec![flatten_inner])),
+                }),
+            },
+        );
 
         // impl Result<T, E>
         let rt_id = self.next_var;
@@ -718,6 +923,10 @@ impl TypeEnv {
         self.next_var += 1;
         let ru = Type::Var(ru_id);
         let result_u = Type::Enum(Rc::from("Result"), vec![ru.clone(), re.clone()]);
+
+        let rf_id = self.next_var;
+        self.next_var += 1;
+        let rf = Type::Var(rf_id);
 
         let result_methods: Vec<(&str, Vec<TypeVarId>, Type)> = vec![
             (
@@ -768,10 +977,67 @@ impl TypeEnv {
                 vec![rt_id, re_id, ru_id],
                 Type::Function(FnType {
                     params: vec![Type::Function(FnType {
-                        params: vec![rt],
+                        params: vec![rt.clone()],
                         ret: Box::new(result_u.clone()),
                     })],
                     ret: Box::new(result_u),
+                }),
+            ),
+            (
+                "Result::map_err",
+                vec![rt_id, re_id, rf_id],
+                Type::Function(FnType {
+                    params: vec![Type::Function(FnType {
+                        params: vec![re.clone()],
+                        ret: Box::new(rf.clone()),
+                    })],
+                    ret: Box::new(Type::Enum(Rc::from("Result"), vec![rt.clone(), rf.clone()])),
+                }),
+            ),
+            (
+                "Result::unwrap_err",
+                result_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(re.clone()),
+                }),
+            ),
+            (
+                "Result::unwrap_or_else",
+                vec![rt_id, re_id],
+                Type::Function(FnType {
+                    params: vec![Type::Function(FnType {
+                        params: vec![re.clone()],
+                        ret: Box::new(rt.clone()),
+                    })],
+                    ret: Box::new(rt.clone()),
+                }),
+            ),
+            (
+                "Result::ok",
+                result_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Enum(Rc::from("Option"), vec![rt.clone()])),
+                }),
+            ),
+            (
+                "Result::err",
+                result_forall.clone(),
+                Type::Function(FnType {
+                    params: vec![],
+                    ret: Box::new(Type::Enum(Rc::from("Option"), vec![re.clone()])),
+                }),
+            ),
+            (
+                "Result::or_else",
+                vec![rt_id, re_id, rf_id],
+                Type::Function(FnType {
+                    params: vec![Type::Function(FnType {
+                        params: vec![re.clone()],
+                        ret: Box::new(Type::Enum(Rc::from("Result"), vec![rt.clone(), rf.clone()])),
+                    })],
+                    ret: Box::new(Type::Enum(Rc::from("Result"), vec![rt, rf])),
                 }),
             ),
         ];
@@ -1060,6 +1326,16 @@ impl TypeEnv {
         let id = self.next_var;
         self.next_var += 1;
         Type::Var(id)
+    }
+
+    /// Generates a fresh integer-constrained type variable.
+    ///
+    /// Used for unsuffixed integer literals; unifies only with integer types
+    /// and defaults to `i64` when no constraint is found.
+    pub fn fresh_int_var(&mut self) -> Type {
+        let id = self.next_var;
+        self.next_var += 1;
+        Type::IntVar(id)
     }
 
     /// Defines a variable with a monomorphic type in the current scope.

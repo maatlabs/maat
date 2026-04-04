@@ -19,8 +19,9 @@ enum TestValue {
     Str(String),
     IntVector(Vec<i64>),
     Map(Vec<(i64, i64)>),
-    Range(i64, i64),
-    RangeInclusive(i64, i64),
+    Range(Integer, Integer),
+    RangeInclusive(Integer, Integer),
+    Char(char),
     Unit,
 }
 
@@ -178,6 +179,12 @@ fn run_vm_test(input: &str, expected: TestValue) {
                 stack_elem
             );
         }
+        TestValue::Char(exp) => match stack_elem {
+            Value::Char(val) => {
+                assert_eq!(val, exp, "wrong char value for input: {input}")
+            }
+            _ => panic!("expected char, got: {stack_elem:?}"),
+        },
         TestValue::Unit => {
             assert_eq!(
                 stack_elem,
@@ -617,7 +624,7 @@ fn stack_underflow() {
 }
 
 #[test]
-fn closures() {
+fn lambda_expressions() {
     let cases = vec![
         (
             "let newClosure = fn(a) { fn() { a; }; }; let closure = newClosure(99); closure();",
@@ -642,6 +649,47 @@ fn closures() {
         (
             "let newClosure = fn(a, b) { let one = fn() { a; }; let two = fn() { b; }; fn() { one() + two(); }; }; let closure = newClosure(9, 90); closure();",
             TestValue::I64(99),
+        ),
+    ];
+    for (input, expected) in cases {
+        run_vm_test(input, expected);
+    }
+}
+
+#[test]
+fn pipe_closures() {
+    let cases = vec![
+        // Single expression body
+        (
+            "let double = |x: i64| x * 2; double(5);",
+            TestValue::I64(10),
+        ),
+        // Block body
+        (
+            "let add = |x: i64, y: i64| { x + y }; add(3, 4);",
+            TestValue::I64(7),
+        ),
+        // Zero-parameter closure
+        ("let f = || 42; f();", TestValue::I64(42)),
+        // Closure capturing outer variable
+        (
+            "let base = 100; let offset = |x: i64| base + x; offset(5);",
+            TestValue::I64(105),
+        ),
+        // Nested pipe closures
+        (
+            "let make_adder = |a: i64| |b: i64| a + b; let add5 = make_adder(5); add5(10);",
+            TestValue::I64(15),
+        ),
+        // Pipe closure as argument to higher-order function
+        (
+            "let apply = fn(f, x: i64) { f(x) }; apply(|x: i64| x * x, 7);",
+            TestValue::I64(49),
+        ),
+        // With return type annotation
+        (
+            "let inc = |x: i64| -> i64 { x + 1 }; inc(9);",
+            TestValue::I64(10),
         ),
     ];
     for (input, expected) in cases {
@@ -747,6 +795,19 @@ fn cast_expressions() {
     for (input, expected) in cases {
         run_vm_test(input, expected);
     }
+    // Char ↔ integer casts
+    let char_cases = vec![
+        ("'a' as u32", TestValue::U32(97)),
+        ("'A' as i64", TestValue::I64(65)),
+        ("'z' as u8", TestValue::U8(122)),
+        ("65u32 as char", TestValue::Char('A')),
+        ("97 as char", TestValue::Char('a')),
+        ("0x1F600 as char", TestValue::Char('\u{1F600}')),
+    ];
+    for (input, expected) in char_cases {
+        run_vm_test(input, expected);
+    }
+
     // Cast errors
     let error_cases = vec![
         ("256 as u8", "out of range for u8"),
@@ -947,6 +1008,48 @@ fn for_loops() {
         sum;
         "#,
         TestValue::I64(12),
+    );
+}
+
+#[test]
+fn for_map_iteration() {
+    // Sum all values in a map
+    run_vm_test(
+        r#"
+        let m = {"a": 1, "b": 2, "c": 3};
+        let mut total = 0;
+        for (k, v) in m {
+            total += v;
+        }
+        total;
+        "#,
+        TestValue::I64(6),
+    );
+    // Sum all keys and values from a map
+    run_vm_test(
+        r#"
+        let m = {1: 10, 2: 20};
+        let mut sum_keys = 0;
+        let mut sum_vals = 0;
+        for (k, v) in m {
+            sum_keys += k;
+            sum_vals += v;
+        }
+        sum_keys + sum_vals;
+        "#,
+        TestValue::I64(33),
+    );
+    // Empty map iteration
+    run_vm_test(
+        r#"
+        let m: Map<i64, i64> = {};
+        let mut count = 0;
+        for (k, v) in m {
+            count += 1;
+        }
+        count;
+        "#,
+        TestValue::I64(0),
     );
 }
 
@@ -1191,8 +1294,34 @@ fn range_for_loop() {
 
 #[test]
 fn range_expression_standalone() {
-    run_vm_test("0..10", TestValue::Range(0, 10));
-    run_vm_test("1..=5", TestValue::RangeInclusive(1, 5));
+    run_vm_test("0..10", TestValue::Range(Integer::I64(0), Integer::I64(10)));
+    run_vm_test(
+        "1..=5",
+        TestValue::RangeInclusive(Integer::I64(1), Integer::I64(5)),
+    );
+    // Typed-integer ranges
+    run_vm_test(
+        "0u8..255u8",
+        TestValue::Range(Integer::U8(0), Integer::U8(255)),
+    );
+    run_vm_test(
+        "0i32..=100i32",
+        TestValue::RangeInclusive(Integer::I32(0), Integer::I32(100)),
+    );
+    // Typed for-loop iteration
+    run_vm_test(
+        r#"
+        fn test() -> u32 {
+            let mut sum = 0u32;
+            for i in 1u32..=10u32 {
+                sum += i;
+            }
+            sum
+        }
+        test()
+        "#,
+        TestValue::U32(55),
+    );
 }
 
 #[test]
@@ -1293,6 +1422,44 @@ fn string_operations() {
     run_vm_test(r#""" + "" + "hello""#, TestValue::Str("hello".to_string()));
     // Escape sequences
     run_vm_test(r#"let s = "line1\nline2"; s.len()"#, TestValue::Usize(11));
+}
+
+#[test]
+fn format_macro() {
+    // Simple literal
+    run_vm_test(r#"format!("hello")"#, TestValue::Str("hello".to_string()));
+    // Empty format
+    run_vm_test(r#"format!("")"#, TestValue::Str(String::new()));
+    // Positional argument
+    run_vm_test(
+        r#"format!("x = {}", 42)"#,
+        TestValue::Str("x = 42".to_string()),
+    );
+    // Multiple positional arguments
+    run_vm_test(
+        r#"format!("{} + {} = {}", 1, 2, 3)"#,
+        TestValue::Str("1 + 2 = 3".to_string()),
+    );
+    // Named capture
+    run_vm_test(
+        r#"let name = "world"; format!("hello {name}")"#,
+        TestValue::Str("hello world".to_string()),
+    );
+    // Mixed positional and named captures
+    run_vm_test(
+        r#"let greeting = "hi"; format!("{greeting}, {}!", "there")"#,
+        TestValue::Str("hi, there!".to_string()),
+    );
+    // Escaped braces
+    run_vm_test(
+        r#"format!("{{escaped}}")"#,
+        TestValue::Str("{escaped}".to_string()),
+    );
+    // Use format result in further computation
+    run_vm_test(
+        r#"let s = format!("count: {}", 5); s.len()"#,
+        TestValue::Usize(8),
+    );
 }
 
 #[test]
@@ -1894,4 +2061,166 @@ fn cmp_min_max_clamp() {
     // Typed variants
     run_vm_test("cmp::min(10i32, 20i32)", TestValue::I32(10));
     run_vm_test("cmp::max(10i32, 20i32)", TestValue::I32(20));
+}
+
+#[test]
+fn vector_higher_order_methods() {
+    // map
+    run_vm_test(
+        "[1, 2, 3].map(|x: i64| x * 10)",
+        TestValue::IntVector(vec![10, 20, 30]),
+    );
+    run_vm_test("[].map(|x: i64| x + 1)", TestValue::IntVector(vec![]));
+
+    // filter
+    run_vm_test(
+        "[1, 2, 3, 4, 5].filter(|x: i64| x > 3)",
+        TestValue::IntVector(vec![4, 5]),
+    );
+    run_vm_test(
+        "[1, 2, 3].filter(|x: i64| x > 100)",
+        TestValue::IntVector(vec![]),
+    );
+
+    // fold
+    run_vm_test(
+        "[1, 2, 3, 4].fold(0, |acc: i64, x: i64| acc + x)",
+        TestValue::I64(10),
+    );
+    run_vm_test(
+        "[1, 2, 3].fold(1, |acc: i64, x: i64| acc * x)",
+        TestValue::I64(6),
+    );
+
+    // any / all
+    run_vm_test("[1, 2, 3].any(|x: i64| x == 2)", TestValue::Bool(true));
+    run_vm_test("[1, 2, 3].any(|x: i64| x == 5)", TestValue::Bool(false));
+    run_vm_test("[2, 4, 6].all(|x: i64| x % 2 == 0)", TestValue::Bool(true));
+    run_vm_test("[2, 4, 5].all(|x: i64| x % 2 == 0)", TestValue::Bool(false));
+
+    // find
+    run_vm_test(
+        "[10, 20, 30].find(|x: i64| x > 15).unwrap()",
+        TestValue::I64(20),
+    );
+    run_vm_test(
+        "[1, 2, 3].find(|x: i64| x > 100).is_none()",
+        TestValue::Bool(true),
+    );
+
+    // position
+    run_vm_test(
+        "[10, 20, 30].position(|x: i64| x == 20).unwrap()",
+        TestValue::Usize(1),
+    );
+    run_vm_test(
+        "[10, 20, 30].position(|x: i64| x == 99).is_none()",
+        TestValue::Bool(true),
+    );
+
+    // for_each (returns unit; use a side-channel to verify execution)
+    run_vm_test(
+        "let mut sum = 0; [1, 2, 3].for_each(|x: i64| { sum = sum + x; }); sum",
+        TestValue::I64(6),
+    );
+
+    // flat_map
+    run_vm_test(
+        "[1, 2, 3].flat_map(|x: i64| [x, x * 10])",
+        TestValue::IntVector(vec![1, 10, 2, 20, 3, 30]),
+    );
+    run_vm_test("[].flat_map(|x: i64| [x])", TestValue::IntVector(vec![]));
+}
+
+#[test]
+fn vector_builtin_methods_extended() {
+    // rev
+    run_vm_test("[1, 2, 3].rev()", TestValue::IntVector(vec![3, 2, 1]));
+    run_vm_test("[].rev()", TestValue::IntVector(vec![]));
+
+    // count
+    run_vm_test("[1, 2, 3, 4, 5].count()", TestValue::Usize(5));
+    run_vm_test("[].count()", TestValue::Usize(0));
+
+    // take
+    run_vm_test(
+        "[1, 2, 3, 4, 5].take(3)",
+        TestValue::IntVector(vec![1, 2, 3]),
+    );
+    run_vm_test("[1, 2].take(10)", TestValue::IntVector(vec![1, 2]));
+    run_vm_test("[1, 2, 3].take(0)", TestValue::IntVector(vec![]));
+
+    // skip
+    run_vm_test(
+        "[1, 2, 3, 4, 5].skip(2)",
+        TestValue::IntVector(vec![3, 4, 5]),
+    );
+    run_vm_test("[1, 2].skip(10)", TestValue::IntVector(vec![]));
+    run_vm_test("[1, 2, 3].skip(0)", TestValue::IntVector(vec![1, 2, 3]));
+
+    // dedup
+    run_vm_test(
+        "[1, 1, 2, 2, 3].dedup()",
+        TestValue::IntVector(vec![1, 2, 3]),
+    );
+    run_vm_test(
+        "[1, 2, 1, 2].dedup()",
+        TestValue::IntVector(vec![1, 2, 1, 2]),
+    );
+    run_vm_test("[].dedup()", TestValue::IntVector(vec![]));
+
+    // chain
+    run_vm_test(
+        "[1, 2].chain([3, 4])",
+        TestValue::IntVector(vec![1, 2, 3, 4]),
+    );
+    run_vm_test("[].chain([1])", TestValue::IntVector(vec![1]));
+
+    // contains
+    run_vm_test("[1, 2, 3].contains(2)", TestValue::Bool(true));
+    run_vm_test("[1, 2, 3].contains(5)", TestValue::Bool(false));
+    run_vm_test("[].contains(1)", TestValue::Bool(false));
+
+    // sum
+    run_vm_test("[1, 2, 3, 4].sum()", TestValue::I64(10));
+    run_vm_test("[].sum()", TestValue::I64(0));
+
+    // product
+    run_vm_test("[1, 2, 3, 4].product()", TestValue::I64(24));
+    run_vm_test("[].product()", TestValue::I64(1));
+
+    // min / max
+    run_vm_test("[3, 1, 2].min().unwrap()", TestValue::I64(1));
+    run_vm_test("[3, 1, 2].max().unwrap()", TestValue::I64(3));
+    run_vm_test("[].min().is_none()", TestValue::Bool(true));
+    run_vm_test("[].max().is_none()", TestValue::Bool(true));
+
+    // enumerate
+    run_vm_test("[10, 20, 30].enumerate().len()", TestValue::Usize(3));
+
+    // zip
+    run_vm_test("[1, 2, 3].zip([4, 5, 6]).len()", TestValue::Usize(3));
+    run_vm_test("[1, 2, 3].zip([4, 5]).len()", TestValue::Usize(2));
+
+    // windows
+    run_vm_test("[1, 2, 3, 4].windows(2).len()", TestValue::Usize(3));
+    run_vm_test("[1, 2, 3, 4].windows(3).len()", TestValue::Usize(2));
+
+    // chunks
+    run_vm_test("[1, 2, 3, 4, 5].chunks(2).len()", TestValue::Usize(3));
+
+    // chaining extended methods
+    run_vm_test(
+        "[5, 3, 1, 4, 2].rev().take(3)",
+        TestValue::IntVector(vec![2, 4, 1]),
+    );
+    run_vm_test(
+        "[1, 1, 2, 2, 3].dedup().rev()",
+        TestValue::IntVector(vec![3, 2, 1]),
+    );
+    run_vm_test("[1, 2, 3].map(|x: i64| x * 2).sum()", TestValue::I64(12));
+    run_vm_test(
+        "[1, 2, 3, 4, 5].filter(|x: i64| x % 2 == 0).count()",
+        TestValue::Usize(2),
+    );
 }

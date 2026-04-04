@@ -589,7 +589,8 @@ fn parse_expression_inner<'src>(
 ) -> ParseResult<Expr> {
     let mut expr = match peek(input) {
         TokenKind::Ident => parse_identifier(input, depth)?,
-        TokenKind::I8
+        TokenKind::Int
+        | TokenKind::I8
         | TokenKind::I16
         | TokenKind::I32
         | TokenKind::I64
@@ -608,6 +609,8 @@ fn parse_expression_inner<'src>(
         TokenKind::LParen => parse_grouped_or_tuple_expression(input, depth)?,
         TokenKind::If => parse_conditional_expression(input, depth)?,
         TokenKind::Fn => parse_lambda(input, depth)?,
+        TokenKind::Pipe => parse_pipe_closure(input, depth)?,
+        TokenKind::Or => parse_pipe_closure_no_params(input, depth)?,
         TokenKind::Macro => parse_macro(input, depth)?,
         TokenKind::LBracket => parse_vector(input, depth)?,
         TokenKind::LBrace => parse_map_literal(input, depth)?,
@@ -826,6 +829,7 @@ fn parse_int<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<Expr> {
     }
 
     let expr = match tok.kind {
+        TokenKind::Int => parse_int_type!(i128, NumKind::Int { type_var: 0 }),
         TokenKind::I8 => parse_int_type!(i8, NumKind::I8),
         TokenKind::I16 => parse_int_type!(i16, NumKind::I16),
         TokenKind::I32 => parse_int_type!(i32, NumKind::I32),
@@ -1005,6 +1009,94 @@ fn parse_lambda<'src>(input: &mut &'src [Token<'src>], depth: &Cell<usize>) -> P
         body,
         span: start.merge(end),
     }))
+}
+
+/// Parses a closure with pipe-delimited parameters: `|x, y| expr`
+/// or `|x, y| { block }`.
+///
+/// Desugars into the same [`Lambda`] AST node used by `fn(x, y) { ... }`.
+/// When the body is a single expression (no braces), it is wrapped in a
+/// synthetic [`BlockStmt`] with that expression as its sole statement.
+fn parse_pipe_closure<'src>(
+    input: &mut &'src [Token<'src>],
+    depth: &Cell<usize>,
+) -> ParseResult<Expr> {
+    let start = parse(input, TokenKind::Pipe)?.span;
+
+    let mut params = Vec::new();
+    if peek(input) != TokenKind::Pipe {
+        params.push(parse_typed_param(input)?);
+        while peek(input) == TokenKind::Comma {
+            any.parse_next(input)?;
+            if peek(input) == TokenKind::Pipe {
+                break;
+            }
+            params.push(parse_typed_param(input)?);
+        }
+    }
+
+    let _close = parse(input, TokenKind::Pipe)?;
+
+    let (return_type, body) = parse_closure_body(input, depth)?;
+    let end = body.span;
+
+    Ok(Expr::Lambda(Lambda {
+        params,
+        generic_params: vec![],
+        return_type,
+        body,
+        span: start.merge(end),
+    }))
+}
+
+/// Parses a zero-parameter closure: `|| expr` or `|| { block }`.
+///
+/// The `||` token (logical OR) in primary position is unambiguous -- logical
+/// OR only appears in infix position.
+fn parse_pipe_closure_no_params<'src>(
+    input: &mut &'src [Token<'src>],
+    depth: &Cell<usize>,
+) -> ParseResult<Expr> {
+    let start = parse(input, TokenKind::Or)?.span;
+
+    let (return_type, body) = parse_closure_body(input, depth)?;
+    let end = body.span;
+
+    Ok(Expr::Lambda(Lambda {
+        params: vec![],
+        generic_params: vec![],
+        return_type,
+        body,
+        span: start.merge(end),
+    }))
+}
+
+/// Parses the body of a pipe-closure: an optional `-> Type` return annotation
+/// followed by either a braced block or a single expression.
+fn parse_closure_body<'src>(
+    input: &mut &'src [Token<'src>],
+    depth: &Cell<usize>,
+) -> ParseResult<(Option<TypeExpr>, BlockStmt)> {
+    let return_type = if peek(input) == TokenKind::Arrow {
+        any.parse_next(input)?;
+        Some(parse_type_expr(input)?)
+    } else {
+        None
+    };
+
+    let body = if peek(input) == TokenKind::LBrace {
+        parse(input, TokenKind::LBrace)?;
+        parse_block(input, depth)?
+    } else {
+        let value = parse_expression(input, MIN_BP, depth)?;
+        let span = value.span();
+        BlockStmt {
+            statements: vec![Stmt::Expr(ExprStmt { value, span })],
+            span,
+        }
+    };
+
+    Ok((return_type, body))
 }
 
 /// Parses a macro literal: `macro(params) { body }`.
@@ -1206,7 +1298,7 @@ fn parse_cast_expression<'src>(input: &mut &'src [Token<'src>], lhs: Expr) -> Pa
     let start = lhs.span();
     let type_tok = parse(input, TokenKind::Ident)?;
     let end = type_tok.span;
-    let target: NumKind = NumKind::from_suffix(type_tok.literal)
+    let target: CastTarget = CastTarget::from_type_name(type_tok.literal)
         .ok_or_else(|| ErrMode::Backtrack(ContextError::new()))?;
 
     Ok(Expr::Cast(CastExpr {
@@ -1235,7 +1327,7 @@ fn parse_field_or_method_call<'src>(
         return try_split_chained_field_access(input, object);
     }
 
-    let is_numeric_field = matches!(next, TokenKind::I64);
+    let is_numeric_field = matches!(next, TokenKind::I64 | TokenKind::Int);
     let member_tok = if is_numeric_field {
         any.parse_next(input)?
     } else {
@@ -1337,6 +1429,7 @@ fn parse_range_expression<'src>(
         start: Box::new(start_expr),
         end: Box::new(end_expr),
         inclusive,
+        kind: None,
         span,
     }))
 }
@@ -1388,7 +1481,8 @@ fn parse_single_pattern<'src>(
             }))))
         }
 
-        TokenKind::I8
+        TokenKind::Int
+        | TokenKind::I8
         | TokenKind::I16
         | TokenKind::I32
         | TokenKind::I64
@@ -1603,9 +1697,18 @@ fn parse_for_stmt<'src>(
     label: Option<String>,
 ) -> ParseResult<ForStmt> {
     let start = parse(input, TokenKind::For)?.span;
-    let ident_tok = parse(input, TokenKind::Ident)?;
-    reject_reserved_ident(ident_tok.literal)?;
-    let ident = ident_tok.literal.to_string();
+
+    let (ident, pattern) = if peek(input) == TokenKind::LParen {
+        let pat_start = parse(input, TokenKind::LParen)?.span;
+        let (fields, pat_end) = parse_pattern_list(input, TokenKind::RParen, depth)?;
+        let pattern = Pattern::Tuple(fields, pat_start.merge(pat_end));
+        ("_".to_string(), Some(pattern))
+    } else {
+        let ident_tok = parse(input, TokenKind::Ident)?;
+        reject_reserved_ident(ident_tok.literal)?;
+        (ident_tok.literal.to_string(), None)
+    };
+
     parse(input, TokenKind::In)?;
     let iterable = Box::new(parse_expression(input, MIN_BP, depth)?);
     parse(input, TokenKind::LBrace)?;
@@ -1614,6 +1717,7 @@ fn parse_for_stmt<'src>(
     Ok(ForStmt {
         label,
         ident,
+        pattern,
         iterable,
         body,
         span: start.merge(end),

@@ -4,6 +4,33 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.3] - 2026-04-04
+
+Language surface completeness, extension of `Option<T>`, `Result<T, E>`, and `Vector<T>` method suite.
+
+### Added
+
+#### Closure Syntax and Character Conversions
+
+- **Rust-style closure syntax (`|x| expr`):** `|params| expr`, `|params| { block }`, `|| expr`, optional return type and parameter type annotations. Desugars to the existing `Lambda` AST node -- no new opcodes
+- **`char` <-> integer conversions via `as`:** `'a' as u32`, `65u32 as char`, and all integer widths. Out-of-range conversions produce runtime errors via `TryFrom` range validation
+- **`format!()` macro:** Returns a `str` by compiling to `__to_string` calls with `OpAdd` string concatenation. Same `{}`/`{name}` format string support as `print!`/`println!`
+
+#### Collection and Iteration Completeness
+
+- **`for (k, v) in map`:** Direct `Map<K, V>` iteration with tuple destructuring in the loop header. Deterministic insertion-order iteration via `IndexMap`.
+- **Extended `Vector<T>` higher-order methods:** `find`, `position`, `for_each`, `flat_map` -- compiler-desugared to inline loops with no runtime overhead, supporting chaining
+- **Extended `Vector<T>` builtin methods:** `rev`, `count`, `take`, `skip`, `dedup`, `chain`, `contains`, `sum`, `product`, `min`, `max`, `enumerate`, `zip`, `windows`, `chunks` -- dispatched as runtime function calls
+- **Polymorphic integer literals:** Unsuffixed integer literals (e.g., `2`) are now inference variables (`IntVar`) that unify with any integer type and default to `i64` after inference
+
+#### Error Handling and Type Completeness
+
+- **Extended `Option<T>` methods:** `unwrap_or_else(fn() -> T)`, `ok() -> Result<T, ()>`, `flatten() -> Option<T>`, `zip(Option<U>) -> Option<(T, U)>`. Higher-order methods are compiler-desugared; simple methods are runtime builtins
+- **Extended `Result<T, E>` methods:** `map_err(fn(E) -> F) -> Result<T, F>`, `unwrap_err() -> E`, `unwrap_or_else(fn(E) -> T) -> T`, `ok() -> Option<T>`, `err() -> Option<E>`, `or_else(fn(E) -> Result<T, F>) -> Result<T, F>`. Higher-order methods are compiler-desugared; simple methods are runtime builtins
+- **`Range<Integer>` type unification:** `Range` and `RangeInclusive` are now generic over all integer types (previously hardcoded to `i64`). Supports `0u8..255u8`, `0i32..=100i32`, typed `for..in` loops
+
+---
+
 ## [0.11.2] - 2026-04-01
 
 `crates.io` publication release. All 13 crates published to `crates.io`, enabling `cargo install maat` as the canonical install path.

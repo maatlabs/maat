@@ -4,7 +4,8 @@ use indexmap::IndexMap;
 use maat_ast::*;
 use maat_errors::{EvalError, Result};
 use maat_runtime::{
-    Env, FALSE, Function, Hashable, Integer, Macro, Map, Quote, TRUE, UNIT, Value, get_builtin,
+    Env, FALSE, Function, Hashable, Integer, Macro, Map, Quote, TRUE, UNIT, Value, WideInt,
+    get_builtin,
 };
 
 use crate::{QUOTE, UNQUOTE};
@@ -114,14 +115,16 @@ pub fn eval(node: Node, env: &Env) -> Result<Value> {
                 let start = eval(Node::Expr(*range.start), env)?;
                 let end = eval(Node::Expr(*range.end), env)?;
                 match (start, end) {
-                    (Value::Integer(Integer::I64(s)), Value::Integer(Integer::I64(e))) => {
+                    (Value::Integer(s), Value::Integer(e)) => {
                         if range.inclusive {
                             Ok(Value::RangeInclusive(s, e))
                         } else {
                             Ok(Value::Range(s, e))
                         }
                     }
-                    _ => Err(EvalError::Builtin("range bounds must be i64".to_string()).into()),
+                    _ => {
+                        Err(EvalError::Builtin("range bounds must be integers".to_string()).into())
+                    }
                 }
             }
             Expr::MacroCall(_)
@@ -567,17 +570,39 @@ fn eval_cast_expression(expr: CastExpr, env: &Env) -> Result<Value> {
     let value = eval(Node::Expr(*expr.expr), env)?;
     let target = expr.target;
 
-    match value {
-        Value::Integer(val) => Ok(val
-            .cast_to(target)
-            .map(Value::Integer)
-            .map_err(EvalError::Number)?),
-        other => Err(EvalError::Number(format!(
-            "cannot cast {} to {}",
-            other.type_name(),
-            target.as_str()
-        ))
-        .into()),
+    match target {
+        CastTarget::Char => match value {
+            Value::Integer(val) => {
+                let scalar = match val.to_wide() {
+                    WideInt::Signed(v) => u32::try_from(v).ok().and_then(char::from_u32),
+                    WideInt::Unsigned(v) => u32::try_from(v).ok().and_then(char::from_u32),
+                };
+                scalar.map(Value::Char).ok_or_else(|| {
+                    EvalError::Number(format!("value {val} is not a valid Unicode scalar value",))
+                        .into()
+                })
+            }
+            other => {
+                Err(EvalError::Number(format!("cannot cast {} as char", other.type_name(),)).into())
+            }
+        },
+        CastTarget::Num(num_kind) => match value {
+            Value::Char(ch) => {
+                Integer::from_wide(WideInt::Unsigned(u128::from(ch as u32)), num_kind)
+                    .map(Value::Integer)
+                    .map_err(|e| EvalError::Number(e).into())
+            }
+            Value::Integer(val) => val
+                .cast_to(num_kind)
+                .map(Value::Integer)
+                .map_err(|e| EvalError::Number(e).into()),
+            other => Err(EvalError::Number(format!(
+                "cannot cast {} to {}",
+                other.type_name(),
+                num_kind.as_str(),
+            ))
+            .into()),
+        },
     }
 }
 
