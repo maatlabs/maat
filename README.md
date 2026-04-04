@@ -4,6 +4,11 @@
   <img src="./assets/maat-lang-transparent-logo.png" alt="Logo" width="200">
 </p>
 
+[![Crates.io](https://img.shields.io/crates/v/maat.svg)](https://crates.io/crates/maat)
+[![Documentation](https://docs.rs/maat/badge.svg)](https://docs.rs/maat)
+[![CI](https://github.com/maatlabs/maat/workflows/CI/badge.svg)](https://github.com/maatlabs/maat/actions)
+[![License](https://img.shields.io/crates/l/maat.svg)](https://github.com/maatlabs/maat#license)
+
 Turing-complete programming language for writing zero-knowledge proofs (ZKPs).
 
 **WARNING:** This is a research project. It has not been audited and may contain bugs and security flaws. This implementation is NOT ready for production use.
@@ -299,7 +304,7 @@ Maat uses a multi-module compilation pipeline. Source files are parsed into per-
 
 The type checker infers types for each module using Hindley-Milner inference (Algorithm W), with imported bindings injected from dependency modules' public exports. Type annotations are optional--the inference engine deduces types from usage--but can be provided on `let` bindings, function parameters, and return types for documentation or to constrain polymorphism. Generic functions with parametric polymorphism are supported (`fn identity<T>(x: T) -> T { x }`). Tuples, `char`, `Map<K, V>`, `Set<T>`, and `Vector<T>` are all first-class types with full inference support.
 
-Custom types follow Rust syntax: `struct`, `enum` (with unit, tuple, and struct variants), `trait`, and `impl` blocks (both inherent and trait impls). Pattern matching via `match` supports literal, identifier, tuple-struct, wildcard, and or-patterns. Methods are statically dispatched via compile-time type-directed dispatch. `Option<T>` and `Result<T, E>` are pre-registered as language-level enums with full method suites (`map`, `and_then`, `unwrap_or`, etc.) and the `?` operator for ergonomic error propagation. Range syntax (`0..10` and `0..=10`) produces first-class `Range`/`RangeInclusive` values and integrates with `for..in` loops.
+Custom types follow Rust syntax: `struct`, `enum` (with unit, tuple, and struct variants), `trait`, and `impl` blocks (both inherent and trait impls). Pattern matching via `match` supports literal, identifier, tuple-struct, wildcard, and or-patterns. Methods are statically dispatched via compile-time type-directed dispatch. `Option<T>` and `Result<T, E>` are pre-registered as language-level enums with full method suites (`map`, `and_then`, `unwrap_or`, `unwrap_or_else`, `ok`, `err`, `flatten`, `zip`, `map_err`, `or_else`, etc.) and the `?` operator for ergonomic error propagation. Range syntax (`0..10` and `0..=10`) produces first-class `Range<T>`/`RangeInclusive<T>` values generic over all integer types and integrates with `for..in` loops.
 
 Errors are reported with precise `file:line:col` locations using source maps and [`ariadne`](https://docs.rs/ariadne) diagnostics. Compiled bytecode can be serialized to `.mtc` files and deserialized for later execution, enabling the `build`/`exec` workflow.
 
@@ -339,19 +344,19 @@ All 14 crates enforce `#![forbid(unsafe_code)]`. The compiler and VM have been h
 
 Maat's development follows a phased milestone plan.
 
-| Milestone | Focus                                                               | Status      |
-| --------- | ------------------------------------------------------------------- | ----------- |
-| **1**     | Rust-native, ZK-correct-by-design, working compiler                 | **Current** |
-| **2**     | STARK-based ZK backend (proof generation and verification)          | Planned     |
-| **3**     | Advanced type system (linear types, effect system) and self-hosting | Planned     |
+| Milestone | Focus                                                               | Status       |
+| --------- | ------------------------------------------------------------------- | ------------ |
+| **1**     | Rust-native, ZK-correct-by-design, working compiler                 | **Complete** |
+| **2**     | STARK-based ZK backend (proof generation and verification)          | **Next**     |
+| **3**     | Advanced type system (linear types, effect system) and self-hosting | Planned      |
 
 ## Status
 
-Maat is currently at version `0.11.2` (Milestone 1). The compiler frontend, type system, module system, bytecode VM, and CLI toolchain are functional and tested. This is the first public release.
+Maat is currently at version `0.11.3` (Milestone 1). The compiler frontend, type system, module system, bytecode VM, and CLI toolchain are functional and tested.
 
 ## Disclaimer
 
-Early adopters should be aware that Maat `0.11.2` is a step toward Maat 1.0, for which a formal audit process is expected. In the meantime, we invite you to explore and experiment with Maat, but we do not recommend using it to build mission-critical systems.
+Early adopters should be aware that Maat `0.11.3` is a step toward Maat 1.0, for which a formal audit process is expected. In the meantime, we invite you to explore and experiment with Maat, but we do not recommend using it to build mission-critical systems.
 
 ## Acknowledgments
 
