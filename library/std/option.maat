@@ -1,4 +1,4 @@
-// Option<T> represents an optional value: either Some(T) or None.
+// Option<T> — represents an optional value: either Some(T) or None.
 //
 // Construction:
 //   let x = Some(42);
@@ -7,10 +7,25 @@
 // Pattern matching:
 //   match opt { Some(v) => v, None => default }
 //
-// Methods:
-//   opt.unwrap()              -> T       (panics if None)
-//   opt.unwrap_or(default)    -> T       (returns default if None)
-//   opt.is_some()             -> bool
-//   opt.is_none()             -> bool
-//   opt.map(fn(T) -> U)       -> Option<U>
-//   opt.and_then(fn(T) -> Option<U>) -> Option<U>
+// Inspection:
+//   opt.is_some()                          -> bool       — true if Some
+//   opt.is_none()                          -> bool       — true if None
+//
+// Unwrapping:
+//   opt.unwrap()                           -> T          — inner value (panics if None)
+//   opt.unwrap_or(default)                 -> T          — inner value, or default if None
+//   opt.unwrap_or_else(fn() -> T)          -> T          — inner value, or compute default lazily
+//
+// Transformation:
+//   opt.map(fn(T) -> U)                    -> Option<U>  — apply f to inner value
+//   opt.and_then(fn(T) -> Option<U>)       -> Option<U>  — apply f, flattening nested Option
+//   opt.flatten()                          -> Option<T>  — collapse Option<Option<T>> to Option<T>
+//   opt.zip(other)                         -> Option<(T, U)> — pair two Options, None if either is None
+//
+// Conversion:
+//   opt.ok()                               -> Result<T, ()> — Some(x) to Ok(x), None to Err(())
+//
+// Higher-order methods (map, and_then, unwrap_or_else) are compiler-desugared
+// into match expressions. No runtime overhead.
+//
+// All methods return new values; Options are never mutated in place.
