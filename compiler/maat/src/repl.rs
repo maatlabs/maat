@@ -38,6 +38,7 @@ const HISTORY_FILENAME: &str = ".maat_history";
 const MACRO_NAMES: &[&str] = &[
     "assert!",
     "assert_eq!",
+    "format!",
     "panic!",
     "print!",
     "println!",
