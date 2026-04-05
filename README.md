@@ -1,6 +1,6 @@
 <div align="center">
   <h1>Maat</h1>
-  <h2>Turing-complete programming language for writing zero-knowledge proofs (ZKPs)</h2>
+  <h2>Turing-complete programming language for writing zero-knowledge proofs</h2>
   <img src="./assets/maat-lang-transparent-logo.png" alt="Logo" height="200" width="200">
   <br />
 </div>
