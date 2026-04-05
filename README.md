@@ -8,14 +8,13 @@
 <div align="center">
 <br />
 
-[![Crates.io](https://img.shields.io/crates/v/maat.svg)](https://crates.io/crates/maat)
-[![Documentation](https://docs.rs/maat/badge.svg)](https://docs.rs/maat)
 [![CI](https://github.com/maatlabs/maat/workflows/CI/badge.svg)](https://github.com/maatlabs/maat/actions)
 [![License](https://img.shields.io/crates/l/maat.svg)](https://github.com/maatlabs/maat#license)
+[![Crates.io](https://img.shields.io/crates/v/maat.svg)](https://crates.io/crates/maat)
+[![Releases](https://img.shields.io/github/v/release/maatlabs/maat)](https://github.com/maatlabs/maat/releases)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-ff69b4.svg?style=flat-square)](https://github.com/maatlabs/maat/blob/main/CONTRIBUTING.md)
 
 </div>
-
----
 
 **WARNING:** This is a research project. It has not been audited and may contain bugs and security flaws. This implementation is NOT ready for production use.
 
