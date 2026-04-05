@@ -9,7 +9,7 @@ mod format;
 mod transform;
 
 pub use fold::fold_constants;
-pub use format::{FmtSegment, parse_format_string};
+pub use format::{FmtSegment, parse_format_string, unescape_char, unescape_string};
 use maat_span::Span;
 pub use transform::{TransformFn, transform};
 
@@ -927,99 +927,4 @@ pub struct GenericParam {
 pub struct TraitBound {
     pub name: String,
     pub span: Span,
-}
-
-/// Unescapes a string literal by processing escape sequences.
-///
-/// Supports standard escape sequences:
-/// - `\\` -> backslash
-/// - `\"` -> double quote
-/// - `\n` -> newline
-/// - `\r` -> carriage return
-/// - `\t` -> tab
-/// - `\0` -> null character
-///
-/// Invalid escape sequences are preserved as-is.
-pub fn unescape_string(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars();
-
-    while let Some(ch) = chars.next() {
-        if ch == '\\' {
-            match chars.next() {
-                Some('\\') => result.push('\\'),
-                Some('"') => result.push('"'),
-                Some('n') => result.push('\n'),
-                Some('r') => result.push('\r'),
-                Some('t') => result.push('\t'),
-                Some('0') => result.push('\0'),
-                Some('\'') => result.push('\''),
-                Some('u') => {
-                    if let Some(c) = parse_unicode_escape(&mut chars) {
-                        result.push(c);
-                    } else {
-                        result.push_str("\\u");
-                    }
-                }
-                Some(c) => {
-                    result.push('\\');
-                    result.push(c);
-                }
-                None => result.push('\\'),
-            }
-        } else {
-            result.push(ch);
-        }
-    }
-    result
-}
-
-/// Converts a character literal's inner text (without surrounding quotes)
-/// into the represented character.
-///
-/// Handles simple characters (`a`), standard escape sequences (`\n`, `\t`,
-/// `\\`, `\'`, `\0`), and Unicode escapes (`\u{XXXX}`).
-pub fn unescape_char(s: &str) -> Option<char> {
-    let mut chars = s.chars();
-    let result = match chars.next()? {
-        '\\' => match chars.next()? {
-            '\\' => '\\',
-            '\'' => '\'',
-            'n' => '\n',
-            'r' => '\r',
-            't' => '\t',
-            '0' => '\0',
-            '"' => '"',
-            'u' => parse_unicode_escape(&mut chars)?,
-            _ => return None,
-        },
-        c => c,
-    };
-    if chars.next().is_some() {
-        return None;
-    }
-    Some(result)
-}
-
-/// Parses the `{XXXX}` portion of a `\u{XXXX}` Unicode escape sequence.
-///
-/// The leading `\u` has already been consumed. Expects `{` followed by
-/// 1-6 hex digits followed by `}`. Returns the decoded character, or
-/// `None` if the sequence is malformed or the code point is invalid.
-fn parse_unicode_escape(chars: &mut std::str::Chars<'_>) -> Option<char> {
-    if chars.next() != Some('{') {
-        return None;
-    }
-    let mut hex = String::new();
-    for c in chars.by_ref() {
-        if c == '}' {
-            let code = u32::from_str_radix(&hex, 16).ok()?;
-            return char::from_u32(code);
-        }
-        if hex.len() >= 6 {
-            return None;
-        }
-        hex.push(c);
-    }
-    None
 }
