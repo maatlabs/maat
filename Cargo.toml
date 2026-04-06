@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "compiler/maat_span",
     "compiler/maat_errors",
+    "compiler/maat_field",
     "compiler/maat_lexer",
     "compiler/maat_ast",
     "compiler/maat_parser",
