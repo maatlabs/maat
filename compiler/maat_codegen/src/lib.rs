@@ -903,6 +903,9 @@ impl Compiler {
             _ => {
                 self.compile_expression(&infix_expr.lhs)?;
                 self.compile_expression(&infix_expr.rhs)?;
+                if matches!(infix_expr.op_class, BinOpClass::Felt) {
+                    return self.emit_felt_infix(infix_expr.operator.as_str(), span);
+                }
                 match infix_expr.operator.as_str() {
                     ">=" => {
                         self.emit(Opcode::LessThan, &[], span);
@@ -943,6 +946,41 @@ impl Compiler {
                 Ok(())
             }
         }
+    }
+
+    /// Emits the opcode sequence for a `Felt`-typed infix operator. The operands
+    /// have already been pushed onto the stack by the caller.
+    fn emit_felt_infix(&mut self, op: &str, span: Span) -> Result<()> {
+        match op {
+            "+" => {
+                self.emit(Opcode::FeltAdd, &[], span);
+            }
+            "-" => {
+                self.emit(Opcode::FeltSub, &[], span);
+            }
+            "*" => {
+                self.emit(Opcode::FeltMul, &[], span);
+            }
+            "/" => {
+                self.emit(Opcode::FeltInv, &[], span);
+                self.emit(Opcode::FeltMul, &[], span);
+            }
+            "==" => {
+                self.emit(Opcode::Equal, &[], span);
+            }
+            "!=" => {
+                self.emit(Opcode::NotEqual, &[], span);
+            }
+            other => {
+                return Err(CompileErrorKind::UnsupportedOperator {
+                    operator: other.to_string(),
+                    context: "Felt infix expression".to_string(),
+                }
+                .at(span)
+                .into());
+            }
+        }
+        Ok(())
     }
 
     /// Compiles an `if`/`else` conditional expression.

@@ -52,6 +52,7 @@ fn resolve_named(name: &str) -> Type {
         "u64" => Type::U64,
         "u128" => Type::U128,
         "usize" => Type::Usize,
+        "Felt" => Type::Felt,
         "bool" => Type::Bool,
         "char" => Type::Char,
         "str" => Type::Str,

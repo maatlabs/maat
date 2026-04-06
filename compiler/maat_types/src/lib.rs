@@ -512,6 +512,7 @@ impl TypeChecker {
                 NumKind::U64 => Type::U64,
                 NumKind::U128 => Type::U128,
                 NumKind::Usize => Type::Usize,
+                NumKind::Fe => Type::Felt,
                 NumKind::Int { ref mut type_var } => {
                     let ty = self.env.fresh_int_var();
                     if let Type::IntVar(id) = ty {
@@ -1559,6 +1560,31 @@ impl TypeChecker {
         // Char equality and comparison
         if lhs_resolved == Type::Char && rhs_resolved == Type::Char && is_comparison {
             return Type::Bool;
+        }
+        // Field-element arithmetic
+        if lhs_resolved == Type::Felt && rhs_resolved == Type::Felt {
+            match infix.operator.as_str() {
+                "+" | "-" | "*" | "/" => {
+                    infix.op_class = BinOpClass::Felt;
+                    return Type::Felt;
+                }
+                "==" | "!=" => {
+                    infix.op_class = BinOpClass::Felt;
+                    return Type::Bool;
+                }
+                "<" | ">" | "<=" | ">=" => {
+                    self.errors.push(
+                        TypeErrorKind::Unsupported(format!(
+                            "ordering operator `{}` is not defined on `Felt` (prime-field \
+                             elements have no canonical order)",
+                            infix.operator
+                        ))
+                        .at(infix.span),
+                    );
+                    return Type::Felt;
+                }
+                _ => {}
+            }
         }
         // Numeric operations: both operands must be the same integer type.
         if lhs_resolved.is_integer() && rhs_resolved.is_integer() {

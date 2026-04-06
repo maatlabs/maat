@@ -532,6 +532,7 @@ fn parse_compound_assignment<'src>(
         lhs,
         operator: operator.to_string(),
         rhs: Box::new(rhs),
+        op_class: BinOpClass::default(),
         span: start.merge(end),
     });
 
@@ -601,7 +602,8 @@ fn parse_expression_inner<'src>(
         | TokenKind::U32
         | TokenKind::U64
         | TokenKind::U128
-        | TokenKind::Usize => parse_int(input)?,
+        | TokenKind::Usize
+        | TokenKind::Fe => parse_int(input)?,
         TokenKind::String => parse_string_literal(input)?,
         TokenKind::Char => parse_char_literal(input)?,
         TokenKind::Bang | TokenKind::Minus => parse_prefix_expression(input, depth)?,
@@ -663,6 +665,7 @@ fn parse_expression_inner<'src>(
                     lhs: Box::new(expr),
                     operator,
                     rhs,
+                    op_class: BinOpClass::default(),
                     span,
                 })
             }
@@ -842,6 +845,7 @@ fn parse_int<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<Expr> {
         TokenKind::U64 => parse_int_type!(u64, NumKind::U64),
         TokenKind::U128 => parse_int_type!(u128, NumKind::U128),
         TokenKind::Usize => parse_int_type!(usize, NumKind::Usize),
+        TokenKind::Fe => parse_int_type!(u64, NumKind::Fe),
         _ => unreachable!(),
     };
 

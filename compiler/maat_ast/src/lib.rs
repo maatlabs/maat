@@ -324,10 +324,6 @@ pub enum Radix {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NumKind {
     /// An unsuffixed integer literal awaiting type inference.
-    ///
-    /// Initially created with `type_var = 0` by the parser; the type checker
-    /// overwrites this with the actual inference variable id. After inference,
-    /// a defaulting pass resolves this to a concrete `NumKind`.
     Int {
         type_var: u32,
     },
@@ -343,6 +339,8 @@ pub enum NumKind {
     U64,
     U128,
     Usize,
+    /// A field-element literal over the Goldilocks base field (`Felt`).
+    Fe,
 }
 
 impl NumKind {
@@ -364,6 +362,7 @@ impl NumKind {
             Self::U64 => "u64",
             Self::U128 => "u128",
             Self::Usize => "usize",
+            Self::Fe => "Felt",
         }
     }
 
@@ -382,6 +381,7 @@ impl NumKind {
             "u64" => Some(Self::U64),
             "u128" => Some(Self::U128),
             "usize" => Some(Self::Usize),
+            "fe" | "Felt" => Some(Self::Fe),
             _ => None,
         }
     }
@@ -392,6 +392,11 @@ impl NumKind {
             self,
             Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::I128 | Self::Isize
         )
+    }
+
+    /// Returns `true` if this kind is the `Felt` field-element type.
+    pub fn is_felt(self) -> bool {
+        matches!(self, Self::Fe)
     }
 
     /// Returns `true` if `value` fits within the range of `self`.
@@ -410,6 +415,9 @@ impl NumKind {
             Self::U64 => u64::try_from(value).is_ok(),
             Self::U128 => u128::try_from(value).is_ok(),
             Self::Usize => usize::try_from(value).is_ok(),
+            // Field-element literals fit iff their value is in `[0, 2^64)`.
+            // Modular reduction against the Goldilocks prime happens at lowering time.
+            Self::Fe => u64::try_from(value).is_ok(),
         }
     }
 }
@@ -445,12 +453,24 @@ pub struct PrefixExpr {
     pub span: Span,
 }
 
+/// Dispatch class of a binary expression, populated by the type checker.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BinOpClass {
+    /// The operator uses the default integer/string/bool/char dispatch.
+    #[default]
+    Default,
+    /// Both operands are `Felt` field elements;
+    /// emit `OpFelt*` opcodes during codegen.
+    Felt,
+}
+
 /// Binary/infix expression: `<lhs> <operator> <rhs>`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct InfixExpr {
     pub lhs: Box<Expr>,
     pub operator: String,
     pub rhs: Box<Expr>,
+    pub op_class: BinOpClass,
     pub span: Span,
 }
 

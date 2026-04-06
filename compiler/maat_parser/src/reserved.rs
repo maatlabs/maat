@@ -37,6 +37,7 @@ pub const RESERVED_KEYWORDS: &[&str] = &[
 /// Includes primitive types, standard-library collection types, and
 /// builtin enum types. Sorted lexicographically for binary search.
 pub const RESERVED_TYPE_NAMES: &[&str] = &[
+    "Felt",
     "Map",
     "Option",
     "ParseIntError",

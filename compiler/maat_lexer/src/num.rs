@@ -28,6 +28,7 @@ pub enum NumSuffix {
     U64,
     U128,
     Usize,
+    Fe,
 }
 
 impl NumSuffix {
@@ -47,19 +48,26 @@ impl NumSuffix {
             Self::U64 => TokenKind::U64,
             Self::U128 => TokenKind::U128,
             Self::Usize => TokenKind::Usize,
+            Self::Fe => TokenKind::Fe,
         }
     }
 }
 
-/// Matches integer suffixes. Returns the specific suffix type and its length.
-/// Supports: i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize.
+/// Matches numeric type suffixes. Returns the specific suffix type and its length.
+/// Supports: i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize, fe.
 ///
 /// Boundary rule: Only match if suffix is followed by non-alphanumeric character.
 /// This prevents matching partial suffixes like "i64" in "42i641", such as in Rust
 /// where invalid suffixes like "i641" cause errors.
 #[inline]
-pub fn match_int_suffix(bytes: &[u8]) -> Option<(NumSuffix, usize)> {
+pub fn match_num_suffix(bytes: &[u8]) -> Option<(NumSuffix, usize)> {
     let first_byte = *bytes.first()?;
+    if first_byte == b'f' {
+        if bytes.get(1..2) == Some(b"e") && !bytes.get(2).is_some_and(is_ident_continue) {
+            return Some((NumSuffix::Fe, 2));
+        }
+        return None;
+    }
     if first_byte != b'i' && first_byte != b'u' {
         return None;
     }

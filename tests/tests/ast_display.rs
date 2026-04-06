@@ -119,6 +119,7 @@ fn expressions_display() {
             radix: Radix::Dec,
             span: span(),
         })),
+        op_class: BinOpClass::default(),
         span: span(),
     };
     assert_eq!(add.to_string(), "(1 + 2)");

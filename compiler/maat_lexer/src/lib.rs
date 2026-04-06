@@ -422,13 +422,13 @@ fn skip_block_comment(src: &mut Lexer<'_, RawToken>) -> Skip {
 
 /// Tries to read and consume a type suffix from the remaining source.
 ///
-/// Recognizes integer suffixes (`i8`..`i128`, `isize`, `u8`..`u128`, `usize`)
-/// with an optional leading underscore (`_i64`). Advances the lexer past the
-/// suffix if one is found.
+/// Recognizes integer suffixes (`i8`..`i128`, `isize`, `u8`..`u128`, `usize`) and
+/// the field-element suffix `fe`, each with an optional leading underscore
+/// (`_i64`, `_fe`). Advances the lexer past the suffix if one is found.
 fn try_read_suffix(src: &mut Lexer<'_, RawToken>) -> Option<NumSuffix> {
     let remainder = src.remainder().as_bytes();
     let underscore = usize::from(remainder.first() == Some(&b'_'));
-    let (suffix, len) = num::match_int_suffix(&remainder[underscore..])?;
+    let (suffix, len) = num::match_num_suffix(&remainder[underscore..])?;
     src.bump(underscore + len);
     Some(suffix)
 }

@@ -1,0 +1,35 @@
+// Field element arithmetic in the Goldilocks base field (p = 2^64 - 2^32 + 1).
+
+// Literal syntax: integer suffix `_fe`
+let a: Felt = 42_fe;
+let b: Felt = 7_fe;
+
+// Basic arithmetic
+let sum = a + b;
+let diff = a - b;
+let prod = a * b;
+let quotient = a / b;
+println!("{sum}");
+println!("{diff}");
+println!("{prod}");
+println!("{quotient}");
+
+// Wrapping behaviour: 0 - 1 = p - 1
+let wrap = 0_fe - 1_fe;
+println!("{wrap}");
+
+// Multiplicative inverse: x / x == 1
+let one = a / a;
+println!("{one}");
+
+// Division round-trip: (a / b) * b == a
+let roundtrip = a / b * b;
+println!("{roundtrip}");
+
+// Equality
+println!("{}", a == a);
+println!("{}", a != b);
+
+// In conditionals
+let result = if a == 42_fe { 1_fe } else { 0_fe };
+println!("{result}");

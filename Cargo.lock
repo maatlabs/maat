@@ -678,6 +678,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "maat_field"
+version = "0.11.3"
+dependencies = [
+ "thiserror",
+ "winter-math",
+]
+
+[[package]]
 name = "maat_lexer"
 version = "0.11.3"
 dependencies = [
@@ -720,6 +728,7 @@ dependencies = [
  "indexmap",
  "maat_ast",
  "maat_errors",
+ "maat_field",
  "maat_span",
  "serde",
 ]
@@ -1497,6 +1506,21 @@ checksum = "a90e88e4667264a994d34e6d1ab2d26d398dcdca8b7f52bec8668957517fc7d8"
 dependencies = [
  "memchr",
 ]
+
+[[package]]
+name = "winter-math"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7aecfb48ee6a8b4746392c8ff31e33e62df8528a3b5628c5af27b92b14aef1ea"
+dependencies = [
+ "winter-utils",
+]
+
+[[package]]
+name = "winter-utils"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9951263ef5317740cd0f49e618db00c72fabb70b75756ea26c4d5efe462c04dd"
 
 [[package]]
 name = "wit-bindgen"

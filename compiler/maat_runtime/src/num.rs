@@ -168,6 +168,10 @@ impl Integer {
             NumKind::U64 => narrow!(u64, U64, "u64"),
             NumKind::U128 => narrow!(u128, U128, "u128"),
             NumKind::Usize => narrow!(usize, Usize, "usize"),
+            NumKind::Fe => Err(
+                "field element is not an integer variant; cast through `Value::Felt` instead"
+                    .to_string(),
+            ),
         }
     }
 
@@ -240,6 +244,7 @@ impl Integer {
             NumKind::U64 => Self::U64(1),
             NumKind::U128 => Self::U128(1),
             NumKind::Usize => Self::Usize(1),
+            NumKind::Fe => unreachable!("Felt is not an Integer variant"),
         }
     }
 

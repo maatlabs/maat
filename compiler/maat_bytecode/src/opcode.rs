@@ -198,6 +198,31 @@ pub enum Opcode {
     /// Build a tuple from the top N stack elements.
     /// Operands: [u16] - number of elements
     Tuple = 43,
+
+    /// Add two field elements from the stack, producing their sum in the
+    /// Goldilocks base field. Both operands must be `Value::Felt`.
+    /// Operands: none
+    FeltAdd = 44,
+
+    /// Subtract two field elements from the stack, producing their difference
+    /// in the Goldilocks base field. Both operands must be `Value::Felt`.
+    /// Operands: none
+    FeltSub = 45,
+
+    /// Multiply two field elements from the stack, producing their product in
+    /// the Goldilocks base field. Both operands must be `Value::Felt`.
+    /// Operands: none
+    FeltMul = 46,
+
+    /// Invert a field element on top of the stack. Errors at runtime if the
+    /// operand is the zero element.
+    /// Operands: none
+    FeltInv = 47,
+
+    /// Exponentiate a field element by a `u64` exponent. Pops exponent then
+    /// base, pushes `base^exponent` computed by square-and-multiply.
+    /// Operands: none
+    FeltPow = 48,
 }
 
 impl Opcode {
@@ -248,6 +273,11 @@ impl Opcode {
             Self::MakeRange => "OpMakeRange",
             Self::MakeRangeInclusive => "OpMakeRangeInclusive",
             Self::Tuple => "OpTuple",
+            Self::FeltAdd => "OpFeltAdd",
+            Self::FeltSub => "OpFeltSub",
+            Self::FeltMul => "OpFeltMul",
+            Self::FeltInv => "OpFeltInv",
+            Self::FeltPow => "OpFeltPow",
         }
     }
 
@@ -300,7 +330,12 @@ impl Opcode {
             | Self::Shl
             | Self::Shr
             | Self::MakeRange
-            | Self::MakeRangeInclusive => &[],
+            | Self::MakeRangeInclusive
+            | Self::FeltAdd
+            | Self::FeltSub
+            | Self::FeltMul
+            | Self::FeltInv
+            | Self::FeltPow => &[],
         }
     }
 
@@ -352,6 +387,11 @@ impl Opcode {
             41 => Some(Self::MakeRange),
             42 => Some(Self::MakeRangeInclusive),
             43 => Some(Self::Tuple),
+            44 => Some(Self::FeltAdd),
+            45 => Some(Self::FeltSub),
+            46 => Some(Self::FeltMul),
+            47 => Some(Self::FeltInv),
+            48 => Some(Self::FeltPow),
             _ => None,
         }
     }
@@ -383,6 +423,7 @@ pub enum TypeTag {
     U128 = 10,
     Usize = 11,
     Char = 12,
+    Felt = 13,
 }
 
 impl TypeTag {
@@ -403,6 +444,7 @@ impl TypeTag {
             10 => Some(Self::U128),
             11 => Some(Self::Usize),
             12 => Some(Self::Char),
+            13 => Some(Self::Felt),
             _ => None,
         }
     }
@@ -430,6 +472,7 @@ impl TypeTag {
             Self::U64 => Some(NumKind::U64),
             Self::U128 => Some(NumKind::U128),
             Self::Usize => Some(NumKind::Usize),
+            Self::Felt => Some(NumKind::Fe),
             Self::Char => None,
         }
     }
@@ -449,6 +492,7 @@ impl TypeTag {
             NumKind::U64 => Self::U64,
             NumKind::U128 => Self::U128,
             NumKind::Usize => Self::Usize,
+            NumKind::Fe => Self::Felt,
         }
     }
 
@@ -467,7 +511,7 @@ mod tests {
 
     #[test]
     fn opcode_roundtrip() {
-        for byte in 0..=43 {
+        for byte in 0..=48 {
             let opcode = Opcode::from_byte(byte).unwrap();
             assert_eq!(opcode.to_byte(), byte);
         }
