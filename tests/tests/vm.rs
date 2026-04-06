@@ -18,6 +18,7 @@ enum TestValue {
     Bool(bool),
     Str(String),
     IntVector(Vec<i64>),
+    IntArray(Vec<i64>),
     Map(Vec<(i64, i64)>),
     Range(Integer, Integer),
     RangeInclusive(Integer, Integer),
@@ -137,6 +138,27 @@ fn run_vm_test(input: &str, expected: TestValue) {
                 }
             }
             _ => panic!("expected vector, got: {:?}", stack_elem),
+        },
+        TestValue::IntArray(expected_vals) => match stack_elem {
+            Value::Array(elements) => {
+                assert_eq!(
+                    elements.len(),
+                    expected_vals.len(),
+                    "wrong array length for input: {input}"
+                );
+                for (i, expected_elem) in expected_vals.iter().enumerate() {
+                    match &elements[i] {
+                        Value::Integer(Integer::I64(val)) => assert_eq!(
+                            *val, *expected_elem,
+                            "wrong array element at index {i} for input: {input}"
+                        ),
+                        other => {
+                            panic!("expected integer in array at index {i}, got: {:?}", other)
+                        }
+                    }
+                }
+            }
+            _ => panic!("expected array, got: {:?}", stack_elem),
         },
         TestValue::Map(expected_pairs) => match &stack_elem {
             Value::Map(map_obj) => {
@@ -2289,5 +2311,35 @@ fn felt_in_conditional() {
     run_vm_test(
         "let a: Felt = 1_fe; let b: Felt = 2_fe; if a == b { 100_fe } else { 0_fe }",
         TestValue::Felt(0),
+    );
+}
+
+#[test]
+fn fixed_size_arrays() {
+    run_vm_test(
+        "let a: [i64; 3] = [10, 20, 30]; a",
+        TestValue::IntArray(vec![10, 20, 30]),
+    );
+
+    run_vm_test("let a: [i64; 3] = [1, 2, 3]; a[0]", TestValue::I64(1));
+    run_vm_test("let a: [i64; 3] = [1, 2, 3]; a[2]", TestValue::I64(3));
+
+    run_vm_test(
+        "let a: [i64; 2] = [42, 99]; let b = a[0] + a[1]; b",
+        TestValue::I64(141),
+    );
+
+    run_vm_test(
+        "let a: [i64; 2] = [1, 2]; let b: [i64; 2] = [1, 2]; a == b",
+        TestValue::Bool(true),
+    );
+    run_vm_test(
+        "let a: [i64; 2] = [1, 2]; let b: [i64; 2] = [1, 3]; a == b",
+        TestValue::Bool(false),
+    );
+
+    run_vm_test(
+        "fn sum(arr: [i64; 3]) -> i64 { arr[0] + arr[1] + arr[2] } let a: [i64; 3] = [10, 20, 30]; sum(a)",
+        TestValue::I64(60),
     );
 }

@@ -223,6 +223,10 @@ pub enum Opcode {
     /// base, pushes `base^exponent` computed by square-and-multiply.
     /// Operands: none
     FeltPow = 48,
+
+    /// Build a fixed-size array from the top N stack elements.
+    /// Operands: [u16] - number of elements
+    Array = 49,
 }
 
 impl Opcode {
@@ -278,6 +282,7 @@ impl Opcode {
             Self::FeltMul => "OpFeltMul",
             Self::FeltInv => "OpFeltInv",
             Self::FeltPow => "OpFeltPow",
+            Self::Array => "OpArray",
         }
     }
 
@@ -296,7 +301,8 @@ impl Opcode {
             | Self::Vector
             | Self::Map
             | Self::GetField
-            | Self::Tuple => &[2],
+            | Self::Tuple
+            | Self::Array => &[2],
             Self::Closure | Self::Construct => &[2, 1],
             Self::MatchTag => &[2, 2],
             Self::Call
@@ -392,6 +398,7 @@ impl Opcode {
             46 => Some(Self::FeltMul),
             47 => Some(Self::FeltInv),
             48 => Some(Self::FeltPow),
+            49 => Some(Self::Array),
             _ => None,
         }
     }
@@ -511,7 +518,7 @@ mod tests {
 
     #[test]
     fn opcode_roundtrip() {
-        for byte in 0..=48 {
+        for byte in 0..=49 {
             let opcode = Opcode::from_byte(byte).unwrap();
             assert_eq!(opcode.to_byte(), byte);
         }

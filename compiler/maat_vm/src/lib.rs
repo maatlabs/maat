@@ -312,6 +312,12 @@ impl VM {
                     let tuple = self.build_tuple(num_elements)?;
                     self.push_stack(tuple)?;
                 }
+                Opcode::Array => {
+                    let num_elements = self.read_u16_operand(ip + 1)?;
+                    self.current_frame_mut()?.ip += 2;
+                    let array = self.build_array(num_elements)?;
+                    self.push_stack(array)?;
+                }
                 Opcode::Map => {
                     let num_elements = self.read_u16_operand(ip + 1)?;
                     self.current_frame_mut()?.ip += 2;
@@ -937,6 +943,20 @@ impl VM {
         Ok(Value::Tuple(elements))
     }
 
+    /// Builds a fixed-size array from the top `num_elements` stack values.
+    fn build_array(&mut self, num_elements: usize) -> Result<Value> {
+        if num_elements > self.sp {
+            return Err(self.vm_error(format!(
+                "stack underflow in array construction: need {num_elements} elements, stack has {}",
+                self.sp
+            )));
+        }
+        let start = self.sp - num_elements;
+        let elements = self.stack[start..self.sp].to_vec();
+        self.sp = start;
+        Ok(Value::Array(elements))
+    }
+
     /// Builds a map from the top `num_elements` stack values.
     ///
     /// Elements are expected in alternating key-value order on the stack.
@@ -962,7 +982,9 @@ impl VM {
     /// Dispatches index operations to the appropriate handler.
     fn execute_index_expression(&mut self, container: Value, index: Value) -> Result<()> {
         match (&container, &index) {
-            (Value::Vector(elements), _) => self.execute_vector_index(elements, &index),
+            (Value::Vector(elements) | Value::Array(elements), _) => {
+                self.execute_vector_index(elements, &index)
+            }
             (Value::Map(map), _) => self.execute_map_index(map, index),
             _ => Err(self.vm_error(format!(
                 "index operator not supported: {}",

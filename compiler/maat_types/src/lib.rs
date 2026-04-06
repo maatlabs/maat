@@ -313,6 +313,13 @@ impl TypeChecker {
                 && let_stmt.value.is_integer_literal();
             if is_coercible_literal {
                 expected.coerce_literal(&mut let_stmt.value);
+            } else if self.try_coerce_vector_to_array(
+                &expected,
+                &inferred,
+                &mut let_stmt.value,
+                let_stmt.span,
+            ) {
+                // Vector literal coerced to fixed-size array; no further unification needed.
             } else if let Err(e) = self.subst.unify(&expected, &inferred) {
                 self.report_unify_error(e, let_stmt.span);
             }
@@ -571,6 +578,7 @@ impl TypeChecker {
             Expr::StructLit(struct_lit) => self.check_struct_literal(struct_lit),
             Expr::PathExpr(path_expr) => self.check_path_expr(path_expr),
             Expr::Range(range) => self.infer_range(range),
+            Expr::Array(arr) => self.infer_array(arr),
         }
     }
 
@@ -626,7 +634,7 @@ impl TypeChecker {
         let _index_ty = self.infer_expression(&mut idx.index);
         let resolved = self.subst.apply(&collection);
         match resolved {
-            Type::Vector(elem) => *elem,
+            Type::Vector(elem) | Type::Array(elem, _) => *elem,
             Type::Map(_, v) => *v,
             _ => self.env.fresh_var(),
         }
@@ -701,6 +709,76 @@ impl TypeChecker {
         }
         range.kind = Some(elem_ty.to_number_kind());
         Type::Range(Box::new(elem_ty))
+    }
+
+    /// Infers the element type and length of a fixed-size array literal.
+    ///
+    /// All elements must unify to a single type. The resulting type carries the
+    /// static length `N`, making `[T; 3]` and `[T; 4]` distinct types.
+    fn infer_array(&mut self, arr: &mut ArrayLit) -> Type {
+        if arr.elements.is_empty() {
+            let elem = self.env.fresh_var();
+            return Type::Array(Box::new(elem), 0);
+        }
+        let first = self.infer_expression(&mut arr.elements[0]);
+        for elem in &mut arr.elements[1..] {
+            let elem_ty = self.infer_expression(elem);
+            if let Err(e) = self.subst.unify(&first, &elem_ty) {
+                self.report_unify_error(e, elem.span());
+            }
+        }
+        Type::Array(Box::new(self.subst.apply(&first)), arr.elements.len())
+    }
+
+    /// Attempts to coerce a `Vector` literal to a fixed-size `Array` type.
+    ///
+    /// Returns `true` if the coercion was applied (i.e., the expected type is
+    /// `[T; N]`, the inferred type is `[T]`, and the literal has exactly `N`
+    /// elements). Element types are unified; a length mismatch is reported as
+    /// a type error.
+    fn try_coerce_vector_to_array(
+        &mut self,
+        expected: &Type,
+        inferred: &Type,
+        value: &mut Expr,
+        span: Span,
+    ) -> bool {
+        let (elem_ty, n) = match expected {
+            Type::Array(elem, n) => (elem.as_ref(), *n),
+            _ => return false,
+        };
+        let vec_elem = match inferred {
+            Type::Vector(elem) => elem.as_ref(),
+            _ => return false,
+        };
+        if let Err(e) = self.subst.unify(elem_ty, vec_elem) {
+            self.report_unify_error(e, span);
+        }
+        let actual_len = match value {
+            Expr::Vector(v) => v.elements.len(),
+            _ => return false,
+        };
+        if actual_len != n {
+            self.errors.push(
+                TypeErrorKind::Mismatch {
+                    expected: format!("[_; {n}]"),
+                    found: format!("[_; {actual_len}]"),
+                }
+                .at(span),
+            );
+        }
+        // Rewrite the AST: Expr::Vector --> Expr::Array
+        let expr = Expr::Bool(BoolLit {
+            value: false,
+            span: Span::ZERO,
+        });
+        if let Expr::Vector(vec_lit) = std::mem::replace(value, expr) {
+            *value = Expr::Array(ArrayLit {
+                elements: vec_lit.elements,
+                span: vec_lit.span,
+            });
+        }
+        true
     }
 
     /// Type-checks a function call expression.

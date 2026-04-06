@@ -1,0 +1,30 @@
+// Fixed-size arrays [T; N] -- a first-class type with compile-time length.
+
+// Array literal with type annotation
+let a: [i64; 3] = [10, 20, 30];
+println!("{}", a[0]);
+println!("{}", a[1]);
+println!("{}", a[2]);
+
+// Arithmetic on array elements
+let b: [i64; 4] = [1, 2, 3, 4];
+let total = b[0] + b[1] + b[2] + b[3];
+println!("{total}");
+
+// Arrays as function parameters
+fn dot(x: [i64; 3], y: [i64; 3]) -> i64 {
+    x[0] * y[0] + x[1] * y[1] + x[2] * y[2]
+}
+
+let v1: [i64; 3] = [1, 2, 3];
+let v2: [i64; 3] = [4, 5, 6];
+let dp = dot(v1, v2);
+println!("{dp}");
+
+// Equality comparison
+let c: [i64; 2] = [42, 99];
+let d: [i64; 2] = [42, 99];
+println!("{}", c == d);
+
+let e: [i64; 2] = [42, 100];
+println!("{}", c == e);

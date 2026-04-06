@@ -747,6 +747,13 @@ impl Compiler {
                 self.emit(Opcode::Vector, &[array.elements.len()], span);
                 Ok(())
             }
+            Expr::Array(arr) => {
+                for element in &arr.elements {
+                    self.compile_expression(element)?;
+                }
+                self.emit(Opcode::Array, &[arr.elements.len()], span);
+                Ok(())
+            }
             Expr::Map(map) => {
                 for (key, value) in &map.pairs {
                     self.compile_expression(key)?;

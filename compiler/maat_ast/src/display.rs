@@ -99,26 +99,7 @@ impl fmt::Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Ident(e) => e.value.fmt(f),
-
-            Self::Number(e) => {
-                if e.kind.is_signed() {
-                    match e.radix {
-                        Radix::Bin => write!(f, "0b{:b}", e.value),
-                        Radix::Oct => write!(f, "0o{:o}", e.value),
-                        Radix::Dec => write!(f, "{}", e.value),
-                        Radix::Hex => write!(f, "0x{:x}", e.value),
-                    }
-                } else {
-                    let uval = e.value as u128;
-                    match e.radix {
-                        Radix::Bin => write!(f, "0b{:b}", uval),
-                        Radix::Oct => write!(f, "0o{:o}", uval),
-                        Radix::Dec => write!(f, "{}", uval),
-                        Radix::Hex => write!(f, "0x{:x}", uval),
-                    }
-                }
-            }
-
+            Self::Number(e) => e.fmt(f),
             Self::Bool(e) => e.value.fmt(f),
             Self::Str(e) => e.value.fmt(f),
             Self::Char(e) => e.value.fmt(f),
@@ -143,11 +124,41 @@ impl fmt::Display for Expr {
             Self::StructLit(e) => e.fmt(f),
             Self::PathExpr(e) => e.fmt(f),
             Self::Range(e) => e.fmt(f),
+            Self::Array(e) => e.fmt(f),
+        }
+    }
+}
+
+impl fmt::Display for Number {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.kind.is_signed() {
+            match self.radix {
+                Radix::Bin => write!(f, "0b{:b}", self.value),
+                Radix::Oct => write!(f, "0o{:o}", self.value),
+                Radix::Dec => write!(f, "{}", self.value),
+                Radix::Hex => write!(f, "0x{:x}", self.value),
+            }
+        } else {
+            let uval = self.value as u128;
+            match self.radix {
+                Radix::Bin => write!(f, "0b{:b}", uval),
+                Radix::Oct => write!(f, "0o{:o}", uval),
+                Radix::Dec => write!(f, "{}", uval),
+                Radix::Hex => write!(f, "0x{:x}", uval),
+            }
         }
     }
 }
 
 impl fmt::Display for Vector {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("[")?;
+        write_comma_separated(f, &self.elements)?;
+        f.write_str("]")
+    }
+}
+
+impl fmt::Display for ArrayLit {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("[")?;
         write_comma_separated(f, &self.elements)?;
@@ -612,6 +623,7 @@ impl fmt::Display for TypeExpr {
                 }
                 f.write_str(")")
             }
+            Self::Array(elem, n, _) => write!(f, "[{elem}; {n}]"),
         }
     }
 }

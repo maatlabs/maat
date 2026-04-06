@@ -52,6 +52,8 @@ pub enum Value {
     Tuple(Vec<Value>),
     /// A vector of values.
     Vector(Vec<Value>),
+    /// A fixed-size array of homogeneous values.
+    Array(Vec<Value>),
     /// An ordered map of key-value pairs, backed by [`IndexMap`].
     Map(Map),
     /// A runtime function with parameters, body, and closure environment.
@@ -191,6 +193,7 @@ impl Value {
             Self::Str(_) => "str",
             Self::Tuple(_) => "tuple",
             Self::Vector(_) => "Vector",
+            Self::Array(_) => "Array",
             Self::Map(_) => "Map",
             Self::Function(_) => "fn",
             Self::Macro(_) => "macro",
@@ -226,6 +229,7 @@ enum SerVal {
     Str(String),
     Tuple(Vec<Value>),
     Vector(Vec<Value>),
+    Array(Vec<Value>),
     Map(Map),
     CompiledFn(CompiledFn),
     Closure(Closure),
@@ -250,6 +254,7 @@ impl Serialize for Value {
             Self::Str(v) => SerVal::Str(v.clone()),
             Self::Tuple(v) => SerVal::Tuple(v.clone()),
             Self::Vector(v) => SerVal::Vector(v.clone()),
+            Self::Array(v) => SerVal::Array(v.clone()),
             Self::Map(v) => SerVal::Map(v.clone()),
             Self::CompiledFn(v) => SerVal::CompiledFn(v.clone()),
             Self::Closure(v) => SerVal::Closure(v.clone()),
@@ -282,6 +287,7 @@ impl<'de> Deserialize<'de> for Value {
             SerVal::Str(v) => Self::Str(v),
             SerVal::Tuple(v) => Self::Tuple(v),
             SerVal::Vector(v) => Self::Vector(v),
+            SerVal::Array(v) => Self::Array(v),
             SerVal::Map(v) => Self::Map(v),
             SerVal::CompiledFn(v) => Self::CompiledFn(v),
             SerVal::Closure(v) => Self::Closure(v),
@@ -306,6 +312,7 @@ impl PartialEq for Value {
             (Str(a), Str(b)) => a == b,
             (Tuple(t1), Tuple(t2)) => t1 == t2,
             (Vector(v1), Vector(v2)) => v1 == v2,
+            (Array(a1), Array(a2)) => a1 == a2,
             (Map(m1), Map(m2)) => m1 == m2,
             (Function(f1), Function(f2)) => f1 == f2,
             (Macro(m1), Macro(m2)) => m1 == m2,
@@ -508,6 +515,11 @@ impl fmt::Display for Value {
             Self::Vector(vector) => {
                 f.write_str("[")?;
                 write_comma_separated(f, vector)?;
+                f.write_str("]")
+            }
+            Self::Array(arr) => {
+                f.write_str("[")?;
+                write_comma_separated(f, arr)?;
                 f.write_str("]")
             }
             Self::Map(v) => v.fmt(f),

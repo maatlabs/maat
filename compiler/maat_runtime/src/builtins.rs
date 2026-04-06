@@ -262,7 +262,7 @@ fn __panic(args: &[Value]) -> Result<Value> {
 fn vector_len(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::len", args, 1)?;
     match &args[0] {
-        Value::Vector(arr) => Ok(Value::Integer(Integer::Usize(arr.len()))),
+        Value::Vector(arr) | Value::Array(arr) => Ok(Value::Integer(Integer::Usize(arr.len()))),
         other => method_type_error(other, "len", "Vector"),
     }
 }
@@ -428,7 +428,7 @@ fn vector_chain(args: &[Value]) -> Result<Value> {
 fn vector_contains(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::contains", args, 2)?;
     match &args[0] {
-        Value::Vector(v) => Ok(Value::Bool(v.contains(&args[1]))),
+        Value::Vector(v) | Value::Array(v) => Ok(Value::Bool(v.contains(&args[1]))),
         other => method_type_error(other, "contains", "Vector"),
     }
 }

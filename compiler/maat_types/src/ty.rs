@@ -42,6 +42,9 @@ pub enum Type {
     Set(Box<Type>),
     /// A range type parameterised by its element type (e.g., `Range<i64>`).
     Range(Box<Type>),
+    /// A fixed-size array type (e.g., `[i64; 4]`). Arrays with different lengths
+    /// are distinct types: `[i64; 3]` is not assignable to `[i64; 4]`.
+    Array(Box<Type>, usize),
     /// A tuple type with ordered element types (e.g., `(i64, bool, str)`).
     Tuple(Vec<Type>),
     Function(FnType),
@@ -435,6 +438,7 @@ impl fmt::Display for Type {
             Self::Map(k, v) => write!(f, "{{{k}: {v}}}"),
             Self::Set(elem) => write!(f, "Set<{elem}>"),
             Self::Range(elem) => write!(f, "Range<{elem}>"),
+            Self::Array(elem, n) => write!(f, "[{elem}; {n}]"),
             Self::Tuple(elems) => {
                 f.write_str("(")?;
                 for (i, elem) in elems.iter().enumerate() {

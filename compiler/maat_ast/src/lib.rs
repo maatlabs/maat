@@ -190,6 +190,7 @@ pub enum Expr {
     StructLit(StructLitExpr),
     PathExpr(PathExpr),
     Range(RangeExpr),
+    Array(ArrayLit),
 }
 
 impl Expr {
@@ -222,6 +223,7 @@ impl Expr {
             Self::StructLit(v) => v.span,
             Self::PathExpr(v) => v.span,
             Self::Range(v) => v.span,
+            Self::Array(v) => v.span,
         }
     }
 
@@ -426,6 +428,15 @@ impl NumKind {
 /// displayed as `[expr1, expr2, ...]`
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Vector {
+    pub elements: Vec<Expr>,
+    pub span: Span,
+}
+
+/// A fixed-size array literal: `[e0, e1, ..., eN]` where the length `N` is
+/// determined statically. Distinguished from [`Vector`] during parsing when the
+/// type context or an explicit `[T; N]` annotation is present.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ArrayLit {
     pub elements: Vec<Expr>,
     pub span: Span,
 }
@@ -889,6 +900,8 @@ pub enum TypeExpr {
     Fn(Vec<TypeExpr>, Box<TypeExpr>, Span),
     Generic(String, Vec<TypeExpr>, Span),
     Tuple(Vec<TypeExpr>, Span),
+    /// Fixed-size array type: `[T; N]`.
+    Array(Box<TypeExpr>, usize, Span),
 }
 
 impl TypeExpr {
@@ -901,7 +914,8 @@ impl TypeExpr {
             | Self::Map(_, _, s)
             | Self::Fn(_, _, s)
             | Self::Generic(_, _, s)
-            | Self::Tuple(_, s) => *s,
+            | Self::Tuple(_, s)
+            | Self::Array(_, _, s) => *s,
         }
     }
 }
