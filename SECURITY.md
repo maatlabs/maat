@@ -1,6 +1,6 @@
 # Security Policy & Threat Model
 
-This document describes the trust boundaries, attacker model, and mitigations for the Maat compiler toolchain. It covers the current state as of v0.11.3 and will be updated as subsequent versions introduce new attack surfaces.
+This document describes the trust boundaries, attacker model, and mitigations for the Maat compiler toolchain. It covers the current state as of v0.12.0 and will be updated as subsequent versions introduce new attack surfaces.
 
 ## Trust Boundaries
 
@@ -33,6 +33,8 @@ Source (.maat) --> Compiler Pipeline --> Bytecode (.mtc) --> VM Execution
 | Extremely long programs            | Constant pool size limit (`MAX_CONSTANT_POOL_SIZE = 65535`)               | `maat_bytecode/src/lib.rs`   |
 | Integer overflow in literals       | Type checker validates literal range via `check_literal_range()`          | `maat_types/src/lib.rs`      |
 | Integer overflow in arithmetic     | VM uses `checked_add/sub/mul/div/rem/neg/shl/shr` for all operations      | `maat_vm/src/lib.rs`         |
+| Field element division by zero     | `Felt::div` returns `Err(FieldError)` on zero divisor                     | `maat_field/src/lib.rs`      |
+| Out-of-bounds array access         | VM validates index against array length at runtime                        | `maat_vm/src/lib.rs`         |
 | Narrowing `as` casts               | VM uses `TryFrom` with range-check errors via `Integer::cast_to()`        | `maat_runtime/src/num.rs`    |
 | Literal-to-object truncation       | `from_number_literal()` returns `Result` via `TryFrom` (defense-in-depth) | `maat_runtime/src/lib.rs`    |
 | Stack overflow via recursion       | VM frame stack limit (`MAX_FRAMES = 1024`)                                | `maat_bytecode/src/lib.rs`   |
@@ -77,12 +79,12 @@ Source (.maat) --> Compiler Pipeline --> Bytecode (.mtc) --> VM Execution
 
 **Not yet mitigated:**
 
-- **Infinite loops:** The VM does not impose an instruction execution limit. Programs with `loop {}` will run indefinitely. This is intentional for v0.11.1 —- execution limits will be enforced by the ZK trace-generating VM in subsequent versions, where every instruction has a provable cost.
+- **Infinite loops:** The VM does not impose an instruction execution limit. Programs with `loop {}` will run indefinitely. This is intentional for v0.12.0 -- execution limits will be enforced by the ZK trace-generating VM in subsequent versions, where every instruction has a provable cost.
 - **Algorithmic complexity attacks:** Hash map key collisions are not defended against (Rust's `IndexMap` uses default hashing). This is acceptable for the current single-user execution model.
 
 ## Memory Safety
 
-All 14 crates in the workspace enforce `#![forbid(unsafe_code)]`. The compiler toolchain contains zero `unsafe` blocks. Memory safety is guaranteed by the Rust type system and borrow checker.
+All 15 crates in the workspace enforce `#![forbid(unsafe_code)]`. The compiler toolchain contains zero `unsafe` blocks. Memory safety is guaranteed by the Rust type system and borrow checker.
 
 ## Arithmetic Safety
 
@@ -100,7 +102,7 @@ The current VM executes all arithmetic operations using Rust's native integer in
 - **String operations** have length-dependent timing.
 - **Hash lookups** have timing that depends on key distribution.
 
-These are acceptable for the current architecture. When `Felt` (field element) types are introduced in future, all field arithmetic will use constant-time implementations to prevent timing side-channels in proof generation.
+These are acceptable for the current architecture. `Felt` (field element) arithmetic, introduced in v0.12.0, delegates to Winterfell's `BaseElement` implementation, which uses constant-time field operations over the Goldilocks prime (`p = 2^64 - 2^32 + 1`). This prevents timing side-channels in proof generation for all field-element computations.
 
 ## Fuzz Testing
 
