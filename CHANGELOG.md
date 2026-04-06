@@ -4,6 +4,41 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-04-06
+
+ZK backend foundations. This release introduces the first two pillars of the zero-knowledge backend: field element arithmetic (`Felt`) and fixed-size arrays (`[T; N]`). Together, these provide the primitive numeric type and statically bounded memory model required by AIR (Algebraic Intermediate Representation) constraints in the STARK prover.
+
+### Added
+
+#### Field Element Type (`Felt`)
+
+- **`maat_field` crate:** New crate implementing Goldilocks field element arithmetic (`p = 2^64 - 2^32 + 1`), backed by Winterfell's `BaseElement` with constant-time operations. Supports `Add`, `Sub`, `Mul`, `Neg` operator traits and fallible `div` (returns `Err` on zero divisor). Error types derive `thiserror`
+- **`Felt` literal syntax:** Integer suffix `_fe` (e.g., `42_fe`, `0_fe`). No implicit integer-to-Felt coercion; all Felt values require the suffix
+- **`Felt` in the type system:** `Type::Felt` variant with full Hindley-Milner inference, `NumKind::Fe` for literal resolution, `TypeTag::Felt` for bytecode conversion
+- **`Felt` arithmetic opcodes:** `FeltAdd` (44), `FeltSub` (45), `FeltMul` (46), `FeltInv` (47), `FeltPow` (48) in `maat_bytecode`. Division desugars to `FeltInv + FeltMul` in codegen
+- **`Felt` in the VM:** `execute_felt_binary`, `execute_felt_inv`, `execute_felt_pow` dispatch methods with proper error handling for division by zero and type mismatches
+- **`Felt` in the interpreter:** `eval_infix_felt` for tree-walking evaluation, `cast_to_felt` for `as Felt` casts
+- **`BinOpClass` dispatch:** Type checker stamps binary operations as `BinOpClass::Felt` when both operands are field elements, enabling codegen to emit field-specific opcodes
+- **Constant folding exclusion:** Felt expressions are excluded from the constant folder (field arithmetic is modular, not integer)
+
+#### Fixed-Size Arrays (`[T; N]`)
+
+- **`[T; N]` type syntax:** Parsed in type position via semicolon disambiguation (`[i64; 3]` vs `[i64]` for Vector). `TypeExpr::Array(Box<TypeExpr>, usize, Span)` in the AST
+- **`Type::Array(Box<Type>, usize)`:** Arrays with different `N` are distinct types. Full unification support (sizes must match), occurs check, and substitution apply
+- **Vector-to-Array coercion:** `let a: [i64; 3] = [1, 2, 3]` -- the type checker detects the `[T; N]` annotation, validates element count, and rewrites `Expr::Vector` to `Expr::Array` in the AST so codegen emits the correct opcode
+- **`Opcode::Array` (49):** Bytecode opcode with `[u16]` operand for element count
+- **`Value::Array(Vec<Value>)`:** Runtime array variant with Display, PartialEq, Serialize/Deserialize support. Indexing and `len()`/`contains()` builtins work on arrays
+- **Array VM dispatch:** `build_array` and array indexing via the existing bounds-checked `execute_vector_index` path
+- **Array support in interpreter:** `Expr::Array` evaluation, `Value::Array` indexing, and for-loop iteration
+
+### Changed
+
+- **Opcode count:** 44 -> 50 (6 new: `FeltAdd`, `FeltSub`, `FeltMul`, `FeltInv`, `FeltPow`, `Array`)
+- **Crate count:** 14 -> 15 (`maat_field` added)
+- **`SECURITY.md`:** Updated threat model for v0.12.0 -- added field element division-by-zero and array bounds-check mitigations, updated `Felt` timing side-channel section to reflect Winterfell's constant-time guarantees
+
+---
+
 ## [0.11.3] - 2026-04-04
 
 Language surface completeness, extension of `Option<T>`, `Result<T, E>`, and `Vector<T>` method suite.
