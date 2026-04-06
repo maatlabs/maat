@@ -11,8 +11,8 @@ use indexmap::IndexMap;
 use maat_bytecode::{Bytecode, MAX_FRAMES, MAX_GLOBALS, MAX_STACK_SIZE, Opcode, TypeTag};
 use maat_errors::{Result, VmError};
 use maat_runtime::{
-    BUILTINS, Closure, CompiledFn, EnumVariantVal, FALSE, Hashable, Integer, Map, StructVal, TRUE,
-    TypeDef, UNIT, Value, WideInt,
+    BUILTINS, Closure, CompiledFn, EnumVariantVal, FALSE, Felt, Hashable, Integer, Map, StructVal,
+    TRUE, TypeDef, UNIT, Value, WideInt,
 };
 use maat_span::{SourceMap, Span};
 
@@ -312,6 +312,12 @@ impl VM {
                     let tuple = self.build_tuple(num_elements)?;
                     self.push_stack(tuple)?;
                 }
+                Opcode::Array => {
+                    let num_elements = self.read_u16_operand(ip + 1)?;
+                    self.current_frame_mut()?.ip += 2;
+                    let array = self.build_array(num_elements)?;
+                    self.push_stack(array)?;
+                }
                 Opcode::Map => {
                     let num_elements = self.read_u16_operand(ip + 1)?;
                     self.current_frame_mut()?.ip += 2;
@@ -445,6 +451,15 @@ impl VM {
                     let end = self.pop_integer("RangeInclusive")?;
                     let start = self.pop_integer("RangeInclusive")?;
                     self.push_stack(Value::RangeInclusive(start, end))?;
+                }
+                Opcode::FeltAdd | Opcode::FeltSub | Opcode::FeltMul => {
+                    self.execute_felt_binop(op)?;
+                }
+                Opcode::FeltInv => {
+                    self.execute_felt_inv()?;
+                }
+                Opcode::FeltPow => {
+                    self.execute_felt_pow()?;
                 }
             }
         }
@@ -715,6 +730,11 @@ impl VM {
                 Opcode::LessThan => l < r,
                 _ => return None,
             }),
+            (Value::Felt(l), Value::Felt(r)) => match op {
+                Opcode::Equal => Some(l == r),
+                Opcode::NotEqual => Some(l != r),
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -782,6 +802,10 @@ impl VM {
             .to_num_kind()
             .ok_or_else(|| self.vm_error(format!("unknown conversion target: {target:?}")))?;
 
+        if target == TypeTag::Felt {
+            return self.convert_to_felt(value);
+        }
+
         match value {
             Value::Char(ch) => {
                 Integer::from_wide(WideInt::Unsigned(u128::from(*ch as u32)), num_kind)
@@ -792,12 +816,103 @@ impl VM {
                 .cast_to(num_kind)
                 .map(Value::Integer)
                 .map_err(|e| self.vm_error(e)),
+            Value::Felt(_) => Err(self.vm_error(format!(
+                "cannot cast Felt to {}; field elements are non-narrowing",
+                num_kind.as_str(),
+            ))),
             other => Err(self.vm_error(format!(
                 "cannot cast {} to {}",
                 other.type_name(),
                 num_kind.as_str(),
             ))),
         }
+    }
+
+    /// Converts an integer-typed value into a Goldilocks field element.
+    fn convert_to_felt(&self, value: &Value) -> Result<Value> {
+        use maat_runtime::Integer as I;
+
+        let felt = match value {
+            Value::Felt(f) => return Ok(Value::Felt(*f)),
+            Value::Integer(I::I8(v)) => Felt::from_i64(*v as i64),
+            Value::Integer(I::I16(v)) => Felt::from_i64(*v as i64),
+            Value::Integer(I::I32(v)) => Felt::from_i64(*v as i64),
+            Value::Integer(I::I64(v)) => Felt::from_i64(*v),
+            Value::Integer(I::Isize(v)) => Felt::from_i64(*v as i64),
+            Value::Integer(I::U8(v)) => Felt::new(u64::from(*v)),
+            Value::Integer(I::U16(v)) => Felt::new(u64::from(*v)),
+            Value::Integer(I::U32(v)) => Felt::new(u64::from(*v)),
+            Value::Integer(I::U64(v)) => Felt::new(*v),
+            Value::Integer(I::Usize(v)) => Felt::new(*v as u64),
+            Value::Integer(I::I128(_)) | Value::Integer(I::U128(_)) => {
+                return Err(
+                    self.vm_error("cannot cast 128-bit integer to Felt; use explicit `Felt::new`")
+                );
+            }
+            other => {
+                return Err(self.vm_error(format!("cannot cast {} to Felt", other.type_name())));
+            }
+        };
+        Ok(Value::Felt(felt))
+    }
+
+    /// Pops a [`Value::Felt`] off the stack, or errors with a descriptive message.
+    fn pop_felt(&mut self, context: &str) -> Result<Felt> {
+        match self.pop_stack()? {
+            Value::Felt(f) => Ok(f),
+            other => Err(self.vm_error(format!(
+                "{context} expects Felt operand, got {}",
+                other.type_name()
+            ))),
+        }
+    }
+
+    /// Executes a `Felt`-typed binary operator ([`Opcode::FeltAdd`],
+    /// [`Opcode::FeltSub`], [`Opcode::FeltMul`]).
+    fn execute_felt_binop(&mut self, op: Opcode) -> Result<()> {
+        let rhs = self.pop_felt("Felt arithmetic")?;
+        let lhs = self.pop_felt("Felt arithmetic")?;
+        let result = match op {
+            Opcode::FeltAdd => lhs + rhs,
+            Opcode::FeltSub => lhs - rhs,
+            Opcode::FeltMul => lhs * rhs,
+            _ => unreachable!("non-Felt opcode in execute_felt_binary"),
+        };
+        self.push_stack(Value::Felt(result))
+    }
+
+    /// Executes [`Opcode::FeltInv`], replacing the top stack element with
+    /// its multiplicative inverse. Errors at runtime if the operand is zero.
+    fn execute_felt_inv(&mut self) -> Result<()> {
+        let operand = self.pop_felt("Felt inverse")?;
+        let inv = operand
+            .inv()
+            .map_err(|e| self.vm_error(format!("Felt inverse error: {e}")))?;
+        self.push_stack(Value::Felt(inv))
+    }
+
+    /// Executes [`Opcode::FeltPow`]. Pops the `u64` exponent and the base
+    /// field element, pushing `base^exponent` computed by square-and-multiply.
+    /// The exponent must be a `u64`-typed integer.
+    fn execute_felt_pow(&mut self) -> Result<()> {
+        let exp_value = self.pop_stack()?;
+        let exponent = match exp_value {
+            Value::Integer(Integer::U64(v)) => v,
+            Value::Integer(int) => int
+                .to_usize()
+                .and_then(|u| u64::try_from(u).ok())
+                .ok_or_else(|| {
+                    self.vm_error("Felt exponent must be a non-negative integer <= u64::MAX")
+                })?,
+            other => {
+                return Err(self.vm_error(format!(
+                    "Felt exponent must be an integer, got {}",
+                    other.type_name()
+                )));
+            }
+        };
+        let base = self.pop_felt("Felt power")?;
+        self.push_stack(Value::Felt(base.pow(exponent)))
     }
 
     /// Builds a vector from the top `num_elements` stack values.
@@ -828,6 +943,20 @@ impl VM {
         Ok(Value::Tuple(elements))
     }
 
+    /// Builds a fixed-size array from the top `num_elements` stack values.
+    fn build_array(&mut self, num_elements: usize) -> Result<Value> {
+        if num_elements > self.sp {
+            return Err(self.vm_error(format!(
+                "stack underflow in array construction: need {num_elements} elements, stack has {}",
+                self.sp
+            )));
+        }
+        let start = self.sp - num_elements;
+        let elements = self.stack[start..self.sp].to_vec();
+        self.sp = start;
+        Ok(Value::Array(elements))
+    }
+
     /// Builds a map from the top `num_elements` stack values.
     ///
     /// Elements are expected in alternating key-value order on the stack.
@@ -853,7 +982,9 @@ impl VM {
     /// Dispatches index operations to the appropriate handler.
     fn execute_index_expression(&mut self, container: Value, index: Value) -> Result<()> {
         match (&container, &index) {
-            (Value::Vector(elements), _) => self.execute_vector_index(elements, &index),
+            (Value::Vector(elements) | Value::Array(elements), _) => {
+                self.execute_vector_index(elements, &index)
+            }
             (Value::Map(map), _) => self.execute_map_index(map, index),
             _ => Err(self.vm_error(format!(
                 "index operator not supported: {}",

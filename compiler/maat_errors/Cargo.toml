@@ -10,5 +10,5 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
-maat_span = { path = "../maat_span", version = "0.11.2" }
+maat_span = { path = "../maat_span", version = "0.12.0" }
 thiserror = "2.0"

@@ -91,6 +91,7 @@ fn transform_compound_expressions() {
             operand: Box::new(one()),
             span: Span::ZERO,
         })),
+        op_class: BinOpClass::default(),
         span: Span::ZERO,
     });
     let Node::Expr(Expr::Infix(infix)) = transform(Node::Expr(input), &mut turn_one_into_two)

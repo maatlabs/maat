@@ -159,6 +159,9 @@ pub enum TokenKind {
     /// A pointer-sized unsigned integer literal.
     Usize,
 
+    /// A field-element literal over the Goldilocks base field (suffix `_fe`).
+    Fe,
+
     /// The assignment operator `=`.
     Assign,
     /// The addition/concat operator `+`.

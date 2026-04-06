@@ -606,7 +606,7 @@ dependencies = [
 
 [[package]]
 name = "maat"
-version = "0.11.3"
+version = "0.12.0"
 dependencies = [
  "ariadne",
  "clap",
@@ -627,7 +627,7 @@ dependencies = [
 
 [[package]]
 name = "maat_ast"
-version = "0.11.3"
+version = "0.12.0"
 dependencies = [
  "maat_errors",
  "maat_span",
@@ -635,7 +635,7 @@ dependencies = [
 
 [[package]]
 name = "maat_bytecode"
-version = "0.11.3"
+version = "0.12.0"
 dependencies = [
  "indexmap",
  "maat_errors",
@@ -647,7 +647,7 @@ dependencies = [
 
 [[package]]
 name = "maat_codegen"
-version = "0.11.3"
+version = "0.12.0"
 dependencies = [
  "indexmap",
  "maat_ast",
@@ -661,7 +661,7 @@ dependencies = [
 
 [[package]]
 name = "maat_errors"
-version = "0.11.3"
+version = "0.12.0"
 dependencies = [
  "maat_span",
  "thiserror",
@@ -669,7 +669,7 @@ dependencies = [
 
 [[package]]
 name = "maat_eval"
-version = "0.11.3"
+version = "0.12.0"
 dependencies = [
  "indexmap",
  "maat_ast",
@@ -678,8 +678,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "maat_field"
+version = "0.12.0"
+dependencies = [
+ "thiserror",
+ "winter-math",
+]
+
+[[package]]
 name = "maat_lexer"
-version = "0.11.3"
+version = "0.12.0"
 dependencies = [
  "logos",
  "maat_span",
@@ -687,7 +695,7 @@ dependencies = [
 
 [[package]]
 name = "maat_module"
-version = "0.11.3"
+version = "0.12.0"
 dependencies = [
  "maat_ast",
  "maat_bytecode",
@@ -704,7 +712,7 @@ dependencies = [
 
 [[package]]
 name = "maat_parser"
-version = "0.11.3"
+version = "0.12.0"
 dependencies = [
  "maat_ast",
  "maat_errors",
@@ -715,29 +723,30 @@ dependencies = [
 
 [[package]]
 name = "maat_runtime"
-version = "0.11.3"
+version = "0.12.0"
 dependencies = [
  "indexmap",
  "maat_ast",
  "maat_errors",
+ "maat_field",
  "maat_span",
  "serde",
 ]
 
 [[package]]
 name = "maat_span"
-version = "0.11.3"
+version = "0.12.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "maat_stdlib"
-version = "0.11.3"
+version = "0.12.0"
 
 [[package]]
 name = "maat_tests"
-version = "0.11.3"
+version = "0.12.0"
 dependencies = [
  "criterion",
  "maat_ast",
@@ -758,7 +767,7 @@ dependencies = [
 
 [[package]]
 name = "maat_types"
-version = "0.11.3"
+version = "0.12.0"
 dependencies = [
  "indexmap",
  "maat_ast",
@@ -768,7 +777,7 @@ dependencies = [
 
 [[package]]
 name = "maat_vm"
-version = "0.11.3"
+version = "0.12.0"
 dependencies = [
  "indexmap",
  "maat_ast",
@@ -1497,6 +1506,21 @@ checksum = "a90e88e4667264a994d34e6d1ab2d26d398dcdca8b7f52bec8668957517fc7d8"
 dependencies = [
  "memchr",
 ]
+
+[[package]]
+name = "winter-math"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7aecfb48ee6a8b4746392c8ff31e33e62df8528a3b5628c5af27b92b14aef1ea"
+dependencies = [
+ "winter-utils",
+]
+
+[[package]]
+name = "winter-utils"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9951263ef5317740cd0f49e618db00c72fabb70b75756ea26c4d5efe462c04dd"
 
 [[package]]
 name = "wit-bindgen"

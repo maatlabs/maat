@@ -18,10 +18,12 @@ enum TestValue {
     Bool(bool),
     Str(String),
     IntVector(Vec<i64>),
+    IntArray(Vec<i64>),
     Map(Vec<(i64, i64)>),
     Range(Integer, Integer),
     RangeInclusive(Integer, Integer),
     Char(char),
+    Felt(u64),
     Unit,
 }
 
@@ -137,6 +139,27 @@ fn run_vm_test(input: &str, expected: TestValue) {
             }
             _ => panic!("expected vector, got: {:?}", stack_elem),
         },
+        TestValue::IntArray(expected_vals) => match stack_elem {
+            Value::Array(elements) => {
+                assert_eq!(
+                    elements.len(),
+                    expected_vals.len(),
+                    "wrong array length for input: {input}"
+                );
+                for (i, expected_elem) in expected_vals.iter().enumerate() {
+                    match &elements[i] {
+                        Value::Integer(Integer::I64(val)) => assert_eq!(
+                            *val, *expected_elem,
+                            "wrong array element at index {i} for input: {input}"
+                        ),
+                        other => {
+                            panic!("expected integer in array at index {i}, got: {:?}", other)
+                        }
+                    }
+                }
+            }
+            _ => panic!("expected array, got: {:?}", stack_elem),
+        },
         TestValue::Map(expected_pairs) => match &stack_elem {
             Value::Map(map_obj) => {
                 assert_eq!(
@@ -184,6 +207,12 @@ fn run_vm_test(input: &str, expected: TestValue) {
                 assert_eq!(val, exp, "wrong char value for input: {input}")
             }
             _ => panic!("expected char, got: {stack_elem:?}"),
+        },
+        TestValue::Felt(exp) => match stack_elem {
+            Value::Felt(val) => {
+                assert_eq!(val.as_u64(), exp, "wrong Felt value for input: {input}")
+            }
+            _ => panic!("expected Felt, got: {stack_elem:?}"),
         },
         TestValue::Unit => {
             assert_eq!(
@@ -2222,5 +2251,95 @@ fn vector_builtin_methods_extended() {
     run_vm_test(
         "[1, 2, 3, 4, 5].filter(|x: i64| x % 2 == 0).count()",
         TestValue::Usize(2),
+    );
+}
+
+#[test]
+fn felt_literals() {
+    run_vm_test("42_fe", TestValue::Felt(42));
+    run_vm_test("0_fe", TestValue::Felt(0));
+    run_vm_test("1_fe", TestValue::Felt(1));
+}
+
+#[test]
+fn felt_arithmetic() {
+    run_vm_test("10_fe + 20_fe", TestValue::Felt(30));
+    run_vm_test("100_fe - 30_fe", TestValue::Felt(70));
+    run_vm_test("7_fe * 6_fe", TestValue::Felt(42));
+
+    // Subtraction wrapping: 0 - 1 = p - 1
+    run_vm_test("0_fe - 1_fe", TestValue::Felt(18446744069414584320));
+
+    // Multiplication identity
+    run_vm_test("1_fe * 42_fe", TestValue::Felt(42));
+    run_vm_test("0_fe * 999_fe", TestValue::Felt(0));
+}
+
+#[test]
+fn felt_division() {
+    // x / x == 1 for x != 0
+    run_vm_test("42_fe / 42_fe", TestValue::Felt(1));
+    // a / b * b == a
+    run_vm_test("10_fe / 3_fe * 3_fe", TestValue::Felt(10));
+}
+
+#[test]
+fn felt_equality() {
+    run_vm_test("42_fe == 42_fe", TestValue::Bool(true));
+    run_vm_test("42_fe != 42_fe", TestValue::Bool(false));
+    run_vm_test("1_fe == 2_fe", TestValue::Bool(false));
+    run_vm_test("1_fe != 2_fe", TestValue::Bool(true));
+}
+
+#[test]
+fn felt_let_bindings() {
+    // cast i64 as Felt
+    run_vm_test(
+        "let a = 10 as Felt; let b = 20 as Felt; a + b",
+        TestValue::Felt(30),
+    );
+    // infer `Felt` type
+    run_vm_test("let x = 7_fe; let y = 6_fe; x * y", TestValue::Felt(42));
+}
+
+#[test]
+fn felt_in_conditional() {
+    run_vm_test(
+        "let a: Felt = 1_fe; let b: Felt = 1_fe; if a == b { 100_fe } else { 0_fe }",
+        TestValue::Felt(100),
+    );
+    run_vm_test(
+        "let a: Felt = 1_fe; let b: Felt = 2_fe; if a == b { 100_fe } else { 0_fe }",
+        TestValue::Felt(0),
+    );
+}
+
+#[test]
+fn fixed_size_arrays() {
+    run_vm_test(
+        "let a: [i64; 3] = [10, 20, 30]; a",
+        TestValue::IntArray(vec![10, 20, 30]),
+    );
+
+    run_vm_test("let a: [i64; 3] = [1, 2, 3]; a[0]", TestValue::I64(1));
+    run_vm_test("let a: [i64; 3] = [1, 2, 3]; a[2]", TestValue::I64(3));
+
+    run_vm_test(
+        "let a: [i64; 2] = [42, 99]; let b = a[0] + a[1]; b",
+        TestValue::I64(141),
+    );
+
+    run_vm_test(
+        "let a: [i64; 2] = [1, 2]; let b: [i64; 2] = [1, 2]; a == b",
+        TestValue::Bool(true),
+    );
+    run_vm_test(
+        "let a: [i64; 2] = [1, 2]; let b: [i64; 2] = [1, 3]; a == b",
+        TestValue::Bool(false),
+    );
+
+    run_vm_test(
+        "fn sum(arr: [i64; 3]) -> i64 { arr[0] + arr[1] + arr[2] } let a: [i64; 3] = [10, 20, 30]; sum(a)",
+        TestValue::I64(60),
     );
 }

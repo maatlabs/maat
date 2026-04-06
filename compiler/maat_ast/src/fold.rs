@@ -193,7 +193,7 @@ fn try_fold_infix(infix: &InfixExpr, errors: &mut Vec<TypeError>) -> Option<Expr
     let op = infix.operator.as_str();
 
     match (infix.lhs.as_ref(), infix.rhs.as_ref()) {
-        (Expr::Number(l), Expr::Number(r)) if l.kind == r.kind => {
+        (Expr::Number(l), Expr::Number(r)) if l.kind == r.kind && !l.kind.is_felt() => {
             let result = match op {
                 "+" => l.value.checked_add(r.value),
                 "-" => l.value.checked_sub(r.value),
@@ -248,7 +248,7 @@ fn try_fold_comparison(infix: &InfixExpr) -> Option<Expr> {
     let op = infix.operator.as_str();
 
     match (infix.lhs.as_ref(), infix.rhs.as_ref()) {
-        (Expr::Number(l), Expr::Number(r)) if l.kind == r.kind => {
+        (Expr::Number(l), Expr::Number(r)) if l.kind == r.kind && !l.kind.is_felt() => {
             let value = match op {
                 "==" => l.value == r.value,
                 "!=" => l.value != r.value,

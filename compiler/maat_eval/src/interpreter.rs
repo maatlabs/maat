@@ -4,7 +4,7 @@ use indexmap::IndexMap;
 use maat_ast::*;
 use maat_errors::{EvalError, Result};
 use maat_runtime::{
-    Env, FALSE, Function, Hashable, Integer, Macro, Map, Quote, TRUE, UNIT, Value, WideInt,
+    Env, FALSE, Felt, Function, Hashable, Integer, Macro, Map, Quote, TRUE, UNIT, Value, WideInt,
     get_builtin,
 };
 
@@ -79,6 +79,10 @@ pub fn eval(node: Node, env: &Env) -> Result<Value> {
             Expr::Vector(vector) => {
                 let elements = eval_expressions(&vector.elements, env)?;
                 Ok(Value::Vector(elements))
+            }
+            Expr::Array(arr) => {
+                let elements = eval_expressions(&arr.elements, env)?;
+                Ok(Value::Array(elements))
             }
             Expr::Index(index_expr) => eval_index_expression(index_expr, env),
             Expr::Map(map) => eval_map_literal(map, env),
@@ -226,10 +230,10 @@ fn eval_while_statement(stmt: WhileStmt, env: &Env) -> Result<Value> {
 fn eval_for_statement(stmt: ForStmt, env: &Env) -> Result<Value> {
     let iterable = eval(Node::Expr(*stmt.iterable), env)?;
     let elements = match iterable {
-        Value::Vector(elems) => elems,
+        Value::Vector(elems) | Value::Array(elems) => elems,
         other => {
             return Err(EvalError::Ident(format!(
-                "for..in requires a vector, got {}",
+                "for..in requires a vector or array, got {}",
                 other.type_name()
             ))
             .into());
@@ -271,7 +275,7 @@ fn eval_index_expression(idx_expr: IndexExpr, env: &Env) -> Result<Value> {
     let index = eval(Node::Expr(*idx_expr.index), env)?;
 
     match expr {
-        Value::Vector(arr) => {
+        Value::Vector(arr) | Value::Array(arr) => {
             if index.is_integer() {
                 match index.to_vector_index() {
                     Some(idx) if idx < arr.len() => Ok(arr[idx].clone()),
@@ -465,11 +469,30 @@ fn eval_infix_expression(expr: InfixExpr, env: &Env) -> Result<Value> {
             };
             Ok(Value::Integer(result))
         }
+        (Value::Felt(l), Value::Felt(r)) => eval_infix_felt(op, *l, *r),
         (Value::Bool(l), Value::Bool(r)) => eval_infix_bool(op, *l, *r),
         (Value::Str(l), Value::Str(r)) => eval_infix_string(op, l, r),
         _ => Err(
             EvalError::InfixExpr(format!("invalid infix expression: `{lhs} {op} {rhs}`")).into(),
         ),
+    }
+}
+
+/// Evaluates an infix operator on two Goldilocks field elements.
+fn eval_infix_felt(op: &str, lhs: Felt, rhs: Felt) -> Result<Value> {
+    match op {
+        "+" => Ok(Value::Felt(lhs + rhs)),
+        "-" => Ok(Value::Felt(lhs - rhs)),
+        "*" => Ok(Value::Felt(lhs * rhs)),
+        "/" => (lhs / rhs)
+            .map(Value::Felt)
+            .map_err(|e| EvalError::Number(format!("Felt division error: {e}")).into()),
+        "==" => Ok(Value::Bool(lhs == rhs)),
+        "!=" => Ok(Value::Bool(lhs != rhs)),
+        _ => Err(EvalError::Number(format!(
+            "operator `{op}` is not defined on Felt; field elements are unordered"
+        ))
+        .into()),
     }
 }
 
@@ -586,6 +609,7 @@ fn eval_cast_expression(expr: CastExpr, env: &Env) -> Result<Value> {
                 Err(EvalError::Number(format!("cannot cast {} as char", other.type_name(),)).into())
             }
         },
+        CastTarget::Num(NumKind::Fe) => cast_to_felt(value),
         CastTarget::Num(num_kind) => match value {
             Value::Char(ch) => {
                 Integer::from_wide(WideInt::Unsigned(u128::from(ch as u32)), num_kind)
@@ -596,6 +620,11 @@ fn eval_cast_expression(expr: CastExpr, env: &Env) -> Result<Value> {
                 .cast_to(num_kind)
                 .map(Value::Integer)
                 .map_err(|e| EvalError::Number(e).into()),
+            Value::Felt(_) => Err(EvalError::Number(format!(
+                "cannot cast Felt to {}; field elements are non-narrowing",
+                num_kind.as_str(),
+            ))
+            .into()),
             other => Err(EvalError::Number(format!(
                 "cannot cast {} to {}",
                 other.type_name(),
@@ -604,6 +633,37 @@ fn eval_cast_expression(expr: CastExpr, env: &Env) -> Result<Value> {
             .into()),
         },
     }
+}
+
+/// Casts an integer-typed [`Value`] into a Goldilocks field element.
+fn cast_to_felt(value: Value) -> Result<Value> {
+    use maat_runtime::Integer as I;
+
+    let felt = match value {
+        Value::Felt(f) => return Ok(Value::Felt(f)),
+        Value::Integer(I::I8(v)) => Felt::from_i64(v as i64),
+        Value::Integer(I::I16(v)) => Felt::from_i64(v as i64),
+        Value::Integer(I::I32(v)) => Felt::from_i64(v as i64),
+        Value::Integer(I::I64(v)) => Felt::from_i64(v),
+        Value::Integer(I::Isize(v)) => Felt::from_i64(v as i64),
+        Value::Integer(I::U8(v)) => Felt::new(u64::from(v)),
+        Value::Integer(I::U16(v)) => Felt::new(u64::from(v)),
+        Value::Integer(I::U32(v)) => Felt::new(u64::from(v)),
+        Value::Integer(I::U64(v)) => Felt::new(v),
+        Value::Integer(I::Usize(v)) => Felt::new(v as u64),
+        Value::Integer(I::I128(_)) | Value::Integer(I::U128(_)) => {
+            return Err(EvalError::Number(
+                "cannot cast 128-bit integer to Felt; use explicit `Felt::new`".to_string(),
+            )
+            .into());
+        }
+        other => {
+            return Err(
+                EvalError::Number(format!("cannot cast {} to Felt", other.type_name(),)).into(),
+            );
+        }
+    };
+    Ok(Value::Felt(felt))
 }
 
 /// Checks if a node is a call to the `unquote` builtin.

@@ -34,6 +34,7 @@ pub fn resolve_type_expr(expr: &TypeExpr) -> Type {
             Type::Generic(Rc::from(name.as_str()), vec![])
         }
         TypeExpr::Tuple(elems, _) => Type::Tuple(elems.iter().map(resolve_type_expr).collect()),
+        TypeExpr::Array(elem, n, _) => Type::Array(Box::new(resolve_type_expr(elem)), *n),
     }
 }
 
@@ -52,6 +53,7 @@ fn resolve_named(name: &str) -> Type {
         "u64" => Type::U64,
         "u128" => Type::U128,
         "usize" => Type::Usize,
+        "Felt" => Type::Felt,
         "bool" => Type::Bool,
         "char" => Type::Char,
         "str" => Type::Str,

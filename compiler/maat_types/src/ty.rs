@@ -28,6 +28,8 @@ pub enum Type {
     U64,
     U128,
     Usize,
+    /// A field element over the Goldilocks prime (`Felt`).
+    Felt,
     Bool,
     Char,
     Str,
@@ -40,6 +42,9 @@ pub enum Type {
     Set(Box<Type>),
     /// A range type parameterised by its element type (e.g., `Range<i64>`).
     Range(Box<Type>),
+    /// A fixed-size array type (e.g., `[i64; 4]`). Arrays with different lengths
+    /// are distinct types: `[i64; 3]` is not assignable to `[i64; 4]`.
+    Array(Box<Type>, usize),
     /// A tuple type with ordered element types (e.g., `(i64, bool, str)`).
     Tuple(Vec<Type>),
     Function(FnType),
@@ -196,6 +201,7 @@ impl Type {
             Self::U64 => NumKind::U64,
             Self::U128 => NumKind::U128,
             Self::Usize => NumKind::Usize,
+            Self::Felt => NumKind::Fe,
             _ => return,
         };
 
@@ -282,6 +288,7 @@ impl Type {
             NumKind::U64 => Self::U64,
             NumKind::U128 => Self::U128,
             NumKind::Usize => Self::Usize,
+            NumKind::Fe => Self::Felt,
             NumKind::Int { .. } => {
                 unreachable!("Int literals must be resolved by type inference")
             }
@@ -303,6 +310,7 @@ impl Type {
             Self::U64 => NumKind::U64,
             Self::U128 => NumKind::U128,
             Self::Usize => NumKind::Usize,
+            Self::Felt => NumKind::Fe,
             _ => NumKind::I64,
         }
     }
@@ -331,6 +339,7 @@ impl Type {
                 NumKind::U64 => Self::U64,
                 NumKind::U128 => Self::U128,
                 NumKind::Usize => Self::Usize,
+                NumKind::Fe => Self::Felt,
             },
             Expr::Bool(_) => Self::Bool,
             Expr::Char(_) => Self::Char,
@@ -420,6 +429,7 @@ impl fmt::Display for Type {
             Self::U64 => f.write_str("u64"),
             Self::U128 => f.write_str("u128"),
             Self::Usize => f.write_str("usize"),
+            Self::Felt => f.write_str("Felt"),
             Self::Bool => f.write_str("bool"),
             Self::Char => f.write_str("char"),
             Self::Str => f.write_str("str"),
@@ -428,6 +438,7 @@ impl fmt::Display for Type {
             Self::Map(k, v) => write!(f, "{{{k}: {v}}}"),
             Self::Set(elem) => write!(f, "Set<{elem}>"),
             Self::Range(elem) => write!(f, "Range<{elem}>"),
+            Self::Array(elem, n) => write!(f, "[{elem}; {n}]"),
             Self::Tuple(elems) => {
                 f.write_str("(")?;
                 for (i, elem) in elems.iter().enumerate() {

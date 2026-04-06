@@ -1,0 +1,14 @@
+[package]
+name = "maat_field"
+description = "Finite field arithmetic and value-to-field encoding for the Maat zero-knowledge backend"
+keywords = ["compiler", "maat", "zero-knowledge", "zk", "field"]
+categories = ["compilers", "cryptography"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+thiserror = "2"
+winter-math = "0.13"

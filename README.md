@@ -1,6 +1,6 @@
 <div align="center">
   <h1>Maat</h1>
-  <h2>Turing-complete programming language for writing zero-knowledge proofs (ZKPs)</h2>
+  <h2>Turing-complete programming language for writing zero-knowledge proofs</h2>
   <img src="./assets/maat-lang-transparent-logo.png" alt="Logo" height="200" width="200">
   <br />
 </div>
@@ -8,14 +8,13 @@
 <div align="center">
 <br />
 
-[![Crates.io](https://img.shields.io/crates/v/maat.svg)](https://crates.io/crates/maat)
-[![Documentation](https://docs.rs/maat/badge.svg)](https://docs.rs/maat)
 [![CI](https://github.com/maatlabs/maat/workflows/CI/badge.svg)](https://github.com/maatlabs/maat/actions)
 [![License](https://img.shields.io/crates/l/maat.svg)](https://github.com/maatlabs/maat#license)
+[![Crates.io](https://img.shields.io/crates/v/maat.svg)](https://crates.io/crates/maat)
+[![Releases](https://img.shields.io/github/v/release/maatlabs/maat)](https://github.com/maatlabs/maat/releases)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-ff69b4.svg?style=flat-square)](https://github.com/maatlabs/maat/blob/main/CONTRIBUTING.md)
 
 </div>
-
----
 
 **WARNING:** This is a research project. It has not been audited and may contain bugs and security flaws. This implementation is NOT ready for production use.
 
@@ -308,7 +307,7 @@ cargo doc --all-features --no-deps --open
 
 Maat uses a multi-module compilation pipeline. Source files are parsed into per-module ASTs, organized into a dependency graph by `maat_module`, type-checked independently with cross-module visibility enforcement, compiled to bytecode by a shared `maat_codegen` compiler instance (which implicitly links all modules into a single instruction stream), and executed on the stack-based `maat_vm`. The `maat_eval` crate (the tree-walking evaluator) is reduced to a macro-expansion-only engine (`define_macros`/`expand_macros`).
 
-The type checker infers types for each module using Hindley-Milner inference (Algorithm W), with imported bindings injected from dependency modules' public exports. Type annotations are optional--the inference engine deduces types from usage--but can be provided on `let` bindings, function parameters, and return types for documentation or to constrain polymorphism. Generic functions with parametric polymorphism are supported (`fn identity<T>(x: T) -> T { x }`). Tuples, `char`, `Map<K, V>`, `Set<T>`, and `Vector<T>` are all first-class types with full inference support.
+The type checker infers types for each module using Hindley-Milner inference (Algorithm W), with imported bindings injected from dependency modules' public exports. Type annotations are optional--the inference engine deduces types from usage--but can be provided on `let` bindings, function parameters, and return types for documentation or to constrain polymorphism. Generic functions with parametric polymorphism are supported (`fn identity<T>(x: T) -> T { x }`). Tuples, `char`, `Map<K, V>`, `Set<T>`, `Vector<T>`, and fixed-size arrays `[T; N]` are all first-class types with full inference support. `Felt` (Goldilocks field element) is a first-class numeric type for zero-knowledge arithmetic.
 
 Custom types follow Rust syntax: `struct`, `enum` (with unit, tuple, and struct variants), `trait`, and `impl` blocks (both inherent and trait impls). Pattern matching via `match` supports literal, identifier, tuple-struct, wildcard, and or-patterns. Methods are statically dispatched via compile-time type-directed dispatch. `Option<T>` and `Result<T, E>` are pre-registered as language-level enums with full method suites (`map`, `and_then`, `unwrap_or`, `unwrap_or_else`, `ok`, `err`, `flatten`, `zip`, `map_err`, `or_else`, etc.) and the `?` operator for ergonomic error propagation. Range syntax (`0..10` and `0..=10`) produces first-class `Range<T>`/`RangeInclusive<T>` values generic over all integer types and integrates with `for..in` loops.
 
@@ -326,7 +325,8 @@ Errors are reported with precise `file:line:col` locations using source maps and
 | `maat_eval`     | Macro expansion engine (`quote`/`unquote`)                       |
 | `maat_runtime`  | Value system, built-in functions, and compiled types             |
 | `maat_types`    | Hindley-Milner type inference (Algorithm W)                      |
-| `maat_bytecode` | Instruction set encoding/decoding and serialization (44 opcodes) |
+| `maat_field`    | Goldilocks field element (`Felt`) arithmetic                     |
+| `maat_bytecode` | Instruction set encoding/decoding and serialization (50 opcodes) |
 | `maat_codegen`  | AST-to-bytecode compiler with scope analysis                     |
 | `maat_module`   | Module resolution, dependency graph, and multi-module pipeline   |
 | `maat_vm`       | Stack-based virtual machine                                      |
@@ -344,7 +344,7 @@ Unless you explicitly state otherwise, any contribution intentionally submitted 
 
 ## Security
 
-All 14 crates enforce `#![forbid(unsafe_code)]`. The compiler and VM have been hardened against adversarial input with resource limits, checked arithmetic, and safe type conversions. See [`SECURITY.md`](./SECURITY.md) for the full threat model.
+All 15 crates enforce `#![forbid(unsafe_code)]`. The compiler and VM have been hardened against adversarial input with resource limits, checked arithmetic, and safe type conversions. Field element arithmetic uses the Winterfell library's constant-time implementations. See [`SECURITY.md`](./SECURITY.md) for the full threat model.
 
 ## Roadmap
 
@@ -358,11 +358,11 @@ Maat's development follows a phased milestone plan.
 
 ## Status
 
-Maat is currently at version `0.11.3` (Milestone 1). The compiler frontend, type system, module system, bytecode VM, and CLI toolchain are functional and tested.
+Maat is currently at version `0.12.0` (Milestone 1.5 -- ZK backend foundations). The compiler frontend, type system, module system, bytecode VM, and CLI toolchain are functional and tested. The ZK backend has begun: `Felt` (Goldilocks field element) is a first-class type with modular arithmetic, and fixed-size arrays `[T; N]` provide statically bounded memory for AIR constraints.
 
 ## Disclaimer
 
-Early adopters should be aware that Maat `0.11.3` is a step toward Maat 1.0, for which a formal audit process is expected. In the meantime, we invite you to explore and experiment with Maat, but we do not recommend using it to build mission-critical systems.
+Early adopters should be aware that Maat `0.12.0` is a step toward Maat 1.0, for which a formal audit process is expected. In the meantime, we invite you to explore and experiment with Maat, but we do not recommend using it to build mission-critical systems.
 
 ## Acknowledgments
 

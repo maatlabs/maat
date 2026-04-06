@@ -9,7 +9,7 @@ mod format;
 mod transform;
 
 pub use fold::fold_constants;
-pub use format::{FmtSegment, parse_format_string};
+pub use format::{FmtSegment, parse_format_string, unescape_char, unescape_string};
 use maat_span::Span;
 pub use transform::{TransformFn, transform};
 
@@ -190,6 +190,7 @@ pub enum Expr {
     StructLit(StructLitExpr),
     PathExpr(PathExpr),
     Range(RangeExpr),
+    Array(ArrayLit),
 }
 
 impl Expr {
@@ -222,6 +223,7 @@ impl Expr {
             Self::StructLit(v) => v.span,
             Self::PathExpr(v) => v.span,
             Self::Range(v) => v.span,
+            Self::Array(v) => v.span,
         }
     }
 
@@ -324,10 +326,6 @@ pub enum Radix {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NumKind {
     /// An unsuffixed integer literal awaiting type inference.
-    ///
-    /// Initially created with `type_var = 0` by the parser; the type checker
-    /// overwrites this with the actual inference variable id. After inference,
-    /// a defaulting pass resolves this to a concrete `NumKind`.
     Int {
         type_var: u32,
     },
@@ -343,6 +341,8 @@ pub enum NumKind {
     U64,
     U128,
     Usize,
+    /// A field-element literal over the Goldilocks base field (`Felt`).
+    Fe,
 }
 
 impl NumKind {
@@ -364,6 +364,7 @@ impl NumKind {
             Self::U64 => "u64",
             Self::U128 => "u128",
             Self::Usize => "usize",
+            Self::Fe => "Felt",
         }
     }
 
@@ -382,6 +383,7 @@ impl NumKind {
             "u64" => Some(Self::U64),
             "u128" => Some(Self::U128),
             "usize" => Some(Self::Usize),
+            "fe" | "Felt" => Some(Self::Fe),
             _ => None,
         }
     }
@@ -392,6 +394,11 @@ impl NumKind {
             self,
             Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::I128 | Self::Isize
         )
+    }
+
+    /// Returns `true` if this kind is the `Felt` field-element type.
+    pub fn is_felt(self) -> bool {
+        matches!(self, Self::Fe)
     }
 
     /// Returns `true` if `value` fits within the range of `self`.
@@ -410,6 +417,9 @@ impl NumKind {
             Self::U64 => u64::try_from(value).is_ok(),
             Self::U128 => u128::try_from(value).is_ok(),
             Self::Usize => usize::try_from(value).is_ok(),
+            // Field-element literals fit iff their value is in `[0, 2^64)`.
+            // Modular reduction against the Goldilocks prime happens at lowering time.
+            Self::Fe => u64::try_from(value).is_ok(),
         }
     }
 }
@@ -418,6 +428,15 @@ impl NumKind {
 /// displayed as `[expr1, expr2, ...]`
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Vector {
+    pub elements: Vec<Expr>,
+    pub span: Span,
+}
+
+/// A fixed-size array literal: `[e0, e1, ..., eN]` where the length `N` is
+/// determined statically. Distinguished from [`Vector`] during parsing when the
+/// type context or an explicit `[T; N]` annotation is present.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ArrayLit {
     pub elements: Vec<Expr>,
     pub span: Span,
 }
@@ -445,12 +464,24 @@ pub struct PrefixExpr {
     pub span: Span,
 }
 
+/// Dispatch class of a binary expression, populated by the type checker.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BinOpClass {
+    /// The operator uses the default integer/string/bool/char dispatch.
+    #[default]
+    Default,
+    /// Both operands are `Felt` field elements;
+    /// emit `OpFelt*` opcodes during codegen.
+    Felt,
+}
+
 /// Binary/infix expression: `<lhs> <operator> <rhs>`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct InfixExpr {
     pub lhs: Box<Expr>,
     pub operator: String,
     pub rhs: Box<Expr>,
+    pub op_class: BinOpClass,
     pub span: Span,
 }
 
@@ -869,6 +900,8 @@ pub enum TypeExpr {
     Fn(Vec<TypeExpr>, Box<TypeExpr>, Span),
     Generic(String, Vec<TypeExpr>, Span),
     Tuple(Vec<TypeExpr>, Span),
+    /// Fixed-size array type: `[T; N]`.
+    Array(Box<TypeExpr>, usize, Span),
 }
 
 impl TypeExpr {
@@ -881,7 +914,8 @@ impl TypeExpr {
             | Self::Map(_, _, s)
             | Self::Fn(_, _, s)
             | Self::Generic(_, _, s)
-            | Self::Tuple(_, s) => *s,
+            | Self::Tuple(_, s)
+            | Self::Array(_, _, s) => *s,
         }
     }
 }
@@ -927,99 +961,4 @@ pub struct GenericParam {
 pub struct TraitBound {
     pub name: String,
     pub span: Span,
-}
-
-/// Unescapes a string literal by processing escape sequences.
-///
-/// Supports standard escape sequences:
-/// - `\\` -> backslash
-/// - `\"` -> double quote
-/// - `\n` -> newline
-/// - `\r` -> carriage return
-/// - `\t` -> tab
-/// - `\0` -> null character
-///
-/// Invalid escape sequences are preserved as-is.
-pub fn unescape_string(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars();
-
-    while let Some(ch) = chars.next() {
-        if ch == '\\' {
-            match chars.next() {
-                Some('\\') => result.push('\\'),
-                Some('"') => result.push('"'),
-                Some('n') => result.push('\n'),
-                Some('r') => result.push('\r'),
-                Some('t') => result.push('\t'),
-                Some('0') => result.push('\0'),
-                Some('\'') => result.push('\''),
-                Some('u') => {
-                    if let Some(c) = parse_unicode_escape(&mut chars) {
-                        result.push(c);
-                    } else {
-                        result.push_str("\\u");
-                    }
-                }
-                Some(c) => {
-                    result.push('\\');
-                    result.push(c);
-                }
-                None => result.push('\\'),
-            }
-        } else {
-            result.push(ch);
-        }
-    }
-    result
-}
-
-/// Converts a character literal's inner text (without surrounding quotes)
-/// into the represented character.
-///
-/// Handles simple characters (`a`), standard escape sequences (`\n`, `\t`,
-/// `\\`, `\'`, `\0`), and Unicode escapes (`\u{XXXX}`).
-pub fn unescape_char(s: &str) -> Option<char> {
-    let mut chars = s.chars();
-    let result = match chars.next()? {
-        '\\' => match chars.next()? {
-            '\\' => '\\',
-            '\'' => '\'',
-            'n' => '\n',
-            'r' => '\r',
-            't' => '\t',
-            '0' => '\0',
-            '"' => '"',
-            'u' => parse_unicode_escape(&mut chars)?,
-            _ => return None,
-        },
-        c => c,
-    };
-    if chars.next().is_some() {
-        return None;
-    }
-    Some(result)
-}
-
-/// Parses the `{XXXX}` portion of a `\u{XXXX}` Unicode escape sequence.
-///
-/// The leading `\u` has already been consumed. Expects `{` followed by
-/// 1-6 hex digits followed by `}`. Returns the decoded character, or
-/// `None` if the sequence is malformed or the code point is invalid.
-fn parse_unicode_escape(chars: &mut std::str::Chars<'_>) -> Option<char> {
-    if chars.next() != Some('{') {
-        return None;
-    }
-    let mut hex = String::new();
-    for c in chars.by_ref() {
-        if c == '}' {
-            let code = u32::from_str_radix(&hex, 16).ok()?;
-            return char::from_u32(code);
-        }
-        if hex.len() >= 6 {
-            return None;
-        }
-        hex.push(c);
-    }
-    None
 }

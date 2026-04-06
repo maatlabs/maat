@@ -40,6 +40,7 @@ fn infix(lhs: Expr, op: &str, rhs: Expr) -> Expr {
         lhs: Box::new(lhs),
         operator: op.to_string(),
         rhs: Box::new(rhs),
+        op_class: BinOpClass::default(),
         span: S,
     })
 }

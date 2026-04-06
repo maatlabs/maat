@@ -17,6 +17,7 @@ use indexmap::{IndexMap, IndexSet};
 use maat_ast::{BlockStmt, Node, Number};
 pub use maat_ast::{CastTarget, NumKind};
 use maat_errors::{Error, EvalError, Result};
+pub use maat_field::Felt;
 use maat_span::SourceMap;
 pub use num::{Integer, WideInt};
 use serde::{Deserialize, Serialize};
@@ -39,6 +40,8 @@ pub enum Value {
     Unit,
     /// Runtime integer types
     Integer(Integer),
+    /// A field-element value over the Goldilocks base field used by the ZK backend.
+    Felt(Felt),
     /// A boolean value (true or false).
     Bool(bool),
     /// A Unicode scalar value.
@@ -49,6 +52,8 @@ pub enum Value {
     Tuple(Vec<Value>),
     /// A vector of values.
     Vector(Vec<Value>),
+    /// A fixed-size array of homogeneous values.
+    Array(Vec<Value>),
     /// An ordered map of key-value pairs, backed by [`IndexMap`].
     Map(Map),
     /// A runtime function with parameters, body, and closure environment.
@@ -109,6 +114,9 @@ impl Value {
             NumKind::U64 => narrow!(U64, u64),
             NumKind::U128 => narrow!(U128, u128),
             NumKind::Usize => narrow!(Usize, usize),
+            NumKind::Fe => u64::try_from(lit.value)
+                .map(|v| Self::Felt(Felt::new(v)))
+                .map_err(|_| format!("{} out of range for Felt", lit.value)),
         }
     }
 
@@ -179,11 +187,13 @@ impl Value {
         match self {
             Self::Unit => "()",
             Self::Integer(n) => n.type_name(),
+            Self::Felt(_) => "Felt",
             Self::Bool(_) => "bool",
             Self::Char(_) => "char",
             Self::Str(_) => "str",
             Self::Tuple(_) => "tuple",
             Self::Vector(_) => "Vector",
+            Self::Array(_) => "Array",
             Self::Map(_) => "Map",
             Self::Function(_) => "fn",
             Self::Macro(_) => "macro",
@@ -213,11 +223,13 @@ impl Value {
 enum SerVal {
     Unit,
     Integer(Integer),
+    Felt(u64),
     Bool(bool),
     Char(char),
     Str(String),
     Tuple(Vec<Value>),
     Vector(Vec<Value>),
+    Array(Vec<Value>),
     Map(Map),
     CompiledFn(CompiledFn),
     Closure(Closure),
@@ -236,11 +248,13 @@ impl Serialize for Value {
         let val = match self {
             Self::Unit => SerVal::Unit,
             Self::Integer(v) => SerVal::Integer(*v),
+            Self::Felt(v) => SerVal::Felt(v.as_u64()),
             Self::Bool(v) => SerVal::Bool(*v),
             Self::Char(v) => SerVal::Char(*v),
             Self::Str(v) => SerVal::Str(v.clone()),
             Self::Tuple(v) => SerVal::Tuple(v.clone()),
             Self::Vector(v) => SerVal::Vector(v.clone()),
+            Self::Array(v) => SerVal::Array(v.clone()),
             Self::Map(v) => SerVal::Map(v.clone()),
             Self::CompiledFn(v) => SerVal::CompiledFn(v.clone()),
             Self::Closure(v) => SerVal::Closure(v.clone()),
@@ -267,11 +281,13 @@ impl<'de> Deserialize<'de> for Value {
         SerVal::deserialize(deserializer).map(|val| match val {
             SerVal::Unit => Self::Unit,
             SerVal::Integer(v) => Self::Integer(v),
+            SerVal::Felt(v) => Self::Felt(Felt::new(v)),
             SerVal::Bool(v) => Self::Bool(v),
             SerVal::Char(v) => Self::Char(v),
             SerVal::Str(v) => Self::Str(v),
             SerVal::Tuple(v) => Self::Tuple(v),
             SerVal::Vector(v) => Self::Vector(v),
+            SerVal::Array(v) => Self::Array(v),
             SerVal::Map(v) => Self::Map(v),
             SerVal::CompiledFn(v) => Self::CompiledFn(v),
             SerVal::Closure(v) => Self::Closure(v),
@@ -290,11 +306,13 @@ impl PartialEq for Value {
         match (self, other) {
             (Unit, Unit) => true,
             (Integer(n1), Integer(n2)) => n1 == n2,
+            (Felt(a), Felt(b)) => a == b,
             (Bool(a), Bool(b)) => a == b,
             (Char(a), Char(b)) => a == b,
             (Str(a), Str(b)) => a == b,
             (Tuple(t1), Tuple(t2)) => t1 == t2,
             (Vector(v1), Vector(v2)) => v1 == v2,
+            (Array(a1), Array(a2)) => a1 == a2,
             (Map(m1), Map(m2)) => m1 == m2,
             (Function(f1), Function(f2)) => f1 == f2,
             (Macro(m1), Macro(m2)) => m1 == m2,
@@ -443,6 +461,7 @@ pub struct Set(IndexSet<Hashable>);
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Hashable {
     Integer(Integer),
+    Felt(u64),
     Bool(bool),
     Char(char),
     Str(String),
@@ -454,6 +473,7 @@ impl TryFrom<Value> for Hashable {
     fn try_from(value: Value) -> Result<Self> {
         match value {
             Value::Integer(i) => Ok(Self::Integer(i)),
+            Value::Felt(f) => Ok(Self::Felt(f.as_u64())),
             Value::Bool(b) => Ok(Self::Bool(b)),
             Value::Char(c) => Ok(Self::Char(c)),
             Value::Str(s) => Ok(Self::Str(s)),
@@ -483,6 +503,7 @@ impl fmt::Display for Value {
         match self {
             Self::Unit => f.write_str("()"),
             Self::Integer(v) => v.fmt(f),
+            Self::Felt(v) => v.fmt(f),
             Self::Bool(v) => v.fmt(f),
             Self::Char(v) => v.fmt(f),
             Self::Str(v) => v.fmt(f),
@@ -494,6 +515,11 @@ impl fmt::Display for Value {
             Self::Vector(vector) => {
                 f.write_str("[")?;
                 write_comma_separated(f, vector)?;
+                f.write_str("]")
+            }
+            Self::Array(arr) => {
+                f.write_str("[")?;
+                write_comma_separated(f, arr)?;
                 f.write_str("]")
             }
             Self::Map(v) => v.fmt(f),
@@ -579,6 +605,7 @@ impl fmt::Display for Hashable {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Integer(v) => v.fmt(f),
+            Self::Felt(v) => v.fmt(f),
             Self::Bool(b) => b.fmt(f),
             Self::Char(c) => c.fmt(f),
             Self::Str(s) => s.fmt(f),

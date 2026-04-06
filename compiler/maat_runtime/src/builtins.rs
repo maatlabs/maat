@@ -1,7 +1,7 @@
 use indexmap::{IndexMap, IndexSet};
 use maat_errors::{Error, EvalError, Result};
 
-use crate::{BuiltinFn, EnumVariantVal, Hashable, Integer, Map, Set, UNIT, Value};
+use crate::{BuiltinFn, EnumVariantVal, Felt, Hashable, Integer, Map, Set, UNIT, Value};
 
 /// Type registry index for `Option`.
 const OPTION_TYPE_INDEX: u16 = 0;
@@ -262,7 +262,7 @@ fn __panic(args: &[Value]) -> Result<Value> {
 fn vector_len(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::len", args, 1)?;
     match &args[0] {
-        Value::Vector(arr) => Ok(Value::Integer(Integer::Usize(arr.len()))),
+        Value::Vector(arr) | Value::Array(arr) => Ok(Value::Integer(Integer::Usize(arr.len()))),
         other => method_type_error(other, "len", "Vector"),
     }
 }
@@ -428,7 +428,7 @@ fn vector_chain(args: &[Value]) -> Result<Value> {
 fn vector_contains(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::contains", args, 2)?;
     match &args[0] {
-        Value::Vector(v) => Ok(Value::Bool(v.contains(&args[1]))),
+        Value::Vector(v) | Value::Array(v) => Ok(Value::Bool(v.contains(&args[1]))),
         other => method_type_error(other, "contains", "Vector"),
     }
 }
@@ -808,6 +808,7 @@ fn set_to_vector(args: &[Value]) -> Result<Value> {
                 .iter()
                 .map(|h| match h {
                     Hashable::Integer(v) => Value::Integer(*v),
+                    Hashable::Felt(v) => Value::Felt(Felt::new(*v)),
                     Hashable::Bool(v) => Value::Bool(*v),
                     Hashable::Char(v) => Value::Char(*v),
                     Hashable::Str(v) => Value::Str(v.clone()),
@@ -1247,6 +1248,7 @@ fn result_err(args: &[Value]) -> Result<Value> {
 fn hashable_to_object(h: &Hashable) -> Value {
     match h {
         Hashable::Integer(v) => Value::Integer(*v),
+        Hashable::Felt(v) => Value::Felt(Felt::new(*v)),
         Hashable::Bool(v) => Value::Bool(*v),
         Hashable::Char(v) => Value::Char(*v),
         Hashable::Str(v) => Value::Str(v.clone()),
