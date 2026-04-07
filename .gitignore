@@ -11,6 +11,9 @@ target
 # Compiled bytecode
 *.mtc
 
+# Execution trace
+*.csv
+
 # REPL history
 .maat_history
 
