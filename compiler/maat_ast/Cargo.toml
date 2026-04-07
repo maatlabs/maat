@@ -8,6 +8,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
+readme = "README.md"
 
 [dependencies]
 maat_span = { path = "../maat_span", version = "0.12.1" }

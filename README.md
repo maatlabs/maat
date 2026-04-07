@@ -316,25 +316,25 @@ Errors are reported with precise `file:line:col` locations using source maps and
 
 ### Crate Organization
 
-| Crate           | Description                                                                          |
-| --------------- | ------------------------------------------------------------------------------------ |
-| `maat`          | The CLI for commands such as `build`, `trace`, `repl`, `prove`, and `verify`         |
-| `maat_span`     | Source location tracking and span management                                         |
-| `maat_errors`   | Unified error handling with `Result` type alias                                      |
-| `maat_lexer`    | `logos` compile-time DFA tokenizer                                                   |
-| `maat_ast`      | Abstract Syntax Tree definitions and transformations                                 |
-| `maat_parser`   | `winnow` combinator-based parser                                                     |
-| `maat_eval`     | Macro expansion engine (`quote`/`unquote`)                                           |
-| `maat_runtime`  | Value system, built-in functions, and compiled types                                 |
-| `maat_types`    | Hindley-Milner type inference (Algorithm W)                                          |
-| `maat_field`    | Goldilocks field element (`Felt`) arithmetic                                         |
-| `maat_bytecode` | Instruction set encoding/decoding and serialization (50 opcodes)                     |
-| `maat_trace`    | Trace-generating VM producing a 29-column algebraic execution trace for ZK proving   |
-| `maat_air`      | CPU constraint system (AIR): 40 polynomial constraints + memory permutation argument |
-| `maat_codegen`  | AST-to-bytecode compiler with scope analysis                                         |
-| `maat_module`   | Module resolution, dependency graph, and multi-module pipeline                       |
-| `maat_vm`       | Stack-based virtual machine                                                          |
-| `maat_stdlib`   | Embedded standard library sources (`std::math`, `std::vec`, …)                       |
+| Crate                                                                                                                     | Description                                                                          |
+| ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `maat` [![crates.io](https://img.shields.io/crates/v/maat.svg)](https://crates.io/crates/maat)                            | The CLI for commands such as `build`, `trace`, `repl`, `prove`, and `verify`         |
+| `maat_span` [![crates.io](https://img.shields.io/crates/v/maat_span.svg)](https://crates.io/crates/maat_span)             | Source location tracking and span management                                         |
+| `maat_errors` [![crates.io](https://img.shields.io/crates/v/maat_errors.svg)](https://crates.io/crates/maat_errors)       | Unified error handling with `Result` type alias                                      |
+| `maat_lexer` [![crates.io](https://img.shields.io/crates/v/maat_lexer.svg)](https://crates.io/crates/maat_lexer)          | `logos` compile-time DFA tokenizer                                                   |
+| `maat_ast` [![crates.io](https://img.shields.io/crates/v/maat_ast.svg)](https://crates.io/crates/maat_ast)                | Abstract Syntax Tree definitions and transformations                                 |
+| `maat_parser` [![crates.io](https://img.shields.io/crates/v/maat_parser.svg)](https://crates.io/crates/maat_parser)       | `winnow` combinator-based parser                                                     |
+| `maat_eval` [![crates.io](https://img.shields.io/crates/v/maat_eval.svg)](https://crates.io/crates/maat_eval)             | Macro expansion engine (`quote`/`unquote`)                                           |
+| `maat_runtime` [![crates.io](https://img.shields.io/crates/v/maat_runtime.svg)](https://crates.io/crates/maat_runtime)    | Value system, built-in functions, and compiled types                                 |
+| `maat_types` [![crates.io](https://img.shields.io/crates/v/maat_types.svg)](https://crates.io/crates/maat_types)          | Hindley-Milner type inference (Algorithm W)                                          |
+| `maat_field` [![crates.io](https://img.shields.io/crates/v/maat_field.svg)](https://crates.io/crates/maat_field)          | Goldilocks field element (`Felt`) arithmetic                                         |
+| `maat_bytecode` [![crates.io](https://img.shields.io/crates/v/maat_bytecode.svg)](https://crates.io/crates/maat_bytecode) | Instruction set encoding/decoding and serialization (50 opcodes)                     |
+| `maat_trace` [![crates.io](https://img.shields.io/crates/v/maat_trace.svg)](https://crates.io/crates/maat_trace)          | Trace-generating VM producing a 29-column algebraic execution trace for ZK proving   |
+| `maat_air` [![crates.io](https://img.shields.io/crates/v/maat_air.svg)](https://crates.io/crates/maat_air)                | CPU constraint system (AIR): 40 polynomial constraints + memory permutation argument |
+| `maat_codegen` [![crates.io](https://img.shields.io/crates/v/maat_codegen.svg)](https://crates.io/crates/maat_codegen)    | AST-to-bytecode compiler with scope analysis                                         |
+| `maat_module` [![crates.io](https://img.shields.io/crates/v/maat_module.svg)](https://crates.io/crates/maat_module)       | Module resolution, dependency graph, and multi-module pipeline                       |
+| `maat_vm` [![crates.io](https://img.shields.io/crates/v/maat_vm.svg)](https://crates.io/crates/maat_vm)                   | Stack-based virtual machine                                                          |
+| `maat_stdlib` [![crates.io](https://img.shields.io/crates/v/maat_stdlib.svg)](https://crates.io/crates/maat_stdlib)       | Embedded standard library sources (`std::math`, `std::vec`, …)                       |
 
 ## Contributing
 
