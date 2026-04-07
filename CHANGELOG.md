@@ -4,6 +4,62 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1] - 2026-04-07
+
+ZK backend infrastructure. This release delivers the first three phases of the STARK proof pipeline: an algebraic execution trace generator, a CPU constraint system (AIR), and a memory permutation argument. Together, these provide a verifiable witness of program execution ready to be connected to the STARK prover in a subsequent release.
+
+### Added
+
+#### Trace-Generating VM (`maat_trace`)
+
+- **`maat_trace` crate:** New crate implementing a trace-generating virtual machine that executes compiled Maat bytecode while recording every instruction step into a 29-column algebraic witness matrix over the Goldilocks field (`p = 2^64 - 2^32 + 1`).
+- **Trace columns (29 total):** `pc`, `sp`, `fp`, `opcode`, `operand_0`, `operand_1`, `s0`, `s1`, `s2`, `out`, `mem_addr`, `mem_val`, `is_read`, and 16 one-hot selector flags (`sel_0`–`sel_15`).
+- **`TraceTable`:** Row-major witness matrix with `pad_to_power_of_two()`, `into_columns()` (transposes to column-major format for Winterfell), `write_csv()`, and `to_csv()` methods.
+- **`TraceVM`:** Trace-aware VM that mirrors the standard VM's execution semantics while populating each row of the trace with machine state, opcode selectors, and memory access metadata.
+- **Flat memory model:** All local variables, function arguments, and global constants are mapped to a monotonically allocated flat address space via the frame pointer (`fp`). Every memory access records `(mem_addr, mem_val, is_read)`--the foundation of the permutation argument.
+- **`run_trace(bytecode) -> Result<(TraceTable, Option<Value>)>`:** Public entry point that executes bytecode, pads the trace to a power-of-two length, and returns both the witness and the program's result value.
+- **`maat trace <file.maat> [-o out.csv]` CLI subcommand:** Compiles a `.maat` source file and dumps its execution trace as CSV to stdout or a specified output file.
+
+#### CPU Constraint System (`maat_air`)
+
+- **`maat_air` crate:** New crate implementing Winterfell's `Air` trait for the Maat CPU. Encodes execution semantics as 40 polynomial transition constraints (37 main + 3 auxiliary) and 5 boundary assertions over a two-segment Goldilocks trace.
+
+- **Main segment constraints (37, all degree <= 3):**
+  - Selector validity (17): binary and one-hot encoding of 16 opcode classes.
+  - Stack pointer transitions (5): net SP change per selector class (`sel_push`, `sel_arith`/`sel_bitwise`/`sel_cmp`, `sel_unary`, `sel_store`, `sel_load`).
+  - Program counter transitions (5): PC increment for uniform-width classes, unconditional jump, and conditional jump (taken / not taken).
+  - Conditional jump guard (1): enforces `s0 ∈ {0, 1}` for condition columns.
+  - Memory access consistency (4): `is_read` flag and value correctness for `sel_load` and `sel_store`.
+  - Frame pointer management (2): FP update on `sel_call` and `sel_return`.
+  - NOP padding invariance (3): PC, SP, and FP frozen during trace padding rows.
+
+- **Auxiliary segment (5 columns, 3 constraints, all degree 2):** Implements a two-list memory permutation argument--proving that the execution-order memory access list (L1, in the main trace) and the address-sorted list (L2, in the auxiliary segment) are the same multiset.
+  - `AUX_COL_L2_ADDR` (0), `AUX_COL_L2_VAL` (1): address-sorted memory access pairs.
+  - `AUX_COL_PERM_ACC` (2): grand-product accumulator with verifier challenges `z` and `alpha`.
+  - `AUX_COL_LIMB_0` (3), `AUX_COL_LIMB_1` (4): reserved for Phase 8 range checks.
+  - Address continuity constraint: `(Δaddr) * (Δaddr - 1) = 0`.
+  - Single-value consistency: `(Δval) * (Δaddr - 1) = 0`.
+  - Grand-product accumulator: `(z - L2_next) * acc_next - (z - L1_next) * acc = 0`.
+
+- **`build_aux_columns(main_trace, rand_elements) -> Vec<Vec<E>>`:** Builds the 5-column auxiliary trace from the committed main trace and verifier challenges. Sorts memory pairs by address, computes the running grand-product, fills limb columns with zeros.
+
+- **`MaatPublicInputs`:** Carries `program_hash` (4-limb Blake3 hash of bytecode), `inputs`, and `output`. Implements `ToElements` for Fiat-Shamir transcript absorption.
+
+- **`MaatAir`:** `AirContext::new_multi_segment` (aux_segment_width = 5, num_aux_segment_rands = 2), 3 main boundary assertions (`pc[0] = 0`, `sp[0] = 0`, `out[last] = output`), and 2 auxiliary boundary assertions (`perm_acc[0] = 1`, `perm_acc[last] = 1`).
+
+#### Per-Crate Documentation (`maat_stdlib`, all compiler crates)
+
+- **`README.md` added to every workspace member:** Each of the 17 crates now ships a self-contained `README.md` rendered on its crates.io registry page. Files follow a uniform five-section layout: crate name and description, pipeline role, minimal usage example, link to API docs, and link to the workspace repository.
+- **`readme = "README.md"` in every `Cargo.toml`:** All compiler and library `Cargo.toml` files set `readme = "README.md"` directly, replacing the workspace-inherited `readme.workspace = true` where applicable. This ensures the correct per-crate file is used by the registry rather than the top-level project README.
+
+### Changed
+
+- **Crate count:** 15 --> 17 (`maat_trace` and `maat_air` added).
+- **`maat_runtime`:** Minor additions to support Goldilocks field element encoding in the trace VM.
+- **`maat` CLI:** Added `Trace` subcommand variant to the `Command` enum in `main.rs`, with `cmd::trace()` dispatch in `cmd.rs`.
+
+---
+
 ## [0.12.0] - 2026-04-06
 
 ZK backend foundations. This release introduces the first two pillars of the zero-knowledge backend: field element arithmetic (`Felt`) and fixed-size arrays (`[T; N]`). Together, these provide the primitive numeric type and statically bounded memory model required by AIR (Algebraic Intermediate Representation) constraints in the STARK prover.
@@ -945,6 +1001,10 @@ When adding entries to this changelog for future releases:
 3. **Audience**: Write for users, not developers (focus on impact, not implementation)
 4. **Links**: Add comparison links at the bottom: `[0.2.0]: https://github.com/maatlabs/maat/compare/v0.1.0...v0.2.0`
 
+[0.12.1]: https://github.com/maatlabs/maat/compare/v0.12.0...v0.12.1
+[0.12.0]: https://github.com/maatlabs/maat/compare/v0.11.3...v0.12.0
+[0.11.3]: https://github.com/maatlabs/maat/compare/v0.11.2...v0.11.3
+[0.11.2]: https://github.com/maatlabs/maat/compare/v0.11.1...v0.11.2
 [0.11.1]: https://github.com/maatlabs/maat/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/maatlabs/maat/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/maatlabs/maat/compare/v0.9.0...v0.10.0

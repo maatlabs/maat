@@ -1,7 +1,7 @@
 [package]
-name = "maat_field"
-description = "Finite field arithmetic and value-to-field encoding for the Maat zero-knowledge backend"
-keywords = ["compiler", "maat", "zero-knowledge", "zk", "field"]
+name = "maat_air"
+description = "CPU constraint system (AIR) for the Maat ZK backend"
+keywords = ["compiler", "maat", "zero-knowledge", "air", "zk"]
 categories = ["compilers", "cryptography"]
 version.workspace = true
 edition.workspace = true
@@ -11,5 +11,6 @@ homepage.workspace = true
 readme = "README.md"
 
 [dependencies]
-thiserror = "2"
+maat_trace = { path = "../maat_trace", version = "0.12.1" }
+winter-air = "0.13"
 winter-math = "0.13"

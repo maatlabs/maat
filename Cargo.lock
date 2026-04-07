@@ -93,6 +93,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "arrayref"
+version = "0.3.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "76a2e8124351fda1ef8aaaa3bbd7ebbcb486bbcd4225aca0aa0d84bb2db8fecb"
+
+[[package]]
+name = "arrayvec"
+version = "0.7.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
+
+[[package]]
 name = "atomic-polyfill"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -127,6 +139,29 @@ name = "bitflags"
 version = "2.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "843867be96c8daad0d758b57df9392b6d8d271134fce549de6ce169ff98a92af"
+
+[[package]]
+name = "blake3"
+version = "1.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4d2d5991425dfd0785aed03aedcf0b321d61975c9b5b3689c774a2610ae0b51e"
+dependencies = [
+ "arrayref",
+ "arrayvec",
+ "cc",
+ "cfg-if",
+ "constant_time_eq",
+ "cpufeatures 0.3.0",
+]
+
+[[package]]
+name = "block-buffer"
+version = "0.10.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3078c7629b62d3f0439517fa394996acacc5cbc91c5a20d8c658e77abd503a71"
+dependencies = [
+ "generic-array",
+]
 
 [[package]]
 name = "bumpalo"
@@ -260,6 +295,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
+name = "constant_time_eq"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
+
+[[package]]
+name = "cpufeatures"
+version = "0.2.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59ed5838eebb26a2bb2e58f6d5b5316989ae9d08bab10e0e6d103e656d1b0280"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "cpufeatures"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b2a41393f66f16b0823bb79094d54ac5fbd34ab292ddafb9a0456ac9f87d201"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "criterion"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -332,6 +391,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 
 [[package]]
+name = "crypto-common"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78c8292055d1c1df0cce5d180393dc8cce0abec0a7102adb6c7b1eef6016d60a"
+dependencies = [
+ "generic-array",
+ "typenum",
+]
+
+[[package]]
+name = "digest"
+version = "0.10.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
+dependencies = [
+ "block-buffer",
+ "crypto-common",
+]
+
+[[package]]
 name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -400,6 +479,16 @@ name = "foldhash"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
+
+[[package]]
+name = "generic-array"
+version = "0.14.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85649ca51fd72272d7821adaf274ad91c288277713d9c18820d8499a7ff69e9a"
+dependencies = [
+ "typenum",
+ "version_check",
+]
 
 [[package]]
 name = "getrandom"
@@ -540,6 +629,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "keccak"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb26cec98cce3a3d96cbb7bced3c4b16e3d13f27ec56dbd62cbc8f39cfb9d653"
+dependencies = [
+ "cpufeatures 0.2.17",
+]
+
+[[package]]
 name = "leb128fmt"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -550,6 +648,12 @@ name = "libc"
 version = "0.2.182"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6800badb6cb2082ffd7b6a67e6125bb39f18782f793520caee8cb8846be06112"
+
+[[package]]
+name = "libm"
+version = "0.2.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
 name = "linux-raw-sys"
@@ -606,7 +710,7 @@ dependencies = [
 
 [[package]]
 name = "maat"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "ariadne",
  "clap",
@@ -620,14 +724,24 @@ dependencies = [
  "maat_parser",
  "maat_runtime",
  "maat_span",
+ "maat_trace",
  "maat_types",
  "maat_vm",
  "rustyline",
 ]
 
 [[package]]
+name = "maat_air"
+version = "0.12.1"
+dependencies = [
+ "maat_trace",
+ "winter-air",
+ "winter-math",
+]
+
+[[package]]
 name = "maat_ast"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "maat_errors",
  "maat_span",
@@ -635,7 +749,7 @@ dependencies = [
 
 [[package]]
 name = "maat_bytecode"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "indexmap",
  "maat_errors",
@@ -647,7 +761,7 @@ dependencies = [
 
 [[package]]
 name = "maat_codegen"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "indexmap",
  "maat_ast",
@@ -661,7 +775,7 @@ dependencies = [
 
 [[package]]
 name = "maat_errors"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "maat_span",
  "thiserror",
@@ -669,7 +783,7 @@ dependencies = [
 
 [[package]]
 name = "maat_eval"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "indexmap",
  "maat_ast",
@@ -679,7 +793,7 @@ dependencies = [
 
 [[package]]
 name = "maat_field"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "thiserror",
  "winter-math",
@@ -687,7 +801,7 @@ dependencies = [
 
 [[package]]
 name = "maat_lexer"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "logos",
  "maat_span",
@@ -695,7 +809,7 @@ dependencies = [
 
 [[package]]
 name = "maat_module"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "maat_ast",
  "maat_bytecode",
@@ -712,7 +826,7 @@ dependencies = [
 
 [[package]]
 name = "maat_parser"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "maat_ast",
  "maat_errors",
@@ -723,7 +837,7 @@ dependencies = [
 
 [[package]]
 name = "maat_runtime"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "indexmap",
  "maat_ast",
@@ -735,18 +849,18 @@ dependencies = [
 
 [[package]]
 name = "maat_span"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "maat_stdlib"
-version = "0.12.0"
+version = "0.12.1"
 
 [[package]]
 name = "maat_tests"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "criterion",
  "maat_ast",
@@ -766,8 +880,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "maat_trace"
+version = "0.12.1"
+dependencies = [
+ "indexmap",
+ "maat_bytecode",
+ "maat_errors",
+ "maat_field",
+ "maat_runtime",
+ "maat_span",
+]
+
+[[package]]
 name = "maat_types"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "indexmap",
  "maat_ast",
@@ -777,7 +903,7 @@ dependencies = [
 
 [[package]]
 name = "maat_vm"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "indexmap",
  "maat_ast",
@@ -1204,6 +1330,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha3"
+version = "0.10.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75872d278a8f37ef87fa0ddbda7802605cb18344497949862c0d4dcb291eba60"
+dependencies = [
+ "digest",
+ "keccak",
+]
+
+[[package]]
 name = "shlex"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1291,6 +1427,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "typenum"
+version = "1.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
+
+[[package]]
 name = "unarray"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1325,6 +1467,12 @@ name = "utf8parse"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
+
+[[package]]
+name = "version_check"
+version = "0.9.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "wait-timeout"
@@ -1505,6 +1653,42 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a90e88e4667264a994d34e6d1ab2d26d398dcdca8b7f52bec8668957517fc7d8"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "winter-air"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef01227f23c7c331710f43b877a8333f5f8d539631eea763600f1a74bf018c7c"
+dependencies = [
+ "libm",
+ "winter-crypto",
+ "winter-fri",
+ "winter-math",
+ "winter-utils",
+]
+
+[[package]]
+name = "winter-crypto"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1cdb247bc142438798edb04067ab72a22cf815f57abbd7b78a6fa986fc101db8"
+dependencies = [
+ "blake3",
+ "sha3",
+ "winter-math",
+ "winter-utils",
+]
+
+[[package]]
+name = "winter-fri"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd592b943f9d65545683868aaf1b601eb66e52bfd67175347362efff09101d3a"
+dependencies = [
+ "winter-crypto",
+ "winter-math",
+ "winter-utils",
 ]
 
 [[package]]

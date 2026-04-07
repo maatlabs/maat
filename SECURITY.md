@@ -1,6 +1,6 @@
 # Security Policy & Threat Model
 
-This document describes the trust boundaries, attacker model, and mitigations for the Maat compiler toolchain. It covers the current state as of v0.12.0 and will be updated as subsequent versions introduce new attack surfaces.
+This document describes the trust boundaries, attacker model, and mitigations for the Maat compiler toolchain. It covers the current state as of v0.12.1 and will be updated as subsequent versions introduce new attack surfaces.
 
 ## Trust Boundaries
 
@@ -79,12 +79,12 @@ Source (.maat) --> Compiler Pipeline --> Bytecode (.mtc) --> VM Execution
 
 **Not yet mitigated:**
 
-- **Infinite loops:** The VM does not impose an instruction execution limit. Programs with `loop {}` will run indefinitely. This is intentional for v0.12.0 -- execution limits will be enforced by the ZK trace-generating VM in subsequent versions, where every instruction has a provable cost.
+- **Infinite loops:** The VM does not impose an instruction execution limit. Programs with `loop {}` will run indefinitely. The ZK trace-generating VM (`maat_trace`) records every instruction step and is bounded by available memory, but an explicit gas/step limit is deferred to a future version.
 - **Algorithmic complexity attacks:** Hash map key collisions are not defended against (Rust's `IndexMap` uses default hashing). This is acceptable for the current single-user execution model.
 
 ## Memory Safety
 
-All 15 crates in the workspace enforce `#![forbid(unsafe_code)]`. The compiler toolchain contains zero `unsafe` blocks. Memory safety is guaranteed by the Rust type system and borrow checker.
+All 17 crates in the workspace enforce `#![forbid(unsafe_code)]`. The compiler toolchain contains zero `unsafe` blocks. Memory safety is guaranteed by the Rust type system and borrow checker.
 
 ## Arithmetic Safety
 
@@ -102,7 +102,7 @@ The current VM executes all arithmetic operations using Rust's native integer in
 - **String operations** have length-dependent timing.
 - **Hash lookups** have timing that depends on key distribution.
 
-These are acceptable for the current architecture. `Felt` (field element) arithmetic, introduced in v0.12.0, delegates to Winterfell's `BaseElement` implementation, which uses constant-time field operations over the Goldilocks prime (`p = 2^64 - 2^32 + 1`). This prevents timing side-channels in proof generation for all field-element computations.
+These are acceptable for the current architecture. `Felt` (field element) arithmetic delegates to Winterfell's `BaseElement` implementation, which uses constant-time field operations over the Goldilocks prime (`p = 2^64 - 2^32 + 1`). This prevents timing side-channels in proof generation for all field-element computations. The ZK constraint evaluation in `maat_air` operates over the same constant-time field.
 
 ## Fuzz Testing
 

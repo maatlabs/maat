@@ -8,9 +8,10 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
+readme = "README.md"
 
 [dependencies]
 indexmap.workspace = true
-maat_ast = { path = "../maat_ast", version = "0.12.0" }
-maat_errors = { path = "../maat_errors", version = "0.12.0" }
-maat_runtime = { path = "../maat_runtime", version = "0.12.0" }
+maat_ast = { path = "../maat_ast", version = "0.12.1" }
+maat_errors = { path = "../maat_errors", version = "0.12.1" }
+maat_runtime = { path = "../maat_runtime", version = "0.12.1" }

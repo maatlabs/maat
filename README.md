@@ -53,12 +53,13 @@ cargo build --release
 
 Maat provides a single binary with four subcommands:
 
-| Subcommand                               | Description                                 |
-| ---------------------------------------- | ------------------------------------------- |
-| `maat run <file.maat>`                   | Compile and execute a `.maat` source file   |
-| `maat build <file.maat> -o <output.mtc>` | Compile a `.maat` file to `.mtc` bytecode   |
-| `maat exec <file.mtc>`                   | Execute a pre-compiled `.mtc` bytecode file |
-| `maat repl`                              | Start an interactive REPL session           |
+| Subcommand                               | Description                                               |
+| ---------------------------------------- | --------------------------------------------------------- |
+| `maat run <file.maat>`                   | Compile and execute a `.maat` source file                 |
+| `maat build <file.maat> -o <output.mtc>` | Compile a `.maat` file to `.mtc` bytecode                 |
+| `maat exec <file.mtc>`                   | Execute a pre-compiled `.mtc` bytecode file               |
+| `maat repl`                              | Start an interactive REPL session                         |
+| `maat trace <file.maat> [-o out.csv]`    | Generate an execution trace (CSV) for ZK proof inspection |
 
 To see version information:
 
@@ -305,7 +306,7 @@ cargo doc --all-features --no-deps --open
 
 ## Architecture
 
-Maat uses a multi-module compilation pipeline. Source files are parsed into per-module ASTs, organized into a dependency graph by `maat_module`, type-checked independently with cross-module visibility enforcement, compiled to bytecode by a shared `maat_codegen` compiler instance (which implicitly links all modules into a single instruction stream), and executed on the stack-based `maat_vm`. The `maat_eval` crate (the tree-walking evaluator) is reduced to a macro-expansion-only engine (`define_macros`/`expand_macros`).
+Maat uses a multi-module compilation pipeline. Source files are parsed into per-module ASTs, organized into a dependency graph by `maat_module`, type-checked independently with cross-module visibility enforcement, compiled to bytecode by a shared `maat_codegen` compiler instance (which implicitly links all modules into a single instruction stream), and executed on the stack-based `maat_vm`. The `maat_eval` crate (the tree-walking evaluator) is reduced to a macro-expansion-only engine (`define_macros`/`expand_macros`). The ZK backend begins with `maat_trace`, a trace-generating VM that records every instruction step into a 29-column algebraic witness matrix over the Goldilocks field, and `maat_air`, which encodes the CPU semantics as 40 Winterfell transition constraints plus a memory permutation argument over a 5-column auxiliary segment.
 
 The type checker infers types for each module using Hindley-Milner inference (Algorithm W), with imported bindings injected from dependency modules' public exports. Type annotations are optional--the inference engine deduces types from usage--but can be provided on `let` bindings, function parameters, and return types for documentation or to constrain polymorphism. Generic functions with parametric polymorphism are supported (`fn identity<T>(x: T) -> T { x }`). Tuples, `char`, `Map<K, V>`, `Set<T>`, `Vector<T>`, and fixed-size arrays `[T; N]` are all first-class types with full inference support. `Felt` (Goldilocks field element) is a first-class numeric type for zero-knowledge arithmetic.
 
@@ -315,22 +316,25 @@ Errors are reported with precise `file:line:col` locations using source maps and
 
 ### Crate Organization
 
-| Crate           | Description                                                      |
-| --------------- | ---------------------------------------------------------------- |
-| `maat_span`     | Source location tracking and span management                     |
-| `maat_errors`   | Unified error handling with `Result` type alias                  |
-| `maat_lexer`    | `logos` compile-time DFA tokenizer                               |
-| `maat_ast`      | Abstract Syntax Tree definitions and transformations             |
-| `maat_parser`   | `winnow` combinator-based parser                                 |
-| `maat_eval`     | Macro expansion engine (`quote`/`unquote`)                       |
-| `maat_runtime`  | Value system, built-in functions, and compiled types             |
-| `maat_types`    | Hindley-Milner type inference (Algorithm W)                      |
-| `maat_field`    | Goldilocks field element (`Felt`) arithmetic                     |
-| `maat_bytecode` | Instruction set encoding/decoding and serialization (50 opcodes) |
-| `maat_codegen`  | AST-to-bytecode compiler with scope analysis                     |
-| `maat_module`   | Module resolution, dependency graph, and multi-module pipeline   |
-| `maat_vm`       | Stack-based virtual machine                                      |
-| `maat_stdlib`   | Embedded standard library sources (`std::math`, `std::vec`, …)   |
+| Crate                                                                                                                     | Description                                                                          |
+| ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `maat` [![crates.io](https://img.shields.io/crates/v/maat.svg)](https://crates.io/crates/maat)                            | The CLI for commands such as `build`, `trace`, `repl`, `prove`, and `verify`         |
+| `maat_span` [![crates.io](https://img.shields.io/crates/v/maat_span.svg)](https://crates.io/crates/maat_span)             | Source location tracking and span management                                         |
+| `maat_errors` [![crates.io](https://img.shields.io/crates/v/maat_errors.svg)](https://crates.io/crates/maat_errors)       | Unified error handling with `Result` type alias                                      |
+| `maat_lexer` [![crates.io](https://img.shields.io/crates/v/maat_lexer.svg)](https://crates.io/crates/maat_lexer)          | `logos` compile-time DFA tokenizer                                                   |
+| `maat_ast` [![crates.io](https://img.shields.io/crates/v/maat_ast.svg)](https://crates.io/crates/maat_ast)                | Abstract Syntax Tree definitions and transformations                                 |
+| `maat_parser` [![crates.io](https://img.shields.io/crates/v/maat_parser.svg)](https://crates.io/crates/maat_parser)       | `winnow` combinator-based parser                                                     |
+| `maat_eval` [![crates.io](https://img.shields.io/crates/v/maat_eval.svg)](https://crates.io/crates/maat_eval)             | Macro expansion engine (`quote`/`unquote`)                                           |
+| `maat_runtime` [![crates.io](https://img.shields.io/crates/v/maat_runtime.svg)](https://crates.io/crates/maat_runtime)    | Value system, built-in functions, and compiled types                                 |
+| `maat_types` [![crates.io](https://img.shields.io/crates/v/maat_types.svg)](https://crates.io/crates/maat_types)          | Hindley-Milner type inference (Algorithm W)                                          |
+| `maat_field` [![crates.io](https://img.shields.io/crates/v/maat_field.svg)](https://crates.io/crates/maat_field)          | Goldilocks field element (`Felt`) arithmetic                                         |
+| `maat_bytecode` [![crates.io](https://img.shields.io/crates/v/maat_bytecode.svg)](https://crates.io/crates/maat_bytecode) | Instruction set encoding/decoding and serialization (50 opcodes)                     |
+| `maat_trace` [![crates.io](https://img.shields.io/crates/v/maat_trace.svg)](https://crates.io/crates/maat_trace)          | Trace-generating VM producing a 29-column algebraic execution trace for ZK proving   |
+| `maat_air` [![crates.io](https://img.shields.io/crates/v/maat_air.svg)](https://crates.io/crates/maat_air)                | CPU constraint system (AIR): 40 polynomial constraints + memory permutation argument |
+| `maat_codegen` [![crates.io](https://img.shields.io/crates/v/maat_codegen.svg)](https://crates.io/crates/maat_codegen)    | AST-to-bytecode compiler with scope analysis                                         |
+| `maat_module` [![crates.io](https://img.shields.io/crates/v/maat_module.svg)](https://crates.io/crates/maat_module)       | Module resolution, dependency graph, and multi-module pipeline                       |
+| `maat_vm` [![crates.io](https://img.shields.io/crates/v/maat_vm.svg)](https://crates.io/crates/maat_vm)                   | Stack-based virtual machine                                                          |
+| `maat_stdlib` [![crates.io](https://img.shields.io/crates/v/maat_stdlib.svg)](https://crates.io/crates/maat_stdlib)       | Embedded standard library sources (`std::math`, `std::vec`, …)                       |
 
 ## Contributing
 
@@ -344,25 +348,25 @@ Unless you explicitly state otherwise, any contribution intentionally submitted 
 
 ## Security
 
-All 15 crates enforce `#![forbid(unsafe_code)]`. The compiler and VM have been hardened against adversarial input with resource limits, checked arithmetic, and safe type conversions. Field element arithmetic uses the Winterfell library's constant-time implementations. See [`SECURITY.md`](./SECURITY.md) for the full threat model.
+All 17 crates enforce `#![forbid(unsafe_code)]`. The compiler and VM have been hardened against adversarial input with resource limits, checked arithmetic, and safe type conversions. Field element arithmetic uses the Winterfell library's constant-time implementations. See [`SECURITY.md`](./SECURITY.md) for the full threat model.
 
 ## Roadmap
 
 Maat's development follows a phased milestone plan.
 
-| Milestone | Focus                                                               | Status       |
-| --------- | ------------------------------------------------------------------- | ------------ |
-| **1**     | Rust-native, ZK-correct-by-design, working compiler                 | **Complete** |
-| **2**     | STARK-based ZK backend (proof generation and verification)          | **Next**     |
-| **3**     | Advanced type system (linear types, effect system) and self-hosting | Planned      |
+| Milestone | Focus                                                               | Status          |
+| --------- | ------------------------------------------------------------------- | --------------- |
+| **1**     | Rust-native, ZK-correct-by-design, working compiler                 | **Complete**    |
+| **2**     | STARK-based ZK backend (proof generation and verification)          | **In Progress** |
+| **3**     | Advanced type system (linear types, effect system) and self-hosting | Planned         |
 
 ## Status
 
-Maat is currently at version `0.12.0` (Milestone 1.5 -- ZK backend foundations). The compiler frontend, type system, module system, bytecode VM, and CLI toolchain are functional and tested. The ZK backend has begun: `Felt` (Goldilocks field element) is a first-class type with modular arithmetic, and fixed-size arrays `[T; N]` provide statically bounded memory for AIR constraints.
+Maat is currently at version `0.12.1` (ZK backend infrastructure). The compiler frontend, type system, module system, bytecode VM, and CLI toolchain are functional and tested. The ZK backend infrastructure is in place: `Felt` (Goldilocks field element) is a first-class type; `maat_trace` generates a 29-column algebraic execution trace; and `maat_air` implements the full CPU constraint system (37 main transition constraints + memory permutation argument via a 5-column auxiliary segment), ready for connection to the STARK prover.
 
 ## Disclaimer
 
-Early adopters should be aware that Maat `0.12.0` is a step toward Maat 1.0, for which a formal audit process is expected. In the meantime, we invite you to explore and experiment with Maat, but we do not recommend using it to build mission-critical systems.
+Early adopters should be aware that Maat `0.12.1` is a step toward Maat 1.0, for which a formal audit process is expected. In the meantime, we invite you to explore and experiment with Maat, but we do not recommend using it to build mission-critical systems.
 
 ## Acknowledgments
 
