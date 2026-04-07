@@ -176,9 +176,10 @@ pub fn build_aux_columns<E: FieldElement<BaseField = BaseElement>>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use maat_trace::TRACE_WIDTH;
     use winter_math::fields::f64::BaseElement;
+
+    use super::*;
 
     type F = BaseElement;
 

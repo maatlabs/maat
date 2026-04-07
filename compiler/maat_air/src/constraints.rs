@@ -156,8 +156,9 @@ pub fn evaluate<E: FieldElement>(current: &[E], next: &[E], result: &mut [E]) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use winter_math::fields::f64::BaseElement;
+
+    use super::*;
 
     type F = BaseElement;
 

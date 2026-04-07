@@ -10,9 +10,9 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
-maat_bytecode = { path = "../maat_bytecode", version = "0.12.0" }
-maat_errors = { path = "../maat_errors", version = "0.12.0" }
-maat_field = { path = "../maat_field", version = "0.12.0" }
-maat_runtime = { path = "../maat_runtime", version = "0.12.0" }
-maat_span = { path = "../maat_span", version = "0.12.0" }
+maat_bytecode = { path = "../maat_bytecode", version = "0.12.1" }
+maat_errors = { path = "../maat_errors", version = "0.12.1" }
+maat_field = { path = "../maat_field", version = "0.12.1" }
+maat_runtime = { path = "../maat_runtime", version = "0.12.1" }
+maat_span = { path = "../maat_span", version = "0.12.1" }
 indexmap.workspace = true

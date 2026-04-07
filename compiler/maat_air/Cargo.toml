@@ -10,6 +10,6 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
-maat_trace = { path = "../maat_trace", version = "0.12.0" }
+maat_trace = { path = "../maat_trace", version = "0.12.1" }
 winter-air = "0.13"
 winter-math = "0.13"

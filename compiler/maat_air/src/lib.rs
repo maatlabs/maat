@@ -56,18 +56,17 @@ mod aux;
 mod constraints;
 mod public_inputs;
 
+use aux::{AUX_COL_PERM_ACC, AUX_CONSTRAINT_DEGREES, NUM_AUX_CONSTRAINTS};
+pub use aux::{AUX_WIDTH, NUM_AUX_RANDS, build_aux_columns};
+use constraints::{CONSTRAINT_DEGREES, NUM_CONSTRAINTS};
 use maat_trace::{COL_OUT, COL_PC, COL_SP};
+pub use public_inputs::MaatPublicInputs;
 use winter_air::{
     Air, AirContext, Assertion, AuxRandElements, EvaluationFrame, ProofOptions, TraceInfo,
     TransitionConstraintDegree,
 };
 use winter_math::fields::f64::BaseElement;
 use winter_math::{ExtensionOf, FieldElement};
-
-use aux::{AUX_COL_PERM_ACC, AUX_CONSTRAINT_DEGREES, NUM_AUX_CONSTRAINTS};
-pub use aux::{AUX_WIDTH, NUM_AUX_RANDS, build_aux_columns};
-use constraints::{CONSTRAINT_DEGREES, NUM_CONSTRAINTS};
-pub use public_inputs::MaatPublicInputs;
 
 /// The base field type used throughout the AIR.
 ///
@@ -194,9 +193,10 @@ impl Air for MaatAir {
 
 #[cfg(test)]
 mod tests {
+    use maat_trace::TRACE_WIDTH;
+
     use super::*;
     use crate::aux::{AUX_WIDTH, NUM_AUX_RANDS};
-    use maat_trace::TRACE_WIDTH;
 
     fn test_options() -> ProofOptions {
         ProofOptions::new(

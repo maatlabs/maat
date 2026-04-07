@@ -11,4 +11,4 @@ homepage.workspace = true
 
 [dependencies]
 logos = "0.16"
-maat_span = { path = "../maat_span", version = "0.12.0" }
+maat_span = { path = "../maat_span", version = "0.12.1" }

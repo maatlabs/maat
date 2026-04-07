@@ -38,8 +38,9 @@ pub fn value_to_felt(v: &Value) -> Felt {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use maat_runtime::Integer;
+
+    use super::*;
 
     #[test]
     fn encode_integers() {

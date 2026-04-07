@@ -29,16 +29,15 @@ pub mod selector;
 pub mod table;
 pub mod vm;
 
+use maat_bytecode::Bytecode;
+use maat_errors::Result;
+use maat_runtime::Value;
 pub use table::{
     COL_FP, COL_IS_READ, COL_MEM_ADDR, COL_MEM_VAL, COL_OPCODE, COL_OPERAND_0, COL_OPERAND_1,
     COL_OUT, COL_PC, COL_S0, COL_S1, COL_S2, COL_SEL_BASE, COL_SP, COLUMN_NAMES, TRACE_WIDTH,
     TraceRow, TraceTable,
 };
 pub use vm::TraceVM;
-
-use maat_bytecode::Bytecode;
-use maat_errors::Result;
-use maat_runtime::Value;
 
 /// Executes bytecode and returns the padded execution trace alongside
 /// the program's result value (if any).
