@@ -7,6 +7,7 @@
 use std::fmt;
 
 use maat_ast::NumKind;
+use maat_field::Felt;
 use serde::{Deserialize, Serialize};
 
 /// All supported runtime integer types.
@@ -98,6 +99,23 @@ macro_rules! checked_unary {
 }
 
 impl Integer {
+    /// Encodes this integer value as a field element.
+    pub fn to_felt(&self) -> Felt {
+        match self {
+            Self::I8(v) => Felt::from_i64(i64::from(*v)),
+            Self::I16(v) => Felt::from_i64(i64::from(*v)),
+            Self::I32(v) => Felt::from_i64(i64::from(*v)),
+            Self::I64(v) => Felt::from_i64(*v),
+            Self::Isize(v) => Felt::from_i64(*v as i64),
+            Self::U8(v) => Felt::new(u64::from(*v)),
+            Self::U16(v) => Felt::new(u64::from(*v)),
+            Self::U32(v) => Felt::new(u64::from(*v)),
+            Self::U64(v) => Felt::new(*v),
+            Self::Usize(v) => Felt::new(*v as u64),
+            Self::I128(_) | Self::U128(_) => Felt::ZERO,
+        }
+    }
+
     /// Returns zero in the same numeric type as `self`.
     pub fn zero(&self) -> Self {
         match self {

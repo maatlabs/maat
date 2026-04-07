@@ -1,3 +1,5 @@
+use std::fs::File;
+use std::io::{self, BufWriter};
 use std::path::Path;
 use std::process;
 
@@ -94,6 +96,54 @@ pub fn run(path: &Path) {
         && !matches!(result, Value::Unit)
     {
         println!("{result}");
+    }
+}
+
+/// Trace execution for the `maat trace` command.
+///
+/// Compiles the source file and runs it through the trace-generating VM,
+/// producing a CSV execution trace. If `output_path` is `None`, the trace
+/// is written to stdout; otherwise it is written to the specified file.
+pub fn trace(path: &Path, output_path: Option<&Path>) {
+    require_extension(path, "maat", "trace");
+
+    let bytecode = compile_source(path);
+    let (trace, result) = match maat_trace::run_trace(bytecode) {
+        Ok(pair) => pair,
+        Err(e) => {
+            eprintln!("error: {}: {e}", path.display());
+            process::exit(1);
+        }
+    };
+
+    match output_path {
+        Some(out) => {
+            let file = match File::create(out) {
+                Ok(f) => f,
+                Err(e) => {
+                    eprintln!("error: cannot write '{}': {e}", out.display());
+                    process::exit(1);
+                }
+            };
+            if let Err(e) = trace.write_csv(BufWriter::new(file)) {
+                eprintln!("error: failed to write trace CSV: {e}");
+                process::exit(1);
+            }
+            eprintln!("trace: {} rows -> {}", trace.num_rows(), out.display());
+        }
+        None => {
+            let stdout = io::stdout();
+            if let Err(e) = trace.write_csv(BufWriter::new(stdout.lock())) {
+                eprintln!("error: failed to write trace CSV: {e}");
+                process::exit(1);
+            }
+        }
+    }
+
+    if let Some(val) = result
+        && !matches!(val, Value::Unit)
+    {
+        eprintln!("result: {val}");
     }
 }
 

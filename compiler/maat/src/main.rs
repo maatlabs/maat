@@ -43,6 +43,14 @@ enum Command {
         /// Path to the `.mtc` bytecode file.
         file: PathBuf,
     },
+    /// Compile and trace-execute a Maat source file, dumping the execution trace as CSV.
+    Trace {
+        /// Path to the `.maat` source file.
+        file: PathBuf,
+        /// Output path for the CSV trace (defaults to stdout).
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
 }
 
 fn main() {
@@ -67,6 +75,9 @@ fn main() {
         }
         Some(Command::Exec { file }) => {
             cmd::execute(&file);
+        }
+        Some(Command::Trace { file, output }) => {
+            cmd::trace(&file, output.as_deref());
         }
     }
 }

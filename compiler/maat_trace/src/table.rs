@@ -1,0 +1,297 @@
+//! Execution trace table for the Maat ZK backend.
+//!
+//! The [`TraceTable`] records every instruction step as a row of 29 Goldilocks
+//! field elements. The trace is the algebraic witness that the STARK prover
+//! commits to and the verifier checks against the AIR constraints.
+
+use std::fmt;
+use std::io::{self, Write};
+
+use maat_field::Felt;
+
+use crate::selector::{NUM_SELECTORS, SEL_NOP};
+
+/// Program counter.
+pub const COL_PC: usize = 0;
+/// Stack pointer (depth of operand stack).
+pub const COL_SP: usize = 1;
+/// Frame pointer (base address in flat memory).
+pub const COL_FP: usize = 2;
+/// Current opcode byte.
+pub const COL_OPCODE: usize = 3;
+/// First opcode operand (zero if absent).
+pub const COL_OPERAND_0: usize = 4;
+/// Second opcode operand (zero if absent).
+pub const COL_OPERAND_1: usize = 5;
+/// Stack top before instruction.
+pub const COL_S0: usize = 6;
+/// Stack second element before instruction.
+pub const COL_S1: usize = 7;
+/// Stack third element before instruction.
+pub const COL_S2: usize = 8;
+/// Result value pushed to stack (or zero for store/jump).
+pub const COL_OUT: usize = 9;
+/// Flat memory address accessed (for loads/stores).
+pub const COL_MEM_ADDR: usize = 10;
+/// Memory value at `mem_addr`.
+pub const COL_MEM_VAL: usize = 11;
+/// `1` if memory read, `0` if memory write.
+pub const COL_IS_READ: usize = 12;
+/// Base column index for the 16 selector flags (`sel_0..sel_15`).
+pub const COL_SEL_BASE: usize = 13;
+
+/// Total number of columns in the main execution trace.
+pub const TRACE_WIDTH: usize = COL_SEL_BASE + NUM_SELECTORS;
+
+/// Column names for CSV header and debugging.
+pub const COLUMN_NAMES: [&str; TRACE_WIDTH] = [
+    "pc",
+    "sp",
+    "fp",
+    "opcode",
+    "operand_0",
+    "operand_1",
+    "s0",
+    "s1",
+    "s2",
+    "out",
+    "mem_addr",
+    "mem_val",
+    "is_read",
+    "sel_0",
+    "sel_1",
+    "sel_2",
+    "sel_3",
+    "sel_4",
+    "sel_5",
+    "sel_6",
+    "sel_7",
+    "sel_8",
+    "sel_9",
+    "sel_10",
+    "sel_11",
+    "sel_12",
+    "sel_13",
+    "sel_14",
+    "sel_15",
+];
+
+/// A single trace row: an array of [`TRACE_WIDTH`] field elements.
+pub type TraceRow = [Felt; TRACE_WIDTH];
+
+/// Execution trace matrix.
+///
+/// Each row records the machine state for one instruction step. After
+/// execution, the trace is padded to the next power of two (minimum 8 rows)
+/// as required by the Winterfell FRI prover.
+pub struct TraceTable {
+    rows: Vec<TraceRow>,
+}
+
+impl TraceTable {
+    const MIN_ROWS: usize = 8;
+
+    /// Creates an empty trace table.
+    pub fn new() -> Self {
+        Self { rows: Vec::new() }
+    }
+
+    /// Appends a row to the trace.
+    pub fn push_row(&mut self, row: TraceRow) {
+        self.rows.push(row);
+    }
+
+    /// Returns the number of rows (before or after padding).
+    pub fn num_rows(&self) -> usize {
+        self.rows.len()
+    }
+
+    /// Returns a reference to the row at the given index.
+    pub fn row(&self, index: usize) -> &TraceRow {
+        &self.rows[index]
+    }
+
+    /// Returns a reference to the last row, or `None` if empty.
+    pub fn last_row(&self) -> Option<&TraceRow> {
+        self.rows.last()
+    }
+
+    /// Pads the trace to the next power of two (minimum 8 rows).
+    ///
+    /// Padding rows use `sel_nop` (selector 0 = 1, all others = 0) and
+    /// repeat the final `pc`, `sp`, `fp` values from the last real row.
+    pub fn pad_to_power_of_two(&mut self) {
+        let target = if self.rows.len() <= Self::MIN_ROWS {
+            Self::MIN_ROWS
+        } else {
+            self.rows.len().next_power_of_two()
+        };
+
+        let pad_row = self.make_padding_row();
+        self.rows.resize(target, pad_row);
+    }
+
+    /// Constructs a NOP padding row from the final execution state.
+    fn make_padding_row(&self) -> TraceRow {
+        let mut row = [Felt::ZERO; TRACE_WIDTH];
+        if let Some(last) = self.rows.last() {
+            row[COL_PC] = last[COL_PC];
+            row[COL_SP] = last[COL_SP];
+            row[COL_FP] = last[COL_FP];
+        }
+        row[COL_SEL_BASE + SEL_NOP as usize] = Felt::ONE;
+        row
+    }
+
+    /// Writes the trace as CSV to the given writer.
+    ///
+    /// Field elements are serialized as decimal `u64` values.
+    pub fn write_csv<W: Write>(&self, mut w: W) -> io::Result<()> {
+        // Header
+        for (i, name) in COLUMN_NAMES.iter().enumerate() {
+            if i > 0 {
+                write!(w, ",")?;
+            }
+            write!(w, "{name}")?;
+        }
+        writeln!(w)?;
+
+        // Rows
+        for row in &self.rows {
+            for (i, felt) in row.iter().enumerate() {
+                if i > 0 {
+                    write!(w, ",")?;
+                }
+                write!(w, "{}", felt.as_u64())?;
+            }
+            writeln!(w)?;
+        }
+        Ok(())
+    }
+
+    /// Serializes the trace to a CSV string.
+    pub fn to_csv(&self) -> String {
+        let mut buf = Vec::new();
+        self.write_csv(&mut buf)
+            .expect("writing to Vec<u8> cannot fail");
+        String::from_utf8(buf).expect("CSV is valid UTF-8")
+    }
+
+    /// Transposes the row-major table into column-major vectors.
+    ///
+    /// Returns a vector of `TRACE_WIDTH` columns, each containing one
+    /// field element per row. This is the layout expected by Winterfell's
+    /// `TraceTable::init`.
+    pub fn into_columns(self) -> Vec<Vec<Felt>> {
+        let num_rows = self.rows.len();
+        let mut columns = (0..TRACE_WIDTH)
+            .map(|_| Vec::with_capacity(num_rows))
+            .collect::<Vec<Vec<Felt>>>();
+        for row in &self.rows {
+            for (col_idx, felt) in row.iter().enumerate() {
+                columns[col_idx].push(*felt);
+            }
+        }
+        columns
+    }
+}
+
+impl Default for TraceTable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl fmt::Debug for TraceTable {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "TraceTable({} rows, {} cols)",
+            self.rows.len(),
+            TRACE_WIDTH
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pad_empty_to_8() {
+        let mut t = TraceTable::new();
+        t.pad_to_power_of_two();
+        assert_eq!(t.num_rows(), 8);
+        for i in 0..8 {
+            assert_eq!(t.row(i)[COL_SEL_BASE], Felt::ONE, "sel_nop should be set");
+        }
+    }
+
+    #[test]
+    fn pad_single_row_to_8() {
+        let mut t = TraceTable::new();
+        let mut row = [Felt::ZERO; TRACE_WIDTH];
+        row[COL_PC] = Felt::new(5);
+        row[COL_SP] = Felt::new(2);
+        t.push_row(row);
+        t.pad_to_power_of_two();
+        assert_eq!(t.num_rows(), 8);
+        // Padding rows inherit pc/sp from last real row
+        assert_eq!(t.row(1)[COL_PC], Felt::new(5));
+        assert_eq!(t.row(1)[COL_SP], Felt::new(2));
+    }
+
+    #[test]
+    fn pad_5_to_8() {
+        let mut t = TraceTable::new();
+        for _ in 0..5 {
+            t.push_row([Felt::ZERO; TRACE_WIDTH]);
+        }
+        t.pad_to_power_of_two();
+        assert_eq!(t.num_rows(), 8);
+    }
+
+    #[test]
+    fn pad_8_stays_8() {
+        let mut t = TraceTable::new();
+        for _ in 0..8 {
+            t.push_row([Felt::ZERO; TRACE_WIDTH]);
+        }
+        t.pad_to_power_of_two();
+        assert_eq!(t.num_rows(), 8);
+    }
+
+    #[test]
+    fn pad_9_to_16() {
+        let mut t = TraceTable::new();
+        for _ in 0..9 {
+            t.push_row([Felt::ZERO; TRACE_WIDTH]);
+        }
+        t.pad_to_power_of_two();
+        assert_eq!(t.num_rows(), 16);
+    }
+
+    #[test]
+    fn csv_header_matches_columns() {
+        let t = TraceTable::new();
+        let csv = t.to_csv();
+        let header = csv.lines().next().unwrap();
+        let cols = header.split(',').collect::<Vec<_>>();
+        assert_eq!(cols.len(), TRACE_WIDTH);
+        assert_eq!(cols[0], "pc");
+        assert_eq!(cols[TRACE_WIDTH - 1], "sel_15");
+    }
+
+    #[test]
+    fn into_columns_transposes_correctly() {
+        let mut t = TraceTable::new();
+        let mut row = [Felt::ZERO; TRACE_WIDTH];
+        row[COL_PC] = Felt::new(10);
+        row[COL_SP] = Felt::new(20);
+        t.push_row(row);
+        let cols = t.into_columns();
+        assert_eq!(cols.len(), TRACE_WIDTH);
+        assert_eq!(cols[COL_PC][0], Felt::new(10));
+        assert_eq!(cols[COL_SP][0], Felt::new(20));
+    }
+}

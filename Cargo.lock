@@ -620,6 +620,7 @@ dependencies = [
  "maat_parser",
  "maat_runtime",
  "maat_span",
+ "maat_trace",
  "maat_types",
  "maat_vm",
  "rustyline",
@@ -763,6 +764,18 @@ dependencies = [
  "maat_vm",
  "proptest",
  "tempfile",
+]
+
+[[package]]
+name = "maat_trace"
+version = "0.12.0"
+dependencies = [
+ "indexmap",
+ "maat_bytecode",
+ "maat_errors",
+ "maat_field",
+ "maat_runtime",
+ "maat_span",
 ]
 
 [[package]]
