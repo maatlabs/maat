@@ -4,8 +4,7 @@ The Maat programming language -- Rust-native syntax for writing zero-knowledge p
 
 ## Overview
 
-Maat is a Turing-complete ZK programming language. It accepts Rust-like syntax and rejects any construct illegal in zero-knowledge protocols (floating-point
-arithmetic, global mutable state, unbounded side effects). All programs are executed over the Goldilocks prime field and produce execution traces suitable for STARK proving and verification.
+Maat is a Turing-complete ZK programming language. It accepts Rust-like syntax and rejects any construct illegal in zero-knowledge protocols (floating-point arithmetic, global mutable state, unbounded side effects). All programs are executed over the Goldilocks prime field and produce execution traces suitable for STARK proving and verification.
 
 ## Subcommands
 
