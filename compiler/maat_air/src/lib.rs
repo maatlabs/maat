@@ -52,12 +52,12 @@
 //!   programs with sparse address spaces may require padding in a future release.
 #![forbid(unsafe_code)]
 
-mod aux;
+mod aux_segment;
 mod constraints;
 mod public_inputs;
 
-use aux::{AUX_COL_PERM_ACC, AUX_CONSTRAINT_DEGREES, NUM_AUX_CONSTRAINTS};
-pub use aux::{AUX_WIDTH, NUM_AUX_RANDS, build_aux_columns};
+use aux_segment::{AUX_COL_PERM_ACC, AUX_CONSTRAINT_DEGREES, NUM_AUX_CONSTRAINTS};
+pub use aux_segment::{AUX_WIDTH, NUM_AUX_RANDS, build_aux_columns};
 use constraints::{CONSTRAINT_DEGREES, NUM_CONSTRAINTS};
 use maat_trace::{COL_OUT, COL_PC, COL_SP};
 pub use public_inputs::MaatPublicInputs;
@@ -152,7 +152,7 @@ impl Air for MaatAir {
         F: FieldElement<BaseField = Self::BaseField>,
         E: FieldElement<BaseField = Self::BaseField> + ExtensionOf<F>,
     {
-        aux::evaluate(
+        aux_segment::evaluate(
             main_frame.current(),
             main_frame.next(),
             aux_frame.current(),
@@ -196,7 +196,7 @@ mod tests {
     use maat_trace::TRACE_WIDTH;
 
     use super::*;
-    use crate::aux::{AUX_WIDTH, NUM_AUX_RANDS};
+    use crate::aux_segment::{AUX_WIDTH, NUM_AUX_RANDS};
 
     fn test_options() -> ProofOptions {
         ProofOptions::new(
