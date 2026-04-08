@@ -867,6 +867,8 @@ fn loop_control_flow() {
     run_vm_test(
         r#"
         let mut x = 0;
+
+        #[bounded(10)]
         loop {
             x = x + 1;
             if (x == 5) {
@@ -883,6 +885,8 @@ fn loop_control_flow() {
         r#"
         let find_first = fn(vector, target) {
             let mut i = 0;
+
+            #[bounded(1000)]
             loop {
                 if (i == vector.len() as i64) {
                     return -1;
@@ -904,6 +908,8 @@ fn loop_control_flow() {
         let countdown = fn(n) {
             let mut result = 0;
             let mut i = n;
+
+            #[bounded(100)]
             while (i > 0) {
                 result = result + i;
                 i = i - 1;
@@ -923,6 +929,8 @@ fn while_loops() {
         r#"
         let mut x = 0;
         let mut sum = 0;
+
+        #[bounded(10)]
         while (x < 5) {
             x = x + 1;
             sum = sum + x;
@@ -935,6 +943,8 @@ fn while_loops() {
     run_vm_test(
         r#"
         let mut x = 10;
+
+        #[bounded(10)]
         while (x < 5) {
             x = x + 1;
         }
@@ -946,6 +956,8 @@ fn while_loops() {
     run_vm_test(
         r#"
         let mut x = 0;
+
+        #[bounded(100)]
         while (x < 100) {
             x = x + 1;
             if (x == 7) {
@@ -987,8 +999,11 @@ fn for_loops() {
         r#"
         let mut total = 0;
         let mut i = 0;
+
+        #[bounded(5)]
         while (i < 3) {
             let mut j = 0;
+            #[bounded(5)]
             while (j < 3) {
                 total = total + 1;
                 j = j + 1;
@@ -1197,6 +1212,8 @@ fn block_scoping() {
         fn test() -> i64 {
             let mut sum = 0;
             let mut i = 0;
+
+            #[bounded(10)]
             while (i < 5) {
                 sum = sum + i;
                 i = i + 1;
@@ -1212,6 +1229,8 @@ fn block_scoping() {
         fn test() -> i64 {
             let mut x = 0;
             let mut i = 0;
+
+            #[bounded(5)]
             while (i < 3) {
                 let y = i * 10;
                 x = x + y;
@@ -1575,6 +1594,8 @@ fn continue_in_loops() {
         fn sum_odd() -> i64 {
             let mut total = 0;
             let mut i = 0;
+
+            #[bounded(10)]
             while (i < 10) {
                 i += 1;
                 if (i % 2 == 0) {
@@ -1638,8 +1659,10 @@ fn labeled_loops() {
         fn labeled_while() -> i64 {
             let mut x = 0;
             let mut y = 0;
-            'outer: while (x < 10) {
+
+            #[bounded(10)] 'outer: while (x < 10) {
                 x += 1;
+                #[bounded(10)]
                 while (y < 10) {
                     y += 1;
                     if (y == 3) {

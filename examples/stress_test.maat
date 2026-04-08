@@ -136,6 +136,8 @@ fn chain_ops(values: [i64]) -> Result<i64, str> {
     }
     let mut acc = values[0];
     let mut i: i64 = 1;
+
+    #[bounded(1000)]
     while i as usize < values.len() {
         match safe_div(acc, values[i]) {
             Ok(v) => { acc = v + values[i]; },

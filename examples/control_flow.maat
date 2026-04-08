@@ -18,6 +18,8 @@ println!("{}", classify(42));
 // while loop: compute sum 1..100
 let mut sum: i64 = 0;
 let mut i: i64 = 1;
+
+#[bounded(100)]
 while i <= 100 {
     sum += i;
     i += 1;
@@ -47,6 +49,8 @@ println!("{}", inclusive_sum);
 
 // loop with break
 let mut count: i64 = 0;
+
+#[bounded(10)]
 loop {
     count += 1;
     if count == 10 {

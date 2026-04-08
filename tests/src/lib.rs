@@ -210,6 +210,8 @@ acc
     pub const WHILE_LOOP_1000: &str = "
 let mut acc: i64 = 0;
 let mut i: i64 = 0;
+
+#[bounded(1000)]
 while (i < 1000) { acc = acc + i; i = i + 1; }
 acc
 ";

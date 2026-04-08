@@ -193,6 +193,8 @@ fn enums() {
         "let arr = [Some(1), Some(3), Some(6)];
          let mut total = 0;
          let mut i = 0;
+
+         #[bounded(10)]
          while (i < arr.len() as i64) {
              let val = match arr[i] { Some(v) => v, _ => 0 };
              total = total + val;
