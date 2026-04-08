@@ -1,6 +1,6 @@
 # Security Policy & Threat Model
 
-This document describes the trust boundaries, attacker model, and mitigations for the Maat compiler toolchain. It covers the current state as of v0.12.1 and will be updated as subsequent versions introduce new attack surfaces.
+This document describes the trust boundaries, attacker model, and mitigations for the Maat compiler toolchain. It covers the current state as of v0.12.2 and will be updated as subsequent versions introduce new attack surfaces.
 
 ## Trust Boundaries
 
@@ -40,6 +40,8 @@ Source (.maat) --> Compiler Pipeline --> Bytecode (.mtc) --> VM Execution
 | Stack overflow via recursion       | VM frame stack limit (`MAX_FRAMES = 1024`)                                | `maat_bytecode/src/lib.rs`   |
 | Stack exhaustion                   | VM stack size limit (`MAX_STACK_SIZE = 2048`)                             | `maat_bytecode/src/lib.rs`   |
 | Enum with >256 variants            | Rejected at compile time (`MAX_ENUM_VARIANTS = 256`)                      | `maat_bytecode/src/lib.rs`   |
+| Unbounded loops                    | `while`/`loop` without `#[bounded(N)]` annotation rejected at parse time  | `maat_parser/src/lib.rs`     |
+| Loop bound exceeded                | Counter-guarded desugaring halts with `BoundExceeded` at runtime          | `maat_codegen/src/lib.rs`    |
 | Circular module imports            | Detected and rejected by module resolver                                  | `maat_module/src/resolve.rs` |
 | Private item leakage via `pub use` | `pub use` only re-exports items already accessible to the module          | `maat_module/src/lib.rs`     |
 
@@ -74,12 +76,12 @@ Source (.maat) --> Compiler Pipeline --> Bytecode (.mtc) --> VM Execution
 | Global variables          | 65535        | `MAX_GLOBALS` constant        |
 | Local variables per scope | 255          | `MAX_LOCALS` constant         |
 | Constant pool entries     | 65535        | `add_constant()` check        |
+| Loop iterations           | `N` per loop | `#[bounded(N)]` annotation    |
 | Bytecode payload          | 16 MiB       | `deserialize()` pre-check     |
 | Instruction stream        | 1M bytes     | `deserialize()` post-check    |
 
 **Not yet mitigated:**
 
-- **Infinite loops:** The VM does not impose an instruction execution limit. Programs with `loop {}` will run indefinitely. The ZK trace-generating VM (`maat_trace`) records every instruction step and is bounded by available memory, but an explicit gas/step limit is deferred to a future version.
 - **Algorithmic complexity attacks:** Hash map key collisions are not defended against (Rust's `IndexMap` uses default hashing). This is acceptable for the current single-user execution model.
 
 ## Memory Safety
