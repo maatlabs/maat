@@ -12,6 +12,6 @@ readme = "README.md"
 
 [dependencies]
 indexmap.workspace = true
-maat_ast = { path = "../maat_ast", version = "0.12.1" }
-maat_errors = { path = "../maat_errors", version = "0.12.1" }
-maat_span = { path = "../maat_span", version = "0.12.1" }
+maat_ast = { path = "../maat_ast", version = "0.12.2" }
+maat_errors = { path = "../maat_errors", version = "0.12.2" }
+maat_span = { path = "../maat_span", version = "0.12.2" }

@@ -11,16 +11,16 @@ homepage.workspace = true
 readme = "README.md"
 
 [dependencies]
-maat_stdlib = { path = "../../library", version = "0.12.1" }
-maat_ast = { path = "../maat_ast", version = "0.12.1" }
-maat_bytecode = { path = "../maat_bytecode", version = "0.12.1" }
-maat_codegen = { path = "../maat_codegen", version = "0.12.1" }
-maat_errors = { path = "../maat_errors", version = "0.12.1" }
-maat_lexer = { path = "../maat_lexer", version = "0.12.1" }
-maat_parser = { path = "../maat_parser", version = "0.12.1" }
-maat_runtime = { path = "../maat_runtime", version = "0.12.1" }
-maat_span = { path = "../maat_span", version = "0.12.1" }
-maat_types = { path = "../maat_types", version = "0.12.1" }
+maat_stdlib = { path = "../../library", version = "0.12.2" }
+maat_ast = { path = "../maat_ast", version = "0.12.2" }
+maat_bytecode = { path = "../maat_bytecode", version = "0.12.2" }
+maat_codegen = { path = "../maat_codegen", version = "0.12.2" }
+maat_errors = { path = "../maat_errors", version = "0.12.2" }
+maat_lexer = { path = "../maat_lexer", version = "0.12.2" }
+maat_parser = { path = "../maat_parser", version = "0.12.2" }
+maat_runtime = { path = "../maat_runtime", version = "0.12.2" }
+maat_span = { path = "../maat_span", version = "0.12.2" }
+maat_types = { path = "../maat_types", version = "0.12.2" }
 
 [dev-dependencies]
 tempfile = "3"
