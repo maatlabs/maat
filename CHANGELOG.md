@@ -4,6 +4,41 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.2] - 2026-04-08
+
+ZK soundness prerequisites. This release delivers functionality that must be in place before the STARK prover can be built: integer range checks in the execution trace and mandatory loop bound enforcement at the language level. Together, they ensure that every value in the AIR witness is cryptographically verified to lie within its declared type range and that trace length is always statically bounded before proof generation.
+
+### Added
+
+#### Range Check Sub-AIR (`maat_air`, `maat_trace`)
+
+- **Range-check sub-AIR integrated into `maat_air`:** Every integer value in the execution trace is now verified to lie within its declared type bounds via a 16-bit limb decomposition and sorted-pool permutation argument. This is a cryptographic security requirement -- without it, an adversarial prover can submit out-of-range integer values in the trace.
+- **64-bit limb decomposition:** Each 64-bit value is decomposed into four 16-bit limbs (`val = l0 + 2^16·l1 + 2^32·l2 + 2^48·l3`). A reconstruction constraint (`sel_arith * (out - (l0 + 2^16·l1 + 2^32·l2 + 2^48·l3)) = 0`, degree 3) proves the limbs encode the claimed value.
+- **Sorted limb pool:** All limbs across the entire trace are gathered into a single shared pool and sorted. The sorted pool's continuity constraint (`(Δlimb) * (Δlimb - 1) = 0`, degree 2) proves every limb lies in `[0, 2^16)`.
+- **Permutation accumulator:** A grand-product accumulator (degree 2, over `QuadExtension<BaseElement>`) proves the sorted pool and the execution-order limbs are the same multiset, binding the sorted proof to the actual trace values.
+- **`sel_div_mod` selector (index 16):** `OpDiv`/`OpMod` were split from `sel_arith` (index 2) into a dedicated selector to enable a non-zero divisor constraint (`sel_div_mod * (s1 - z) * inv = 1`, degree 3, where `inv` is the modular inverse of `s1` under the verifier challenge `z`). This prevents a divisor-of-zero witness from passing verification.
+- **Auxiliary segment expanded:** `AUX_WIDTH` grows from 5 to 8 columns (`AUX_COL_L2_ADDR`, `AUX_COL_L2_VAL`, `AUX_COL_PERM_ACC`, `AUX_COL_LIMB_0`–`AUX_COL_LIMB_3`). `NUM_AUX_RANDS` grows from 2 to 4 (challenges `z`, `alpha` for memory permutation; `z_rc`, `alpha_rc` for range-check permutation).
+- **Trace schema expanded to 44 columns:** `TRACE_WIDTH` grows from 29 to 36 main columns (added `limb_0`–`limb_3` and 3 auxiliary selector columns for the new `sel_div_mod` class); auxiliary segment grows from 5 to 8 columns (44 total).
+- **`constraints.rs` renamed `main_segment.rs`:** The module now named symmetrically with `aux_segment.rs` to reflect that it evaluates main-segment transition constraints only.
+- **Constraint totals updated:** 41 main transition constraints (up from 37), 8 auxiliary transition constraints (up from 3), 7 boundary assertions (up from 5). Maximum constraint degree remains 5.
+
+#### ZK Loop Bounds Enforcement (`maat_parser`, `maat_codegen`, `maat_eval`)
+
+- **`#[bounded(N)]` annotation -- required syntax for `while` and `loop`:** Bare `while cond { }` and `loop { }` are now **parse errors**. Every `while`/`loop` must carry a `#[bounded(N)]` annotation declaring its maximum iteration count. The annotation is also supported before label syntax: `#[bounded(N)] 'label: while cond { }`.
+- **Parser-level rejection:** The `TokenKind::Hash` token is now produced by the lexer. `parse_bounded_loop` parses the `#[bounded(N)]` prefix and dispatches to `parse_loop_stmt` / `parse_while_stmt`. Bare `TokenKind::Loop` and `TokenKind::While` in statement position return a backtrack error immediately.
+- **`bound: u64` in `LoopStmt` and `WhileStmt` AST nodes:** The type enforces the invariant that bounds are always present -- there is no representation for an unbounded loop in the AST.
+- **Counter-guarded desugaring in codegen:** `compile_loop` and `compile_while` emit a hidden counter (`__bound_N`) and limit (`__blimit_N`). Each iteration checks `counter < limit` before entering the body and increments the counter on the back-edge. If execution reaches `N` iterations, the VM halts with `BoundExceeded`.
+- **Runtime enforcement in the interpreter:** `eval_loop_statement` and `eval_while_statement` in `maat_eval` enforce the bound at runtime, halting with `EvalError::BoundExceeded(N)` when the iteration count reaches `N`. Consistent behavior across all execution backends.
+- **No "standard mode":** This follows the same design principle that makes floating-point arithmetic illegal in Maat: constructs incompatible with zero-knowledge proofs are illegal unconditionally.
+
+### Changed
+
+- **`maat_air`:** `constraints.rs` renamed to `main_segment.rs`; all internal references updated.
+- **`maat_errors`:** Added `EvalError::BoundExceeded(u64)` and `VmError::bound_exceeded(u64)` constructor. `BoundExceeded` carries the declared bound for diagnostic output.
+- **SECURITY.md:** Unbounded loop and loop-bound-exceeded attack vectors added to the Attacker 1 mitigations table. Loop iterations added to the resource exhaustion table. The "Not yet mitigated: infinite loops" note removed.
+
+---
+
 ## [0.12.1] - 2026-04-07
 
 ZK backend infrastructure. This release delivers the first three phases of the STARK proof pipeline: an algebraic execution trace generator, a CPU constraint system (AIR), and a memory permutation argument. Together, these provide a verifiable witness of program execution ready to be connected to the STARK prover in a subsequent release.
@@ -36,7 +71,7 @@ ZK backend infrastructure. This release delivers the first three phases of the S
 - **Auxiliary segment (5 columns, 3 constraints, all degree 2):** Implements a two-list memory permutation argument--proving that the execution-order memory access list (L1, in the main trace) and the address-sorted list (L2, in the auxiliary segment) are the same multiset.
   - `AUX_COL_L2_ADDR` (0), `AUX_COL_L2_VAL` (1): address-sorted memory access pairs.
   - `AUX_COL_PERM_ACC` (2): grand-product accumulator with verifier challenges `z` and `alpha`.
-  - `AUX_COL_LIMB_0` (3), `AUX_COL_LIMB_1` (4): reserved for Phase 8 range checks.
+  - `AUX_COL_LIMB_0` (3), `AUX_COL_LIMB_1` (4).
   - Address continuity constraint: `(Δaddr) * (Δaddr - 1) = 0`.
   - Single-value consistency: `(Δval) * (Δaddr - 1) = 0`.
   - Grand-product accumulator: `(z - L2_next) * acc_next - (z - L1_next) * acc = 0`.
@@ -1001,6 +1036,7 @@ When adding entries to this changelog for future releases:
 3. **Audience**: Write for users, not developers (focus on impact, not implementation)
 4. **Links**: Add comparison links at the bottom: `[0.2.0]: https://github.com/maatlabs/maat/compare/v0.1.0...v0.2.0`
 
+[0.12.2]: https://github.com/maatlabs/maat/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/maatlabs/maat/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/maatlabs/maat/compare/v0.11.3...v0.12.0
 [0.11.3]: https://github.com/maatlabs/maat/compare/v0.11.2...v0.11.3
