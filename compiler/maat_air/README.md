@@ -4,17 +4,17 @@ CPU constraint system (AIR) for the Maat ZK backend.
 
 ## Role
 
-`maat_air` encodes the execution semantics of the Maat VM as polynomial constraints over the Goldilocks field, implementing Winterfell's `Air` trait. It bridges the trace-generating VM (`maat_trace`) and the STARK prover (`maat_prover`). The constraint system is split into two segments: a main segment that enforces instruction-level invariants and an auxiliary segment that enforces memory consistency via a grand-product permutation argument.
+`maat_air` encodes the execution semantics of the Maat VM as polynomial constraints over the Goldilocks field, implementing Winterfell's `Air` trait. It bridges the trace-generating VM (`maat_trace`) and the STARK prover (`maat_prover`). The constraint system is split into two segments: a main segment that enforces instruction-level invariants (including range-check reconstruction and non-zero divisor proofs) and an auxiliary segment that enforces memory consistency and range-check soundness via grand-product permutation arguments.
 
 ## Constraint Summary
 
-| Segment             | Columns | Constraints | Notes                                     |
-| ------------------- | ------- | ----------- | ----------------------------------------- |
-| Main (`maat_trace`) | 29      | 37          | Selectors, SP/PC/FP transitions, memory   |
-| Auxiliary           | 5       | 3           | Address sort, single-value, grand-product |
-| **Total**           | **34**  | **40**      | All degree <= 3                           |
+| Segment             | Columns | Constraints | Notes                                                     |
+| ------------------- | ------- | ----------- | --------------------------------------------------------- |
+| Main (`maat_trace`) | 36      | 41          | Selectors, SP/PC/FP transitions, memory, range-check, div |
+| Auxiliary           | 8       | 8           | Memory permutation, RC sorted continuity, RC permutation  |
+| **Total**           | **44**  | **49**      | Max degree 5                                              |
 
-**Boundary assertions:** 5 — `pc[0]=0`, `sp[0]=0`, `out[last]=output`, `perm_acc[0]=1`, `perm_acc[last]=1`
+**Boundary assertions:** 7 — `pc[0]=0`, `sp[0]=0`, `out[last]=output`, `mem_acc[0]=1`, `mem_acc[last]=1`, `rc_acc[0]=1`, `rc_acc[last]=1`
 
 ## Usage
 

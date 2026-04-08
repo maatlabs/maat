@@ -20,9 +20,9 @@ use maat_span::{SourceMap, Span};
 use crate::encode::value_to_felt;
 use crate::selector::class_index;
 use crate::table::{
-    COL_FP, COL_IS_READ, COL_MEM_ADDR, COL_MEM_VAL, COL_OPCODE, COL_OPERAND_0, COL_OPERAND_1,
-    COL_OUT, COL_PC, COL_S0, COL_S1, COL_S2, COL_SEL_BASE, COL_SP, TRACE_WIDTH, TraceRow,
-    TraceTable,
+    COL_FP, COL_IS_READ, COL_MEM_ADDR, COL_MEM_VAL, COL_NONZERO_INV, COL_OPCODE, COL_OPERAND_0,
+    COL_OPERAND_1, COL_OUT, COL_PC, COL_RC_L0, COL_RC_L1, COL_RC_L2, COL_RC_L3, COL_RC_VAL, COL_S0,
+    COL_S1, COL_S2, COL_SEL_BASE, COL_SP, TRACE_WIDTH, TraceRow, TraceTable,
 };
 
 /// Trace metadata captured for a single instruction step.
@@ -36,6 +36,26 @@ struct TraceInfo {
     mem_val: Felt,
     /// `1` if memory read, `0` if write.
     is_read: Felt,
+    /// Value being range-checked (zero on non-trigger rows).
+    rc_val: Felt,
+    /// 16-bit limb decomposition of `rc_val`.
+    rc_limbs: [Felt; 4],
+    /// Multiplicative inverse of the divisor on `sel_div_mod` rows.
+    nonzero_inv: Felt,
+}
+
+/// Decomposes a 64-bit value into four 16-bit limbs.
+///
+/// Returns `[l0, l1, l2, l3]` such that
+/// `val = l0 + 2^16 * l1 + 2^32 * l2 + 2^48 * l3`
+/// with each limb in `[0, 2^16)`.
+fn decompose_limbs(val: u64) -> [Felt; 4] {
+    [
+        Felt::new(val & 0xFFFF),
+        Felt::new((val >> 16) & 0xFFFF),
+        Felt::new((val >> 32) & 0xFFFF),
+        Felt::new((val >> 48) & 0xFFFF),
+    ]
 }
 
 /// A single call frame on the trace VM's frame stack.
@@ -68,8 +88,9 @@ impl Frame {
 /// Trace-generating virtual machine.
 ///
 /// Executes bytecode identically to `maat_vm::VM` while recording a
-/// 29-column execution trace. The trace records program counter, stack
-/// state, memory accesses, and opcode selectors for each instruction step.
+/// 36-column execution trace. The trace records program counter, stack
+/// state, memory accesses, opcode selectors, and range-check witness
+/// data for each instruction step.
 pub struct TraceVM {
     constants: Vec<Value>,
     stack: Vec<Value>,
@@ -316,6 +337,13 @@ impl TraceVM {
             row[COL_MEM_VAL] = trace_info.mem_val;
             row[COL_IS_READ] = trace_info.is_read;
 
+            row[COL_RC_VAL] = trace_info.rc_val;
+            row[COL_RC_L0] = trace_info.rc_limbs[0];
+            row[COL_RC_L1] = trace_info.rc_limbs[1];
+            row[COL_RC_L2] = trace_info.rc_limbs[2];
+            row[COL_RC_L3] = trace_info.rc_limbs[3];
+            row[COL_NONZERO_INV] = trace_info.nonzero_inv;
+
             self.trace.push_row(row);
         }
 
@@ -369,8 +397,6 @@ impl TraceVM {
             Opcode::Add
             | Opcode::Sub
             | Opcode::Mul
-            | Opcode::Div
-            | Opcode::Mod
             | Opcode::BitAnd
             | Opcode::BitOr
             | Opcode::BitXor
@@ -378,6 +404,17 @@ impl TraceVM {
             | Opcode::Shr => {
                 self.execute_binary_operation(op)?;
                 info.out = self.peek_top_felt();
+            }
+            Opcode::Div | Opcode::Mod => {
+                let divisor_felt = self.peek_top_felt();
+                self.execute_binary_operation(op)?;
+                info.out = self.peek_top_felt();
+
+                if divisor_felt != Felt::ZERO {
+                    info.nonzero_inv = divisor_felt
+                        .inv()
+                        .expect("non-zero field element has inverse");
+                }
             }
             Opcode::True => {
                 self.push_stack(TRUE)?;
@@ -578,6 +615,10 @@ impl TraceVM {
                 self.current_frame_mut()?.ip += 1;
                 self.execute_convert(tag_byte)?;
                 info.out = self.peek_top_felt();
+                // Range-check: prove the converted value fits its target type.
+                let rc = info.out.as_u64();
+                info.rc_val = info.out;
+                info.rc_limbs = decompose_limbs(rc);
             }
             Opcode::Construct => {
                 let type_index = self.read_u16_operand(ip + 1)?;
