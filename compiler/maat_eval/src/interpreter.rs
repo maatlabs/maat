@@ -199,30 +199,48 @@ pub fn eval_block_statement(block: &BlockStmt, env: &Env) -> Result<Value> {
 }
 
 fn eval_loop_statement(stmt: LoopStmt, env: &Env) -> Result<Value> {
+    let bound = stmt.bound;
+    let mut counter = 0u64;
     loop {
+        if counter >= bound {
+            return Err(EvalError::BoundExceeded(bound).into());
+        }
         let result = eval_block_statement(&stmt.body, env)?;
         match result {
             Value::Break(val) => return Ok(*val),
             Value::ReturnValue(_) => return Ok(result),
-            Value::Continue => continue,
+            Value::Continue => {
+                counter += 1;
+                continue;
+            }
             _ => {}
         }
+        counter += 1;
     }
 }
 
 fn eval_while_statement(stmt: WhileStmt, env: &Env) -> Result<Value> {
+    let bound = stmt.bound;
+    let mut counter = 0u64;
     loop {
         let condition = eval(Node::Expr(*stmt.condition.clone()), env)?;
         if !condition.is_truthy() {
             break;
         }
+        if counter >= bound {
+            return Err(EvalError::BoundExceeded(bound).into());
+        }
         let result = eval_block_statement(&stmt.body, env)?;
         match result {
             Value::Break(val) => return Ok(*val),
             Value::ReturnValue(_) => return Ok(result),
-            Value::Continue => continue,
+            Value::Continue => {
+                counter += 1;
+                continue;
+            }
             _ => {}
         }
+        counter += 1;
     }
     Ok(UNIT)
 }

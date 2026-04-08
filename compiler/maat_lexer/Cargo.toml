@@ -12,4 +12,4 @@ readme = "README.md"
 
 [dependencies]
 logos = "0.16"
-maat_span = { path = "../maat_span", version = "0.12.1" }
+maat_span = { path = "../maat_span", version = "0.12.2" }

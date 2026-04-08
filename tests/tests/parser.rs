@@ -593,19 +593,21 @@ fn parse_call_expressions() {
 
 #[test]
 fn parse_loops() {
-    // Loop
-    let program = parse("loop { 1; }");
+    // Bounded loop
+    let program = parse("#[bounded(100)] loop { 1; }");
     let Stmt::Loop(loop_stmt) = expect_single_stmt(&program) else {
         panic!("expected Loop statement");
     };
+    assert_eq!(loop_stmt.bound, 100);
     assert_eq!(loop_stmt.body.statements.len(), 1);
     assert_eq!(loop_stmt.body.statements[0].to_string(), "1;");
 
-    // While
-    let program = parse("while x < 10 { x; }");
+    // Bounded while
+    let program = parse("#[bounded(50)] while x < 10 { x; }");
     let Stmt::While(while_stmt) = expect_single_stmt(&program) else {
         panic!("expected While statement");
     };
+    assert_eq!(while_stmt.bound, 50);
     assert_eq!(while_stmt.condition.to_string(), "(x < 10)");
     assert_eq!(while_stmt.body.statements.len(), 1);
     assert_eq!(while_stmt.body.statements[0].to_string(), "x;");
@@ -624,7 +626,7 @@ fn parse_loops() {
 #[test]
 fn parse_loop_control() {
     // Break without value
-    let program = parse("loop { break; }");
+    let program = parse("#[bounded(10)] loop { break; }");
     let Stmt::Loop(loop_stmt) = expect_single_stmt(&program) else {
         panic!("expected Loop statement");
     };
@@ -638,7 +640,7 @@ fn parse_loop_control() {
     assert!(break_expr.value.is_none());
 
     // Break with value
-    let program = parse("loop { break 42; }");
+    let program = parse("#[bounded(10)] loop { break 42; }");
     let Stmt::Loop(loop_stmt) = expect_single_stmt(&program) else {
         panic!("expected Loop statement");
     };
@@ -652,7 +654,7 @@ fn parse_loop_control() {
     assert_eq!(break_expr.value.as_ref().unwrap().to_string(), "42");
 
     // Continue
-    let program = parse("loop { continue; }");
+    let program = parse("#[bounded(10)] loop { continue; }");
     let Stmt::Loop(loop_stmt) = expect_single_stmt(&program) else {
         panic!("expected Loop statement");
     };
@@ -665,7 +667,7 @@ fn parse_loop_control() {
     };
 
     // Labeled loop
-    let program = parse("'outer: loop { break 'outer; }");
+    let program = parse("#[bounded(10)] 'outer: loop { break 'outer; }");
     let Stmt::Loop(loop_stmt) = expect_single_stmt(&program) else {
         panic!("expected Loop statement");
     };
@@ -680,7 +682,7 @@ fn parse_loop_control() {
     assert_eq!(break_expr.label.as_deref(), Some("outer"));
 
     // Labeled while
-    let program = parse("'outer: while (true) { continue 'outer; }");
+    let program = parse("#[bounded(10)] 'outer: while (true) { continue 'outer; }");
     let Stmt::While(while_stmt) = expect_single_stmt(&program) else {
         panic!("expected While statement");
     };

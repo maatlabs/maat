@@ -1181,6 +1181,7 @@ fn while_condition_must_be_bool() {
             span: S,
         },
         label: None,
+        bound: 100,
         span: S,
     })]);
     assert!(!errs.is_empty());

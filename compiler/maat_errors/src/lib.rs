@@ -77,6 +77,9 @@ pub enum EvalError {
 
     #[error("{0}")]
     Builtin(String),
+
+    #[error("loop exceeded its declared bound of {0} iterations")]
+    BoundExceeded(u64),
 }
 
 /// A type-checking error with a source span.
@@ -299,6 +302,13 @@ impl VmError {
             message: message.into(),
             span: Some(span),
         }
+    }
+
+    /// Creates a bound-exceeded error for a bounded loop.
+    pub fn bound_exceeded(bound: u64) -> Self {
+        Self::new(format!(
+            "loop exceeded its declared bound of {bound} iterations"
+        ))
     }
 }
 

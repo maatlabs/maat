@@ -14,9 +14,9 @@ readme = "README.md"
 postcard = { version = "1", features = ["alloc"] }
 serde.workspace = true
 
-maat_errors = { path = "../maat_errors", version = "0.12.1" }
-maat_runtime = { path = "../maat_runtime", version = "0.12.1" }
-maat_span = { path = "../maat_span", version = "0.12.1" }
+maat_errors = { path = "../maat_errors", version = "0.12.2" }
+maat_runtime = { path = "../maat_runtime", version = "0.12.2" }
+maat_span = { path = "../maat_span", version = "0.12.2" }
 
 [dev-dependencies]
 indexmap.workspace = true

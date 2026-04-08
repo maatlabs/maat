@@ -271,15 +271,15 @@ fn parse_statement<'src>(
         }
         TokenKind::Label
             if matches!(peek_at(input, 1), TokenKind::Colon)
-                && matches!(
-                    peek_at(input, 2),
-                    TokenKind::Loop | TokenKind::While | TokenKind::For
-                ) =>
+                && peek_at(input, 2) == TokenKind::For =>
         {
-            parse_labeled_loop(input, depth)
+            parse_labeled_for_loop(input, depth)
         }
-        TokenKind::Loop => parse_loop_stmt(input, depth, None).map(Stmt::Loop),
-        TokenKind::While => parse_while_stmt(input, depth, None).map(Stmt::While),
+        TokenKind::Hash if peek_at(input, 1) == TokenKind::LBracket => {
+            parse_bounded_loop(input, depth)
+        }
+        TokenKind::Loop => Err(ErrMode::Backtrack(ContextError::new())),
+        TokenKind::While => Err(ErrMode::Backtrack(ContextError::new())),
         TokenKind::For => parse_for_stmt(input, depth, None).map(Stmt::For),
         TokenKind::Struct => parse_struct_decl(input, depth, false, doc).map(Stmt::StructDecl),
         TokenKind::Enum => parse_enum_decl(input, depth, false, doc).map(Stmt::EnumDecl),
@@ -1636,8 +1636,44 @@ fn parse_pattern_fields<'src>(
     Ok((fields, end))
 }
 
-/// Parses a labeled loop: `'label: loop/while/for { ... }`.
-fn parse_labeled_loop<'src>(
+/// Parses a `#[bounded(N)] loop/while` annotation.
+///
+/// Consumes `#[bounded(N)]` and delegates to the appropriate loop parser
+/// with the extracted bound value.
+fn parse_bounded_loop<'src>(
+    input: &mut &'src [Token<'src>],
+    depth: &Cell<usize>,
+) -> ParseResult<Stmt> {
+    parse(input, TokenKind::Hash)?;
+    parse(input, TokenKind::LBracket)?;
+    let attr = parse(input, TokenKind::Ident)?;
+    if attr.literal != "bounded" {
+        return Err(ErrMode::Backtrack(ContextError::new()));
+    }
+    parse(input, TokenKind::LParen)?;
+    let bound_tok = parse(input, TokenKind::Int)?;
+    let bound: u64 = bound_tok
+        .literal
+        .parse()
+        .map_err(|_| ErrMode::Backtrack(ContextError::new()))?;
+    parse(input, TokenKind::RParen)?;
+    parse(input, TokenKind::RBracket)?;
+    let label = if peek(input) == TokenKind::Label && peek_at(input, 1) == TokenKind::Colon {
+        let label_tok: Token<'src> = any.parse_next(input)?;
+        parse(input, TokenKind::Colon)?;
+        Some(label_tok.literal.to_string())
+    } else {
+        None
+    };
+    match peek(input) {
+        TokenKind::Loop => parse_loop_stmt(input, depth, label, bound).map(Stmt::Loop),
+        TokenKind::While => parse_while_stmt(input, depth, label, bound).map(Stmt::While),
+        _ => Err(ErrMode::Backtrack(ContextError::new())),
+    }
+}
+
+/// Parses a labeled `for` loop: `'label: for <ident> in <iterable> { ... }`.
+fn parse_labeled_for_loop<'src>(
     input: &mut &'src [Token<'src>],
     depth: &Cell<usize>,
 ) -> ParseResult<Stmt> {
@@ -1645,18 +1681,19 @@ fn parse_labeled_loop<'src>(
     let label = label_tok.literal.to_string();
     parse(input, TokenKind::Colon)?;
     match peek(input) {
-        TokenKind::Loop => parse_loop_stmt(input, depth, Some(label)).map(Stmt::Loop),
-        TokenKind::While => parse_while_stmt(input, depth, Some(label)).map(Stmt::While),
         TokenKind::For => parse_for_stmt(input, depth, Some(label)).map(Stmt::For),
         _ => Err(ErrMode::Backtrack(ContextError::new())),
     }
 }
 
-/// Parses an infinite loop: `loop { body }` or `'label: loop { body }`.
+/// Parses a bounded loop: `#[bounded(N)] loop { body }`.
+///
+/// Only called from `parse_bounded_loop` after the bound has been extracted.
 fn parse_loop_stmt<'src>(
     input: &mut &'src [Token<'src>],
     depth: &Cell<usize>,
     label: Option<String>,
+    bound: u64,
 ) -> ParseResult<LoopStmt> {
     let start = parse(input, TokenKind::Loop)?.span;
     parse(input, TokenKind::LBrace)?;
@@ -1664,21 +1701,22 @@ fn parse_loop_stmt<'src>(
     let end = body.span;
     Ok(LoopStmt {
         label,
+        bound,
         body,
         span: start.merge(end),
     })
 }
 
-/// Parses a `while` loop: `while condition { body }` or
-/// `'label: while condition { body }`.
+/// Parses a bounded `while` loop: `#[bounded(N)] while condition { body }`.
 ///
+/// Only called from `parse_bounded_loop` after the bound has been extracted.
 /// Parentheses around the condition are optional: both `while x > 0 { ... }`
-/// and `while (x > 0) { ... }` are accepted. When present, parentheses are
-/// parsed as a grouped expression.
+/// and `while (x > 0) { ... }` are accepted.
 fn parse_while_stmt<'src>(
     input: &mut &'src [Token<'src>],
     depth: &Cell<usize>,
     label: Option<String>,
+    bound: u64,
 ) -> ParseResult<WhileStmt> {
     let start = parse(input, TokenKind::While)?.span;
     let condition = Box::new(parse_expression(input, MIN_BP, depth)?);
@@ -1687,6 +1725,7 @@ fn parse_while_stmt<'src>(
     let end = body.span;
     Ok(WhileStmt {
         label,
+        bound,
         condition,
         body,
         span: start.merge(end),

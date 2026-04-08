@@ -245,6 +245,7 @@ fn control_flow_display() {
 
     let while_stmt = WhileStmt {
         label: None,
+        bound: 100,
         condition: Box::new(Expr::Ident(Ident {
             value: "cond".to_string(),
             span: span(),
@@ -275,6 +276,7 @@ fn control_flow_display() {
 
     let loop_stmt = LoopStmt {
         label: None,
+        bound: 100,
         body: BlockStmt {
             statements: vec![Stmt::Expr(ExprStmt {
                 value: Expr::Break(BreakExpr {

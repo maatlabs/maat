@@ -86,6 +86,8 @@ fn isqrt(n: i64) -> Result<i64, str> {
         Err("negative input")
     } else {
         let mut guess: i64 = 0;
+
+        #[bounded(65536)]
         while (guess + 1) * (guess + 1) <= n {
             guess += 1;
         }

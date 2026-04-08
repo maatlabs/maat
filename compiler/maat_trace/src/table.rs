@@ -1,8 +1,18 @@
 //! Execution trace table for the Maat ZK backend.
 //!
-//! The [`TraceTable`] records every instruction step as a row of 29 Goldilocks
+//! The [`TraceTable`] records every instruction step as a row of 36 Goldilocks
 //! field elements. The trace is the algebraic witness that the STARK prover
 //! commits to and the verifier checks against the AIR constraints.
+//!
+//! # Range-check columns
+//!
+//! Columns 30--35 carry the range-check sub-AIR witness data:
+//!
+//! - **`rc_val`**: the value being range-checked (zero on non-trigger rows).
+//! - **`rc_l0`..`rc_l3`**: four 16-bit limbs satisfying
+//!   `rc_val = l0 + 2^16 * l1 + 2^32 * l2 + 2^48 * l3`.
+//! - **`nonzero_inv`**: multiplicative inverse of the divisor on `sel_div_mod`
+//!   rows, proving the divisor is non-zero.
 
 use std::fmt;
 use std::io::{self, Write};
@@ -37,11 +47,28 @@ pub const COL_MEM_ADDR: usize = 10;
 pub const COL_MEM_VAL: usize = 11;
 /// `1` if memory read, `0` if memory write.
 pub const COL_IS_READ: usize = 12;
-/// Base column index for the 16 selector flags (`sel_0..sel_15`).
+/// Base column index for the 17 selector flags (`sel_0..sel_16`).
 pub const COL_SEL_BASE: usize = 13;
 
+/// Base index of the range-check columns (immediately after selectors).
+const COL_RC_BASE: usize = COL_SEL_BASE + NUM_SELECTORS;
+
+/// Value being range-checked. Zero on non-trigger rows.
+pub const COL_RC_VAL: usize = COL_RC_BASE;
+/// Range-check limb 0 (bits 0--15).
+pub const COL_RC_L0: usize = COL_RC_BASE + 1;
+/// Range-check limb 1 (bits 16--31).
+pub const COL_RC_L1: usize = COL_RC_BASE + 2;
+/// Range-check limb 2 (bits 32--47).
+pub const COL_RC_L2: usize = COL_RC_BASE + 3;
+/// Range-check limb 3 (bits 48--63).
+pub const COL_RC_L3: usize = COL_RC_BASE + 4;
+/// Multiplicative inverse of the divisor on `sel_div_mod` rows.
+/// Proves the divisor is non-zero: `divisor * nonzero_inv = 1`.
+pub const COL_NONZERO_INV: usize = COL_RC_BASE + 5;
+
 /// Total number of columns in the main execution trace.
-pub const TRACE_WIDTH: usize = COL_SEL_BASE + NUM_SELECTORS;
+pub const TRACE_WIDTH: usize = COL_NONZERO_INV + 1;
 
 /// Column names for CSV header and debugging.
 pub const COLUMN_NAMES: [&str; TRACE_WIDTH] = [
@@ -74,6 +101,13 @@ pub const COLUMN_NAMES: [&str; TRACE_WIDTH] = [
     "sel_13",
     "sel_14",
     "sel_15",
+    "sel_16",
+    "rc_val",
+    "rc_l0",
+    "rc_l1",
+    "rc_l2",
+    "rc_l3",
+    "nonzero_inv",
 ];
 
 /// A single trace row: an array of [`TRACE_WIDTH`] field elements.
@@ -279,7 +313,7 @@ mod tests {
         let cols = header.split(',').collect::<Vec<_>>();
         assert_eq!(cols.len(), TRACE_WIDTH);
         assert_eq!(cols[0], "pc");
-        assert_eq!(cols[TRACE_WIDTH - 1], "sel_15");
+        assert_eq!(cols[TRACE_WIDTH - 1], "nonzero_inv");
     }
 
     #[test]

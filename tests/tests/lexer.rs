@@ -188,10 +188,9 @@ fn keywords() {
 
 #[test]
 fn invalid_characters() {
-    let source = "@ # $";
+    let source = "@ $";
     let expected = [
         (TokenKind::Invalid, "@"),
-        (TokenKind::Invalid, "#"),
         (TokenKind::Invalid, "$"),
         (TokenKind::Eof, ""),
     ];

@@ -122,23 +122,33 @@ impl FuncDef {
     }
 }
 
-/// An infinite loop: `loop { <body> }` or `'label: loop { <body> }`.
+/// A bounded loop: `#[bounded(N)] loop { <body> }`.
 ///
-/// Exits only via `break`. The optional break value becomes
-/// the loop expression's result. When labeled, `break 'label` and
-/// `continue 'label` target this specific loop.
+/// Exits only via `break` or when the iteration count reaches `bound`.
+/// The optional break value becomes the loop expression's result.
+/// When labeled, `break 'label` and `continue 'label` target this
+/// specific loop.
+///
+/// The `bound` field carries the maximum iteration count from the
+/// required `#[bounded(N)]` annotation. All loops in Maat must be
+/// provably bounded; unbounded `loop` is a parse error.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LoopStmt {
     pub label: Option<String>,
+    pub bound: u64,
     pub body: BlockStmt,
     pub span: Span,
 }
 
-/// A conditional loop: `while <condition> { <body> }` or
-/// `'label: while <condition> { <body> }`.
+/// A bounded conditional loop: `#[bounded(N)] while <condition> { <body> }`.
+///
+/// The `bound` field carries the maximum iteration count from the
+/// required `#[bounded(N)]` annotation. All loops in Maat must be
+/// provably bounded; an unbounded `while` is a parse error.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct WhileStmt {
     pub label: Option<String>,
+    pub bound: u64,
     pub condition: Box<Expr>,
     pub body: BlockStmt,
     pub span: Span,

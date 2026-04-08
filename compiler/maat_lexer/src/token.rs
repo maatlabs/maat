@@ -251,6 +251,8 @@ pub enum TokenKind {
     DotDotEqual,
     /// The try operator `?` for error propagation.
     Question,
+    /// The hash symbol `#` for attribute annotations.
+    Hash,
 
     /// A documentation comment (`///`).
     DocComment,

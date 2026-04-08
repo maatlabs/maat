@@ -134,6 +134,8 @@ println!("{}", decrypted);
 fn popcount(n: i64) -> i64 {
     let mut count: i64 = 0;
     let mut val = n;
+
+    #[bounded(64)]
     while val != 0 {
         count += val & 1;
         val = val >> 1;
