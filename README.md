@@ -329,8 +329,8 @@ Errors are reported with precise `file:line:col` locations using source maps and
 | `maat_types`    | Hindley-Milner type inference (Algorithm W)                                          |
 | `maat_field`    | Goldilocks field element (`Felt`) arithmetic                                         |
 | `maat_bytecode` | Instruction set encoding/decoding and serialization (50 opcodes)                     |
-| `maat_trace`    | Trace-generating VM producing a 29-column algebraic execution trace for ZK proving   |
-| `maat_air`      | CPU constraint system (AIR): 40 polynomial constraints + memory permutation argument |
+| `maat_trace`    | Trace-generating VM producing a 44-column algebraic execution trace for ZK proving   |
+| `maat_air`      | CPU constraint system (AIR): 49 polynomial constraints + memory permutation argument |
 | `maat_codegen`  | AST-to-bytecode compiler with scope analysis                                         |
 | `maat_module`   | Module resolution, dependency graph, and multi-module pipeline                       |
 | `maat_vm`       | Stack-based virtual machine                                                          |
