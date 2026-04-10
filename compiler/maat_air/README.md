@@ -1,6 +1,6 @@
 # maat_air
 
-CPU constraint system (AIR) for the Maat ZK backend.
+CPU constraint system (AIR) for the Maat programming language.
 
 ## Role
 

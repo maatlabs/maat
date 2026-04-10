@@ -1,6 +1,6 @@
 # maat_trace
 
-Trace-generating virtual machine for the Maat ZK backend.
+Trace-generating virtual machine for the Maat programming language.
 
 ## Role
 

@@ -1,6 +1,6 @@
 # maat_field
 
-Finite field arithmetic and value-to-field encoding for the Maat zero-knowledge backend.
+Finite field arithmetic and value-to-field encoding for the Maat programming language.
 
 ## Role
 

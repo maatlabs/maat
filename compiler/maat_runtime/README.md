@@ -1,10 +1,10 @@
 # maat_runtime
 
-Runtime value types for the Maat virtual machine.
+Runtime value system for the Maat programming language.
 
 ## Role
 
-`maat_runtime` defines the `Value` enum--the common currency between the tree-walking macro evaluator (`maat_eval`) and the bytecode VM (`maat_vm`). It also provides `Env` (a scope-chained variable store), the built-in function registry, and integer wrapper types (`Integer`, `WideInt`) that enforce ZK-safe arithmetic (no floating-point, overflow-checked integer ops). `Felt` from `maat_field` is re-exported here as a first-class `Value` variant.
+`maat_runtime` defines the `Value` enum--the common currency between the tree-walking interpreter/macro processor (`maat_eval`) and the bytecode VM (`maat_vm`). It also provides `Env` (a scope-chained variable store), the built-in function registry, and integer wrapper types (`Integer`, `WideInt`) that enforce ZK-safe arithmetic (no floating-point, overflow-checked integer ops). `Felt` from `maat_field` is re-exported here as a first-class `Value` variant.
 
 ## Usage
 

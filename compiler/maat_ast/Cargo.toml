@@ -1,6 +1,6 @@
 [package]
 name = "maat_ast"
-description = "Abstract syntax tree (AST) node definitions for the Maat programming language"
+description = "Abstract syntax tree (AST) for the Maat programming language"
 keywords = ["compiler", "maat", "zero-knowledge", "zk", "ast"]
 categories = ["compilers"]
 version.workspace = true

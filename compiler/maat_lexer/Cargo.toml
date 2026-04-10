@@ -1,7 +1,7 @@
 [package]
 name = "maat_lexer"
 description = "DFA-based lexer for the Maat programming language"
-keywords = ["compiler", "maat", "zero-knowledge", "lexer", "zk"]
+keywords = ["compiler", "maat", "zero-knowledge", "zk", "lexer"]
 categories = ["compilers", "parser-implementations"]
 version.workspace = true
 edition.workspace = true

@@ -1,6 +1,6 @@
 # maat_ast
 
-Abstract syntax tree (AST) node definitions for the Maat programming language.
+Abstract syntax tree (AST) the Maat programming language.
 
 ## Role
 

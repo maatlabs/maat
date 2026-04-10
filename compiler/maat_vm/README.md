@@ -1,6 +1,6 @@
 # maat_vm
 
-Stack-based virtual machine for executing Maat bytecode.
+Stack-based virtual machine for the Maat programming language.
 
 ## Role
 

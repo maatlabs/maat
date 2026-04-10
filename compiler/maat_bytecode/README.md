@@ -1,6 +1,6 @@
 # maat_bytecode
 
-Bytecode format and serialization for the Maat virtual machine.
+Bytecode format and serialization for the Maat virtual machine (MVM).
 
 ## Role
 

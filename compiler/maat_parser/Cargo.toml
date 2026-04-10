@@ -1,7 +1,7 @@
 [package]
 name = "maat_parser"
 description = "Combinator-based parser for the Maat programming language"
-keywords = ["compiler", "maat", "zero-knowledge", "parser", "zk"]
+keywords = ["compiler", "maat", "zero-knowledge", "zk", "parser"]
 categories = ["compilers", "parser-implementations"]
 version.workspace = true
 edition.workspace = true
