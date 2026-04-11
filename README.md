@@ -316,25 +316,25 @@ Errors are reported with precise `file:line:col` locations using source maps and
 
 ### Crate Organization
 
-| Crate           | Description                                                                          |
-| --------------- | ------------------------------------------------------------------------------------ |
-| `maat`          | The CLI for commands such as `build`, `trace`, `repl`, `prove`, and `verify`         |
-| `maat_span`     | Source location tracking and span management                                         |
-| `maat_errors`   | Unified error handling with `Result` type alias                                      |
-| `maat_lexer`    | `logos` compile-time DFA tokenizer                                                   |
-| `maat_ast`      | Abstract Syntax Tree definitions and transformations                                 |
-| `maat_parser`   | `winnow` combinator-based parser                                                     |
-| `maat_eval`     | Macro expansion engine (`quote`/`unquote`)                                           |
-| `maat_runtime`  | Value system, built-in functions, and compiled types                                 |
-| `maat_types`    | Hindley-Milner type inference (Algorithm W)                                          |
-| `maat_field`    | Goldilocks field element (`Felt`) arithmetic                                         |
-| `maat_bytecode` | Instruction set encoding/decoding and serialization (50 opcodes)                     |
-| `maat_trace`    | Trace-generating VM producing a 44-column algebraic execution trace for ZK proving   |
-| `maat_air`      | CPU constraint system (AIR): 49 polynomial constraints + memory permutation argument |
-| `maat_codegen`  | AST-to-bytecode compiler with scope analysis                                         |
-| `maat_module`   | Module resolution, dependency graph, and multi-module pipeline                       |
-| `maat_vm`       | Stack-based virtual machine                                                          |
-| `maat_stdlib`   | Embedded standard library sources (`std::math`, `std::vec`, …)                       |
+| Crate             | Description                                                                          |
+| ----------------- | ------------------------------------------------------------------------------------ |
+| [`maat`]          | The CLI for commands such as `build`, `trace`, `repl`, `prove`, and `verify`         |
+| [`maat_span`]     | Source location tracking and span management                                         |
+| [`maat_errors`]   | Unified error handling with `Result` type alias                                      |
+| [`maat_lexer`]    | `logos` compile-time DFA tokenizer                                                   |
+| [`maat_ast`]      | Abstract Syntax Tree definitions and transformations                                 |
+| [`maat_parser`]   | `winnow` combinator-based parser                                                     |
+| [`maat_eval`]     | Macro expansion engine (`quote`/`unquote`)                                           |
+| [`maat_runtime`]  | Value system, built-in functions, and compiled types                                 |
+| [`maat_types`]    | Hindley-Milner type inference (Algorithm W)                                          |
+| [`maat_field`]    | Goldilocks field element (`Felt`) arithmetic                                         |
+| [`maat_bytecode`] | Instruction set encoding/decoding and serialization (50 opcodes)                     |
+| [`maat_trace`]    | Trace-generating VM producing a 44-column algebraic execution trace for ZK proving   |
+| [`maat_air`]      | CPU constraint system (AIR): 49 polynomial constraints + memory permutation argument |
+| [`maat_codegen`]  | AST-to-bytecode compiler with scope analysis                                         |
+| [`maat_module`]   | Module resolution, dependency graph, and multi-module pipeline                       |
+| [`maat_vm`]       | Stack-based virtual machine                                                          |
+| [`maat_stdlib`]   | Embedded standard library sources (`std::math`, `std::vec`, …)                       |
 
 ## Contributing
 
@@ -373,3 +373,23 @@ Early adopters should be aware that Maat `0.12.2` is a step toward Maat 1.0, for
 Maat's early architecture (v0.1--v0.4) was inspired by Thorsten Ball's [Writing An Interpreter In Go](https://interpreterbook.com), [The Lost Chapter: A Macro System for Monkey](https://interpreterbook.com/lost/), and [Writing A Compiler In Go](https://compilerbook.com). The lexer structure, Pratt parser skeleton, tree-walking evaluator, macro system, and initial bytecode VM design trace back to these books, translated from Go to Rust.
 
 Since then, Maat has diverged substantially. The language now features `Hindley-Milner` type inference, Rust-native custom types (structs, enums, traits, impl blocks, pattern matching), a multi-file module system with visibility enforcement, a ZK-first design that rejects floating-point and implicit truthiness, built-in `Option<T>` and `Result<T, E>`, source-location diagnostics, bytecode serialization, and a CLI toolchain--none of which originate from the source material.
+
+---
+
+[`maat`]: ./compiler/maat/README.md
+[`maat_air`]: ./compiler/maat_air/README.md
+[`maat_ast`]: ./compiler/maat_ast/README.md
+[`maat_bytecode`]: ./compiler/maat_bytecode/README.md
+[`maat_codegen`]: ./compiler/maat_codegen/README.md
+[`maat_errors`]: ./compiler/maat_errors/README.md
+[`maat_eval`]: ./compiler/maat_eval/README.md
+[`maat_field`]: ./compiler/maat_field/README.md
+[`maat_lexer`]: ./compiler/maat_lexer/README.md
+[`maat_module`]: ./compiler/maat_module/README.md
+[`maat_parser`]: ./compiler/maat_parser/README.md
+[`maat_runtime`]: ./compiler/maat_runtime/README.md
+[`maat_span`]: ./compiler/maat_span/README.md
+[`maat_trace`]: ./compiler/maat_trace/README.md
+[`maat_types`]: ./compiler/maat_types/README.md
+[`maat_vm`]: ./compiler/maat_vm/README.md
+[`maat_stdlib`]: ./library/README.md
