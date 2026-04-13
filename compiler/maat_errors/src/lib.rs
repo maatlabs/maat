@@ -8,7 +8,7 @@ mod parse;
 mod ty;
 mod vm;
 
-pub use codex::{DecodeError, SerializationError};
+pub use codex::{DecodeError, ProverError, SerializationError, VerificationError};
 pub use compile::{CompileError, CompileErrorKind};
 pub use eval::EvalError;
 pub use module::{ModuleError, ModuleErrorKind};

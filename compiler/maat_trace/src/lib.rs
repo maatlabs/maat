@@ -59,6 +59,15 @@ pub fn run_trace(bytecode: Bytecode) -> Result<(TraceTable, Option<Value>)> {
     vm.run()?;
     let result = vm.last_popped_stack_elem().cloned();
     let mut trace = vm.into_trace();
+
+    // Stamp the program output onto the last execution row so the boundary
+    // assertion `out[last] = public_output` holds after NOP padding.
+    let output_felt = result
+        .as_ref()
+        .map(encode::value_to_felt)
+        .unwrap_or(maat_field::Felt::ZERO);
+    trace.stamp_output(output_felt);
+
     trace.pad_to_power_of_two();
     Ok((trace, result))
 }

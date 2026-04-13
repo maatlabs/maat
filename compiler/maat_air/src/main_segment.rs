@@ -33,6 +33,7 @@
 //! | 38    | RC: reconstruction                       | 1      |
 //! | 39    | RC: convert linking                      | 2      |
 //! | 40    | RC: non-zero divisor                     | 3      |
+//! | 41    | NOP: output frozen                       | 2      |
 
 use maat_trace::{
     COL_FP, COL_IS_READ, COL_MEM_VAL, COL_NONZERO_INV, COL_OPERAND_0, COL_OUT, COL_PC, COL_RC_L0,
@@ -61,7 +62,7 @@ const SEL_DIV_MOD: usize = 16;
 const NUM_SELECTORS: usize = 17;
 
 /// Number of transition constraints enforced by the AIR.
-pub const NUM_CONSTRAINTS: usize = 41;
+pub const NUM_CONSTRAINTS: usize = 42;
 
 /// Degree of each transition constraint, indexed by constraint number.
 ///
@@ -81,7 +82,8 @@ pub const CONSTRAINT_DEGREES: [usize; NUM_CONSTRAINTS] = [
     2, 2, 2, // 38: RC reconstruction
     1, // 39: RC convert linking
     2, // 40: RC non-zero divisor
-    3,
+    3, // 41: NOP output frozen
+    2,
 ];
 
 /// Reads a selector flag from the current row.
@@ -104,7 +106,7 @@ fn power_of_two_constants<E: FieldElement>() -> (E, E, E) {
     (p16, p32, p48)
 }
 
-/// Evaluates all 41 transition constraints.
+/// Evaluates all 42 transition constraints.
 ///
 /// `current` and `next` are consecutive trace rows (each of width [`TRACE_WIDTH`]).
 /// The result slice must have length [`NUM_CONSTRAINTS`]; each entry is the
@@ -194,6 +196,9 @@ pub fn evaluate<E: FieldElement>(current: &[E], next: &[E], result: &mut [E]) {
 
     let nonzero_inv = current[COL_NONZERO_INV];
     result[40] = sel(current, SEL_DIV_MOD) * (s0 * nonzero_inv - one);
+
+    let out_next = next[COL_OUT];
+    result[41] = sel(current, SEL_NOP) * (out_next - out);
 }
 
 #[cfg(test)]

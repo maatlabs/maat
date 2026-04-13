@@ -7,7 +7,7 @@
 //! # Wire Format
 //!
 //! ```text
-//! Header:  MAGIC "MAAT" (4B) + FORMAT_VERSION u32 BE (4B)
+//! Header:  BYTECODE_MAGIC "MATC" (4B) + FORMAT_VERSION u32 BE (4B)
 //! Payload: postcard-encoded Bytecode (variable length)
 //! ```
 //!
@@ -21,11 +21,11 @@ use maat_errors::SerializationError;
 use crate::{Bytecode, MAX_CONSTANT_POOL_SIZE};
 
 /// Magic bytes identifying a Maat bytecode file.
-const MAAT_MAGIC: [u8; 4] = *b"MAAT";
+const BYTECODE_MAGIC: [u8; 4] = *b"MATC";
 
 /// Current format version. Incremented when the binary layout changes
 /// in a backward-incompatible way.
-const FORMAT_VERSION: u32 = 1;
+const BYTECODE_VERSION: u32 = 1;
 
 /// Header size in bytes (4-byte magic + 4-byte version).
 const HEADER_SIZE: usize = 4 + 4;
@@ -56,8 +56,8 @@ impl Bytecode {
             .map_err(|e| SerializationError::PostcardEncode(e.to_string()))?;
 
         let mut out = Vec::with_capacity(HEADER_SIZE + payload.len());
-        out.extend_from_slice(&MAAT_MAGIC);
-        out.extend_from_slice(&FORMAT_VERSION.to_be_bytes());
+        out.extend_from_slice(&BYTECODE_MAGIC);
+        out.extend_from_slice(&BYTECODE_VERSION.to_be_bytes());
         out.extend_from_slice(&payload);
         Ok(out)
     }
@@ -76,14 +76,14 @@ impl Bytecode {
                 needed: HEADER_SIZE,
             });
         }
-        if bytes[..4] != MAAT_MAGIC {
-            return Err(SerializationError::InvalidMagic);
+        if bytes[..4] != BYTECODE_MAGIC {
+            return Err(SerializationError::InvalidMagic { expected: "MATC" });
         }
         let mut version_bytes = [0u8; 4];
         version_bytes.copy_from_slice(&bytes[4..8]);
         let version = u32::from_be_bytes(version_bytes);
-        if version != FORMAT_VERSION {
-            return Err(SerializationError::UnsupportedVersion(version));
+        if version != BYTECODE_VERSION {
+            return Err(SerializationError::UnsupportedVersion(version as u64));
         }
         let payload = &bytes[HEADER_SIZE..];
         if payload.len() > MAX_PAYLOAD_SIZE {
@@ -297,13 +297,16 @@ mod tests {
     #[test]
     fn invalid_magic() {
         let result = Bytecode::deserialize(b"NOPE\x00\x00\x00\x01");
-        assert!(matches!(result, Err(SerializationError::InvalidMagic)));
+        assert!(matches!(
+            result,
+            Err(SerializationError::InvalidMagic { expected: "MATC" })
+        ));
     }
 
     #[test]
     fn unsupported_version() {
         let mut data = Vec::new();
-        data.extend_from_slice(b"MAAT");
+        data.extend_from_slice(b"MATC");
         data.extend_from_slice(&99u32.to_be_bytes());
         let result = Bytecode::deserialize(&data);
         assert!(matches!(
@@ -314,7 +317,7 @@ mod tests {
 
     #[test]
     fn truncated_header() {
-        let result = Bytecode::deserialize(b"MAA");
+        let result = Bytecode::deserialize(b"MAT");
         assert!(matches!(
             result,
             Err(SerializationError::UnexpectedEof { .. })
@@ -324,7 +327,7 @@ mod tests {
     #[test]
     fn truncated_payload() {
         let mut data = Vec::new();
-        data.extend_from_slice(b"MAAT");
+        data.extend_from_slice(b"MATC");
         data.extend_from_slice(&1u32.to_be_bytes());
         data.push(0xFF);
         let result = Bytecode::deserialize(&data);

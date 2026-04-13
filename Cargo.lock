@@ -836,6 +836,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "maat_prover"
+version = "0.12.2"
+dependencies = [
+ "blake3",
+ "maat_air",
+ "maat_bytecode",
+ "maat_errors",
+ "maat_field",
+ "maat_trace",
+ "winter-air",
+ "winter-crypto",
+ "winter-math",
+ "winter-prover",
+ "winter-verifier",
+]
+
+[[package]]
 name = "maat_runtime"
 version = "0.12.2"
 dependencies = [
@@ -863,6 +880,7 @@ name = "maat_tests"
 version = "0.12.2"
 dependencies = [
  "criterion",
+ "maat_air",
  "maat_ast",
  "maat_bytecode",
  "maat_codegen",
@@ -871,12 +889,16 @@ dependencies = [
  "maat_lexer",
  "maat_module",
  "maat_parser",
+ "maat_prover",
  "maat_runtime",
  "maat_span",
+ "maat_trace",
  "maat_types",
  "maat_vm",
  "proptest",
  "tempfile",
+ "winter-air",
+ "winter-math",
 ]
 
 [[package]]
@@ -979,6 +1001,12 @@ dependencies = [
  "libc",
  "winapi",
 ]
+
+[[package]]
+name = "pin-project-lite"
+version = "0.2.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
 name = "plotters"
@@ -1427,6 +1455,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracing"
+version = "0.1.44"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63e71662fa4b2a2c3a26f570f037eb95bb1f85397f3cd8076caed2f026a6d100"
+dependencies = [
+ "pin-project-lite",
+ "tracing-attributes",
+ "tracing-core",
+]
+
+[[package]]
+name = "tracing-attributes"
+version = "0.1.31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7490cfa5ec963746568740651ac6781f701c9c5ea257c58e057f3ba8cf69e8da"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "tracing-core"
+version = "0.1.36"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
+
+[[package]]
 name = "typenum"
 version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1701,10 +1757,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "winter-maybe-async"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d31a19dae58475d019850e25b0170e94b16d382fbf6afee9c0e80fdc935e73e"
+dependencies = [
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "winter-prover"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "84cc631ed56cd39b78ef932c1ec4060cc6a44d114474291216c32f56655b3048"
+dependencies = [
+ "tracing",
+ "winter-air",
+ "winter-crypto",
+ "winter-fri",
+ "winter-math",
+ "winter-maybe-async",
+ "winter-utils",
+]
+
+[[package]]
 name = "winter-utils"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9951263ef5317740cd0f49e618db00c72fabb70b75756ea26c4d5efe462c04dd"
+
+[[package]]
+name = "winter-verifier"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0425ea81f8f703a1021810216da12003175c7974a584660856224df04b2e2fdb"
+dependencies = [
+ "winter-air",
+ "winter-crypto",
+ "winter-fri",
+ "winter-math",
+ "winter-utils",
+]
 
 [[package]]
 name = "wit-bindgen"

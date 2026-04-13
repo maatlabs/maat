@@ -15,6 +15,7 @@ members = [
     "compiler/maat_vm",
     "compiler/maat_trace",
     "compiler/maat_air",
+    "compiler/maat_prover",
     "compiler/maat_module",
     "compiler/maat",
     "library",
