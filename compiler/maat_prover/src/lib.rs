@@ -43,7 +43,7 @@ pub mod program_hash;
 pub mod proof_file;
 pub mod verifier;
 
-use maat_air::{AUX_WIDTH, MaatAir, MaatPublicInputs, NUM_AUX_RANDS, build_aux_columns};
+use maat_air::{AUX_WIDTH, MaatAir, MaatPublicInputs, NUM_AUX_RANDS};
 use maat_errors::ProverError;
 use maat_trace::{TRACE_WIDTH, TraceTable};
 pub use options::{development_options, production_options};
@@ -115,13 +115,11 @@ impl MaatTrace {
             .collect::<Vec<Vec<BaseElement>>>();
 
         let trace_length = columns[0].len();
-        let info = TraceInfo::new_multi_segment(
-            TRACE_WIDTH,
-            AUX_WIDTH,
-            NUM_AUX_RANDS,
-            trace_length,
-            vec![],
-        );
+        let activity_mask = maat_air::encode_mask(&columns);
+        let meta = activity_mask.to_le_bytes().to_vec();
+
+        let info =
+            TraceInfo::new_multi_segment(TRACE_WIDTH, AUX_WIDTH, NUM_AUX_RANDS, trace_length, meta);
         let main = ColMatrix::new(columns);
 
         MaatTrace { info, main }
@@ -227,7 +225,8 @@ impl Prover for MaatProver {
         aux_rand_elements: &AuxRandElements<E>,
     ) -> ColMatrix<E> {
         let main_columns = main_trace.extract_main_columns();
-        let aux_columns = build_aux_columns(&main_columns, aux_rand_elements.rand_elements());
+        let aux_columns =
+            maat_air::build_aux_columns(&main_columns, aux_rand_elements.rand_elements());
         ColMatrix::new(aux_columns)
     }
 }

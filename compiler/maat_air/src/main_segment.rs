@@ -42,24 +42,24 @@ use maat_trace::{
 use winter_math::FieldElement;
 
 // Selector column indices relative to `COL_SEL_BASE`.
-const SEL_NOP: usize = 0;
-const SEL_PUSH: usize = 1;
-const SEL_ARITH: usize = 2;
-const SEL_BITWISE: usize = 3;
-const SEL_CMP: usize = 4;
-const SEL_UNARY: usize = 5;
-const SEL_LOAD: usize = 6;
-const SEL_STORE: usize = 7;
-const SEL_JUMP: usize = 8;
-const SEL_COND_JUMP: usize = 9;
-const SEL_CALL: usize = 10;
-const SEL_RETURN: usize = 11;
-const SEL_CONVERT: usize = 13;
-const SEL_FELT: usize = 15;
-const SEL_DIV_MOD: usize = 16;
+pub(crate) const SEL_NOP: usize = 0;
+pub(crate) const SEL_PUSH: usize = 1;
+pub(crate) const SEL_ARITH: usize = 2;
+pub(crate) const SEL_BITWISE: usize = 3;
+pub(crate) const SEL_CMP: usize = 4;
+pub(crate) const SEL_UNARY: usize = 5;
+pub(crate) const SEL_LOAD: usize = 6;
+pub(crate) const SEL_STORE: usize = 7;
+pub(crate) const SEL_JUMP: usize = 8;
+pub(crate) const SEL_COND_JUMP: usize = 9;
+pub(crate) const SEL_CALL: usize = 10;
+pub(crate) const SEL_RETURN: usize = 11;
+pub(crate) const SEL_CONVERT: usize = 13;
+pub(crate) const SEL_FELT: usize = 15;
+pub(crate) const SEL_DIV_MOD: usize = 16;
 
 /// Number of selector columns (must match `maat_trace::selector::NUM_SELECTORS`).
-const NUM_SELECTORS: usize = 17;
+pub(crate) const NUM_SELECTORS: usize = 17;
 
 /// Number of transition constraints enforced by the AIR.
 pub const NUM_CONSTRAINTS: usize = 42;
