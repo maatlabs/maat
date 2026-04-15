@@ -11,9 +11,9 @@ homepage.workspace = true
 readme = "README.md"
 
 [dependencies]
-maat_bytecode = { path = "../maat_bytecode", version = "0.12.2" }
-maat_errors = { path = "../maat_errors", version = "0.12.2" }
-maat_field = { path = "../maat_field", version = "0.12.2" }
-maat_runtime = { path = "../maat_runtime", version = "0.12.2" }
-maat_span = { path = "../maat_span", version = "0.12.2" }
+maat_bytecode = { path = "../maat_bytecode", version = "0.12.3" }
+maat_errors = { path = "../maat_errors", version = "0.12.3" }
+maat_field = { path = "../maat_field", version = "0.12.3" }
+maat_runtime = { path = "../maat_runtime", version = "0.12.3" }
+maat_span = { path = "../maat_span", version = "0.12.3" }
 indexmap.workspace = true

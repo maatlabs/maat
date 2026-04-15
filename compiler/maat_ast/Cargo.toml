@@ -11,5 +11,5 @@ homepage.workspace = true
 readme = "README.md"
 
 [dependencies]
-maat_span = { path = "../maat_span", version = "0.12.2" }
-maat_errors = { path = "../maat_errors", version = "0.12.2" }
+maat_span = { path = "../maat_span", version = "0.12.3" }
+maat_errors = { path = "../maat_errors", version = "0.12.3" }

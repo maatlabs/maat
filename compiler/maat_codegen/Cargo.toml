@@ -12,12 +12,12 @@ readme = "README.md"
 
 [dependencies]
 indexmap.workspace = true
-maat_ast = { path = "../maat_ast", version = "0.12.2" }
-maat_bytecode = { path = "../maat_bytecode", version = "0.12.2" }
-maat_errors = { path = "../maat_errors", version = "0.12.2" }
-maat_runtime = { path = "../maat_runtime", version = "0.12.2" }
-maat_span = { path = "../maat_span", version = "0.12.2" }
+maat_ast = { path = "../maat_ast", version = "0.12.3" }
+maat_bytecode = { path = "../maat_bytecode", version = "0.12.3" }
+maat_errors = { path = "../maat_errors", version = "0.12.3" }
+maat_runtime = { path = "../maat_runtime", version = "0.12.3" }
+maat_span = { path = "../maat_span", version = "0.12.3" }
 
 [dev-dependencies]
-maat_lexer = { path = "../maat_lexer", version = "0.12.2" }
-maat_parser = { path = "../maat_parser", version = "0.12.2" }
+maat_lexer = { path = "../maat_lexer", version = "0.12.3" }
+maat_parser = { path = "../maat_parser", version = "0.12.3" }
