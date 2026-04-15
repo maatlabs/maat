@@ -18,6 +18,7 @@ path = "src/main.rs"
 ariadne = "0.6"
 clap = { version = "4", features = ["derive"] }
 rustyline = { version = "18", features = ["with-file-history", "derive"] }
+serde_json = "1"
 
 maat_ast = { path = "../maat_ast", version = "0.12.2" }
 maat_bytecode = { path = "../maat_bytecode", version = "0.12.2" }

@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{self, BufWriter};
+use std::io::{self, BufReader, BufWriter};
 use std::path::Path;
 use std::process;
 use std::time::Instant;
@@ -9,8 +9,8 @@ use maat_bytecode::Bytecode;
 use maat_field::Felt;
 use maat_module::{check_and_compile, resolve_module_graph};
 use maat_prover::{
-    MaatProver, compute_program_hash, compute_program_hash_bytes, development_options,
-    production_options, serialize_proof, verify_proof_file,
+    MaatProver, compute_program_hash, compute_program_hash_bytes, deserialize_proof,
+    development_options, production_options, serialize_proof,
 };
 use maat_runtime::Value;
 use maat_trace::encode::value_to_felt;
@@ -163,32 +163,22 @@ pub fn trace(path: &Path, output_path: Option<&Path>) {
 /// generates a cryptographic proof of correct execution, and writes
 /// the serialized proof to disk.
 ///
-/// The pipeline is:
-/// 1. Parse, type-check, and compile to bytecode.
-/// 2. Run the standard VM to verify program correctness.
-/// 3. Run the trace VM to generate the execution trace.
-/// 4. Generate the STARK proof.
-/// 5. Serialize and write the proof file.
+/// The proof file embeds all public inputs (program hash, inputs, output)
+/// so verification requires only the proof file itself.
 pub fn prove(
     path: &Path,
     input: Option<&str>,
+    inputs_file: Option<&Path>,
     output_path: Option<&Path>,
     trace_path: Option<&Path>,
-    release: bool,
+    production: bool,
 ) {
     require_extension(path, "maat", "prove");
 
-    let inputs = parse_input_values(input);
+    let inputs = load_inputs(input, inputs_file);
     let bytecode = compile_source(path);
 
-    let mut vm = VM::new(bytecode.clone());
-    if let Err(e) = vm.run() {
-        eprintln!("error: {}: {e}", path.display());
-        process::exit(1);
-    }
-    let result = vm.last_popped_stack_elem().cloned();
-
-    let (trace, trace_result) = match maat_trace::run_trace(bytecode.clone()) {
+    let (trace, result) = match maat_trace::run_trace(bytecode.clone()) {
         Ok(pair) => pair,
         Err(e) => {
             eprintln!("error: trace generation failed: {e}");
@@ -211,7 +201,7 @@ pub fn prove(
         eprintln!("trace: {} rows -> {}", trace.num_rows(), tp.display());
     }
 
-    let output = trace_result
+    let output = result
         .as_ref()
         .map(|v| value_to_felt(v).into_base_element())
         .unwrap_or(BaseElement::ZERO);
@@ -232,7 +222,7 @@ pub fn prove(
     };
 
     let public_inputs = MaatPublicInputs::new(program_hash, inputs.clone(), output);
-    let options = if release {
+    let options = if production {
         production_options()
     } else {
         development_options()
@@ -249,7 +239,7 @@ pub fn prove(
     };
     let elapsed = start.elapsed();
 
-    let proof_bytes = serialize_proof(&proof, &program_hash_bytes);
+    let proof_bytes = serialize_proof(&proof, &program_hash_bytes, output, &inputs);
     let default_output = path.with_extension("proof.bin");
     let out = output_path.unwrap_or(&default_output);
     if let Err(e) = std::fs::write(out, &proof_bytes) {
@@ -280,14 +270,11 @@ pub fn prove(
 
 /// STARK proof verification for the `maat verify` command.
 ///
-/// Reads a proof file, reconstructs the public inputs from the stored
-/// program hash and the provided input/output values, and verifies
-/// the cryptographic proof.
-pub fn verify(path: &Path, input: Option<&str>, expected: &str) {
+/// Reads a proof file and verifies it using the embedded public inputs.
+/// No external arguments are required since the proof file contains
+/// all information needed for verification.
+pub fn verify(path: &Path) {
     require_extension(path, "bin", "verify");
-
-    let inputs = parse_input_values(input);
-    let expected_output = parse_value(expected);
 
     let proof_bytes = match std::fs::read(path) {
         Ok(b) => b,
@@ -296,12 +283,24 @@ pub fn verify(path: &Path, input: Option<&str>, expected: &str) {
             process::exit(1);
         }
     };
+    let (_, embedded) = match deserialize_proof(&proof_bytes) {
+        Ok(pair) => pair,
+        Err(e) => {
+            eprintln!("error: failed to parse proof file: {e}");
+            process::exit(1);
+        }
+    };
 
     let start = Instant::now();
-    match verify_proof_file(&proof_bytes, inputs, expected_output) {
+    match maat_prover::verify(&proof_bytes) {
         Ok(()) => {
             let elapsed = start.elapsed();
-            eprintln!("VERIFIED ({:.2?})", elapsed);
+            eprintln!(
+                "VERIFIED (output: {}, inputs: {}, {:.2?})",
+                embedded.output.as_int(),
+                embedded.inputs.len(),
+                elapsed
+            );
         }
         Err(e) => {
             eprintln!("REJECTED: {e}");
@@ -349,18 +348,71 @@ fn compile_source(path: &Path) -> Bytecode {
     }
 }
 
+/// Loads public inputs from either command-line arguments or a JSON file.
+///
+/// If both `input` and `inputs_file` are provided, exits with an error.
+/// If neither is provided, returns an empty vector.
+fn load_inputs(input: Option<&str>, inputs_file: Option<&Path>) -> Vec<BaseElement> {
+    match (input, inputs_file) {
+        (Some(_), Some(_)) => {
+            eprintln!("error: cannot specify both --input and --inputs-file");
+            process::exit(1);
+        }
+        (Some(s), None) => parse_input_values(s),
+        (None, Some(path)) => parse_inputs_file(path),
+        (None, None) => vec![],
+    }
+}
+
 /// Parses comma-separated input values into field elements.
 ///
 /// Supports integer literals and field element literals (with `fe` or `_fe` suffix).
-/// Returns an empty vector if `input` is `None`.
-fn parse_input_values(input: Option<&str>) -> Vec<BaseElement> {
-    let Some(s) = input else {
-        return vec![];
-    };
-    if s.trim().is_empty() {
+fn parse_input_values(input: &str) -> Vec<BaseElement> {
+    if input.trim().is_empty() {
         return vec![];
     }
-    s.split(',').map(|v| parse_value(v.trim())).collect()
+    input.split(',').map(|v| parse_value(v.trim())).collect()
+}
+
+/// Parses a JSON file containing an array of public input values.
+///
+/// Expected format: `[1, 2, 3]` or `["42_fe", "-5", "100"]`
+fn parse_inputs_file(path: &Path) -> Vec<BaseElement> {
+    let file = match File::open(path) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("error: cannot read '{}': {e}", path.display());
+            process::exit(1);
+        }
+    };
+    let reader = BufReader::new(file);
+    let values: Vec<serde_json::Value> = match serde_json::from_reader(reader) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("error: invalid JSON in '{}': {e}", path.display());
+            process::exit(1);
+        }
+    };
+    values
+        .iter()
+        .map(|v| match v {
+            serde_json::Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    Felt::from_i64(i).into_base_element()
+                } else if let Some(u) = n.as_u64() {
+                    BaseElement::new(u)
+                } else {
+                    eprintln!("error: number {} is too large for field element", n);
+                    process::exit(1);
+                }
+            }
+            serde_json::Value::String(s) => parse_value(s),
+            _ => {
+                eprintln!("error: inputs must be numbers or strings, got {:?}", v);
+                process::exit(1);
+            }
+        })
+        .collect()
 }
 
 /// Parses a single value string into a field element.

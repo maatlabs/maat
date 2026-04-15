@@ -8,7 +8,7 @@ use maat_air::MaatPublicInputs;
 use maat_bytecode::Bytecode;
 use maat_prover::{
     MaatProver, compute_program_hash, compute_program_hash_bytes, deserialize_proof,
-    development_options, production_options, serialize_proof, verify, verify_proof_file,
+    development_options, production_options, serialize_proof, verify, verify_with_inputs,
 };
 use maat_trace::TraceTable;
 use maat_trace::encode::value_to_felt;
@@ -41,7 +41,7 @@ fn prove(bytecode: &Bytecode, trace: TraceTable, output: BaseElement) -> (Proof,
 fn prove_and_verify(source: &str) {
     let (bytecode, trace, output) = compile_and_trace(source);
     let (proof, public_inputs) = prove(&bytecode, trace, output);
-    verify(proof, public_inputs).expect("verification failed");
+    verify_with_inputs(proof, public_inputs).expect("verification failed");
 }
 
 #[test]
@@ -367,7 +367,7 @@ fn wrong_output_rejected() {
     let wrong_inputs = MaatPublicInputs::new(program_hash, vec![], wrong_output);
 
     assert!(
-        verify(proof, wrong_inputs).is_err(),
+        verify_with_inputs(proof, wrong_inputs).is_err(),
         "verification with wrong output must fail"
     );
 }
@@ -390,7 +390,7 @@ fn wrong_program_hash_rejected() {
 
     let tampered_inputs = MaatPublicInputs::new(wrong_hash, vec![], output);
     assert!(
-        verify(proof, tampered_inputs).is_err(),
+        verify_with_inputs(proof, tampered_inputs).is_err(),
         "tampered program hash must be rejected"
     );
 }
@@ -403,40 +403,47 @@ fn proof_file_round_trip() {
         compute_program_hash_bytes(&bytecode).expect("program hash bytes failed");
     let (proof, _public_inputs) = prove(&bytecode, trace, output);
 
-    let serialized = serialize_proof(&proof, &program_hash_bytes);
-    let (decoded_proof, decoded_hash) =
-        deserialize_proof(&serialized).expect("deserialization failed");
+    let serialized = serialize_proof(&proof, &program_hash_bytes, output, &[]);
+    let (decoded_proof, embedded) = deserialize_proof(&serialized).expect("deserialization failed");
 
-    assert_eq!(decoded_hash, program_hash_bytes);
+    assert_eq!(embedded.program_hash, program_hash_bytes);
+    assert_eq!(embedded.output, output);
+    assert!(embedded.inputs.is_empty());
     assert_eq!(decoded_proof.to_bytes(), proof.to_bytes());
 }
 
 #[test]
-fn verify_proof_file_end_to_end() {
+fn verify_serialized_proof_end_to_end() {
     let source = "let x: i64 = 7; x";
     let (bytecode, trace, output) = compile_and_trace(source);
     let program_hash_bytes =
         compute_program_hash_bytes(&bytecode).expect("program hash bytes failed");
     let (proof, _public_inputs) = prove(&bytecode, trace, output);
 
-    let serialized = serialize_proof(&proof, &program_hash_bytes);
-    verify_proof_file(&serialized, vec![], output).expect("proof file verification failed");
+    let serialized = serialize_proof(&proof, &program_hash_bytes, output, &[]);
+    verify(&serialized).expect("proof file verification failed");
 }
 
 #[test]
-fn proof_file_wrong_output_rejected() {
+fn proof_file_with_inputs_round_trip() {
     let source = "let x: i64 = 7; x";
     let (bytecode, trace, output) = compile_and_trace(source);
     let program_hash_bytes =
         compute_program_hash_bytes(&bytecode).expect("program hash bytes failed");
     let (proof, _public_inputs) = prove(&bytecode, trace, output);
 
-    let serialized = serialize_proof(&proof, &program_hash_bytes);
-    let wrong = BaseElement::new(999);
-    assert!(
-        verify_proof_file(&serialized, vec![], wrong).is_err(),
-        "wrong output in proof file verification must be rejected"
-    );
+    let inputs = vec![
+        BaseElement::new(1),
+        BaseElement::new(2),
+        BaseElement::new(3),
+    ];
+    let serialized = serialize_proof(&proof, &program_hash_bytes, output, &inputs);
+    let (_, embedded) = deserialize_proof(&serialized).expect("deserialization failed");
+
+    assert_eq!(embedded.inputs.len(), 3);
+    assert_eq!(embedded.inputs[0], BaseElement::new(1));
+    assert_eq!(embedded.inputs[1], BaseElement::new(2));
+    assert_eq!(embedded.inputs[2], BaseElement::new(3));
 }
 
 #[test]
@@ -449,5 +456,5 @@ fn prove_and_verify_production_options() {
     let proof = prover
         .generate_proof(trace)
         .expect("proof generation with production options failed");
-    verify(proof, public_inputs).expect("verification with production options failed");
+    verify_with_inputs(proof, public_inputs).expect("verification with production options failed");
 }

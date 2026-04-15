@@ -731,6 +731,7 @@ dependencies = [
  "maat_types",
  "maat_vm",
  "rustyline",
+ "serde_json",
  "winter-math",
 ]
 

@@ -51,7 +51,7 @@ cargo build --release
 
 ### The `maat` Binary
 
-Maat provides a single binary with four subcommands:
+Maat provides a single binary with seven subcommands:
 
 | Subcommand                               | Description                                               |
 | ---------------------------------------- | --------------------------------------------------------- |
@@ -59,7 +59,9 @@ Maat provides a single binary with four subcommands:
 | `maat build <file.maat> -o <output.mtc>` | Compile a `.maat` file to `.mtc` bytecode                 |
 | `maat exec <file.mtc>`                   | Execute a pre-compiled `.mtc` bytecode file               |
 | `maat repl`                              | Start an interactive REPL session                         |
-| `maat trace <file.maat> [-o out.csv]`    | Generate an execution trace (CSV) for ZK proof inspection |
+| `maat trace <file.maat> -o <output.csv>` | Generate an execution trace (CSV) for ZK proof inspection |
+| `maat prove <file.maat> [options]`       | Generate a STARK proof of correct program execution       |
+| `maat verify <proof.bin>`                | Verify a STARK proof file                                 |
 
 To see version information:
 
@@ -216,6 +218,42 @@ greater
 >> let double = macro(x) { quote(unquote(x) * 2) };
 >> double(21);
 42
+```
+
+### Zero-Knowledge Proofs
+
+Generate a STARK proof of correct program execution:
+
+```bash
+# Generate a proof (development mode, ~12 bits security)
+maat prove examples/felt_arithmetic.maat
+
+# Generate a proof with production security (~97 bits)
+maat prove examples/felt_arithmetic.maat --production
+
+# Specify output path and dump execution trace
+maat prove examples/felt_arithmetic.maat -o program.proof.bin -t trace.csv
+```
+
+Verify a proof:
+
+```bash
+maat verify examples/felt_arithmetic.proof.bin
+```
+
+The proof file embeds all public inputs (program hash, input values, output), so verification requires only the proof file itself.
+
+> **Note:** `println!` is for debugging only and does not affect the proof. The provable output is the program's return value.
+
+Public inputs can be provided via command line or JSON file:
+
+```bash
+# Command-line inputs
+maat prove program.maat --input "1,2,3"
+
+# JSON file inputs
+echo '[1, 2, 3]' > inputs.json
+maat prove program.maat --inputs-file inputs.json
 ```
 
 ### Running Tests

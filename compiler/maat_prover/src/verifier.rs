@@ -19,12 +19,30 @@ use crate::program_hash::hash_bytes_to_elements;
 /// conjectured security are rejected before constraint checking begins.
 const MIN_SECURITY_BITS: u32 = 0;
 
-/// Verifies a STARK proof against the given public inputs.
+/// Verifies a serialized proof file using its embedded public inputs.
 ///
-/// Delegates to Winterfell's verifier with the Maat-specific AIR,
-/// Blake3 hashing, and Merkle tree commitment scheme. Returns `Ok(())` if
-/// the proof is valid or a [`VerificationError`] describing the failure.
-pub fn verify(proof: Proof, inputs: MaatPublicInputs) -> Result<(), VerificationError> {
+/// This is the primary verification entry point. The proof file contains
+/// all information needed for verification (program hash, inputs, output),
+/// so no external arguments are required.
+///
+/// Returns `Ok(())` if the proof is valid or a [`VerificationError`]
+/// describing the failure.
+pub fn verify(proof_bytes: &[u8]) -> Result<(), VerificationError> {
+    let (proof, embedded) = crate::proof_file::deserialize_proof(proof_bytes)?;
+    let program_hash = hash_bytes_to_elements(&embedded.program_hash);
+    let public_inputs = MaatPublicInputs::new(program_hash, embedded.inputs, embedded.output);
+    verify_with_inputs(proof, public_inputs)
+}
+
+/// Verifies a STARK proof against explicitly provided public inputs.
+///
+/// This is the lower-level verification API for cases where you have
+/// already parsed the proof and constructed the public inputs (e.g.,
+/// in tests or when building custom verification pipelines).
+///
+/// For most use cases, prefer [`verify`] which extracts public inputs
+/// from the proof file automatically.
+pub fn verify_with_inputs(proof: Proof, inputs: MaatPublicInputs) -> Result<(), VerificationError> {
     let acceptable = AcceptableOptions::MinConjecturedSecurity(MIN_SECURITY_BITS);
     winter_verifier::verify::<
         MaatAir,
@@ -33,22 +51,4 @@ pub fn verify(proof: Proof, inputs: MaatPublicInputs) -> Result<(), Verification
         MerkleTree<Blake3_256<BaseElement>>,
     >(proof, inputs, &acceptable)
     .map_err(|e| VerificationError::Rejected(e.to_string()))
-}
-
-/// Verifies a serialized proof file against known inputs and expected output.
-///
-/// This is a convenience function that:
-/// 1. Deserializes the proof file header and payload.
-/// 2. Reconstructs [`MaatPublicInputs`] from the stored program hash and
-///    the caller-provided inputs and output.
-/// 3. Delegates to [`verify`].
-pub fn verify_proof_file(
-    proof_bytes: &[u8],
-    inputs: Vec<BaseElement>,
-    expected_output: BaseElement,
-) -> Result<(), VerificationError> {
-    let (proof, program_hash_bytes) = crate::proof_file::deserialize_proof(proof_bytes)?;
-    let program_hash = hash_bytes_to_elements(&program_hash_bytes);
-    let public_inputs = MaatPublicInputs::new(program_hash, inputs, expected_output);
-    verify(proof, public_inputs)
 }

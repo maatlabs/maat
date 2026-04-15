@@ -58,6 +58,9 @@ enum Command {
         /// Comma-separated public input values (integers or field elements with `fe` suffix).
         #[arg(short, long, allow_hyphen_values = true)]
         input: Option<String>,
+        /// Path to JSON file containing public inputs array (alternative to --input).
+        #[arg(long)]
+        inputs_file: Option<PathBuf>,
         /// Proof output path (default: `<program>.proof.bin`).
         #[arg(short, long)]
         output: Option<PathBuf>,
@@ -66,18 +69,12 @@ enum Command {
         trace: Option<PathBuf>,
         /// Use production proof options (~97 bits conjectural security).
         #[arg(long)]
-        release: bool,
+        production: bool,
     },
     /// Verify a STARK proof file.
     Verify {
         /// Path to the `.proof.bin` file.
         file: PathBuf,
-        /// Comma-separated public input values (must match those used during proving).
-        #[arg(short, long, allow_hyphen_values = true)]
-        input: Option<String>,
-        /// Expected output value (integer or field element with `fe` suffix).
-        #[arg(short, long, allow_hyphen_values = true)]
-        expected: String,
     },
 }
 
@@ -110,24 +107,22 @@ fn main() {
         Some(Command::Prove {
             file,
             input,
+            inputs_file,
             output,
             trace,
-            release,
+            production,
         }) => {
             cmd::prove(
                 &file,
                 input.as_deref(),
+                inputs_file.as_deref(),
                 output.as_deref(),
                 trace.as_deref(),
-                release,
+                production,
             );
         }
-        Some(Command::Verify {
-            file,
-            input,
-            expected,
-        }) => {
-            cmd::verify(&file, input.as_deref(), &expected);
+        Some(Command::Verify { file }) => {
+            cmd::verify(&file);
         }
     }
 }
