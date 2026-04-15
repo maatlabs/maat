@@ -68,7 +68,7 @@ enum Command {
         #[arg(short, long)]
         trace: Option<PathBuf>,
         /// Use production proof options (~97 bits conjectural security).
-        #[arg(long)]
+        #[arg(short, long)]
         production: bool,
     },
     /// Verify a STARK proof file.
