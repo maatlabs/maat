@@ -150,10 +150,22 @@ impl TraceTable {
         self.rows.last()
     }
 
+    /// Writes the program output into [`COL_OUT`] on the last row.
+    ///
+    /// This must be called before [`pad_to_power_of_two`](Self::pad_to_power_of_two)
+    /// so that the NOP padding rows inherit the output value, satisfying the
+    /// boundary assertion `out[last] = public_output` in the AIR.
+    pub fn stamp_output(&mut self, output: Felt) {
+        if let Some(last) = self.rows.last_mut() {
+            last[COL_OUT] = output;
+        }
+    }
+
     /// Pads the trace to the next power of two (minimum 8 rows).
     ///
     /// Padding rows use `sel_nop` (selector 0 = 1, all others = 0) and
-    /// repeat the final `pc`, `sp`, `fp` values from the last real row.
+    /// repeat the final `pc`, `sp`, `fp`, and `out` values from the last
+    /// real row.
     pub fn pad_to_power_of_two(&mut self) {
         let target = if self.rows.len() <= Self::MIN_ROWS {
             Self::MIN_ROWS
@@ -172,6 +184,12 @@ impl TraceTable {
             row[COL_PC] = last[COL_PC];
             row[COL_SP] = last[COL_SP];
             row[COL_FP] = last[COL_FP];
+            row[COL_OUT] = last[COL_OUT];
+            // Dummy read: repeat the last memory access to preserve
+            // address/value consistency in the permutation argument.
+            row[COL_MEM_ADDR] = last[COL_MEM_ADDR];
+            row[COL_MEM_VAL] = last[COL_MEM_VAL];
+            row[COL_IS_READ] = Felt::ONE;
         }
         row[COL_SEL_BASE + SEL_NOP as usize] = Felt::ONE;
         row

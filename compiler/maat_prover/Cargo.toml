@@ -1,0 +1,24 @@
+[package]
+name = "maat_prover"
+description = "Zero knowledge STARK prover and verifier for the Maat programming language"
+keywords = ["compiler", "maat", "zk", "prover", "verifier"]
+categories = ["compilers", "cryptography"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+
+[dependencies]
+maat_air = { path = "../maat_air", version = "0.12.3" }
+maat_trace = { path = "../maat_trace", version = "0.12.3" }
+maat_bytecode = { path = "../maat_bytecode", version = "0.12.3" }
+maat_field = { path = "../maat_field", version = "0.12.3" }
+maat_errors = { path = "../maat_errors", version = "0.12.3" }
+winter-air = "0.13"
+winter-math = "0.13"
+winter-prover = "0.13"
+winter-verifier = "0.13"
+winter-crypto = "0.13"
+blake3 = "1"

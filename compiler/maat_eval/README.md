@@ -1,6 +1,6 @@
 # maat_eval
 
-Macro expansion engine for the Maat programming language.
+Tree-walking interpreter and macro expansion engine for the Maat programming language.
 
 ## Role
 

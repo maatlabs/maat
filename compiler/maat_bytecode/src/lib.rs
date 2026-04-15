@@ -130,7 +130,7 @@ pub const MAX_FRAMES: usize = 1024;
 /// 2. `OpConstant 1` pushes `Value::I64(2)` onto the stack
 /// 3. `OpAdd` pops both values, adds them, and pushes `Value::I64(3)`
 /// 4. `OpPop` removes the result from the stack
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Bytecode {
     /// The sequence of bytecode instructions to execute.
     ///

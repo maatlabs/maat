@@ -10,7 +10,7 @@
 //!
 //! The constraint system enforces:
 //!
-//! ## Main segment (36 columns, 41 constraints)
+//! ## Main segment (36 columns, 42 constraints)
 //!
 //! - **Selector validity** (18): one-hot encoding of 17 opcode classes.
 //! - **Stack pointer transitions** (5): net SP change per selector class.
@@ -18,7 +18,8 @@
 //!   opcode classes, unconditional and conditional jumps.
 //! - **Memory access consistency** (4): load/store read/write flags and values.
 //! - **Frame pointer management** (2): FP updates on call and return.
-//! - **NOP padding invariance** (3): frozen state during trace padding rows.
+//! - **NOP padding invariance** (4): frozen pc, sp, fp, and output during
+//!   trace padding rows.
 //! - **Range-check reconstruction** (1): limb decomposition identity.
 //! - **Range-check convert linking** (1): rc_val = OUT on convert rows.
 //! - **Range-check non-zero divisor** (1): S0 * inv = 1 on div/mod rows.
@@ -34,7 +35,7 @@
 //! - **Range-check permutation accumulator** (1): grand-product proving the
 //!   sorted limb pool is a permutation of the execution-order limbs.
 //!
-//! Total: 49 transition constraints (41 main + 8 auxiliary), max degree 5.
+//! Total: 50 transition constraints (42 main + 8 auxiliary), max degree 5.
 //!
 //! # Boundary assertions
 //!
@@ -62,13 +63,15 @@
 #![forbid(unsafe_code)]
 
 mod aux_segment;
+mod degree;
 mod main_segment;
 mod public_inputs;
 
-use aux_segment::{AUX_COL_MEM_ACC, AUX_COL_RC_ACC, AUX_CONSTRAINT_DEGREES, NUM_AUX_CONSTRAINTS};
+use aux_segment::{AUX_COL_MEM_ACC, AUX_COL_RC_ACC, NUM_AUX_CONSTRAINTS};
 pub use aux_segment::{AUX_WIDTH, NUM_AUX_RANDS, build_aux_columns};
+pub use degree::encode_mask;
 use maat_trace::{COL_OUT, COL_PC, COL_SP};
-use main_segment::{CONSTRAINT_DEGREES, NUM_CONSTRAINTS};
+use main_segment::NUM_CONSTRAINTS;
 pub use public_inputs::MaatPublicInputs;
 use winter_air::{
     Air, AirContext, Assertion, AuxRandElements, EvaluationFrame, ProofOptions, TraceInfo,
@@ -93,7 +96,7 @@ const NUM_AUX_ASSERTIONS: usize = 4;
 ///
 /// Encodes the execution semantics as a two-segment STARK constraint system:
 ///
-/// - **Main segment** (36 columns): 41 transition constraints and 3 boundary
+/// - **Main segment** (36 columns): 42 transition constraints and 3 boundary
 ///   assertions covering opcode selectors, stack/PC/FP transitions, memory
 ///   access flags, NOP padding invariance, and range-check reconstruction.
 /// - **Auxiliary segment** (8 columns): 8 transition constraints and 4 boundary
@@ -109,13 +112,15 @@ impl Air for MaatAir {
     type PublicInputs = MaatPublicInputs;
 
     fn new(trace_info: TraceInfo, pub_inputs: Self::PublicInputs, options: ProofOptions) -> Self {
-        let main_degrees = CONSTRAINT_DEGREES
+        let (main_deg, aux_deg) = degree::decode_mask(trace_info.meta());
+
+        let main_degrees = main_deg
             .iter()
             .map(|&d| TransitionConstraintDegree::new(d))
             .collect::<Vec<_>>();
         assert_eq!(main_degrees.len(), NUM_CONSTRAINTS);
 
-        let aux_degrees = AUX_CONSTRAINT_DEGREES
+        let aux_degrees = aux_deg
             .iter()
             .map(|&d| TransitionConstraintDegree::new(d))
             .collect::<Vec<_>>();

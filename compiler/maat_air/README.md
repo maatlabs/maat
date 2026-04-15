@@ -1,6 +1,6 @@
 # maat_air
 
-CPU constraint system (AIR) for the Maat ZK backend.
+CPU constraint system (AIR) for the Maat programming language.
 
 ## Role
 
@@ -8,11 +8,11 @@ CPU constraint system (AIR) for the Maat ZK backend.
 
 ## Constraint Summary
 
-| Segment             | Columns | Constraints | Notes                                                     |
-| ------------------- | ------- | ----------- | --------------------------------------------------------- |
-| Main (`maat_trace`) | 36      | 41          | Selectors, SP/PC/FP transitions, memory, range-check, div |
-| Auxiliary           | 8       | 8           | Memory permutation, RC sorted continuity, RC permutation  |
-| **Total**           | **44**  | **49**      | Max degree 5                                              |
+| Segment             | Columns | Constraints | Notes                                                          |
+| ------------------- | ------- | ----------- | -------------------------------------------------------------- |
+| Main (`maat_trace`) | 36      | 42          | Selectors, SP/PC/FP transitions, memory, NOP, range-check, div |
+| Auxiliary           | 8       | 8           | Memory permutation, RC sorted continuity, RC permutation       |
+| **Total**           | **44**  | **50**      | Max degree 5                                                   |
 
 **Boundary assertions:** 7 — `pc[0]=0`, `sp[0]=0`, `out[last]=output`, `mem_acc[0]=1`, `mem_acc[last]=1`, `rc_acc[0]=1`, `rc_acc[last]=1`
 

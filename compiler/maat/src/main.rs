@@ -51,6 +51,31 @@ enum Command {
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
+    /// Generate a STARK proof of correct program execution.
+    Prove {
+        /// Path to the `.maat` source file.
+        file: PathBuf,
+        /// Comma-separated public input values (integers or field elements with `fe` suffix).
+        #[arg(short, long, allow_hyphen_values = true)]
+        input: Option<String>,
+        /// Path to JSON file containing public inputs array (alternative to --input).
+        #[arg(long)]
+        inputs_file: Option<PathBuf>,
+        /// Proof output path (default: `<program>.proof.bin`).
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Also dump the execution trace to the given path.
+        #[arg(short, long)]
+        trace: Option<PathBuf>,
+        /// Use production proof options (~97 bits conjectural security).
+        #[arg(short, long)]
+        production: bool,
+    },
+    /// Verify a STARK proof file.
+    Verify {
+        /// Path to the `.proof.bin` file.
+        file: PathBuf,
+    },
 }
 
 fn main() {
@@ -78,6 +103,26 @@ fn main() {
         }
         Some(Command::Trace { file, output }) => {
             cmd::trace(&file, output.as_deref());
+        }
+        Some(Command::Prove {
+            file,
+            input,
+            inputs_file,
+            output,
+            trace,
+            production,
+        }) => {
+            cmd::prove(
+                &file,
+                input.as_deref(),
+                inputs_file.as_deref(),
+                output.as_deref(),
+                trace.as_deref(),
+                production,
+            );
+        }
+        Some(Command::Verify { file }) => {
+            cmd::verify(&file);
         }
     }
 }

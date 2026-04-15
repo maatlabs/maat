@@ -1,6 +1,6 @@
 [package]
 name = "maat_field"
-description = "Finite field arithmetic and value-to-field encoding for the Maat zero-knowledge backend"
+description = "Finite field arithmetic and value-to-field encoding for the Maat programming language"
 keywords = ["compiler", "maat", "zero-knowledge", "zk", "field"]
 categories = ["compilers", "cryptography"]
 version.workspace = true

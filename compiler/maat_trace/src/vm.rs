@@ -1,10 +1,13 @@
 //! Trace-generating virtual machine.
 //!
 //! [`TraceVM`] mirrors the standard `maat_vm::VM` dispatch loop but records
-//! every instruction step into a [`TraceTable`]. The flat memory model maps
-//! globals and per-frame locals to a linear address space so that memory
-//! accesses are provable via the permutation argument.
+//! every instruction step into a [`TraceTable`]. Memory accesses use an
+//! append-only physical address allocation scheme: every write receives a
+//! fresh contiguous address, preserving the write-once invariant required
+//! by the memory permutation argument. Physical address 0 is a sentinel
+//! (value zero) for dummy reads before the first real memory operation.
 
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use indexmap::IndexMap;
@@ -18,7 +21,7 @@ use maat_runtime::{
 use maat_span::{SourceMap, Span};
 
 use crate::encode::value_to_felt;
-use crate::selector::class_index;
+use crate::selector::{SEL_NOP, class_index};
 use crate::table::{
     COL_FP, COL_IS_READ, COL_MEM_ADDR, COL_MEM_VAL, COL_NONZERO_INV, COL_OPCODE, COL_OPERAND_0,
     COL_OPERAND_1, COL_OUT, COL_PC, COL_RC_L0, COL_RC_L1, COL_RC_L2, COL_RC_L3, COL_RC_VAL, COL_S0,
@@ -27,7 +30,7 @@ use crate::table::{
 
 /// Trace metadata captured for a single instruction step.
 #[derive(Default)]
-struct TraceInfo {
+struct TraceData {
     /// Result value pushed to the stack (or zero).
     out: Felt,
     /// Flat memory address accessed.
@@ -36,6 +39,8 @@ struct TraceInfo {
     mem_val: Felt,
     /// `1` if memory read, `0` if write.
     is_read: Felt,
+    /// Whether this instruction performs a real memory access.
+    has_mem_access: bool,
     /// Value being range-checked (zero on non-trigger rows).
     rc_val: Felt,
     /// 16-bit limb decomposition of `rc_val`.
@@ -101,12 +106,22 @@ pub struct TraceVM {
     type_registry: Vec<TypeDef>,
 
     trace: TraceTable,
-    /// Flat memory: globals at `[0, MAX_GLOBALS)`, locals at `[MAX_GLOBALS, ...)`.
-    flat_memory: Vec<Felt>,
-    /// Current frame pointer into `flat_memory`.
+    /// Next physical address to allocate. Starts at 1; address 0 is a
+    /// sentinel with value zero that absorbs dummy reads before the
+    /// first real memory operation.
+    alloc_ptr: usize,
+    /// Maps logical addresses to their latest physical address.
+    /// Logical addresses: globals at `[0, MAX_GLOBALS)`, locals at
+    /// `[fp, fp + frame_depth)`.
+    addr_map: HashMap<usize, usize>,
+    /// Current frame pointer (logical address space).
     fp: usize,
     /// Saved frame pointers for return.
     fp_stack: Vec<usize>,
+    /// Last physical address accessed (for dummy reads on non-memory rows).
+    last_mem_addr: Felt,
+    /// Last memory value at `last_mem_addr`.
+    last_mem_val: Felt,
 }
 
 impl TraceVM {
@@ -133,9 +148,12 @@ impl TraceVM {
             source_map,
             type_registry,
             trace: TraceTable::new(),
-            flat_memory: vec![Felt::ZERO; MAX_GLOBALS],
+            alloc_ptr: 1,
+            addr_map: HashMap::new(),
             fp: MAX_GLOBALS,
             fp_stack: Vec::new(),
+            last_mem_addr: Felt::ZERO,
+            last_mem_val: Felt::ZERO,
         }
     }
 
@@ -190,13 +208,6 @@ impl TraceVM {
         let sel = class_index(op);
         row[COL_SEL_BASE + sel as usize] = Felt::ONE;
         row
-    }
-
-    /// Ensures flat memory is large enough for the given address.
-    fn ensure_flat_memory(&mut self, addr: usize) {
-        if addr >= self.flat_memory.len() {
-            self.flat_memory.resize(addr + 1, Felt::ZERO);
-        }
     }
 
     fn current_span(&self) -> Option<Span> {
@@ -333,9 +344,20 @@ impl TraceVM {
             let trace_info = self.dispatch(op, ip)?;
 
             row[COL_OUT] = trace_info.out;
-            row[COL_MEM_ADDR] = trace_info.mem_addr;
-            row[COL_MEM_VAL] = trace_info.mem_val;
-            row[COL_IS_READ] = trace_info.is_read;
+
+            if trace_info.has_mem_access {
+                row[COL_MEM_ADDR] = trace_info.mem_addr;
+                row[COL_MEM_VAL] = trace_info.mem_val;
+                row[COL_IS_READ] = trace_info.is_read;
+                self.last_mem_addr = trace_info.mem_addr;
+                self.last_mem_val = trace_info.mem_val;
+            } else {
+                // Dummy read from the last-accessed address preserves
+                // memory consistency in the sorted permutation argument.
+                row[COL_MEM_ADDR] = self.last_mem_addr;
+                row[COL_MEM_VAL] = self.last_mem_val;
+                row[COL_IS_READ] = Felt::ONE;
+            }
 
             row[COL_RC_VAL] = trace_info.rc_val;
             row[COL_RC_L0] = trace_info.rc_limbs[0];
@@ -347,7 +369,29 @@ impl TraceVM {
             self.trace.push_row(row);
         }
 
+        self.emit_final_row();
+
         Ok(())
+    }
+
+    /// Emits a NOP row reflecting the VM state after the last instruction.
+    ///
+    /// The execution trace records pre-instruction state; this row makes the
+    /// post-execution state (final SP, PC, etc.) visible so that the last
+    /// real instruction's transition constraints (e.g. `sel_store * (sp_next - sp + 1)`)
+    /// evaluate against the correct successor values.
+    fn emit_final_row(&mut self) {
+        let ip = self.current_frame().map(|f| f.ip as usize).unwrap_or(0);
+        let mut row = [Felt::ZERO; TRACE_WIDTH];
+        row[COL_PC] = Felt::new(ip as u64);
+        row[COL_SP] = Felt::new(self.sp as u64);
+        row[COL_FP] = Felt::new(self.fp as u64);
+        row[COL_SEL_BASE + SEL_NOP as usize] = Felt::ONE;
+        // Dummy memory read from last-accessed location.
+        row[COL_MEM_ADDR] = self.last_mem_addr;
+        row[COL_MEM_VAL] = self.last_mem_val;
+        row[COL_IS_READ] = Felt::ONE;
+        self.trace.push_row(row);
     }
 
     /// Reads operands for the given opcode without advancing `ip`.
@@ -376,8 +420,8 @@ impl TraceVM {
     }
 
     /// Dispatches a single opcode and returns trace metadata for the row.
-    fn dispatch(&mut self, op: Opcode, ip: usize) -> Result<TraceInfo> {
-        let mut info = TraceInfo::default();
+    fn dispatch(&mut self, op: Opcode, ip: usize) -> Result<TraceData> {
+        let mut info = TraceData::default();
 
         match op {
             Opcode::Constant => {
@@ -460,11 +504,12 @@ impl TraceVM {
                 }
                 self.globals[index] = value;
 
-                // Record flat memory write
-                self.ensure_flat_memory(index);
-                self.flat_memory[index] = felt;
-                info.mem_addr = Felt::new(index as u64);
+                let physical = self.alloc_ptr;
+                self.alloc_ptr += 1;
+                self.addr_map.insert(index, physical);
+                info.mem_addr = Felt::new(physical as u64);
                 info.mem_val = felt;
+                info.has_mem_access = true;
             }
             Opcode::GetGlobal => {
                 let index = self.read_u16_operand(ip + 1)?;
@@ -475,11 +520,12 @@ impl TraceVM {
                 let felt = value_to_felt(&value);
                 self.push_stack(value)?;
 
+                let physical = self.addr_map[&index];
                 info.out = felt;
-                self.ensure_flat_memory(index);
-                info.mem_addr = Felt::new(index as u64);
-                info.mem_val = self.flat_memory[index];
+                info.mem_addr = Felt::new(physical as u64);
+                info.mem_val = felt;
                 info.is_read = Felt::ONE;
+                info.has_mem_access = true;
             }
             Opcode::SetLocal => {
                 let local_index = self.read_u8_operand(ip + 1)?;
@@ -493,12 +539,13 @@ impl TraceVM {
                 }
                 self.stack[slot] = value;
 
-                // Record flat memory write
-                let addr = self.fp + local_index;
-                self.ensure_flat_memory(addr);
-                self.flat_memory[addr] = felt;
-                info.mem_addr = Felt::new(addr as u64);
+                let logical = self.fp + local_index;
+                let physical = self.alloc_ptr;
+                self.alloc_ptr += 1;
+                self.addr_map.insert(logical, physical);
+                info.mem_addr = Felt::new(physical as u64);
                 info.mem_val = felt;
+                info.has_mem_access = true;
             }
             Opcode::GetLocal => {
                 let local_index = self.read_u8_operand(ip + 1)?;
@@ -513,13 +560,13 @@ impl TraceVM {
                 let felt = value_to_felt(&value);
                 self.push_stack(value)?;
 
-                // Record flat memory read
-                let addr = self.fp + local_index;
-                self.ensure_flat_memory(addr);
+                let logical = self.fp + local_index;
+                let physical = self.addr_map[&logical];
                 info.out = felt;
-                info.mem_addr = Felt::new(addr as u64);
-                info.mem_val = self.flat_memory[addr];
+                info.mem_addr = Felt::new(physical as u64);
+                info.mem_val = felt;
                 info.is_read = Felt::ONE;
+                info.has_mem_access = true;
             }
             Opcode::Vector => {
                 let n = self.read_u16_operand(ip + 1)?;
@@ -554,7 +601,7 @@ impl TraceVM {
             Opcode::Call => {
                 let num_args = self.read_u8_operand(ip + 1)?;
                 self.current_frame_mut()?.ip += 1;
-                self.execute_function_call(num_args)?;
+                self.execute_function_call(num_args, &mut info)?;
             }
             Opcode::GetBuiltin => {
                 let index = self.read_u8_operand(ip + 1)?;
@@ -644,7 +691,6 @@ impl TraceVM {
                 let frame = self.pop_frame()?;
                 self.sp = frame.base_pointer.saturating_sub(1);
                 self.push_stack(return_value)?;
-                // Restore frame pointer
                 self.fp = self.fp_stack.pop().unwrap_or(MAX_GLOBALS);
             }
             Opcode::Return => {
@@ -689,7 +735,7 @@ impl TraceVM {
         }
     }
 
-    fn execute_function_call(&mut self, num_args: usize) -> Result<()> {
+    fn execute_function_call(&mut self, num_args: usize, info: &mut TraceData) -> Result<()> {
         let fn_slot = self
             .sp
             .checked_sub(1 + num_args)
@@ -701,7 +747,7 @@ impl TraceVM {
             .ok_or_else(|| self.vm_error("stack underflow in function call"))?;
         match callee {
             Value::Closure(cl) => self.call_closure(cl, num_args),
-            Value::Builtin(f) => self.call_builtin_fn(f, num_args),
+            Value::Builtin(f) => self.call_builtin_fn(f, num_args, info),
             _ => Err(self.vm_error("calling non-function")),
         }
     }
@@ -723,11 +769,9 @@ impl TraceVM {
             self.stack.resize(self.sp, Value::Unit);
         }
 
-        // Advance flat memory frame pointer
         self.fp_stack.push(self.fp);
         let new_fp = self.fp + self.current_frame()?.num_locals;
         self.fp = new_fp;
-        self.ensure_flat_memory(self.fp + num_locals);
         Ok(())
     }
 
@@ -735,10 +779,15 @@ impl TraceVM {
         &mut self,
         func: fn(&[Value]) -> Result<Value>,
         num_args: usize,
+        info: &mut TraceData,
     ) -> Result<()> {
         let args_start = self.sp - num_args;
         let args = self.stack[args_start..self.sp].to_vec();
         let result = func(&args)?;
+
+        // Builtin calls don't change FP. Store current FP in `out` for
+        // constraint 33: fp_next = out.
+        info.out = Felt::new(self.fp as u64);
 
         self.sp = args_start - 1;
         self.push_stack(result)?;

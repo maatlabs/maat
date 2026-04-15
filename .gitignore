@@ -14,6 +14,9 @@ target
 # Execution trace
 *.csv
 
+# Proof file
+*.proof.bin
+
 # REPL history
 .maat_history
 

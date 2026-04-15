@@ -1,7 +1,7 @@
 [package]
 name = "maat_air"
-description = "CPU constraint system (AIR) for the Maat ZK backend"
-keywords = ["compiler", "maat", "zero-knowledge", "air", "zk"]
+description = "CPU constraint system (AIR) for the Maat programming language"
+keywords = ["compiler", "maat", "zero-knowledge", "zk", "air"]
 categories = ["compilers", "cryptography"]
 version.workspace = true
 edition.workspace = true
@@ -11,6 +11,6 @@ homepage.workspace = true
 readme = "README.md"
 
 [dependencies]
-maat_trace = { path = "../maat_trace", version = "0.12.2" }
+maat_trace = { path = "../maat_trace", version = "0.12.3" }
 winter-air = "0.13"
 winter-math = "0.13"

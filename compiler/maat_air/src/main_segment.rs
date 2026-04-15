@@ -25,7 +25,7 @@
 //! | 30    | Load: out = mem_val                      | 2      |
 //! | 31    | Store: is_read = 0                       | 2      |
 //! | 32    | Store: mem_val = s0                      | 2      |
-//! | 33    | FP: call (fp_next = sp)                  | 2      |
+//! | 33    | FP: call (fp_next = out)                 | 2      |
 //! | 34    | FP: return (fp_next = mem_val)           | 2      |
 //! | 35    | NOP: pc frozen                           | 2      |
 //! | 36    | NOP: sp frozen                           | 2      |
@@ -33,6 +33,7 @@
 //! | 38    | RC: reconstruction                       | 1      |
 //! | 39    | RC: convert linking                      | 2      |
 //! | 40    | RC: non-zero divisor                     | 3      |
+//! | 41    | NOP: output frozen                       | 2      |
 
 use maat_trace::{
     COL_FP, COL_IS_READ, COL_MEM_VAL, COL_NONZERO_INV, COL_OPERAND_0, COL_OUT, COL_PC, COL_RC_L0,
@@ -41,27 +42,27 @@ use maat_trace::{
 use winter_math::FieldElement;
 
 // Selector column indices relative to `COL_SEL_BASE`.
-const SEL_NOP: usize = 0;
-const SEL_PUSH: usize = 1;
-const SEL_ARITH: usize = 2;
-const SEL_BITWISE: usize = 3;
-const SEL_CMP: usize = 4;
-const SEL_UNARY: usize = 5;
-const SEL_LOAD: usize = 6;
-const SEL_STORE: usize = 7;
-const SEL_JUMP: usize = 8;
-const SEL_COND_JUMP: usize = 9;
-const SEL_CALL: usize = 10;
-const SEL_RETURN: usize = 11;
-const SEL_CONVERT: usize = 13;
-const SEL_FELT: usize = 15;
-const SEL_DIV_MOD: usize = 16;
+pub(crate) const SEL_NOP: usize = 0;
+pub(crate) const SEL_PUSH: usize = 1;
+pub(crate) const SEL_ARITH: usize = 2;
+pub(crate) const SEL_BITWISE: usize = 3;
+pub(crate) const SEL_CMP: usize = 4;
+pub(crate) const SEL_UNARY: usize = 5;
+pub(crate) const SEL_LOAD: usize = 6;
+pub(crate) const SEL_STORE: usize = 7;
+pub(crate) const SEL_JUMP: usize = 8;
+pub(crate) const SEL_COND_JUMP: usize = 9;
+pub(crate) const SEL_CALL: usize = 10;
+pub(crate) const SEL_RETURN: usize = 11;
+pub(crate) const SEL_CONVERT: usize = 13;
+pub(crate) const SEL_FELT: usize = 15;
+pub(crate) const SEL_DIV_MOD: usize = 16;
 
 /// Number of selector columns (must match `maat_trace::selector::NUM_SELECTORS`).
-const NUM_SELECTORS: usize = 17;
+pub(crate) const NUM_SELECTORS: usize = 17;
 
 /// Number of transition constraints enforced by the AIR.
-pub const NUM_CONSTRAINTS: usize = 41;
+pub const NUM_CONSTRAINTS: usize = 42;
 
 /// Degree of each transition constraint, indexed by constraint number.
 ///
@@ -81,7 +82,8 @@ pub const CONSTRAINT_DEGREES: [usize; NUM_CONSTRAINTS] = [
     2, 2, 2, // 38: RC reconstruction
     1, // 39: RC convert linking
     2, // 40: RC non-zero divisor
-    3,
+    3, // 41: NOP output frozen
+    2,
 ];
 
 /// Reads a selector flag from the current row.
@@ -104,7 +106,7 @@ fn power_of_two_constants<E: FieldElement>() -> (E, E, E) {
     (p16, p32, p48)
 }
 
-/// Evaluates all 41 transition constraints.
+/// Evaluates all 42 transition constraints.
 ///
 /// `current` and `next` are consecutive trace rows (each of width [`TRACE_WIDTH`]).
 /// The result slice must have length [`NUM_CONSTRAINTS`]; each entry is the
@@ -173,7 +175,7 @@ pub fn evaluate<E: FieldElement>(current: &[E], next: &[E], result: &mut [E]) {
     result[31] = sel(current, SEL_STORE) * is_read;
     result[32] = sel(current, SEL_STORE) * (mem_val - s0);
 
-    result[33] = sel(current, SEL_CALL) * (fp_next - sp);
+    result[33] = sel(current, SEL_CALL) * (fp_next - out);
     result[34] = sel(current, SEL_RETURN) * (fp_next - mem_val);
 
     result[35] = sel(current, SEL_NOP) * (pc_next - pc);
@@ -194,6 +196,9 @@ pub fn evaluate<E: FieldElement>(current: &[E], next: &[E], result: &mut [E]) {
 
     let nonzero_inv = current[COL_NONZERO_INV];
     result[40] = sel(current, SEL_DIV_MOD) * (s0 * nonzero_inv - one);
+
+    let out_next = next[COL_OUT];
+    result[41] = sel(current, SEL_NOP) * (out_next - out);
 }
 
 #[cfg(test)]
@@ -471,13 +476,13 @@ mod tests {
     }
 
     #[test]
-    fn frame_pointer_call_sets_fp_to_sp() {
+    fn frame_pointer_call_sets_fp_to_out() {
         let mut current = [F::ZERO; TRACE_WIDTH];
         let mut next = [F::ZERO; TRACE_WIDTH];
         current[COL_SEL_BASE + SEL_CALL] = F::ONE;
         next[COL_SEL_BASE + SEL_NOP] = F::ONE;
-        current[COL_SP] = F::new(10);
-        next[COL_FP] = F::new(10);
+        current[COL_OUT] = F::new(100);
+        next[COL_FP] = F::new(100);
 
         let result = eval(&current, &next);
         assert_eq!(result[33], F::ZERO);

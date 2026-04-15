@@ -18,17 +18,22 @@ path = "src/main.rs"
 ariadne = "0.6"
 clap = { version = "4", features = ["derive"] }
 rustyline = { version = "18", features = ["with-file-history", "derive"] }
+serde_json = "1"
 
-maat_ast = { path = "../maat_ast", version = "0.12.2" }
-maat_bytecode = { path = "../maat_bytecode", version = "0.12.2" }
-maat_codegen = { path = "../maat_codegen", version = "0.12.2" }
-maat_errors = { path = "../maat_errors", version = "0.12.2" }
-maat_eval = { path = "../maat_eval", version = "0.12.2" }
-maat_lexer = { path = "../maat_lexer", version = "0.12.2" }
-maat_module = { path = "../maat_module", version = "0.12.2" }
-maat_parser = { path = "../maat_parser", version = "0.12.2" }
-maat_runtime = { path = "../maat_runtime", version = "0.12.2" }
-maat_types = { path = "../maat_types", version = "0.12.2" }
-maat_span = { path = "../maat_span", version = "0.12.2" }
-maat_trace = { path = "../maat_trace", version = "0.12.2" }
-maat_vm = { path = "../maat_vm", version = "0.12.2" }
+maat_ast = { path = "../maat_ast", version = "0.12.3" }
+maat_bytecode = { path = "../maat_bytecode", version = "0.12.3" }
+maat_codegen = { path = "../maat_codegen", version = "0.12.3" }
+maat_errors = { path = "../maat_errors", version = "0.12.3" }
+maat_eval = { path = "../maat_eval", version = "0.12.3" }
+maat_lexer = { path = "../maat_lexer", version = "0.12.3" }
+maat_module = { path = "../maat_module", version = "0.12.3" }
+maat_parser = { path = "../maat_parser", version = "0.12.3" }
+maat_runtime = { path = "../maat_runtime", version = "0.12.3" }
+maat_types = { path = "../maat_types", version = "0.12.3" }
+maat_span = { path = "../maat_span", version = "0.12.3" }
+maat_trace = { path = "../maat_trace", version = "0.12.3" }
+maat_vm = { path = "../maat_vm", version = "0.12.3" }
+maat_air = { path = "../maat_air", version = "0.12.3" }
+maat_field = { path = "../maat_field", version = "0.12.3" }
+maat_prover = { path = "../maat_prover", version = "0.12.3" }
+winter-math = "0.13"
