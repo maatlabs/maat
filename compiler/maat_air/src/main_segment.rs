@@ -25,7 +25,7 @@
 //! | 30    | Load: out = mem_val                      | 2      |
 //! | 31    | Store: is_read = 0                       | 2      |
 //! | 32    | Store: mem_val = s0                      | 2      |
-//! | 33    | FP: call (fp_next = sp)                  | 2      |
+//! | 33    | FP: call (fp_next = out)                 | 2      |
 //! | 34    | FP: return (fp_next = mem_val)           | 2      |
 //! | 35    | NOP: pc frozen                           | 2      |
 //! | 36    | NOP: sp frozen                           | 2      |
@@ -175,7 +175,7 @@ pub fn evaluate<E: FieldElement>(current: &[E], next: &[E], result: &mut [E]) {
     result[31] = sel(current, SEL_STORE) * is_read;
     result[32] = sel(current, SEL_STORE) * (mem_val - s0);
 
-    result[33] = sel(current, SEL_CALL) * (fp_next - sp);
+    result[33] = sel(current, SEL_CALL) * (fp_next - out);
     result[34] = sel(current, SEL_RETURN) * (fp_next - mem_val);
 
     result[35] = sel(current, SEL_NOP) * (pc_next - pc);
@@ -476,13 +476,13 @@ mod tests {
     }
 
     #[test]
-    fn frame_pointer_call_sets_fp_to_sp() {
+    fn frame_pointer_call_sets_fp_to_out() {
         let mut current = [F::ZERO; TRACE_WIDTH];
         let mut next = [F::ZERO; TRACE_WIDTH];
         current[COL_SEL_BASE + SEL_CALL] = F::ONE;
         next[COL_SEL_BASE + SEL_NOP] = F::ONE;
-        current[COL_SP] = F::new(10);
-        next[COL_FP] = F::new(10);
+        current[COL_OUT] = F::new(100);
+        next[COL_FP] = F::new(100);
 
         let result = eval(&current, &next);
         assert_eq!(result[33], F::ZERO);

@@ -13,7 +13,8 @@ pub const NUM_SELECTORS: usize = 17;
 
 /// Padding / no-operation rows.
 pub const SEL_NOP: u8 = 0;
-/// Stack push operations: `Constant`, `True`, `False`, `Unit`.
+/// Stack push operations: `Constant`, `True`, `False`, `Unit`, `GetBuiltin`,
+/// `GetFree`, `CurrentClosure`. These push values without memory access.
 pub const SEL_PUSH: u8 = 1;
 /// Integer arithmetic (non-dividing): `Add`, `Sub`, `Mul`.
 pub const SEL_ARITH: u8 = 2;
@@ -23,7 +24,7 @@ pub const SEL_BITWISE: u8 = 3;
 pub const SEL_CMP: u8 = 4;
 /// Unary operations: `Minus`, `Bang`.
 pub const SEL_UNARY: u8 = 5;
-/// Load operations: `GetLocal`, `GetGlobal`, `GetFree`, `GetBuiltin`, `CurrentClosure`.
+/// Memory load operations: `GetLocal`, `GetGlobal`. These read from provable memory.
 pub const SEL_LOAD: u8 = 6;
 /// Store operations: `SetLocal`, `SetGlobal`.
 pub const SEL_STORE: u8 = 7;
@@ -31,11 +32,11 @@ pub const SEL_STORE: u8 = 7;
 pub const SEL_JUMP: u8 = 8;
 /// Conditional jump: `CondJump`.
 pub const SEL_COND_JUMP: u8 = 9;
-/// Function call: `Call`, `Closure`.
+/// Function call: `Call`.
 pub const SEL_CALL: u8 = 10;
 /// Function return: `ReturnValue`, `Return`.
 pub const SEL_RETURN: u8 = 11;
-/// Struct/enum construction: `Construct`, `GetField`, `MatchTag`.
+/// Struct/enum construction: `Construct`, `GetField`, `MatchTag`, `Closure`.
 pub const SEL_CONSTRUCT: u8 = 12;
 /// Type conversion: `Convert`.
 pub const SEL_CONVERT: u8 = 13;
@@ -54,7 +55,13 @@ pub const SEL_DIV_MOD: u8 = 16;
 /// NOP is not a real opcode.
 pub const fn class_index(op: Opcode) -> u8 {
     match op {
-        Opcode::Constant | Opcode::True | Opcode::False | Opcode::Unit => SEL_PUSH,
+        Opcode::Constant
+        | Opcode::True
+        | Opcode::False
+        | Opcode::Unit
+        | Opcode::GetBuiltin
+        | Opcode::GetFree
+        | Opcode::CurrentClosure => SEL_PUSH,
 
         Opcode::Add | Opcode::Sub | Opcode::Mul => SEL_ARITH,
 
@@ -66,11 +73,7 @@ pub const fn class_index(op: Opcode) -> u8 {
 
         Opcode::Minus | Opcode::Bang => SEL_UNARY,
 
-        Opcode::GetLocal
-        | Opcode::GetGlobal
-        | Opcode::GetFree
-        | Opcode::GetBuiltin
-        | Opcode::CurrentClosure => SEL_LOAD,
+        Opcode::GetLocal | Opcode::GetGlobal => SEL_LOAD,
 
         Opcode::SetLocal | Opcode::SetGlobal => SEL_STORE,
 
@@ -78,11 +81,11 @@ pub const fn class_index(op: Opcode) -> u8 {
 
         Opcode::CondJump => SEL_COND_JUMP,
 
-        Opcode::Call | Opcode::Closure => SEL_CALL,
+        Opcode::Call => SEL_CALL,
 
         Opcode::ReturnValue | Opcode::Return => SEL_RETURN,
 
-        Opcode::Construct | Opcode::GetField | Opcode::MatchTag => SEL_CONSTRUCT,
+        Opcode::Construct | Opcode::GetField | Opcode::MatchTag | Opcode::Closure => SEL_CONSTRUCT,
 
         Opcode::Convert => SEL_CONVERT,
 

@@ -601,7 +601,7 @@ impl TraceVM {
             Opcode::Call => {
                 let num_args = self.read_u8_operand(ip + 1)?;
                 self.current_frame_mut()?.ip += 1;
-                self.execute_function_call(num_args)?;
+                self.execute_function_call(num_args, &mut info)?;
             }
             Opcode::GetBuiltin => {
                 let index = self.read_u8_operand(ip + 1)?;
@@ -691,7 +691,6 @@ impl TraceVM {
                 let frame = self.pop_frame()?;
                 self.sp = frame.base_pointer.saturating_sub(1);
                 self.push_stack(return_value)?;
-                // Restore frame pointer
                 self.fp = self.fp_stack.pop().unwrap_or(MAX_GLOBALS);
             }
             Opcode::Return => {
@@ -736,7 +735,7 @@ impl TraceVM {
         }
     }
 
-    fn execute_function_call(&mut self, num_args: usize) -> Result<()> {
+    fn execute_function_call(&mut self, num_args: usize, info: &mut TraceData) -> Result<()> {
         let fn_slot = self
             .sp
             .checked_sub(1 + num_args)
@@ -748,7 +747,7 @@ impl TraceVM {
             .ok_or_else(|| self.vm_error("stack underflow in function call"))?;
         match callee {
             Value::Closure(cl) => self.call_closure(cl, num_args),
-            Value::Builtin(f) => self.call_builtin_fn(f, num_args),
+            Value::Builtin(f) => self.call_builtin_fn(f, num_args, info),
             _ => Err(self.vm_error("calling non-function")),
         }
     }
@@ -780,10 +779,15 @@ impl TraceVM {
         &mut self,
         func: fn(&[Value]) -> Result<Value>,
         num_args: usize,
+        info: &mut TraceData,
     ) -> Result<()> {
         let args_start = self.sp - num_args;
         let args = self.stack[args_start..self.sp].to_vec();
         let result = func(&args)?;
+
+        // Builtin calls don't change FP. Store current FP in `out` for
+        // constraint 33: fp_next = out.
+        info.out = Felt::new(self.fp as u64);
 
         self.sp = args_start - 1;
         self.push_stack(result)?;
