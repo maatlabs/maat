@@ -232,7 +232,7 @@ maat prove examples/felt_arithmetic.maat
 maat prove examples/felt_arithmetic.maat --production
 
 # Specify output path and dump execution trace
-maat prove examples/felt_arithmetic.maat -o program.proof.bin -t trace.csv
+maat prove examples/felt_arithmetic.maat -o felt_arithmetic.proof.bin -t trace.csv
 ```
 
 Verify a proof:
@@ -255,6 +255,13 @@ maat prove program.maat --input "1,2,3"
 echo '[1, 2, 3]' > inputs.json
 maat prove program.maat --inputs-file inputs.json
 ```
+
+#### Current Limitations
+
+The ZK backend is functional for pure arithmetic programs but has the following limitations:
+
+- **User-defined functions with parameters**: Programs calling user-defined functions that take arguments cannot yet be proven. The trace VM's memory permutation argument requires all memory accesses to have corresponding writes, but function parameters are currently passed on the operand stack without explicit `SetLocal` writes. This will be addressed in v0.13.0 via compiler calling-convention changes.
+- **Supported programs**: Pure arithmetic (`let x = 1 + 2;`), field element operations (`Felt::new()`, `felt_add`, etc.), and programs using builtins like `println!` work correctly. Note that I/O side effects are not captured in the proof (see note above)--the proof attests to correct computation of the return value.
 
 ### Running Tests
 
