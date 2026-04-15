@@ -4,6 +4,46 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.3] - 2026-04-15
+
+STARK prover and verifier. This release delivers end-to-end zero-knowledge proof generation and verification for Maat programs. A new `maat_prover` crate wires the AIR constraint system to Winterfell's STARK infrastructure; `maat prove` and `maat verify` CLI subcommands expose proof generation and verification. All public inputs (program hash, inputs, output) are embedded in the proof file, making verification self-contained. Programs exercising pure arithmetic and field element operations can be proven and verified in both development and production security modes.
+
+### Added
+
+#### STARK Prover (`maat_prover`)
+
+- **`maat_prover` crate:** New crate implementing Winterfell's `Prover` trait via `MaatProver`. Wires `maat_trace`'s execution trace and `maat_air`'s constraint system into Winterfell's proving infrastructure to produce STARK proofs over the Goldilocks field.
+- **`ProofOptions` presets:** `development_options()` (4 queries, blowup 8, no grinding -- minimal security, fast iteration) and `production_options()` (27 queries, blowup 8, 16-bit grinding -- ~97 bits conjectural security). Both require `FieldExtension::Quadratic` because the auxiliary trace segment evaluates constraints over `QuadExtension<BaseElement>`.
+- **Self-contained proof file format:** 38-byte header comprising magic `b"MATP"` (4 bytes), version `u16 BE` (2 bytes), and Blake3 program hash (32 bytes), followed by the native Winterfell proof encoding. The program hash cryptographically binds each proof to the exact bytecode that produced the execution trace.
+- **`compute_program_hash(bytecode)`:** Serializes bytecode and computes a Blake3 digest, binding the proof to its source program.
+- **`generate_proof(trace) -> Result<Vec<u8>>`:** Runs the prover pipeline and serializes the output to the proof file format.
+- **`verify(proof_bytes)`:** Deserializes a proof file, extracts embedded public inputs from the header, and delegates to Winterfell's verifier. Verification requires only the proof file -- public inputs are not passed separately by the caller.
+- **27 integration tests** (`tests/tests/prove_verify.rs`) covering arithmetic, field element operations, comparisons, booleans, conditionals, bounded loops, closures, and builtin calls -- in both development and production modes.
+
+#### CLI Commands (`maat`)
+
+- **`maat prove <file.maat> [options]`:** Compiles a source file, runs the trace VM, and generates a STARK proof. Flags: `--production` / `-p` for ~97-bit security; `-o <output.bin>` to specify the output path (default: `<program-path>.proof.bin`); `-t <trace.csv>` to additionally dump the execution trace; `--input <values>` or `--inputs-file <file.json>` to supply public inputs.
+- **`maat verify <proof.bin>`:** Reads a self-contained proof file and verifies it. Exits with a non-zero status on failure.
+
+### Changed
+
+- **`maat_errors`:** Added `ProverError`, `VerifierError`, and `ProofDeserializationError` variants to the error codex.
+
+### Fixed
+
+- **`maat_trace` / `maat_air`:** Corrected opcode-to-selector classifications that caused constraint violations in programs using builtin functions:
+  - `GetBuiltin`, `GetFree`, and `CurrentClosure` reclassified from `SEL_LOAD` to `SEL_PUSH`. These opcodes push a value without performing a memory read; their presence under `SEL_LOAD` activated constraint 30 (`sel_load * (out - mem_val) = 0`), which requires `out = mem_val` -- a condition that never holds for a pure stack push.
+  - `Closure` reclassified from `SEL_CALL` to `SEL_CONSTRUCT`, eliminating a spurious `SEL_CALL` activation during closure object construction.
+  - Constraint 33 corrected from `sel_call * (fp_next - sp)` to `sel_call * (fp_next - out)`. For builtin calls the new frame pointer is supplied via `out`; using `sp` indexed the wrong location.
+  - `call_builtin_fn` in the trace VM now writes `info.out = Felt::new(fp)` so constraint 33 can verify the frame pointer update correctly.
+
+### Internal
+
+- **`maat_errors`:** `lib.rs` split into per-domain modules (`compile.rs`, `eval.rs`, `vm.rs`, `parse.rs`, `ty.rs`, `module.rs`, `codex.rs`) for compile-time isolation and navigability.
+- **Member crate documentation:** API doc improvements across all crates.
+
+---
+
 ## [0.12.2] - 2026-04-08
 
 ZK soundness prerequisites. This release delivers functionality that must be in place before the STARK prover can be built: integer range checks in the execution trace and mandatory loop bound enforcement at the language level. Together, they ensure that every value in the AIR witness is cryptographically verified to lie within its declared type range and that trace length is always statically bounded before proof generation.
@@ -1036,6 +1076,7 @@ When adding entries to this changelog for future releases:
 3. **Audience**: Write for users, not developers (focus on impact, not implementation)
 4. **Links**: Add comparison links at the bottom: `[0.2.0]: https://github.com/maatlabs/maat/compare/v0.1.0...v0.2.0`
 
+[0.12.3]: https://github.com/maatlabs/maat/compare/v0.12.2...v0.12.3
 [0.12.2]: https://github.com/maatlabs/maat/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/maatlabs/maat/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/maatlabs/maat/compare/v0.11.3...v0.12.0
