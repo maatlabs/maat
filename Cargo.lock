@@ -714,20 +714,24 @@ version = "0.12.2"
 dependencies = [
  "ariadne",
  "clap",
+ "maat_air",
  "maat_ast",
  "maat_bytecode",
  "maat_codegen",
  "maat_errors",
  "maat_eval",
+ "maat_field",
  "maat_lexer",
  "maat_module",
  "maat_parser",
+ "maat_prover",
  "maat_runtime",
  "maat_span",
  "maat_trace",
  "maat_types",
  "maat_vm",
  "rustyline",
+ "winter-math",
 ]
 
 [[package]]

@@ -32,3 +32,7 @@ maat_types = { path = "../maat_types", version = "0.12.2" }
 maat_span = { path = "../maat_span", version = "0.12.2" }
 maat_trace = { path = "../maat_trace", version = "0.12.2" }
 maat_vm = { path = "../maat_vm", version = "0.12.2" }
+maat_air = { path = "../maat_air", version = "0.12.2" }
+maat_field = { path = "../maat_field", version = "0.12.2" }
+maat_prover = { path = "../maat_prover", version = "0.12.2" }
+winter-math = "0.13"

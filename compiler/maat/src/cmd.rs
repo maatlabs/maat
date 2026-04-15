@@ -2,11 +2,21 @@ use std::fs::File;
 use std::io::{self, BufWriter};
 use std::path::Path;
 use std::process;
+use std::time::Instant;
 
+use maat_air::MaatPublicInputs;
 use maat_bytecode::Bytecode;
+use maat_field::Felt;
 use maat_module::{check_and_compile, resolve_module_graph};
+use maat_prover::{
+    MaatProver, compute_program_hash, compute_program_hash_bytes, development_options,
+    production_options, serialize_proof, verify_proof_file,
+};
 use maat_runtime::Value;
+use maat_trace::encode::value_to_felt;
 use maat_vm::VM;
+use winter_math::FieldElement;
+use winter_math::fields::f64::BaseElement;
 
 use crate::diagnostic;
 
@@ -147,6 +157,159 @@ pub fn trace(path: &Path, output_path: Option<&Path>) {
     }
 }
 
+/// STARK proof generation for the `maat prove` command.
+///
+/// Compiles the source file, executes it on the trace-generating VM,
+/// generates a cryptographic proof of correct execution, and writes
+/// the serialized proof to disk.
+///
+/// The pipeline is:
+/// 1. Parse, type-check, and compile to bytecode.
+/// 2. Run the standard VM to verify program correctness.
+/// 3. Run the trace VM to generate the execution trace.
+/// 4. Generate the STARK proof.
+/// 5. Serialize and write the proof file.
+pub fn prove(
+    path: &Path,
+    input: Option<&str>,
+    output_path: Option<&Path>,
+    trace_path: Option<&Path>,
+    release: bool,
+) {
+    require_extension(path, "maat", "prove");
+
+    let inputs = parse_input_values(input);
+    let bytecode = compile_source(path);
+
+    let mut vm = VM::new(bytecode.clone());
+    if let Err(e) = vm.run() {
+        eprintln!("error: {}: {e}", path.display());
+        process::exit(1);
+    }
+    let result = vm.last_popped_stack_elem().cloned();
+
+    let (trace, trace_result) = match maat_trace::run_trace(bytecode.clone()) {
+        Ok(pair) => pair,
+        Err(e) => {
+            eprintln!("error: trace generation failed: {e}");
+            process::exit(1);
+        }
+    };
+
+    if let Some(tp) = trace_path {
+        let file = match File::create(tp) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("error: cannot write '{}': {e}", tp.display());
+                process::exit(1);
+            }
+        };
+        if let Err(e) = trace.write_csv(BufWriter::new(file)) {
+            eprintln!("error: failed to write trace CSV: {e}");
+            process::exit(1);
+        }
+        eprintln!("trace: {} rows -> {}", trace.num_rows(), tp.display());
+    }
+
+    let output = trace_result
+        .as_ref()
+        .map(|v| value_to_felt(v).into_base_element())
+        .unwrap_or(BaseElement::ZERO);
+
+    let program_hash = match compute_program_hash(&bytecode) {
+        Ok(h) => h,
+        Err(e) => {
+            eprintln!("error: failed to compute program hash: {e}");
+            process::exit(1);
+        }
+    };
+    let program_hash_bytes = match compute_program_hash_bytes(&bytecode) {
+        Ok(h) => h,
+        Err(e) => {
+            eprintln!("error: failed to compute program hash bytes: {e}");
+            process::exit(1);
+        }
+    };
+
+    let public_inputs = MaatPublicInputs::new(program_hash, inputs.clone(), output);
+    let options = if release {
+        production_options()
+    } else {
+        development_options()
+    };
+
+    let start = Instant::now();
+    let prover = MaatProver::new(options.clone(), public_inputs);
+    let proof = match prover.generate_proof(trace) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("error: proof generation failed: {e}");
+            process::exit(1);
+        }
+    };
+    let elapsed = start.elapsed();
+
+    let proof_bytes = serialize_proof(&proof, &program_hash_bytes);
+    let default_output = path.with_extension("proof.bin");
+    let out = output_path.unwrap_or(&default_output);
+    if let Err(e) = std::fs::write(out, &proof_bytes) {
+        eprintln!("error: cannot write '{}': {e}", out.display());
+        process::exit(1);
+    }
+
+    let queries = options.num_queries();
+    let blowup = options.blowup_factor();
+    let grinding = options.grinding_factor();
+    let fri_bits = queries as u32 * blowup.ilog2();
+    let security_bits = fri_bits + grinding;
+
+    eprintln!(
+        "proved: {} -> {} ({} bytes, ~{} bits, {:.2?})",
+        path.display(),
+        out.display(),
+        proof_bytes.len(),
+        security_bits,
+        elapsed
+    );
+    if let Some(val) = result
+        && !matches!(val, Value::Unit)
+    {
+        eprintln!("output: {val}");
+    }
+}
+
+/// STARK proof verification for the `maat verify` command.
+///
+/// Reads a proof file, reconstructs the public inputs from the stored
+/// program hash and the provided input/output values, and verifies
+/// the cryptographic proof.
+pub fn verify(path: &Path, input: Option<&str>, expected: &str) {
+    require_extension(path, "bin", "verify");
+
+    let inputs = parse_input_values(input);
+    let expected_output = parse_value(expected);
+
+    let proof_bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("error: cannot read '{}': {e}", path.display());
+            process::exit(1);
+        }
+    };
+
+    let start = Instant::now();
+    match verify_proof_file(&proof_bytes, inputs, expected_output) {
+        Ok(()) => {
+            let elapsed = start.elapsed();
+            eprintln!("VERIFIED ({:.2?})", elapsed);
+        }
+        Err(e) => {
+            eprintln!("REJECTED: {e}");
+            process::exit(1);
+        }
+    }
+}
+
 /// Validates that a file path has the expected extension, exiting with a
 /// diagnostic message if it does not.
 fn require_extension(path: &Path, expected: &str, command: &str) {
@@ -182,6 +345,55 @@ fn compile_source(path: &Path) -> Bytecode {
         Err(e) => {
             diagnostic::report_module_error(&e);
             process::exit(1);
+        }
+    }
+}
+
+/// Parses comma-separated input values into field elements.
+///
+/// Supports integer literals and field element literals (with `fe` or `_fe` suffix).
+/// Returns an empty vector if `input` is `None`.
+fn parse_input_values(input: Option<&str>) -> Vec<BaseElement> {
+    let Some(s) = input else {
+        return vec![];
+    };
+    if s.trim().is_empty() {
+        return vec![];
+    }
+    s.split(',').map(|v| parse_value(v.trim())).collect()
+}
+
+/// Parses a single value string into a field element.
+///
+/// Accepts:
+/// - Plain integers: `42`, `-5`
+/// - Field element literals: `42fe`, `42_fe`
+fn parse_value(s: &str) -> BaseElement {
+    let s = s.trim();
+    if s.ends_with("fe") || s.ends_with("_fe") {
+        let num_part = s.trim_end_matches("_fe").trim_end_matches("fe");
+        match num_part.parse::<u64>() {
+            Ok(n) => BaseElement::new(n),
+            Err(e) => {
+                eprintln!("error: invalid field element literal '{}': {e}", s);
+                process::exit(1);
+            }
+        }
+    } else if s.starts_with('-') {
+        match s.parse::<i64>() {
+            Ok(n) => Felt::from_i64(n).into_base_element(),
+            Err(e) => {
+                eprintln!("error: invalid integer literal '{}': {e}", s);
+                process::exit(1);
+            }
+        }
+    } else {
+        match s.parse::<u64>() {
+            Ok(n) => BaseElement::new(n),
+            Err(e) => {
+                eprintln!("error: invalid integer literal '{}': {e}", s);
+                process::exit(1);
+            }
         }
     }
 }
