@@ -601,7 +601,7 @@ impl TraceVM {
             Opcode::Call => {
                 let num_args = self.read_u8_operand(ip + 1)?;
                 self.current_frame_mut()?.ip += 1;
-                self.execute_function_call(num_args, &mut info)?;
+                self.execute_function_call(num_args, ip, &mut info)?;
             }
             Opcode::GetBuiltin => {
                 let index = self.read_u8_operand(ip + 1)?;
@@ -688,12 +688,14 @@ impl TraceVM {
             Opcode::ReturnValue => {
                 let return_value = self.pop_stack()?;
                 info.out = value_to_felt(&return_value);
+                self.record_saved_fp_read(&mut info)?;
                 let frame = self.pop_frame()?;
                 self.sp = frame.base_pointer.saturating_sub(1);
                 self.push_stack(return_value)?;
                 self.fp = self.fp_stack.pop().unwrap_or(MAX_GLOBALS);
             }
             Opcode::Return => {
+                self.record_saved_fp_read(&mut info)?;
                 let frame = self.pop_frame()?;
                 self.sp = frame.base_pointer.saturating_sub(1);
                 self.push_stack(UNIT)?;
@@ -735,7 +737,12 @@ impl TraceVM {
         }
     }
 
-    fn execute_function_call(&mut self, num_args: usize, info: &mut TraceData) -> Result<()> {
+    fn execute_function_call(
+        &mut self,
+        num_args: usize,
+        call_ip: usize,
+        info: &mut TraceData,
+    ) -> Result<()> {
         let fn_slot = self
             .sp
             .checked_sub(1 + num_args)
@@ -746,32 +753,145 @@ impl TraceVM {
             .cloned()
             .ok_or_else(|| self.vm_error("stack underflow in function call"))?;
         match callee {
-            Value::Closure(cl) => self.call_closure(cl, num_args),
+            Value::Closure(cl) => self.call_closure(cl, num_args, call_ip, info),
             Value::Builtin(f) => self.call_builtin_fn(f, num_args, info),
             _ => Err(self.vm_error("calling non-function")),
         }
     }
 
-    fn call_closure(&mut self, closure: Closure, num_args: usize) -> Result<()> {
+    /// Reserves a fresh physical address, returning it.
+    ///
+    /// Panics on arithmetic overflow.
+    fn alloc_physical(&mut self) -> Result<usize> {
+        let physical = self.alloc_ptr;
+        self.alloc_ptr = self
+            .alloc_ptr
+            .checked_add(1)
+            .ok_or_else(|| self.vm_error("memory allocator overflow"))?;
+        Ok(physical)
+    }
+
+    /// Computes the callee frame's logical base pointer.
+    fn compute_new_fp(&self, caller_num_locals: usize) -> Result<usize> {
+        self.fp
+            .checked_add(caller_num_locals)
+            .and_then(|v| v.checked_add(1))
+            .ok_or_else(|| self.vm_error("frame pointer overflow"))
+    }
+
+    /// Emits one synthetic SEL_NOP row per parameter, provably writing the
+    /// argument value to the callee's logical slot `new_fp + i`.
+    fn emit_parameter_writes(
+        &mut self,
+        call_ip: usize,
+        sp_at_call: usize,
+        caller_fp: usize,
+        new_fp: usize,
+        args: &[Felt],
+    ) -> Result<()> {
+        let out = Felt::new(new_fp as u64);
+        let pc = Felt::new(call_ip as u64);
+        let sp = Felt::new(sp_at_call as u64);
+        let fp = Felt::new(caller_fp as u64);
+        for (i, &arg_felt) in args.iter().enumerate() {
+            let physical = self.alloc_physical()?;
+            let logical = new_fp
+                .checked_add(i)
+                .ok_or_else(|| self.vm_error("frame pointer overflow"))?;
+            self.addr_map.insert(logical, physical);
+
+            let mem_addr = Felt::new(physical as u64);
+            let mut row = [Felt::ZERO; TRACE_WIDTH];
+            row[COL_PC] = pc;
+            row[COL_SP] = sp;
+            row[COL_FP] = fp;
+            row[COL_OUT] = out;
+            row[COL_SEL_BASE + SEL_NOP as usize] = Felt::ONE;
+            row[COL_MEM_ADDR] = mem_addr;
+            row[COL_MEM_VAL] = arg_felt;
+            row[COL_IS_READ] = Felt::ZERO;
+
+            self.last_mem_addr = mem_addr;
+            self.last_mem_val = arg_felt;
+            self.trace.push_row(row);
+        }
+        Ok(())
+    }
+
+    /// Populates `info` with the saved-FP memory read that satisfies
+    /// constraint 34 (`sel_return * (fp_next - mem_val) = 0`).
+    fn record_saved_fp_read(&self, info: &mut TraceData) -> Result<()> {
+        let caller_fp = self.fp_stack.last().copied().unwrap_or(MAX_GLOBALS);
+        let saved_fp_logical = self
+            .fp
+            .checked_sub(1)
+            .ok_or_else(|| self.vm_error("frame pointer underflow on return"))?;
+        let saved_fp_physical = *self
+            .addr_map
+            .get(&saved_fp_logical)
+            .ok_or_else(|| self.vm_error("saved FP slot not allocated on return"))?;
+        info.mem_addr = Felt::new(saved_fp_physical as u64);
+        info.mem_val = Felt::new(caller_fp as u64);
+        info.is_read = Felt::ONE;
+        info.has_mem_access = true;
+        Ok(())
+    }
+
+    fn call_closure(
+        &mut self,
+        closure: Closure,
+        num_args: usize,
+        call_ip: usize,
+        info: &mut TraceData,
+    ) -> Result<()> {
         if num_args != closure.func.num_parameters {
             return Err(self.vm_error(format!(
                 "wrong number of arguments: want={}, got={num_args}",
                 closure.func.num_parameters
             )));
         }
-        let base_pointer = self.sp - num_args;
+
+        let caller_fp = self.fp;
+        let caller_num_locals = self.current_frame()?.num_locals;
+        let sp_at_call = self.sp;
+        let new_fp = self.compute_new_fp(caller_num_locals)?;
+
+        let args_start = self
+            .sp
+            .checked_sub(num_args)
+            .ok_or_else(|| self.vm_error("stack underflow in function call"))?;
+        let arg_felts = self.stack[args_start..args_start + num_args]
+            .iter()
+            .map(value_to_felt)
+            .collect::<Vec<Felt>>();
+
+        self.emit_parameter_writes(call_ip, sp_at_call, caller_fp, new_fp, &arg_felts)?;
+
+        let base_pointer = args_start;
         let num_locals = closure.func.num_locals;
         let frame = Frame::new(closure, base_pointer);
         self.push_frame(frame)?;
-        self.sp = base_pointer + num_locals;
+        self.sp = base_pointer
+            .checked_add(num_locals)
+            .ok_or_else(|| self.vm_error("stack pointer overflow"))?;
 
         if self.sp > self.stack.len() {
             self.stack.resize(self.sp, Value::Unit);
         }
 
-        self.fp_stack.push(self.fp);
-        let new_fp = self.fp + self.current_frame()?.num_locals;
+        let saved_fp_physical = self.alloc_physical()?;
+        let saved_fp_logical = new_fp
+            .checked_sub(1)
+            .ok_or_else(|| self.vm_error("frame pointer underflow allocating saved FP"))?;
+        self.addr_map.insert(saved_fp_logical, saved_fp_physical);
+        info.mem_addr = Felt::new(saved_fp_physical as u64);
+        info.mem_val = Felt::new(caller_fp as u64);
+        info.is_read = Felt::ZERO;
+        info.has_mem_access = true;
+
+        self.fp_stack.push(caller_fp);
         self.fp = new_fp;
+        info.out = Felt::new(new_fp as u64);
         Ok(())
     }
 

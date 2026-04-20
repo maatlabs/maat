@@ -447,6 +447,90 @@ fn proof_file_with_inputs_round_trip() {
 }
 
 #[test]
+fn prove_and_verify_single_param_function() {
+    prove_and_verify(
+        "
+        fn inc(x: i64) -> i64 {
+            x + 1
+        }
+        inc(41)
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_multi_param_function() {
+    prove_and_verify(
+        "
+        fn add3(a: i64, b: i64, c: i64) -> i64 {
+            a + b + c
+        }
+        add3(10, 20, 12)
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_nested_function_calls() {
+    prove_and_verify(
+        "
+        fn double(x: i64) -> i64 {
+            x * 2
+        }
+        fn quadruple(x: i64) -> i64 {
+            double(double(x))
+        }
+        quadruple(5)
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_function_with_local_then_call() {
+    prove_and_verify(
+        "
+        fn compute(a: i64, b: i64) -> i64 {
+            let s: i64 = a + b;
+            let p: i64 = a * b;
+            s + p
+        }
+        compute(3, 4)
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_bounded_recursion() {
+    prove_and_verify(
+        "
+        fn fact(n: i64) -> i64 {
+            if n <= 1 { 1 } else { n * fact(n - 1) }
+        }
+        fact(5)
+        ",
+    );
+}
+
+#[test]
+fn wrong_function_output_rejected() {
+    let source = "
+        fn square(x: i64) -> i64 { x * x }
+        square(9)
+    ";
+    let (bytecode, trace, output) = compile_and_trace(source);
+    let (proof, _correct_inputs) = prove(&bytecode, trace, output);
+
+    let program_hash = compute_program_hash(&bytecode).expect("program hash failed");
+    let wrong_output = BaseElement::new(80);
+    let wrong_inputs = MaatPublicInputs::new(program_hash, vec![], wrong_output);
+
+    assert!(
+        verify_with_inputs(proof, wrong_inputs).is_err(),
+        "function-call proof must reject a tampered output",
+    );
+}
+
+#[test]
 fn prove_and_verify_production_options() {
     let source = "let x: i64 = 42; x";
     let (bytecode, trace, output) = compile_and_trace(source);

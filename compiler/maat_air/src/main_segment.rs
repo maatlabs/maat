@@ -156,7 +156,6 @@ pub fn evaluate<E: FieldElement>(current: &[E], next: &[E], result: &mut [E]) {
         + sel(current, SEL_BITWISE)
         + sel(current, SEL_CMP)
         + sel(current, SEL_UNARY)
-        + sel(current, SEL_RETURN)
         + sel(current, SEL_FELT)
         + sel(current, SEL_DIV_MOD);
     result[23] = sel_single_byte * (pc_next - pc - one);
