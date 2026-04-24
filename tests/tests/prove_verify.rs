@@ -6,12 +6,15 @@
 
 use maat_air::MaatPublicInputs;
 use maat_bytecode::Bytecode;
+use maat_field::Felt;
 use maat_prover::{
     MaatProver, compute_program_hash, compute_program_hash_bytes, deserialize_proof,
     development_options, production_options, serialize_proof, verify, verify_with_inputs,
 };
-use maat_trace::TraceTable;
 use maat_trace::encode::value_to_felt;
+use maat_trace::{
+    COL_OUT, COL_SUB_SEL_BASE, SUB_SEL_ADD, SUB_SEL_EQ, SUB_SEL_FELT_ADD, SUB_SEL_NEG, TraceTable,
+};
 use winter_air::proof::Proof;
 use winter_math::FieldElement;
 use winter_math::fields::f64::BaseElement;
@@ -42,6 +45,24 @@ fn prove_and_verify(source: &str) {
     let (bytecode, trace, output) = compile_and_trace(source);
     let (proof, public_inputs) = prove(&bytecode, trace, output);
     verify_with_inputs(proof, public_inputs).expect("verification failed");
+}
+
+/// Tampers with the `out` column on the first row where `sub_selector` fires.
+///
+/// Returns the original (correct) output field element so the caller can
+/// build public inputs with the true output while submitting a fraudulent
+/// trace. If no row with the given sub-selector is found the test panics,
+/// ensuring the source program actually exercises the targeted operation.
+fn tamper_output_on_sub_sel(trace: &mut TraceTable, sub_selector: usize) {
+    let n = trace.num_rows();
+    for i in 0..n {
+        if trace.row(i)[COL_SUB_SEL_BASE + sub_selector] == Felt::ONE {
+            let cur = trace.row(i)[COL_OUT].as_u64();
+            trace.row_mut(i)[COL_OUT] = Felt::new(cur.wrapping_add(1));
+            return;
+        }
+    }
+    panic!("no row with sub_selector offset {sub_selector} found in trace");
 }
 
 #[test]
@@ -541,4 +562,88 @@ fn prove_and_verify_production_options() {
         .generate_proof(trace)
         .expect("proof generation with production options failed");
     verify_with_inputs(proof, public_inputs).expect("verification with production options failed");
+}
+
+#[test]
+fn tampered_arithmetic_add_output_rejected() {
+    let source = "let a: i64 = 10; let b: i64 = 20; a + b";
+    let (bytecode, mut trace, output) = compile_and_trace(source);
+    tamper_output_on_sub_sel(&mut trace, SUB_SEL_ADD);
+
+    let program_hash = compute_program_hash(&bytecode).expect("program hash failed");
+    let public_inputs = MaatPublicInputs::new(program_hash, vec![], output);
+    let prover = MaatProver::new(development_options(), public_inputs.clone());
+    let proof = prover
+        .generate_proof(trace)
+        .expect("tampered trace proof generation failed");
+
+    assert!(
+        verify_with_inputs(proof, public_inputs).is_err(),
+        "tampered add output must be rejected by the verifier",
+    );
+}
+
+#[test]
+fn tampered_arithmetic_neg_output_rejected() {
+    let source = "let a: i64 = 7; -a";
+    let (bytecode, mut trace, output) = compile_and_trace(source);
+    tamper_output_on_sub_sel(&mut trace, SUB_SEL_NEG);
+
+    let program_hash = compute_program_hash(&bytecode).expect("program hash failed");
+    let public_inputs = MaatPublicInputs::new(program_hash, vec![], output);
+    let prover = MaatProver::new(development_options(), public_inputs.clone());
+    let proof = prover
+        .generate_proof(trace)
+        .expect("tampered trace proof generation failed");
+
+    assert!(
+        verify_with_inputs(proof, public_inputs).is_err(),
+        "tampered neg output must be rejected by the verifier",
+    );
+}
+
+#[test]
+fn tampered_felt_add_output_rejected() {
+    let source = "
+        let a: Felt = 5_fe;
+        let b: Felt = 3_fe;
+        a + b
+    ";
+    let (bytecode, mut trace, output) = compile_and_trace(source);
+    tamper_output_on_sub_sel(&mut trace, SUB_SEL_FELT_ADD);
+
+    let program_hash = compute_program_hash(&bytecode).expect("program hash failed");
+    let public_inputs = MaatPublicInputs::new(program_hash, vec![], output);
+    let prover = MaatProver::new(development_options(), public_inputs.clone());
+    let proof = prover
+        .generate_proof(trace)
+        .expect("tampered trace proof generation failed");
+
+    assert!(
+        verify_with_inputs(proof, public_inputs).is_err(),
+        "tampered felt add output must be rejected by the verifier",
+    );
+}
+
+#[test]
+fn tampered_equality_output_rejected() {
+    let source = "
+        let a: i64 = 5;
+        let b: i64 = 5;
+        if a == b { 1i64 } else { 0i64 }
+    ";
+    let (bytecode, mut trace, output) = compile_and_trace(source);
+    tamper_output_on_sub_sel(&mut trace, SUB_SEL_EQ);
+
+    let program_hash = compute_program_hash(&bytecode).expect("program hash failed");
+    let public_inputs = MaatPublicInputs::new(program_hash, vec![], output);
+    let prover = MaatProver::new(development_options(), public_inputs.clone());
+    let proof = prover
+        .generate_proof(trace)
+        .expect("tampered trace proof generation failed");
+
+    assert!(
+        verify_with_inputs(proof, public_inputs).is_err(),
+        "tampered equality output must be rejected by the verifier",
+    );
 }

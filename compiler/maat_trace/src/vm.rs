@@ -23,9 +23,11 @@ use maat_span::{SourceMap, Span};
 use crate::encode::value_to_felt;
 use crate::selector::{SEL_NOP, class_index};
 use crate::table::{
-    COL_FP, COL_IS_READ, COL_MEM_ADDR, COL_MEM_VAL, COL_NONZERO_INV, COL_OPCODE, COL_OPERAND_0,
-    COL_OPERAND_1, COL_OUT, COL_PC, COL_RC_L0, COL_RC_L1, COL_RC_L2, COL_RC_L3, COL_RC_VAL, COL_S0,
-    COL_S1, COL_S2, COL_SEL_BASE, COL_SP, TRACE_WIDTH, TraceRow, TraceTable,
+    COL_CMP_INV, COL_DIV_AUX, COL_FP, COL_IS_READ, COL_MEM_ADDR, COL_MEM_VAL, COL_NONZERO_INV,
+    COL_OP_WIDTH, COL_OPCODE, COL_OPERAND_0, COL_OPERAND_1, COL_OUT, COL_PC, COL_RC_L0, COL_RC_L1,
+    COL_RC_L2, COL_RC_L3, COL_RC_VAL, COL_S0, COL_S1, COL_S2, COL_SEL_BASE, COL_SP,
+    COL_SUB_SEL_BASE, SUB_SEL_ADD, SUB_SEL_DIV, SUB_SEL_EQ, SUB_SEL_FELT_ADD, SUB_SEL_FELT_MUL,
+    SUB_SEL_FELT_SUB, SUB_SEL_NEG, SUB_SEL_NEQ, SUB_SEL_SUB, TRACE_WIDTH, TraceRow, TraceTable,
 };
 
 /// Trace metadata captured for a single instruction step.
@@ -47,6 +49,11 @@ struct TraceData {
     rc_limbs: [Felt; 4],
     /// Multiplicative inverse of the divisor on `sel_div_mod` rows.
     nonzero_inv: Felt,
+    /// `(s0 - s1)^{-1}` on equality/inequality rows when `s0 != s1`; zero otherwise.
+    cmp_inv: Felt,
+    /// Auxiliary witness for the division/modulo identity. On `Div` rows holds
+    /// the remainder; on `Mod` rows holds the quotient.
+    div_aux: Felt,
 }
 
 /// Decomposes a 64-bit value into four 16-bit limbs.
@@ -61,6 +68,30 @@ fn decompose_limbs(val: u64) -> [Felt; 4] {
         Felt::new((val >> 32) & 0xFFFF),
         Felt::new((val >> 48) & 0xFFFF),
     ]
+}
+
+/// Returns the encoded instruction width of `op` (opcode byte plus operand bytes).
+#[inline]
+fn opcode_width(op: Opcode) -> usize {
+    op.operand_widths().iter().sum::<usize>() + 1
+}
+
+/// Returns the sub-selector column index (offset from `COL_SUB_SEL_BASE`) for
+/// the given opcode, or `None` if the opcode has no sub-selector wired up.
+#[inline]
+fn sub_selector_index(op: Opcode) -> Option<usize> {
+    match op {
+        Opcode::Add => Some(SUB_SEL_ADD),
+        Opcode::Sub => Some(SUB_SEL_SUB),
+        Opcode::Div => Some(SUB_SEL_DIV),
+        Opcode::Minus => Some(SUB_SEL_NEG),
+        Opcode::FeltAdd => Some(SUB_SEL_FELT_ADD),
+        Opcode::FeltSub => Some(SUB_SEL_FELT_SUB),
+        Opcode::FeltMul => Some(SUB_SEL_FELT_MUL),
+        Opcode::Equal => Some(SUB_SEL_EQ),
+        Opcode::NotEqual => Some(SUB_SEL_NEQ),
+        _ => None,
+    }
 }
 
 /// A single call frame on the trace VM's frame stack.
@@ -204,9 +235,15 @@ impl TraceVM {
         row[COL_S0] = s0;
         row[COL_S1] = s1;
         row[COL_S2] = s2;
+        row[COL_OP_WIDTH] = Felt::new(opcode_width(op) as u64);
 
         let sel = class_index(op);
         row[COL_SEL_BASE + sel as usize] = Felt::ONE;
+
+        if let Some(sub) = sub_selector_index(op) {
+            row[COL_SUB_SEL_BASE + sub] = Felt::ONE;
+        }
+
         row
     }
 
@@ -365,6 +402,8 @@ impl TraceVM {
             row[COL_RC_L2] = trace_info.rc_limbs[2];
             row[COL_RC_L3] = trace_info.rc_limbs[3];
             row[COL_NONZERO_INV] = trace_info.nonzero_inv;
+            row[COL_CMP_INV] = trace_info.cmp_inv;
+            row[COL_DIV_AUX] = trace_info.div_aux;
 
             self.trace.push_row(row);
         }
@@ -381,9 +420,12 @@ impl TraceVM {
     /// real instruction's transition constraints (e.g. `sel_store * (sp_next - sp + 1)`)
     /// evaluate against the correct successor values.
     fn emit_final_row(&mut self) {
-        let ip = self.current_frame().map(|f| f.ip as usize).unwrap_or(0);
+        let next_pc = self
+            .current_frame()
+            .map(|f| (f.ip + 1) as usize)
+            .unwrap_or(0);
         let mut row = [Felt::ZERO; TRACE_WIDTH];
-        row[COL_PC] = Felt::new(ip as u64);
+        row[COL_PC] = Felt::new(next_pc as u64);
         row[COL_SP] = Felt::new(self.sp as u64);
         row[COL_FP] = Felt::new(self.fp as u64);
         row[COL_SEL_BASE + SEL_NOP as usize] = Felt::ONE;
@@ -450,14 +492,28 @@ impl TraceVM {
                 info.out = self.peek_top_felt();
             }
             Opcode::Div | Opcode::Mod => {
-                let divisor_felt = self.peek_top_felt();
+                let s0_before = if self.sp >= 1 {
+                    value_to_felt(&self.stack[self.sp - 1])
+                } else {
+                    Felt::ZERO
+                };
+                let s1_before = if self.sp >= 2 {
+                    value_to_felt(&self.stack[self.sp - 2])
+                } else {
+                    Felt::ZERO
+                };
+
                 self.execute_binary_operation(op)?;
                 info.out = self.peek_top_felt();
 
-                if divisor_felt != Felt::ZERO {
-                    info.nonzero_inv = divisor_felt
-                        .inv()
-                        .expect("non-zero field element has inverse");
+                if s0_before != Felt::ZERO {
+                    let inv = s0_before.inv().expect("non-zero field element has inverse");
+                    info.nonzero_inv = inv;
+                    info.div_aux = match op {
+                        Opcode::Div => s1_before - s0_before * info.out,
+                        Opcode::Mod => inv * (s1_before - info.out),
+                        _ => Felt::ZERO,
+                    };
                 }
             }
             Opcode::True => {
@@ -468,8 +524,22 @@ impl TraceVM {
                 self.push_stack(FALSE)?;
             }
             Opcode::Equal | Opcode::NotEqual | Opcode::GreaterThan | Opcode::LessThan => {
+                let s0_before = if self.sp >= 1 {
+                    value_to_felt(&self.stack[self.sp - 1])
+                } else {
+                    Felt::ZERO
+                };
+                let s1_before = if self.sp >= 2 {
+                    value_to_felt(&self.stack[self.sp - 2])
+                } else {
+                    Felt::ZERO
+                };
                 self.execute_comparison(op)?;
                 info.out = self.peek_top_felt();
+                let diff = s0_before - s1_before;
+                if diff != Felt::ZERO {
+                    info.cmp_inv = diff.inv().expect("non-zero field element has inverse");
+                }
             }
             Opcode::Bang => {
                 self.execute_bang_operator()?;

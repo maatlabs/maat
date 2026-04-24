@@ -14,8 +14,8 @@
 //!
 //! # Soundness
 //!
-//! The activity mask is embedded in `winter_air::TraceInfo::meta()` and travels with the
-//! proof. The verifier reconstructs the same degrees from the mask.
+//! The activity mask is embedded in [`winter_air::TraceInfo::meta`] and travels
+//! with the proof. The verifier reconstructs the same degrees from the mask.
 //!
 //! If a malicious prover falsely declares a constraint as degenerate (degree 1)
 //! but actually activates the corresponding opcode, the constraint polynomial
@@ -26,8 +26,10 @@
 //! quotient has lower degree than expected, and FRI accepts (it checks `<=`).
 
 use maat_trace::{
-    COL_FP, COL_IS_READ, COL_MEM_ADDR, COL_MEM_VAL, COL_NONZERO_INV, COL_OUT, COL_RC_L0, COL_RC_L1,
-    COL_RC_L2, COL_RC_L3, COL_S0, COL_SEL_BASE,
+    COL_CMP_INV, COL_DIV_AUX, COL_FP, COL_IS_READ, COL_MEM_ADDR, COL_MEM_VAL, COL_NONZERO_INV,
+    COL_OUT, COL_RC_L0, COL_RC_L1, COL_RC_L2, COL_RC_L3, COL_S0, COL_SEL_BASE, COL_SUB_SEL_BASE,
+    SUB_SEL_ADD, SUB_SEL_DIV, SUB_SEL_EQ, SUB_SEL_FELT_ADD, SUB_SEL_FELT_MUL, SUB_SEL_FELT_SUB,
+    SUB_SEL_NEG, SUB_SEL_NEQ, SUB_SEL_SUB,
 };
 use winter_math::FieldElement;
 use winter_math::fields::f64::BaseElement;
@@ -45,48 +47,54 @@ use crate::main_segment::{
 /// of `(1 − 1) * (n − 1) = 0`, which matches the zero polynomial exactly.
 const DEGENERATE_DEGREE: usize = 1;
 
+/// Number of bytes used to serialize the activity mask in
+/// [`winter_air::TraceInfo::meta`].
+///
+/// The mask is `u128`-wide because the AIR currently declares
+/// `NUM_CONSTRAINTS + NUM_AUX_CONSTRAINTS = 64 + 8 = 72` transition
+/// constraints, exceeding the 64-bit envelope.
+pub const MASK_BYTES: usize = 16;
+
+/// Per-row activity flags derived once from the main trace.
+struct TraceActivity {
+    active_sels: u32,
+    fp_changes: bool,
+    out_changes: bool,
+    mem_val_equals_s0: bool,
+    is_read_varies: bool,
+    nonzero_inv_varies: bool,
+    sub_sel_active: [bool; 9],
+    cmp_inv_varies: bool,
+    div_aux_varies: bool,
+}
+
 /// Computes a bitmask indicating which transition constraints are non-degenerate
 /// (achieve their declared polynomial degree) on the given main trace.
 ///
-/// Bits 0..41 correspond to the 42 main-segment constraints; bits 42..49
-/// correspond to the 8 auxiliary-segment constraints. A set bit means the
-/// constraint is active; a clear bit means it is the zero polynomial.
+/// Bits `0..NUM_CONSTRAINTS` correspond to the main-segment constraints; bits
+/// `NUM_CONSTRAINTS..NUM_CONSTRAINTS + NUM_AUX_CONSTRAINTS` correspond to the
+/// auxiliary-segment constraints. A set bit means the constraint is active;
+/// a clear bit means it is the zero polynomial.
 ///
-/// The returned value must be encoded as 8 little-endian bytes in
-/// `winter_air::TraceInfo::meta()` so that `decode_mask`
-/// can reconstruct the correct declarations during AIR construction.
-pub fn encode_mask(main_columns: &[Vec<BaseElement>]) -> u64 {
+/// The returned value must be encoded as [`MASK_BYTES`] little-endian bytes in
+/// [`winter_air::TraceInfo::meta`] so that `decode_mask` can reconstruct the
+/// correct declarations during AIR construction.
+pub fn encode_mask(main_columns: &[Vec<BaseElement>]) -> u128 {
     let n = main_columns[0].len();
-    let mut mask = 0u64;
+    let mut mask = 0u128;
 
-    let active_sels = active_selectors(main_columns, n);
-    let fp_changes = column_changes(&main_columns[COL_FP]);
-    let out_changes = column_changes(&main_columns[COL_OUT]);
-    let mem_val_equals_s0 = columns_equal(&main_columns[COL_MEM_VAL], &main_columns[COL_S0]);
-
-    let is_read_varies = column_varies(&main_columns[COL_IS_READ]);
-    let nonzero_inv_varies = column_varies(&main_columns[COL_NONZERO_INV]);
+    let activity = compute_activity(main_columns, n);
 
     for i in 0..NUM_CONSTRAINTS {
-        if main_constraint_active(
-            i,
-            active_sels,
-            fp_changes,
-            out_changes,
-            mem_val_equals_s0,
-            is_read_varies,
-            nonzero_inv_varies,
-            main_columns,
-            n,
-        ) {
-            mask |= 1 << i;
+        if main_constraint_active(i, &activity, main_columns, n) {
+            mask |= 1u128 << i;
         }
     }
 
     let aux_flags = aux_non_degenerate(main_columns, n);
     for (i, active) in aux_flags.iter().enumerate() {
         if *active {
-            mask |= 1 << (NUM_CONSTRAINTS + i);
+            mask |= 1u128 << (NUM_CONSTRAINTS + i);
         }
     }
 
@@ -99,18 +107,18 @@ pub fn encode_mask(main_columns: &[Vec<BaseElement>]) -> u64 {
 /// When `meta` is empty (e.g. in unit tests that construct the AIR directly
 /// without a prover), the original static degrees are returned unchanged.
 pub fn decode_mask(meta: &[u8]) -> ([usize; NUM_CONSTRAINTS], [usize; NUM_AUX_CONSTRAINTS]) {
-    if meta.len() < 8 {
+    if meta.len() < MASK_BYTES {
         return (CONSTRAINT_DEGREES, AUX_CONSTRAINT_DEGREES);
     }
 
-    let mask = u64::from_le_bytes(
-        meta[..8]
+    let mask = u128::from_le_bytes(
+        meta[..MASK_BYTES]
             .try_into()
-            .expect("meta slice must be at least 8 bytes"),
+            .expect("meta slice must be at least MASK_BYTES bytes"),
     );
 
     let main = core::array::from_fn(|i| {
-        if mask & (1 << i) != 0 {
+        if mask & (1u128 << i) != 0 {
             CONSTRAINT_DEGREES[i]
         } else {
             DEGENERATE_DEGREE
@@ -118,7 +126,7 @@ pub fn decode_mask(meta: &[u8]) -> ([usize; NUM_CONSTRAINTS], [usize; NUM_AUX_CO
     });
 
     let aux = core::array::from_fn(|i| {
-        if mask & (1 << (NUM_CONSTRAINTS + i)) != 0 {
+        if mask & (1u128 << (NUM_CONSTRAINTS + i)) != 0 {
             AUX_CONSTRAINT_DEGREES[i]
         } else {
             DEGENERATE_DEGREE
@@ -164,24 +172,84 @@ fn columns_equal(a: &[BaseElement], b: &[BaseElement]) -> bool {
     a.iter().zip(b.iter()).all(|(&x, &y)| x == y)
 }
 
+/// Returns `true` if any value in the column is non-zero.
+fn column_non_zero(col: &[BaseElement]) -> bool {
+    col.iter().any(|&v| v != BaseElement::ZERO)
+}
+
+fn compute_activity(main_columns: &[Vec<BaseElement>], n: usize) -> TraceActivity {
+    let active_sels = active_selectors(main_columns, n);
+    let fp_changes = column_changes(&main_columns[COL_FP]);
+    let out_changes = column_changes(&main_columns[COL_OUT]);
+    let mem_val_equals_s0 = columns_equal(&main_columns[COL_MEM_VAL], &main_columns[COL_S0]);
+
+    let is_read_varies = column_varies(&main_columns[COL_IS_READ]);
+    let nonzero_inv_varies = column_varies(&main_columns[COL_NONZERO_INV]);
+
+    let sub_sel_active = [
+        column_non_zero(&main_columns[COL_SUB_SEL_BASE + SUB_SEL_ADD]),
+        column_non_zero(&main_columns[COL_SUB_SEL_BASE + SUB_SEL_SUB]),
+        column_non_zero(&main_columns[COL_SUB_SEL_BASE + SUB_SEL_DIV]),
+        column_non_zero(&main_columns[COL_SUB_SEL_BASE + SUB_SEL_NEG]),
+        column_non_zero(&main_columns[COL_SUB_SEL_BASE + SUB_SEL_FELT_ADD]),
+        column_non_zero(&main_columns[COL_SUB_SEL_BASE + SUB_SEL_FELT_SUB]),
+        column_non_zero(&main_columns[COL_SUB_SEL_BASE + SUB_SEL_FELT_MUL]),
+        column_non_zero(&main_columns[COL_SUB_SEL_BASE + SUB_SEL_EQ]),
+        column_non_zero(&main_columns[COL_SUB_SEL_BASE + SUB_SEL_NEQ]),
+    ];
+
+    let cmp_inv_varies = column_non_zero(&main_columns[COL_CMP_INV]);
+    let div_aux_varies = column_non_zero(&main_columns[COL_DIV_AUX]);
+
+    TraceActivity {
+        active_sels,
+        fp_changes,
+        out_changes,
+        mem_val_equals_s0,
+        is_read_varies,
+        nonzero_inv_varies,
+        sub_sel_active,
+        cmp_inv_varies,
+        div_aux_varies,
+    }
+}
+
 /// Determines whether a main-segment constraint is non-degenerate.
 ///
 /// A constraint is non-degenerate when its gating selector(s) are active in
 /// the trace AND its inner expression is not the zero polynomial.
-#[allow(clippy::too_many_arguments)]
 fn main_constraint_active(
     idx: usize,
-    active_sels: u32,
-    fp_changes: bool,
-    out_changes: bool,
-    mem_val_equals_s0: bool,
-    is_read_varies: bool,
-    nonzero_inv_varies: bool,
+    activity: &TraceActivity,
     main_columns: &[Vec<BaseElement>],
     _n: usize,
 ) -> bool {
-    let sel = |s: usize| -> bool { active_sels & (1 << s) != 0 };
+    let sel = |s: usize| -> bool { activity.active_sels & (1 << s) != 0 };
     let any_sel = |sels: &[usize]| -> bool { sels.iter().any(|&s| sel(s)) };
+    let sub = |i: usize| -> bool { activity.sub_sel_active[i] };
+
+    let pc_uniform_classes = [
+        SEL_ARITH,
+        SEL_BITWISE,
+        SEL_CMP,
+        SEL_UNARY,
+        SEL_LOAD,
+        SEL_STORE,
+        SEL_PUSH,
+        SEL_CONVERT,
+        SEL_FELT,
+        SEL_DIV_MOD,
+        12, // SEL_CONSTRUCT
+        14, // SEL_COLLECTION
+    ];
+    let width_one_classes = [
+        SEL_ARITH,
+        SEL_BITWISE,
+        SEL_CMP,
+        SEL_UNARY,
+        SEL_FELT,
+        SEL_DIV_MOD,
+    ];
 
     match idx {
         0..=16 => sel(idx),
@@ -191,36 +259,48 @@ fn main_constraint_active(
         20 => sel(SEL_UNARY),
         21 => sel(SEL_STORE),
         22 => sel(SEL_LOAD),
-        23 => any_sel(&[
-            SEL_ARITH,
-            SEL_BITWISE,
-            SEL_CMP,
-            SEL_UNARY,
-            SEL_RETURN,
-            SEL_FELT,
-            SEL_DIV_MOD,
-        ]),
-        24 => sel(SEL_CONVERT),
-        25 => sel(SEL_JUMP),
-        26..=28 => sel(SEL_COND_JUMP),
-        29 => sel(SEL_LOAD) && is_read_varies,
-        30 => sel(SEL_LOAD),
-        31 => sel(SEL_STORE) && is_read_varies,
-        32 => sel(SEL_STORE) && !mem_val_equals_s0,
-        33 => sel(SEL_CALL),
-        34 => sel(SEL_RETURN),
-        35 => sel(SEL_NOP),
+        23 => any_sel(&pc_uniform_classes),
+        24 => any_sel(&width_one_classes),
+        25 => sel(SEL_CONVERT),
+        26 => sel(SEL_JUMP),
+        27..=29 => sel(SEL_COND_JUMP),
+        30 => sel(SEL_LOAD) && activity.is_read_varies,
+        31 => sel(SEL_LOAD),
+        32 => sel(SEL_STORE) && activity.is_read_varies,
+        33 => sel(SEL_STORE) && !activity.mem_val_equals_s0,
+        34 => sel(SEL_CALL),
+        35 => sel(SEL_RETURN),
         36 => sel(SEL_NOP),
-        37 => sel(SEL_NOP) && fp_changes,
-        38 => {
+        37 => sel(SEL_NOP),
+        38 => sel(SEL_NOP) && activity.fp_changes,
+        39 => {
             column_varies(&main_columns[COL_RC_L0])
                 || column_varies(&main_columns[COL_RC_L1])
                 || column_varies(&main_columns[COL_RC_L2])
                 || column_varies(&main_columns[COL_RC_L3])
         }
-        39 => sel(SEL_CONVERT),
-        40 => sel(SEL_DIV_MOD) && nonzero_inv_varies,
-        41 => sel(SEL_NOP) && out_changes,
+        40 => sel(SEL_CONVERT),
+        41 => sel(SEL_DIV_MOD) && activity.nonzero_inv_varies,
+        42 => sel(SEL_NOP) && activity.out_changes,
+        43 => sub(SUB_SEL_ADD),
+        44 => sub(SUB_SEL_SUB),
+        45 => sub(SUB_SEL_DIV),
+        46 => sub(SUB_SEL_NEG),
+        47 => sub(SUB_SEL_FELT_ADD),
+        48 => sub(SUB_SEL_FELT_SUB),
+        49 => sub(SUB_SEL_FELT_MUL),
+        50 => sub(SUB_SEL_EQ),
+        51 => sub(SUB_SEL_NEQ),
+        52 => sub(SUB_SEL_ADD) && sub(SUB_SEL_SUB),
+        53 => sub(SUB_SEL_FELT_ADD) && sub(SUB_SEL_FELT_SUB),
+        54 => sub(SUB_SEL_FELT_ADD) && sub(SUB_SEL_FELT_MUL),
+        55 => sub(SUB_SEL_FELT_SUB) && sub(SUB_SEL_FELT_MUL),
+        56 => sub(SUB_SEL_EQ) && sub(SUB_SEL_NEQ),
+        57 => sel(SEL_ARITH),
+        58 => sel(SEL_DIV_MOD) && activity.div_aux_varies,
+        59 => sel(SEL_UNARY),
+        60 => sub(SUB_SEL_FELT_ADD) || sub(SUB_SEL_FELT_SUB) || sub(SUB_SEL_FELT_MUL),
+        61..=63 => (sub(SUB_SEL_EQ) || sub(SUB_SEL_NEQ)) && activity.cmp_inv_varies,
         _ => unreachable!("constraint index {idx} out of range"),
     }
 }
@@ -324,13 +404,13 @@ mod tests {
 
         // sel_push (bit 1) should be inactive.
         assert_eq!(
-            mask & (1 << 1),
+            mask & (1u128 << 1),
             0,
             "sel_push should be inactive on NOP-only trace"
         );
 
         // Constraint 17 (selector sum) is always active.
-        assert_ne!(mask & (1 << 17), 0, "constraint 17 always active");
+        assert_ne!(mask & (1u128 << 17), 0, "constraint 17 always active");
     }
 
     #[test]
@@ -342,7 +422,12 @@ mod tests {
 
     #[test]
     fn decode_all_active_returns_static_degrees() {
-        let mask = (1u64 << 50) - 1; // bits 0..49 set
+        let total = NUM_CONSTRAINTS + NUM_AUX_CONSTRAINTS;
+        let mask: u128 = if total >= 128 {
+            u128::MAX
+        } else {
+            (1u128 << total) - 1
+        };
         let meta = mask.to_le_bytes();
         let (main, aux) = decode_mask(&meta);
         assert_eq!(main, CONSTRAINT_DEGREES);
@@ -351,7 +436,7 @@ mod tests {
 
     #[test]
     fn decode_all_inactive_returns_degenerate() {
-        let meta = 0u64.to_le_bytes();
+        let meta = 0u128.to_le_bytes();
         let (main, aux) = decode_mask(&meta);
         for (i, &d) in main.iter().enumerate() {
             assert_eq!(

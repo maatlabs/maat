@@ -67,8 +67,44 @@ pub const COL_RC_L3: usize = COL_RC_BASE + 4;
 /// Proves the divisor is non-zero: `divisor * nonzero_inv = 1`.
 pub const COL_NONZERO_INV: usize = COL_RC_BASE + 5;
 
+/// Operand-byte width of the current opcode (`operand_widths().sum() + 1`).
+pub const COL_OP_WIDTH: usize = COL_NONZERO_INV + 1;
+
+/// Multiplicative inverse witness for the equality output constraint.
+pub const COL_CMP_INV: usize = COL_OP_WIDTH + 1;
+
+/// Auxiliary witness for the division/modulo identity.
+pub const COL_DIV_AUX: usize = COL_CMP_INV + 1;
+
+/// Base column index for the per-opcode sub-selector flags.
+pub const COL_SUB_SEL_BASE: usize = COL_DIV_AUX + 1;
+
+/// Sub-selector: `Add` (parent `SEL_ARITH`).
+pub const SUB_SEL_ADD: usize = 0;
+/// Sub-selector: `Sub` (parent `SEL_ARITH`).
+pub const SUB_SEL_SUB: usize = 1;
+/// Sub-selector: `Div` (parent `SEL_DIV_MOD`). `sel_mod` is derived as
+/// `sel_div_mod - sel_div`.
+pub const SUB_SEL_DIV: usize = 2;
+/// Sub-selector: `Minus` (parent `SEL_UNARY`). `sel_not` is derived as
+/// `sel_unary - sel_neg`.
+pub const SUB_SEL_NEG: usize = 3;
+/// Sub-selector: `FeltAdd` (parent `SEL_FELT`).
+pub const SUB_SEL_FELT_ADD: usize = 4;
+/// Sub-selector: `FeltSub` (parent `SEL_FELT`).
+pub const SUB_SEL_FELT_SUB: usize = 5;
+/// Sub-selector: `FeltMul` (parent `SEL_FELT`).
+pub const SUB_SEL_FELT_MUL: usize = 6;
+/// Sub-selector: `Equal` (parent `SEL_CMP`).
+pub const SUB_SEL_EQ: usize = 7;
+/// Sub-selector: `NotEqual` (parent `SEL_CMP`).
+pub const SUB_SEL_NEQ: usize = 8;
+
+/// Number of per-opcode sub-selector witness columns.
+pub const NUM_SUB_SELECTORS: usize = 9;
+
 /// Total number of columns in the main execution trace.
-pub const TRACE_WIDTH: usize = COL_NONZERO_INV + 1;
+pub const TRACE_WIDTH: usize = COL_SUB_SEL_BASE + NUM_SUB_SELECTORS;
 
 /// Column names for CSV header and debugging.
 pub const COLUMN_NAMES: [&str; TRACE_WIDTH] = [
@@ -108,6 +144,18 @@ pub const COLUMN_NAMES: [&str; TRACE_WIDTH] = [
     "rc_l2",
     "rc_l3",
     "nonzero_inv",
+    "op_width",
+    "cmp_inv",
+    "div_aux",
+    "sub_sel_add",
+    "sub_sel_sub",
+    "sub_sel_div",
+    "sub_sel_neg",
+    "sub_sel_felt_add",
+    "sub_sel_felt_sub",
+    "sub_sel_felt_mul",
+    "sub_sel_eq",
+    "sub_sel_neq",
 ];
 
 /// A single trace row: an array of [`TRACE_WIDTH`] field elements.
@@ -143,6 +191,11 @@ impl TraceTable {
     /// Returns a reference to the row at the given index.
     pub fn row(&self, index: usize) -> &TraceRow {
         &self.rows[index]
+    }
+
+    /// Returns a mutable reference to the row at the given index.
+    pub fn row_mut(&mut self, index: usize) -> &mut TraceRow {
+        &mut self.rows[index]
     }
 
     /// Returns a reference to the last row, or `None` if empty.
@@ -331,7 +384,7 @@ mod tests {
         let cols = header.split(',').collect::<Vec<_>>();
         assert_eq!(cols.len(), TRACE_WIDTH);
         assert_eq!(cols[0], "pc");
-        assert_eq!(cols[TRACE_WIDTH - 1], "nonzero_inv");
+        assert_eq!(cols[TRACE_WIDTH - 1], "sub_sel_neq");
     }
 
     #[test]

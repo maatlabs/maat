@@ -891,6 +891,7 @@ dependencies = [
  "maat_codegen",
  "maat_errors",
  "maat_eval",
+ "maat_field",
  "maat_lexer",
  "maat_module",
  "maat_parser",

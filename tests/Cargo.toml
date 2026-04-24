@@ -19,6 +19,7 @@ maat_types = { path = "../compiler/maat_types" }
 maat_span = { path = "../compiler/maat_span" }
 maat_module = { path = "../compiler/maat_module" }
 maat_vm = { path = "../compiler/maat_vm" }
+maat_field = { path = "../compiler/maat_field" }
 maat_trace = { path = "../compiler/maat_trace" }
 maat_air = { path = "../compiler/maat_air" }
 maat_prover = { path = "../compiler/maat_prover" }

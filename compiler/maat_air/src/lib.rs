@@ -69,7 +69,7 @@ mod public_inputs;
 
 use aux_segment::{AUX_COL_MEM_ACC, AUX_COL_RC_ACC, NUM_AUX_CONSTRAINTS};
 pub use aux_segment::{AUX_WIDTH, NUM_AUX_RANDS, build_aux_columns};
-pub use degree::encode_mask;
+pub use degree::{MASK_BYTES, encode_mask};
 use maat_trace::{COL_OUT, COL_PC, COL_SP};
 use main_segment::NUM_CONSTRAINTS;
 pub use public_inputs::MaatPublicInputs;
