@@ -17,6 +17,7 @@
 use std::fmt;
 use std::io::{self, Write};
 
+use maat_errors::{Result, VmError};
 use maat_field::Felt;
 
 use crate::selector::{NUM_SELECTORS, SEL_NOP};
@@ -298,6 +299,26 @@ impl TraceTable {
             }
         }
         columns
+    }
+
+    /// Asserts that physical addresses in [`COL_MEM_ADDR`] form a contiguous range
+    /// `[0, max_addr]` with no gaps.
+    pub fn validate_address_contiguity(&self) -> Result<()> {
+        let n = self.num_rows();
+        let mut addrs = (0..n)
+            .map(|i| self.row(i)[COL_MEM_ADDR].as_u64())
+            .collect::<Vec<u64>>();
+        addrs.sort_unstable();
+        addrs.dedup();
+        for (expected, &actual) in addrs.iter().enumerate() {
+            if actual != expected as u64 {
+                return Err(VmError::new(format!(
+                "physical address gap in execution trace: expected address {expected}, found {actual}"
+            ))
+            .into());
+            }
+        }
+        Ok(())
     }
 }
 

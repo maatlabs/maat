@@ -13,7 +13,8 @@ use maat_prover::{
 };
 use maat_trace::encode::value_to_felt;
 use maat_trace::{
-    COL_OUT, COL_SUB_SEL_BASE, SUB_SEL_ADD, SUB_SEL_EQ, SUB_SEL_FELT_ADD, SUB_SEL_NEG, TraceTable,
+    COL_MEM_ADDR, COL_OUT, COL_SUB_SEL_BASE, SUB_SEL_ADD, SUB_SEL_EQ, SUB_SEL_FELT_ADD,
+    SUB_SEL_NEG, TraceTable,
 };
 use winter_air::proof::Proof;
 use winter_math::FieldElement;
@@ -646,4 +647,41 @@ fn tampered_equality_output_rejected() {
         verify_with_inputs(proof, public_inputs).is_err(),
         "tampered equality output must be rejected by the verifier",
     );
+}
+
+#[test]
+fn physical_address_gap_rejected() {
+    let source = "let a: i64 = 5; a";
+    let (bytecode, mut trace, _) = compile_and_trace(source);
+
+    // Shift every non-sentinel address up by 1 so address 1 is skipped,
+    // leaving the unique sorted address set as {0, 2, ...} instead of {0, 1, ...}.
+    let n = trace.num_rows();
+    for i in 0..n {
+        let addr = trace.row(i)[COL_MEM_ADDR].as_u64();
+        if addr > 0 {
+            trace.row_mut(i)[COL_MEM_ADDR] = Felt::new(addr + 1);
+        }
+    }
+
+    let program_hash = compute_program_hash(&bytecode).expect("hash failed");
+    let public_inputs = MaatPublicInputs::new(program_hash, vec![], BaseElement::new(5));
+    let prover = MaatProver::new(development_options(), public_inputs.clone());
+
+    // In debug builds the assertion inside `build_aux_columns` fires before a
+    // proof is produced. In release builds the AIR address-continuity constraint
+    // (aux constraint 0: addr_delta * (addr_delta - 1) = 0) rejects the proof.
+    let prove_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        prover.generate_proof(trace)
+    }));
+    match prove_result {
+        Err(_) => {}
+        Ok(proof) => {
+            let proof = proof.expect("proof generation failed");
+            assert!(
+                verify_with_inputs(proof, public_inputs).is_err(),
+                "physical address gap must be rejected by the verifier",
+            );
+        }
+    }
 }

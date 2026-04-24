@@ -199,6 +199,17 @@ pub fn evaluate<F, E>(
 /// The returned vector contains columns in order:
 /// `[L2_addr, L2_val, mem_acc, rc_sorted_0, rc_sorted_1, rc_sorted_2, rc_sorted_3, rc_acc]`.
 ///
+/// # Invariant: physical-address contiguity
+///
+/// The memory permutation argument is sound only when the physical addresses in
+/// `COL_MEM_ADDR` form a contiguous range `[0, max_addr]` with no gaps.
+/// Contiguity is enforced at trace-generation time by [`maat_trace::run_trace`].
+/// Any future change to the trace VM that allocates a physical address without a
+/// corresponding main-trace row (e.g. frame pre-allocation, speculative writes, an optimizer pass)
+/// would silently break the address-continuity constraint (aux constraint 0) and corrupt the
+/// memory permutation grand product. The `debug_assert` below catches such
+/// regressions during development before the prover commits to the trace.
+///
 /// # Panics
 ///
 /// Panics if `rand_elements` does not contain at least [`NUM_AUX_RANDS`]
@@ -210,6 +221,22 @@ pub fn build_aux_columns<E: FieldElement<BaseField = BaseElement>>(
     debug_assert!(main_trace.len() >= TRACE_WIDTH);
 
     let n = main_trace[0].len();
+
+    #[cfg(debug_assertions)]
+    {
+        let unique_addrs = main_trace[COL_MEM_ADDR]
+            .iter()
+            .map(|a| a.as_int())
+            .collect::<std::collections::BTreeSet<u64>>();
+        assert!(
+            unique_addrs
+                .iter()
+                .copied()
+                .zip(0_u64..)
+                .all(|(a, i)| a == i),
+            "physical address gap detected: main trace addresses are not contiguous from 0"
+        );
+    }
     let z = rand_elements[RAND_Z];
     let alpha = rand_elements[RAND_ALPHA];
     let z_rc = rand_elements[RAND_Z_RC];

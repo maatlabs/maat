@@ -61,7 +61,9 @@ pub fn run_trace(bytecode: Bytecode) -> Result<(TraceTable, Option<Value>)> {
     let mut vm = TraceVM::new(bytecode);
     vm.run()?;
     let result = vm.last_popped_stack_elem().cloned();
-    let mut trace = vm.into_trace();
+    let trace = vm.into_trace();
+
+    trace.validate_address_contiguity()?;
 
     // Stamp the program output onto the last execution row so the boundary
     // assertion `out[last] = public_output` holds after NOP padding.
@@ -69,6 +71,7 @@ pub fn run_trace(bytecode: Bytecode) -> Result<(TraceTable, Option<Value>)> {
         .as_ref()
         .map(encode::value_to_felt)
         .unwrap_or(maat_field::Felt::ZERO);
+    let mut trace = trace;
     trace.stamp_output(output_felt);
 
     trace.pad_to_power_of_two();
