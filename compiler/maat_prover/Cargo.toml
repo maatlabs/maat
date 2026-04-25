@@ -11,11 +11,11 @@ homepage.workspace = true
 readme = "README.md"
 
 [dependencies]
-maat_air = { path = "../maat_air", version = "0.12.3" }
-maat_trace = { path = "../maat_trace", version = "0.12.3" }
-maat_bytecode = { path = "../maat_bytecode", version = "0.12.3" }
-maat_field = { path = "../maat_field", version = "0.12.3" }
-maat_errors = { path = "../maat_errors", version = "0.12.3" }
+maat_air = { path = "../maat_air", version = "0.13.0" }
+maat_trace = { path = "../maat_trace", version = "0.13.0" }
+maat_bytecode = { path = "../maat_bytecode", version = "0.13.0" }
+maat_field = { path = "../maat_field", version = "0.13.0" }
+maat_errors = { path = "../maat_errors", version = "0.13.0" }
 winter-air = "0.13"
 winter-math = "0.13"
 winter-prover = "0.13"
