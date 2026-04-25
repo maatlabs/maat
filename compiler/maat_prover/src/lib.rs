@@ -115,9 +115,8 @@ impl MaatTrace {
             .collect::<Vec<Vec<BaseElement>>>();
 
         let trace_length = columns[0].len();
-        let activity_mask = maat_air::encode_mask(&columns);
-        let meta = activity_mask.to_le_bytes().to_vec();
-        debug_assert_eq!(meta.len(), maat_air::MASK_BYTES);
+        let meta = maat_air::encode_degrees(&columns);
+        debug_assert_eq!(meta.len(), maat_air::DEGREE_BYTES);
 
         let info =
             TraceInfo::new_multi_segment(TRACE_WIDTH, AUX_WIDTH, NUM_AUX_RANDS, trace_length, meta);

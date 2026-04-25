@@ -69,7 +69,7 @@ mod public_inputs;
 
 use aux_segment::{AUX_COL_MEM_ACC, AUX_COL_RC_ACC, NUM_AUX_CONSTRAINTS};
 pub use aux_segment::{AUX_WIDTH, NUM_AUX_RANDS, build_aux_columns};
-pub use degree::{MASK_BYTES, encode_mask};
+pub use degree::{DEGREE_BYTES, encode_degrees};
 use maat_trace::{COL_OUT, COL_PC, COL_SP};
 use main_segment::NUM_CONSTRAINTS;
 pub use public_inputs::MaatPublicInputs;
@@ -112,7 +112,7 @@ impl Air for MaatAir {
     type PublicInputs = MaatPublicInputs;
 
     fn new(trace_info: TraceInfo, pub_inputs: Self::PublicInputs, options: ProofOptions) -> Self {
-        let (main_deg, aux_deg) = degree::decode_mask(trace_info.meta());
+        let (main_deg, aux_deg) = degree::decode_degrees(trace_info.meta());
 
         let main_degrees = main_deg
             .iter()

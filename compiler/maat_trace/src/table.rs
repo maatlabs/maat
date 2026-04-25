@@ -172,7 +172,7 @@ pub struct TraceTable {
 }
 
 impl TraceTable {
-    const MIN_ROWS: usize = 8;
+    const MIN_ROWS: usize = 32;
 
     /// Creates an empty trace table.
     pub fn new() -> Self {
@@ -344,57 +344,57 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pad_empty_to_8() {
+    fn pad_empty_to_min() {
         let mut t = TraceTable::new();
         t.pad_to_power_of_two();
-        assert_eq!(t.num_rows(), 8);
-        for i in 0..8 {
+        assert_eq!(t.num_rows(), TraceTable::MIN_ROWS);
+        for i in 0..t.num_rows() {
             assert_eq!(t.row(i)[COL_SEL_BASE], Felt::ONE, "sel_nop should be set");
         }
     }
 
     #[test]
-    fn pad_single_row_to_8() {
+    fn pad_single_row_to_min() {
         let mut t = TraceTable::new();
         let mut row = [Felt::ZERO; TRACE_WIDTH];
         row[COL_PC] = Felt::new(5);
         row[COL_SP] = Felt::new(2);
         t.push_row(row);
         t.pad_to_power_of_two();
-        assert_eq!(t.num_rows(), 8);
+        assert_eq!(t.num_rows(), TraceTable::MIN_ROWS);
         // Padding rows inherit pc/sp from last real row
         assert_eq!(t.row(1)[COL_PC], Felt::new(5));
         assert_eq!(t.row(1)[COL_SP], Felt::new(2));
     }
 
     #[test]
-    fn pad_5_to_8() {
+    fn pad_below_min_promoted_to_min() {
         let mut t = TraceTable::new();
-        for _ in 0..5 {
+        for _ in 0..(TraceTable::MIN_ROWS - 3) {
             t.push_row([Felt::ZERO; TRACE_WIDTH]);
         }
         t.pad_to_power_of_two();
-        assert_eq!(t.num_rows(), 8);
+        assert_eq!(t.num_rows(), TraceTable::MIN_ROWS);
     }
 
     #[test]
-    fn pad_8_stays_8() {
+    fn pad_at_min_stays_at_min() {
         let mut t = TraceTable::new();
-        for _ in 0..8 {
+        for _ in 0..TraceTable::MIN_ROWS {
             t.push_row([Felt::ZERO; TRACE_WIDTH]);
         }
         t.pad_to_power_of_two();
-        assert_eq!(t.num_rows(), 8);
+        assert_eq!(t.num_rows(), TraceTable::MIN_ROWS);
     }
 
     #[test]
-    fn pad_9_to_16() {
+    fn pad_above_min_rounds_up_to_next_power_of_two() {
         let mut t = TraceTable::new();
-        for _ in 0..9 {
+        for _ in 0..(TraceTable::MIN_ROWS + 1) {
             t.push_row([Felt::ZERO; TRACE_WIDTH]);
         }
         t.pad_to_power_of_two();
-        assert_eq!(t.num_rows(), 16);
+        assert_eq!(t.num_rows(), (TraceTable::MIN_ROWS * 2).next_power_of_two());
     }
 
     #[test]

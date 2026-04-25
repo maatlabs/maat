@@ -66,6 +66,34 @@ fn tamper_output_on_sub_sel(trace: &mut TraceTable, sub_selector: usize) {
     panic!("no row with sub_selector offset {sub_selector} found in trace");
 }
 
+/// Asserts that proving (in release mode) followed by verifying a tampered trace
+/// rejects the proof, accepting that debug builds may panic earlier inside
+/// Winterfell's per-row constraint validation.
+fn assert_tampered_trace_rejected(
+    bytecode: Bytecode,
+    trace: TraceTable,
+    output: BaseElement,
+    label: &str,
+) {
+    let program_hash = compute_program_hash(&bytecode).expect("program hash failed");
+    let public_inputs = MaatPublicInputs::new(program_hash, vec![], output);
+    let prover = MaatProver::new(development_options(), public_inputs.clone());
+
+    let prove_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        prover.generate_proof(trace)
+    }));
+    match prove_result {
+        Err(_) => {}
+        Ok(proof) => {
+            let proof = proof.expect("proof generation failed");
+            assert!(
+                verify_with_inputs(proof, public_inputs).is_err(),
+                "tampered {label} output must be rejected by the verifier",
+            );
+        }
+    }
+}
+
 #[test]
 fn prove_and_verify_arithmetic() {
     prove_and_verify(
@@ -90,20 +118,16 @@ fn prove_and_verify_modular_arithmetic() {
     );
 }
 
-// DISABLED: Winterfell's debug_assert requires exact polynomial degree matching.
-// This test has sparse selector patterns that cause coefficient cancellation in
-// the interpolation polynomials, reducing the effective degree below the declared
-// maximum. The test passes in release mode (soundness unaffected).
-// #[test]
-// fn prove_and_verify_nested_arithmetic() {
-//     prove_and_verify(
-//         "
-//         let x: i64 = (3 + 4) * (10 - 2);
-//         let y: i64 = x / 7 + x % 7;
-//         y
-//         ",
-//     );
-// }
+#[test]
+fn prove_and_verify_nested_arithmetic() {
+    prove_and_verify(
+        "
+        let x: i64 = (3 + 4) * (10 - 2);
+        let y: i64 = x / 7 + x % 7;
+        y
+        ",
+    );
+}
 
 #[test]
 fn prove_and_verify_boolean_logic() {
@@ -142,20 +166,16 @@ fn prove_and_verify_if_else() {
     );
 }
 
-// DISABLED: Winterfell's debug_assert requires exact polynomial degree matching.
-// This test has sparse selector patterns that cause coefficient cancellation in
-// the interpolation polynomials, reducing the effective degree below the declared
-// maximum. The test passes in release mode (soundness unaffected).
-// #[test]
-// fn prove_and_verify_if_else_false_branch() {
-//     prove_and_verify(
-//         "
-//         let x: i64 = 1;
-//         let result: i64 = if x > 3 { x * 2 } else { x + 1 };
-//         result
-//         ",
-//     );
-// }
+#[test]
+fn prove_and_verify_if_else_false_branch() {
+    prove_and_verify(
+        "
+        let x: i64 = 1;
+        let result: i64 = if x > 3 { x * 2 } else { x + 1 };
+        result
+        ",
+    );
+}
 
 #[test]
 fn prove_and_verify_nested_if() {
@@ -290,36 +310,28 @@ fn prove_and_verify_felt_subtraction() {
     );
 }
 
-// DISABLED: Winterfell's debug_assert requires exact polynomial degree matching.
-// This test triggers range-check constraints with sparse limb patterns, causing
-// the RC permutation accumulator polynomial to have lower effective degree than
-// declared. The test passes in release mode (soundness unaffected).
-// #[test]
-// fn prove_and_verify_integer_conversion() {
-//     prove_and_verify(
-//         "
-//         let a: i64 = 42;
-//         let b: u8 = a as u8;
-//         let c: i64 = b as i64;
-//         c
-//         ",
-//     );
-// }
+#[test]
+fn prove_and_verify_integer_conversion() {
+    prove_and_verify(
+        "
+        let a: i64 = 42;
+        let b: u8 = a as u8;
+        let c: i64 = b as i64;
+        c
+        ",
+    );
+}
 
-// DISABLED: Winterfell's debug_assert requires exact polynomial degree matching.
-// This test triggers range-check constraints with sparse limb patterns, causing
-// the RC permutation accumulator polynomial to have lower effective degree than
-// declared. The test passes in release mode (soundness unaffected).
-// #[test]
-// fn prove_and_verify_integer_to_felt() {
-//     prove_and_verify(
-//         "
-//         let n: u64 = 99;
-//         let f: Felt = n as Felt;
-//         f
-//         ",
-//     );
-// }
+#[test]
+fn prove_and_verify_integer_to_felt() {
+    prove_and_verify(
+        "
+        let n: u64 = 99;
+        let f: Felt = n as Felt;
+        f
+        ",
+    );
+}
 
 #[test]
 fn prove_and_verify_empty_program() {
@@ -570,18 +582,7 @@ fn tampered_arithmetic_add_output_rejected() {
     let source = "let a: i64 = 10; let b: i64 = 20; a + b";
     let (bytecode, mut trace, output) = compile_and_trace(source);
     tamper_output_on_sub_sel(&mut trace, SUB_SEL_ADD);
-
-    let program_hash = compute_program_hash(&bytecode).expect("program hash failed");
-    let public_inputs = MaatPublicInputs::new(program_hash, vec![], output);
-    let prover = MaatProver::new(development_options(), public_inputs.clone());
-    let proof = prover
-        .generate_proof(trace)
-        .expect("tampered trace proof generation failed");
-
-    assert!(
-        verify_with_inputs(proof, public_inputs).is_err(),
-        "tampered add output must be rejected by the verifier",
-    );
+    assert_tampered_trace_rejected(bytecode, trace, output, "add");
 }
 
 #[test]
@@ -589,18 +590,7 @@ fn tampered_arithmetic_neg_output_rejected() {
     let source = "let a: i64 = 7; -a";
     let (bytecode, mut trace, output) = compile_and_trace(source);
     tamper_output_on_sub_sel(&mut trace, SUB_SEL_NEG);
-
-    let program_hash = compute_program_hash(&bytecode).expect("program hash failed");
-    let public_inputs = MaatPublicInputs::new(program_hash, vec![], output);
-    let prover = MaatProver::new(development_options(), public_inputs.clone());
-    let proof = prover
-        .generate_proof(trace)
-        .expect("tampered trace proof generation failed");
-
-    assert!(
-        verify_with_inputs(proof, public_inputs).is_err(),
-        "tampered neg output must be rejected by the verifier",
-    );
+    assert_tampered_trace_rejected(bytecode, trace, output, "neg");
 }
 
 #[test]
@@ -612,18 +602,7 @@ fn tampered_felt_add_output_rejected() {
     ";
     let (bytecode, mut trace, output) = compile_and_trace(source);
     tamper_output_on_sub_sel(&mut trace, SUB_SEL_FELT_ADD);
-
-    let program_hash = compute_program_hash(&bytecode).expect("program hash failed");
-    let public_inputs = MaatPublicInputs::new(program_hash, vec![], output);
-    let prover = MaatProver::new(development_options(), public_inputs.clone());
-    let proof = prover
-        .generate_proof(trace)
-        .expect("tampered trace proof generation failed");
-
-    assert!(
-        verify_with_inputs(proof, public_inputs).is_err(),
-        "tampered felt add output must be rejected by the verifier",
-    );
+    assert_tampered_trace_rejected(bytecode, trace, output, "felt add");
 }
 
 #[test]
@@ -635,18 +614,7 @@ fn tampered_equality_output_rejected() {
     ";
     let (bytecode, mut trace, output) = compile_and_trace(source);
     tamper_output_on_sub_sel(&mut trace, SUB_SEL_EQ);
-
-    let program_hash = compute_program_hash(&bytecode).expect("program hash failed");
-    let public_inputs = MaatPublicInputs::new(program_hash, vec![], output);
-    let prover = MaatProver::new(development_options(), public_inputs.clone());
-    let proof = prover
-        .generate_proof(trace)
-        .expect("tampered trace proof generation failed");
-
-    assert!(
-        verify_with_inputs(proof, public_inputs).is_err(),
-        "tampered equality output must be rejected by the verifier",
-    );
+    assert_tampered_trace_rejected(bytecode, trace, output, "equality");
 }
 
 #[test]

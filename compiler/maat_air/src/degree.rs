@@ -1,454 +1,347 @@
-//! Transition constraint degree computation.
+//! Per-constraint transition degree computation.
 //!
-//! Winterfell requires that declared constraint degrees exactly match the
-//! actual polynomial degrees observed during proof generation. A selector-gated
-//! constraint whose opcode never fires in the trace produces the zero
-//! polynomial (degree 0), but a static degree declaration would claim
-//! degree 2 or higher, triggering a `debug_assert` failure and producing
-//! an incorrectly-sized quotient polynomial.
+//! Winterfell requires that declared constraint degrees match the actual
+//! polynomial degrees observed during proof generation exactly. A statically
+//! declared degree is the algebraic upper bound for the constraint
+//! expression, but the *effective* degree on a concrete trace can be lower
+//! when the trace causes leading-coefficient cancellation in the Lagrange
+//! interpolation. Declaring an over-estimate triggers Winterfell's
+//! `debug_assert` and refuses to ship a proof in debug builds.
 //!
-//! This module computes a per-constraint *activity mask* from the main trace
-//! data, then uses that mask to emit the correct degree for each constraint.
-//! Degenerate (zero-polynomial) constraints are declared with degree 1,
-//! yielding an expected quotient degree of 0, which matches the zero polynomial.
+//! This module computes the tight effective degree for every transition
+//! constraint *before* the AIR is constructed, so that the degree declared
+//! to Winterfell matches what the prover will compute.
+//!
+//! # Algorithm
+//!
+//! For each main-segment transition constraint `C(x)`:
+//!
+//! 1. Interpolate every main trace column to obtain a trace polynomial of
+//!    degree `n - 1` (where `n` is the trace length).
+//! 2. Evaluate every trace polynomial on a constraint evaluation (CE)
+//!    coset: a multiplicative subgroup of size `n * ce_blowup` shifted by
+//!    the field generator. `ce_blowup` is sized to the maximum static
+//!    declared degree so the recovered quotient polynomial cannot alias.
+//! 3. Evaluate the constraint expression at every CE row using the AIR's
+//!    own `evaluate_transition` implementation.
+//! 4. Divide the constraint evaluations by the transition divisor
+//!    `(x^n - 1) / (x - g^{n-1})` evaluated at each CE point.
+//! 5. Interpolate the resulting quotient polynomial via inverse FFT and
+//!    read off its degree.
+//! 6. Map the quotient degree back to the declared transition degree:
+//!    `D = ceil(quotient_deg / (n - 1)) + 1` for `quotient_deg > 0`,
+//!    otherwise `D = 1` (degenerate / zero polynomial).
+//!
+//! Auxiliary-segment constraints depend on verifier-supplied random
+//! challenges that are not available at AIR construction time. The same
+//! FFT-based path runs against the auxiliary trace built from a fixed
+//! deterministic placeholder triple `[z, alpha, z_rc]`. Using a single
+//! fixed triple is sound for degree detection: the polynomial degree of
+//! a multivariate constraint in `x` cannot drop unless every coefficient
+//! polynomial in the random elements vanishes simultaneously--an event
+//! of measure zero over a generic placeholder. Because the verifier
+//! reconstructs the same degrees from the same metadata bytes, a prover
+//! that picks adversarial randoms cannot affect the declared degrees.
 //!
 //! # Soundness
 //!
-//! The activity mask is embedded in [`winter_air::TraceInfo::meta`] and travels
-//! with the proof. The verifier reconstructs the same degrees from the mask.
-//!
-//! If a malicious prover falsely declares a constraint as degenerate (degree 1)
-//! but actually activates the corresponding opcode, the constraint polynomial
-//! has degree > 1(n−1), producing a quotient of degree > 0. FRI expects
-//! degree 0 and rejects the proof.
-//!
-//! Conversely, declaring an inactive constraint as active is harmless: the
-//! quotient has lower degree than expected, and FRI accepts (it checks `<=`).
+//! The computed degrees travel with the proof inside [`winter_air::TraceInfo::meta`].
+//! The verifier reconstructs the same degree array from the same metadata
+//! and constructs an identical `AirContext`. A malicious prover that
+//! claims a constraint is degenerate when it is not produces a quotient
+//! polynomial of higher degree than the FRI commitment can accommodate;
+//! FRI rejects such proofs. Over-declaring is harmless: FRI checks
+//! `degree <=` the declared bound, and a smaller actual degree always
+//! satisfies that bound.
 
-use maat_trace::{
-    COL_CMP_INV, COL_DIV_AUX, COL_FP, COL_IS_READ, COL_MEM_ADDR, COL_MEM_VAL, COL_NONZERO_INV,
-    COL_OUT, COL_RC_L0, COL_RC_L1, COL_RC_L2, COL_RC_L3, COL_S0, COL_SEL_BASE, COL_SUB_SEL_BASE,
-    SUB_SEL_ADD, SUB_SEL_DIV, SUB_SEL_EQ, SUB_SEL_FELT_ADD, SUB_SEL_FELT_MUL, SUB_SEL_FELT_SUB,
-    SUB_SEL_NEG, SUB_SEL_NEQ, SUB_SEL_SUB,
-};
-use winter_math::FieldElement;
+use maat_trace::TRACE_WIDTH;
 use winter_math::fields::f64::BaseElement;
+use winter_math::{FieldElement, StarkField, fft, polynom};
 
-use crate::aux_segment::{AUX_CONSTRAINT_DEGREES, NUM_AUX_CONSTRAINTS};
-use crate::main_segment::{
-    CONSTRAINT_DEGREES, NUM_CONSTRAINTS, NUM_SELECTORS, SEL_ARITH, SEL_BITWISE, SEL_CALL, SEL_CMP,
-    SEL_COND_JUMP, SEL_CONVERT, SEL_DIV_MOD, SEL_FELT, SEL_JUMP, SEL_LOAD, SEL_NOP, SEL_PUSH,
-    SEL_RETURN, SEL_STORE, SEL_UNARY,
+use crate::aux_segment::{
+    self, AUX_CONSTRAINT_DEGREES, AUX_WIDTH, NUM_AUX_CONSTRAINTS, NUM_AUX_RANDS,
 };
+use crate::main_segment::{self, CONSTRAINT_DEGREES, NUM_CONSTRAINTS};
 
 /// Degree assigned to degenerate (zero-polynomial) constraints.
 ///
-/// A transition constraint with degree 1 produces an expected quotient degree
-/// of `(1 − 1) * (n − 1) = 0`, which matches the zero polynomial exactly.
+/// A transition constraint with degree 1 has a quotient of degree
+/// `(1 - 1) * (n - 1) = 0`, matching the zero polynomial exactly.
 const DEGENERATE_DEGREE: usize = 1;
 
-/// Number of bytes used to serialize the activity mask in
+/// Number of bytes used to encode the per-constraint degree array in
 /// [`winter_air::TraceInfo::meta`].
 ///
-/// The mask is `u128`-wide because the AIR currently declares
-/// `NUM_CONSTRAINTS + NUM_AUX_CONSTRAINTS = 64 + 8 = 72` transition
-/// constraints, exceeding the 64-bit envelope.
-pub const MASK_BYTES: usize = 16;
+/// One byte per main constraint followed by one byte per auxiliary
+/// constraint. Each value is a small integer (1..=5).
+pub const DEGREE_BYTES: usize = NUM_CONSTRAINTS + NUM_AUX_CONSTRAINTS;
 
-/// Per-row activity flags derived once from the main trace.
-struct TraceActivity {
-    active_sels: u32,
-    fp_changes: bool,
-    out_changes: bool,
-    mem_val_equals_s0: bool,
-    is_read_varies: bool,
-    nonzero_inv_varies: bool,
-    sub_sel_active: [bool; 9],
-    cmp_inv_varies: bool,
-    div_aux_varies: bool,
-}
-
-/// Computes a bitmask indicating which transition constraints are non-degenerate
-/// (achieve their declared polynomial degree) on the given main trace.
+/// Encodes the effective per-constraint degrees for the given main trace.
 ///
-/// Bits `0..NUM_CONSTRAINTS` correspond to the main-segment constraints; bits
-/// `NUM_CONSTRAINTS..NUM_CONSTRAINTS + NUM_AUX_CONSTRAINTS` correspond to the
-/// auxiliary-segment constraints. A set bit means the constraint is active;
-/// a clear bit means it is the zero polynomial.
-///
-/// The returned value must be encoded as [`MASK_BYTES`] little-endian bytes in
-/// [`winter_air::TraceInfo::meta`] so that `decode_mask` can reconstruct the
-/// correct declarations during AIR construction.
-pub fn encode_mask(main_columns: &[Vec<BaseElement>]) -> u128 {
+/// The first `NUM_CONSTRAINTS` bytes hold the main-segment degrees; the
+/// remaining `NUM_AUX_CONSTRAINTS` bytes hold the auxiliary-segment
+/// degrees. Each byte is in the range `1..=max_static_declared_degree`.
+pub fn encode_degrees(main_columns: &[Vec<BaseElement>]) -> Vec<u8> {
     let n = main_columns[0].len();
-    let mut mask = 0u128;
+    let main = compute_main_degrees(main_columns, n);
+    let aux = compute_aux_degrees(main_columns, n);
 
-    let activity = compute_activity(main_columns, n);
-
-    for i in 0..NUM_CONSTRAINTS {
-        if main_constraint_active(i, &activity, main_columns, n) {
-            mask |= 1u128 << i;
-        }
-    }
-
-    let aux_flags = aux_non_degenerate(main_columns, n);
-    for (i, active) in aux_flags.iter().enumerate() {
-        if *active {
-            mask |= 1u128 << (NUM_CONSTRAINTS + i);
-        }
-    }
-
-    mask
+    main.iter()
+        .chain(aux.iter())
+        .map(|&d| u8::try_from(d).expect("constraint degree fits in u8"))
+        .collect()
 }
 
-/// Decodes the activity mask from trace metadata and returns the degree
-/// arrays for main and auxiliary constraints.
+/// Decodes the per-constraint degree arrays from trace metadata.
 ///
-/// When `meta` is empty (e.g. in unit tests that construct the AIR directly
-/// without a prover), the original static degrees are returned unchanged.
-pub fn decode_mask(meta: &[u8]) -> ([usize; NUM_CONSTRAINTS], [usize; NUM_AUX_CONSTRAINTS]) {
-    if meta.len() < MASK_BYTES {
+/// When `meta` is shorter than [`DEGREE_BYTES`] (e.g. for AIR instances
+/// constructed by tests without a prover), the original static degrees are
+/// returned unchanged.
+pub fn decode_degrees(meta: &[u8]) -> ([usize; NUM_CONSTRAINTS], [usize; NUM_AUX_CONSTRAINTS]) {
+    if meta.len() < DEGREE_BYTES {
         return (CONSTRAINT_DEGREES, AUX_CONSTRAINT_DEGREES);
     }
 
-    let mask = u128::from_le_bytes(
-        meta[..MASK_BYTES]
-            .try_into()
-            .expect("meta slice must be at least MASK_BYTES bytes"),
-    );
-
-    let main = core::array::from_fn(|i| {
-        if mask & (1u128 << i) != 0 {
-            CONSTRAINT_DEGREES[i]
-        } else {
-            DEGENERATE_DEGREE
-        }
-    });
-
-    let aux = core::array::from_fn(|i| {
-        if mask & (1u128 << (NUM_CONSTRAINTS + i)) != 0 {
-            AUX_CONSTRAINT_DEGREES[i]
-        } else {
-            DEGENERATE_DEGREE
-        }
-    });
-
+    let main = core::array::from_fn(|i| meta[i] as usize);
+    let aux = core::array::from_fn(|i| meta[NUM_CONSTRAINTS + i] as usize);
     (main, aux)
 }
 
-/// Builds a bitmask of which selector columns contain at least one non-zero entry.
-fn active_selectors(cols: &[Vec<BaseElement>], n: usize) -> u32 {
-    let mut mask = 0u32;
-    let all_active = (1u32 << NUM_SELECTORS) - 1;
+/// Computes the effective transition degree for every main-segment
+/// constraint by interpolating the constraint quotient polynomial and
+/// reading off its degree.
+fn compute_main_degrees(main_columns: &[Vec<BaseElement>], n: usize) -> [usize; NUM_CONSTRAINTS] {
+    let max_declared = *CONSTRAINT_DEGREES.iter().max().expect("non-empty");
+    let ce_blowup = max_declared.next_power_of_two().max(2);
+    let ce_size = n * ce_blowup;
 
-    for i in 0..NUM_SELECTORS {
-        if cols[COL_SEL_BASE + i]
+    let inv_twiddles_n = fft::get_inv_twiddles::<BaseElement>(n);
+    let twiddles_n = fft::get_twiddles::<BaseElement>(n);
+    let domain_offset = BaseElement::GENERATOR;
+
+    let lde_columns = (0..TRACE_WIDTH)
+        .map(|c| {
+            let mut coeffs = main_columns[c].clone();
+            fft::interpolate_poly(&mut coeffs, &inv_twiddles_n);
+            fft::evaluate_poly_with_offset(&coeffs, &twiddles_n, domain_offset, ce_blowup)
+        })
+        .collect::<Vec<Vec<BaseElement>>>();
+
+    let trace_generator = BaseElement::get_root_of_unity(n.ilog2());
+    let exemption = trace_generator.exp((n as u64) - 1);
+    let ce_generator = BaseElement::get_root_of_unity(ce_size.ilog2());
+    let div_values = (0..ce_size)
+        .map(|i| {
+            let x = domain_offset * ce_generator.exp(i as u64);
+            (x.exp(n as u64) - BaseElement::ONE) / (x - exemption)
+        })
+        .collect::<Vec<BaseElement>>();
+
+    let mut constraint_evals = vec![vec![BaseElement::ZERO; ce_size]; NUM_CONSTRAINTS];
+    let mut current = vec![BaseElement::ZERO; TRACE_WIDTH];
+    let mut next = vec![BaseElement::ZERO; TRACE_WIDTH];
+    let mut row_buf = vec![BaseElement::ZERO; NUM_CONSTRAINTS];
+
+    for i in 0..ce_size {
+        let next_i = (i + ce_blowup) & (ce_size - 1);
+        for c in 0..TRACE_WIDTH {
+            current[c] = lde_columns[c][i];
+            next[c] = lde_columns[c][next_i];
+        }
+        main_segment::evaluate(&current, &next, &mut row_buf);
+        for (c, &val) in row_buf.iter().enumerate() {
+            constraint_evals[c][i] = val;
+        }
+    }
+
+    let inv_twiddles_ce = fft::get_inv_twiddles::<BaseElement>(ce_size);
+    let mut degrees = [DEGENERATE_DEGREE; NUM_CONSTRAINTS];
+    for (c, slot) in degrees.iter_mut().enumerate() {
+        let mut quotient = constraint_evals[c]
             .iter()
-            .take(n)
-            .any(|&v| v != BaseElement::ZERO)
-        {
-            mask |= 1 << i;
-        }
-        if mask == all_active {
-            break;
-        }
+            .zip(div_values.iter())
+            .map(|(&v, &d)| v / d)
+            .collect::<Vec<BaseElement>>();
+        fft::interpolate_poly_with_offset(&mut quotient, &inv_twiddles_ce, domain_offset);
+        let quotient_degree = polynom::degree_of(&quotient);
+        *slot = quotient_degree_to_declared(quotient_degree, n).min(CONSTRAINT_DEGREES[c]);
     }
-    mask
+
+    degrees
 }
 
-/// Returns `true` if any consecutive pair of values in a column differs.
-fn column_changes(col: &[BaseElement]) -> bool {
-    col.windows(2).any(|w| w[0] != w[1])
-}
-
-/// Returns `true` if any value in the column differs from the first.
-fn column_varies(col: &[BaseElement]) -> bool {
-    let first = col[0];
-    col.iter().any(|&v| v != first)
-}
-
-/// Returns `true` if two columns have identical values at every row.
-fn columns_equal(a: &[BaseElement], b: &[BaseElement]) -> bool {
-    a.iter().zip(b.iter()).all(|(&x, &y)| x == y)
-}
-
-/// Returns `true` if any value in the column is non-zero.
-fn column_non_zero(col: &[BaseElement]) -> bool {
-    col.iter().any(|&v| v != BaseElement::ZERO)
-}
-
-fn compute_activity(main_columns: &[Vec<BaseElement>], n: usize) -> TraceActivity {
-    let active_sels = active_selectors(main_columns, n);
-    let fp_changes = column_changes(&main_columns[COL_FP]);
-    let out_changes = column_changes(&main_columns[COL_OUT]);
-    let mem_val_equals_s0 = columns_equal(&main_columns[COL_MEM_VAL], &main_columns[COL_S0]);
-
-    let is_read_varies = column_varies(&main_columns[COL_IS_READ]);
-    let nonzero_inv_varies = column_varies(&main_columns[COL_NONZERO_INV]);
-
-    let sub_sel_active = [
-        column_non_zero(&main_columns[COL_SUB_SEL_BASE + SUB_SEL_ADD]),
-        column_non_zero(&main_columns[COL_SUB_SEL_BASE + SUB_SEL_SUB]),
-        column_non_zero(&main_columns[COL_SUB_SEL_BASE + SUB_SEL_DIV]),
-        column_non_zero(&main_columns[COL_SUB_SEL_BASE + SUB_SEL_NEG]),
-        column_non_zero(&main_columns[COL_SUB_SEL_BASE + SUB_SEL_FELT_ADD]),
-        column_non_zero(&main_columns[COL_SUB_SEL_BASE + SUB_SEL_FELT_SUB]),
-        column_non_zero(&main_columns[COL_SUB_SEL_BASE + SUB_SEL_FELT_MUL]),
-        column_non_zero(&main_columns[COL_SUB_SEL_BASE + SUB_SEL_EQ]),
-        column_non_zero(&main_columns[COL_SUB_SEL_BASE + SUB_SEL_NEQ]),
-    ];
-
-    let cmp_inv_varies = column_non_zero(&main_columns[COL_CMP_INV]);
-    let div_aux_varies = column_non_zero(&main_columns[COL_DIV_AUX]);
-
-    TraceActivity {
-        active_sels,
-        fp_changes,
-        out_changes,
-        mem_val_equals_s0,
-        is_read_varies,
-        nonzero_inv_varies,
-        sub_sel_active,
-        cmp_inv_varies,
-        div_aux_varies,
-    }
-}
-
-/// Determines whether a main-segment constraint is non-degenerate.
+/// Maps a quotient polynomial degree to the corresponding declared
+/// transition degree.
 ///
-/// A constraint is non-degenerate when its gating selector(s) are active in
-/// the trace AND its inner expression is not the zero polynomial.
-fn main_constraint_active(
-    idx: usize,
-    activity: &TraceActivity,
-    main_columns: &[Vec<BaseElement>],
-    _n: usize,
-) -> bool {
-    let sel = |s: usize| -> bool { activity.active_sels & (1 << s) != 0 };
-    let any_sel = |sels: &[usize]| -> bool { sels.iter().any(|&s| sel(s)) };
-    let sub = |i: usize| -> bool { activity.sub_sel_active[i] };
-
-    let pc_uniform_classes = [
-        SEL_ARITH,
-        SEL_BITWISE,
-        SEL_CMP,
-        SEL_UNARY,
-        SEL_LOAD,
-        SEL_STORE,
-        SEL_PUSH,
-        SEL_CONVERT,
-        SEL_FELT,
-        SEL_DIV_MOD,
-        12, // SEL_CONSTRUCT
-        14, // SEL_COLLECTION
-    ];
-    let width_one_classes = [
-        SEL_ARITH,
-        SEL_BITWISE,
-        SEL_CMP,
-        SEL_UNARY,
-        SEL_FELT,
-        SEL_DIV_MOD,
-    ];
-
-    match idx {
-        0..=16 => sel(idx),
-        17 => true,
-        18 => sel(SEL_PUSH),
-        19 => any_sel(&[SEL_ARITH, SEL_BITWISE, SEL_CMP, SEL_DIV_MOD]),
-        20 => sel(SEL_UNARY),
-        21 => sel(SEL_STORE),
-        22 => sel(SEL_LOAD),
-        23 => any_sel(&pc_uniform_classes),
-        24 => any_sel(&width_one_classes),
-        25 => sel(SEL_CONVERT),
-        26 => sel(SEL_JUMP),
-        27..=29 => sel(SEL_COND_JUMP),
-        30 => sel(SEL_LOAD) && activity.is_read_varies,
-        31 => sel(SEL_LOAD),
-        32 => sel(SEL_STORE) && activity.is_read_varies,
-        33 => sel(SEL_STORE) && !activity.mem_val_equals_s0,
-        34 => sel(SEL_CALL),
-        35 => sel(SEL_RETURN),
-        36 => sel(SEL_NOP),
-        37 => sel(SEL_NOP),
-        38 => sel(SEL_NOP) && activity.fp_changes,
-        39 => {
-            column_varies(&main_columns[COL_RC_L0])
-                || column_varies(&main_columns[COL_RC_L1])
-                || column_varies(&main_columns[COL_RC_L2])
-                || column_varies(&main_columns[COL_RC_L3])
-        }
-        40 => sel(SEL_CONVERT),
-        41 => sel(SEL_DIV_MOD) && activity.nonzero_inv_varies,
-        42 => sel(SEL_NOP) && activity.out_changes,
-        43 => sub(SUB_SEL_ADD),
-        44 => sub(SUB_SEL_SUB),
-        45 => sub(SUB_SEL_DIV),
-        46 => sub(SUB_SEL_NEG),
-        47 => sub(SUB_SEL_FELT_ADD),
-        48 => sub(SUB_SEL_FELT_SUB),
-        49 => sub(SUB_SEL_FELT_MUL),
-        50 => sub(SUB_SEL_EQ),
-        51 => sub(SUB_SEL_NEQ),
-        52 => sub(SUB_SEL_ADD) && sub(SUB_SEL_SUB),
-        53 => sub(SUB_SEL_FELT_ADD) && sub(SUB_SEL_FELT_SUB),
-        54 => sub(SUB_SEL_FELT_ADD) && sub(SUB_SEL_FELT_MUL),
-        55 => sub(SUB_SEL_FELT_SUB) && sub(SUB_SEL_FELT_MUL),
-        56 => sub(SUB_SEL_EQ) && sub(SUB_SEL_NEQ),
-        57 => sel(SEL_ARITH),
-        58 => sel(SEL_DIV_MOD) && activity.div_aux_varies,
-        59 => sel(SEL_UNARY),
-        60 => sub(SUB_SEL_FELT_ADD) || sub(SUB_SEL_FELT_SUB) || sub(SUB_SEL_FELT_MUL),
-        61..=63 => (sub(SUB_SEL_EQ) || sub(SUB_SEL_NEQ)) && activity.cmp_inv_varies,
-        _ => unreachable!("constraint index {idx} out of range"),
+/// For a transition constraint declared with degree `D`, Winterfell expects
+/// a quotient polynomial of degree `(D - 1) * (n - 1)`. Inverting that
+/// relationship: a quotient polynomial of degree `q > 0` requires
+/// `D = ceil(q / (n - 1)) + 1`. A zero-degree quotient corresponds to the
+/// degenerate `D = 1`.
+fn quotient_degree_to_declared(quotient_degree: usize, n: usize) -> usize {
+    if quotient_degree == 0 {
+        return DEGENERATE_DEGREE;
     }
+    let denom = n.saturating_sub(1).max(1);
+    quotient_degree.div_ceil(denom) + 1
 }
 
-/// Determines which auxiliary constraints are non-degenerate, predicted
-/// entirely from the main trace columns.
-fn aux_non_degenerate(main_columns: &[Vec<BaseElement>], n: usize) -> [bool; NUM_AUX_CONSTRAINTS] {
-    let mem_addrs = (0..n)
-        .map(|i| main_columns[COL_MEM_ADDR][i].as_int())
-        .collect::<Vec<u64>>();
-    let mem_vals = (0..n)
-        .map(|i| main_columns[COL_MEM_VAL][i].as_int())
-        .collect::<Vec<u64>>();
+/// Deterministic placeholder challenges used to materialize the auxiliary
+/// trace for degree detection.
+///
+/// The auxiliary trace structure depends on three verifier-supplied random
+/// elements `[z, alpha, z_rc]`. Real proving derives them via Fiat-Shamir
+/// after committing to the main trace, which is unavailable at AIR
+/// construction time. For the sole purpose of measuring polynomial degree
+/// in `x`, any non-zero triple suffices: the polynomial degree of a
+/// multivariate constraint is the maximum over all monomial degree
+/// signatures in `x`, and a generic placeholder reveals it.
+const AUX_DEGREE_PROBE: [u64; NUM_AUX_RANDS] = [
+    0xa8d2_f0d4_ec99_3b1d,
+    0x6b7e_a31a_4f01_22e9,
+    0xd71f_44b8_94c5_06af,
+];
 
-    let exec_pairs = mem_addrs
+/// Computes the effective transition degree for every auxiliary-segment
+/// constraint by interpolating the constraint quotient polynomial and
+/// reading off its degree.
+fn compute_aux_degrees(
+    main_columns: &[Vec<BaseElement>],
+    n: usize,
+) -> [usize; NUM_AUX_CONSTRAINTS] {
+    let max_declared = *AUX_CONSTRAINT_DEGREES
         .iter()
-        .copied()
-        .zip(mem_vals.iter().copied())
-        .collect::<Vec<(u64, u64)>>();
+        .chain(CONSTRAINT_DEGREES.iter())
+        .max()
+        .expect("non-empty");
+    let ce_blowup = max_declared.next_power_of_two().max(2);
+    let ce_size = n * ce_blowup;
 
-    let mut sorted_pairs = exec_pairs.clone();
-    sorted_pairs.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    let inv_twiddles_n = fft::get_inv_twiddles::<BaseElement>(n);
+    let twiddles_n = fft::get_twiddles::<BaseElement>(n);
+    let domain_offset = BaseElement::GENERATOR;
 
-    let sorted_addrs = sorted_pairs.iter().map(|p| p.0).collect::<Vec<u64>>();
-    let sorted_vals = sorted_pairs.iter().map(|p| p.1).collect::<Vec<u64>>();
-    let has_distinct_addrs = sorted_addrs.first() != sorted_addrs.last();
-    let vals_vary = sorted_vals.windows(2).any(|w| w[0] != w[1]);
-    let has_repeated_addr = sorted_addrs.windows(2).any(|w| w[0] == w[1]);
-
-    let aux_1_active = vals_vary && has_repeated_addr;
-
-    let mem_order_differs = exec_pairs != sorted_pairs;
-    let limb_pool = (0..n)
-        .flat_map(|i| {
-            [
-                main_columns[COL_RC_L0][i].as_int(),
-                main_columns[COL_RC_L1][i].as_int(),
-                main_columns[COL_RC_L2][i].as_int(),
-                main_columns[COL_RC_L3][i].as_int(),
-            ]
+    let main_lde = (0..TRACE_WIDTH)
+        .map(|c| {
+            let mut coeffs = main_columns[c].clone();
+            fft::interpolate_poly(&mut coeffs, &inv_twiddles_n);
+            fft::evaluate_poly_with_offset(&coeffs, &twiddles_n, domain_offset, ce_blowup)
         })
-        .collect::<Vec<u64>>();
+        .collect::<Vec<Vec<BaseElement>>>();
 
-    let mut sorted_pool = limb_pool.clone();
-    sorted_pool.sort_unstable();
-
-    let sc: [Vec<u64>; 4] =
-        core::array::from_fn(|c| (0..n).map(|i| sorted_pool[4 * i + c]).collect());
-
-    let continuity_active = |a: &[u64], b: &[u64]| -> bool {
-        a.iter().zip(b.iter()).any(|(&x, &y)| {
-            let d = y.wrapping_sub(x);
-            d > 1
+    let rand_elements = AUX_DEGREE_PROBE.map(BaseElement::new);
+    let aux_columns = aux_segment::build_aux_columns::<BaseElement>(main_columns, &rand_elements);
+    let aux_lde = (0..AUX_WIDTH)
+        .map(|c| {
+            let mut coeffs = aux_columns[c].clone();
+            fft::interpolate_poly(&mut coeffs, &inv_twiddles_n);
+            fft::evaluate_poly_with_offset(&coeffs, &twiddles_n, domain_offset, ce_blowup)
         })
-    };
-    let rc_01 = continuity_active(&sc[0], &sc[1]);
-    let rc_12 = continuity_active(&sc[1], &sc[2]);
-    let rc_23 = continuity_active(&sc[2], &sc[3]);
-    let rc_30 = (0..n - 1).any(|i| {
-        let d = sc[0][i + 1].wrapping_sub(sc[3][i]);
-        d > 1
-    });
+        .collect::<Vec<Vec<BaseElement>>>();
 
-    let rc_order_differs = limb_pool != sorted_pool;
+    let trace_generator = BaseElement::get_root_of_unity(n.ilog2());
+    let exemption = trace_generator.exp((n as u64) - 1);
+    let ce_generator = BaseElement::get_root_of_unity(ce_size.ilog2());
+    let div_values = (0..ce_size)
+        .map(|i| {
+            let x = domain_offset * ce_generator.exp(i as u64);
+            (x.exp(n as u64) - BaseElement::ONE) / (x - exemption)
+        })
+        .collect::<Vec<BaseElement>>();
 
-    [
-        has_distinct_addrs, // 0: address continuity
-        aux_1_active,       // 1: single-value consistency
-        mem_order_differs,  // 2: memory grand product
-        rc_01,              // 3: RC sorted continuity 0-->1
-        rc_12,              // 4: RC sorted continuity 1-->2
-        rc_23,              // 5: RC sorted continuity 2-->3
-        rc_30,              // 6: RC sorted continuity 3-->0(next)
-        rc_order_differs,   // 7: RC permutation accumulator
-    ]
+    let mut constraint_evals = vec![vec![BaseElement::ZERO; ce_size]; NUM_AUX_CONSTRAINTS];
+    let mut main_curr = vec![BaseElement::ZERO; TRACE_WIDTH];
+    let mut main_next = vec![BaseElement::ZERO; TRACE_WIDTH];
+    let mut aux_curr = vec![BaseElement::ZERO; AUX_WIDTH];
+    let mut aux_next = vec![BaseElement::ZERO; AUX_WIDTH];
+    let mut row_buf = vec![BaseElement::ZERO; NUM_AUX_CONSTRAINTS];
+
+    for i in 0..ce_size {
+        let next_i = (i + ce_blowup) & (ce_size - 1);
+        for c in 0..TRACE_WIDTH {
+            main_curr[c] = main_lde[c][i];
+            main_next[c] = main_lde[c][next_i];
+        }
+        for c in 0..AUX_WIDTH {
+            aux_curr[c] = aux_lde[c][i];
+            aux_next[c] = aux_lde[c][next_i];
+        }
+        aux_segment::evaluate(
+            &main_curr,
+            &main_next,
+            &aux_curr,
+            &aux_next,
+            &rand_elements,
+            &mut row_buf,
+        );
+        for (c, &val) in row_buf.iter().enumerate() {
+            constraint_evals[c][i] = val;
+        }
+    }
+
+    let inv_twiddles_ce = fft::get_inv_twiddles::<BaseElement>(ce_size);
+    let mut degrees = [DEGENERATE_DEGREE; NUM_AUX_CONSTRAINTS];
+    for (c, slot) in degrees.iter_mut().enumerate() {
+        let mut quotient = constraint_evals[c]
+            .iter()
+            .zip(div_values.iter())
+            .map(|(&v, &d)| v / d)
+            .collect::<Vec<BaseElement>>();
+        fft::interpolate_poly_with_offset(&mut quotient, &inv_twiddles_ce, domain_offset);
+        let quotient_degree = polynom::degree_of(&quotient);
+        *slot = quotient_degree_to_declared(quotient_degree, n).min(AUX_CONSTRAINT_DEGREES[c]);
+    }
+
+    degrees
 }
 
 #[cfg(test)]
 mod tests {
-    use maat_trace::TRACE_WIDTH;
+    use maat_trace::COL_SEL_BASE;
 
     use super::*;
 
-    /// Creates a minimal 8-row column-major trace with all NOP selectors.
-    fn nop_trace() -> Vec<Vec<BaseElement>> {
-        let n = 8;
+    fn padded_trace(rows: usize) -> Vec<Vec<BaseElement>> {
+        let n = rows.next_power_of_two().max(8);
         let mut cols = vec![vec![BaseElement::ZERO; n]; TRACE_WIDTH];
-        for val in cols[COL_SEL_BASE].iter_mut() {
-            *val = BaseElement::ONE; // sel_nop
+        for slot in cols[COL_SEL_BASE].iter_mut() {
+            *slot = BaseElement::ONE;
         }
         cols
     }
 
     #[test]
-    fn all_nop_trace_marks_nop_active() {
-        let cols = nop_trace();
-        let mask = encode_mask(&cols);
-
-        // sel_nop (bit 0) should be active.
-        assert_ne!(mask & 1, 0, "sel_nop binary constraint should be active");
-
-        // sel_push (bit 1) should be inactive.
-        assert_eq!(
-            mask & (1u128 << 1),
-            0,
-            "sel_push should be inactive on NOP-only trace"
-        );
-
-        // Constraint 17 (selector sum) is always active.
-        assert_ne!(mask & (1u128 << 17), 0, "constraint 17 always active");
+    fn nop_only_trace_marks_main_constraints_degenerate() {
+        let cols = padded_trace(8);
+        let degrees = compute_main_degrees(&cols, cols[0].len());
+        for (i, &d) in degrees.iter().enumerate() {
+            // Only constraint 17 (selector sum) is statically degree 1; every
+            // other constraint must reduce to degree 1 on a NOP-only trace.
+            assert!(d <= CONSTRAINT_DEGREES[i], "constraint {i} over-declared");
+            if i != 17 {
+                assert_eq!(d, 1, "constraint {i} should be degenerate on NOP trace");
+            }
+        }
     }
 
     #[test]
-    fn decode_empty_meta_returns_static_degrees() {
-        let (main, aux) = decode_mask(&[]);
+    fn decode_short_meta_returns_static_degrees() {
+        let (main, aux) = decode_degrees(&[]);
         assert_eq!(main, CONSTRAINT_DEGREES);
         assert_eq!(aux, AUX_CONSTRAINT_DEGREES);
     }
 
     #[test]
-    fn decode_all_active_returns_static_degrees() {
-        let total = NUM_CONSTRAINTS + NUM_AUX_CONSTRAINTS;
-        let mask: u128 = if total >= 128 {
-            u128::MAX
-        } else {
-            (1u128 << total) - 1
-        };
-        let meta = mask.to_le_bytes();
-        let (main, aux) = decode_mask(&meta);
-        assert_eq!(main, CONSTRAINT_DEGREES);
-        assert_eq!(aux, AUX_CONSTRAINT_DEGREES);
-    }
-
-    #[test]
-    fn decode_all_inactive_returns_degenerate() {
-        let meta = 0u128.to_le_bytes();
-        let (main, aux) = decode_mask(&meta);
+    fn encode_decode_roundtrip() {
+        let cols = padded_trace(8);
+        let bytes = encode_degrees(&cols);
+        assert_eq!(bytes.len(), DEGREE_BYTES);
+        let (main, aux) = decode_degrees(&bytes);
         for (i, &d) in main.iter().enumerate() {
-            assert_eq!(
-                d, DEGENERATE_DEGREE,
-                "main constraint {i} should be degenerate"
-            );
+            assert!((1..=CONSTRAINT_DEGREES[i]).contains(&d));
         }
         for (i, &d) in aux.iter().enumerate() {
-            assert_eq!(
-                d, DEGENERATE_DEGREE,
-                "aux constraint {i} should be degenerate"
-            );
+            assert!((1..=AUX_CONSTRAINT_DEGREES[i]).contains(&d));
         }
     }
 }
