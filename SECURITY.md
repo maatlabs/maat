@@ -1,16 +1,16 @@
 # Security Policy & Threat Model
 
-This document describes the trust boundaries, attacker model, and mitigations for the Maat compiler toolchain. It covers the current state as of v0.12.3 and will be updated as subsequent versions introduce new attack surfaces.
+This document describes the trust boundaries, attacker model, and mitigations for the Maat compiler toolchain. It covers the current state as of v0.13.0 and will be updated as subsequent versions introduce new attack surfaces.
 
 ## Trust Boundaries
 
-The Maat toolchain has three distinct trust boundaries:
+The Maat toolchain has four distinct trust boundaries:
 
 ```text
-Source (.maat) --> Compiler Pipeline --> Bytecode (.mtc) --> VM Execution
-     │                   │                     │                  │
-  Untrusted          Trusted               Untrusted           Trusted
-  (user input)       (our code)            (file on disk)      (our code)
+Source (.maat) --> Compiler Pipeline --> Bytecode (.mtc) --> VM Execution --> STARK Proof (.proof.bin)
+     │                   │                     │                  │                       │
+  Untrusted          Trusted               Untrusted           Trusted                Untrusted
+  (user input)       (our code)            (file on disk)      (our code)             (potentially adversarial)
 ```
 
 1. **Source boundary:** `.maat` source files are untrusted input. The lexer, parser, type checker, and compiler must handle arbitrary, malformed, or adversarial source without panicking or consuming unbounded resources.
@@ -18,6 +18,8 @@ Source (.maat) --> Compiler Pipeline --> Bytecode (.mtc) --> VM Execution
 2. **Bytecode boundary:** `.mtc` files are untrusted input. A user may hand-craft or corrupt a bytecode file to exploit the deserializer or VM. The deserializer must reject malformed files before allocating resources, and the VM must validate all operands during execution.
 
 3. **VM execution boundary:** Even well-formed bytecode may attempt resource exhaustion (infinite loops, deep recursion, stack overflow). The VM enforces runtime limits.
+
+4. **Proof boundary:** `.proof.bin` files arrive over an untrusted channel. The verifier must be sound against adversarially crafted proofs and against valid-looking proofs that disagree with the claimed program hash, public inputs, or output. Soundness rests on the AIR constraint system, the per-trace tight degree declarations shipped through `TraceInfo::meta`, and Winterfell's FRI low-degree test.
 
 ## Attacker Model
 
@@ -62,7 +64,33 @@ Source (.maat) --> Compiler Pipeline --> Bytecode (.mtc) --> VM Execution
 | Out-of-bounds operands | VM validates all constant/global/local indices before access        | `maat_vm/src/lib.rs`             |
 | Type confusion         | VM validates operand types for all arithmetic/comparison operations | `maat_vm/src/lib.rs`             |
 
-### Attacker 3: Resource Exhaustion
+### Attacker 3: Malicious `.proof.bin` STARK Proof
+
+**Goal:** Convince the verifier to accept a proof for a program execution that did not actually happen, or for a program/output the verifier did not request.
+
+**Mitigations:**
+
+| Attack vector                             | Mitigation                                                                                                                                                                             | Location                                               |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| Wrong-program substitution                | 32-byte Blake3 program hash embedded in proof header; verifier requires `compute_program_hash(bytecode) == header.program_hash`                                                        | `maat_prover/src/program_hash.rs`                      |
+| Truncated or short proof                  | 38-byte header parse rejects on insufficient bytes; magic `b"MATP"` and version `u16` validated before payload decode                                                                  | `maat_prover/src/proof_file.rs`                        |
+| Wrong magic / version drift               | Magic check + version match required before payload deserialization                                                                                                                    | `maat_prover/src/proof_file.rs`                        |
+| Tampered execution trace                  | Per-row transition constraints (debug builds also panic at the prover) + boundary assertions; tampered output rows fail FRI                                                            | `maat_air/src/main_segment.rs`                         |
+| Tampered memory permutation               | Auxiliary segment grand-product accumulator must telescope to 1 at the last row; address-continuity constraint over sorted pairs                                                       | `maat_air/src/aux_segment.rs`                          |
+| Physical-address gap injection            | `run_trace` post-execution `validate_address_contiguity` returns `Err(VmError)`; debug `build_aux_columns` asserts contiguity                                                          | `maat_trace/src/lib.rs`, `maat_air/src/aux_segment.rs` |
+| Out-of-range integer witness              | 16-bit limb decomposition + sorted-limb permutation argument force every range-checked value into `[0, 2^64)`                                                                          | `maat_air/src/aux_segment.rs`                          |
+| Division-by-zero witness                  | `sel_div_mod * (s0 * nonzero_inv - 1) = 0` makes the prover commit to the divisor's modular inverse                                                                                    | `maat_air/src/main_segment.rs`                         |
+| Falsified arithmetic output               | Per-opcode sub-selectors gate output-correctness constraints (`add`/`sub`/`mul`/`div`/`mod`/`neg`/`not`/`felt_add`/`...`/`eq`/`neq`)                                                   | `maat_air/src/main_segment.rs`                         |
+| Adversarial constraint-degree declaration | Verifier reconstructs the per-constraint tight degree array from the same bytes the prover shipped via `TraceInfo::meta`; an under-declared constraint makes FRI reject                | `maat_air/src/degree.rs`                               |
+| Calling-convention forgery                | Synthetic `SEL_NOP` parameter rows + saved-FP write/read pair the callee's `GetLocal` reads with provable writes through the memory permutation argument                               | `maat_trace/src/vm.rs`                                 |
+| Forged public output                      | `out[last] = public_output` boundary assertion is bound to the proof header; the verifier checks both the proof and the embedded inputs                                                | `maat_air/src/lib.rs`                                  |
+| Cross-proof replay                        | Public inputs (program hash, input values, output) are bound into the proof via boundary assertions; copying a proof to a new program changes the program hash and fails the assertion | `maat_prover/src/proof_file.rs`                        |
+
+**Soundness scope (v0.13.0):** the proof binds a primitive-typed program execution -- integers, `bool`, `Felt`, and user-defined functions over those types. Programs that exercise composite types (`Vector<T>`, `Map<K,V>`, `Set<T>`, `str`, `struct`, `enum`, fixed-size arrays `[T; N]`, closures) execute correctly under `maat run` but are not yet trace-VM-complete. `maat prove` will emit a proof, but the verifier rejects it because the trace omits constraint-satisfying rows for those operations. This is a completeness gap, not a soundness gap -- a verifier never accepts a tampered proof.
+
+**Bitwise and ordering output gaps:** `BitAnd`, `BitOr`, `BitXor`, `Shl`, `Shr`, `<`, `>` retain selector-level structural constraints in v0.13.0 but do not yet have per-row output constraints. A malicious prover can in principle commit a bitwise/ordering result that disagrees with the operands while still satisfying the structural constraints. Closing this gap is scoped for a future release (bit-decomposition witness columns and a comparison range argument).
+
+### Attacker 4: Resource Exhaustion
 
 **Goal:** Cause the compiler or VM to consume unbounded CPU time or memory.
 
@@ -117,6 +145,8 @@ All five compiler pipeline stages have been fuzz-tested with `cargo-fuzz` (libFu
 - `fuzz_deserializer` —- arbitrary bytes --> bytecode deserialization
 
 Results: zero crashes across ~10.7M total fuzz runs (60s per target). See `fuzz/` for targets, corpus, and instructions.
+
+The proof-system surface introduced in v0.12.x and extended in v0.13.0 is **not yet covered by fuzzing.** Planned targets include `fuzz_proof_deserializer` (arbitrary bytes through `deserialize_proof`), `fuzz_verifier` (well-formed bytecode + adversarial proof bytes through `verify`), and `fuzz_trace_vm` (well-typed primitive-only programs through `run_trace` then `prove` + `verify`).
 
 ## Property-Based Testing
 
