@@ -10,10 +10,12 @@
 //!
 //! The constraint system enforces:
 //!
-//! ## Main segment (36 columns, 42 constraints)
+//! ## Main segment (52 columns, 72 constraints)
 //!
-//! - **Selector validity** (18): one-hot encoding of 17 opcode classes.
-//! - **Stack pointer transitions** (5): net SP change per selector class.
+//! - **Selector validity** (21): one-hot encoding of 20 opcode classes plus
+//!   selector-sum equals one.
+//! - **Stack pointer transitions** (6): net SP change per selector class
+//!   (push, binop, unary/heap-access, store, load, heap-write).
 //! - **Program counter transitions** (5): PC increment for uniform-width
 //!   opcode classes, unconditional and conditional jumps.
 //! - **Memory access consistency** (4): load/store read/write flags and values.
@@ -23,23 +25,36 @@
 //! - **Range-check reconstruction** (1): limb decomposition identity.
 //! - **Range-check convert linking** (1): rc_val = OUT on convert rows.
 //! - **Range-check non-zero divisor** (1): S0 * inv = 1 on div/mod rows.
+//! - **Sub-selector structural & output** (22): per-opcode sub-selector
+//!   binary, parent-class subset, mutual exclusion, and output correctness
+//!   for arithmetic, division/modulo, unary, felt arithmetic, and equality.
+//! - **Width binding** (2): width-1 classes plus convert width-2.
+//! - **Heap structural** (4): heap_is_read binary, heap_alloc_flag binary,
+//!   heap_alloc_flag aligned with sel_heap_alloc, alloc implies write.
 //!
-//! ## Auxiliary segment (8 columns, 8 constraints)
+//! ## Auxiliary segment (11 columns, 11 constraints)
 //!
-//! - **Address continuity** (1): sorted memory addresses step by at most 1.
-//! - **Single-value consistency** (1): same address implies same value.
+//! - **Memory address continuity** (1): sorted memory addresses step by at
+//!   most 1.
+//! - **Memory single-value consistency** (1): same address implies same
+//!   value.
 //! - **Memory grand-product accumulator** (1): permutation argument proving
 //!   execution-order and address-sorted memory lists are the same multiset.
 //! - **Range-check sorted continuity** (4): consecutive sorted limb values
 //!   differ by at most 1, proving every limb lies in `[0, 2^16)`.
 //! - **Range-check permutation accumulator** (1): grand-product proving the
 //!   sorted limb pool is a permutation of the execution-order limbs.
+//! - **Heap address continuity** (1): sorted heap addresses step by at most 1.
+//! - **Heap single-value consistency** (1): same heap address implies same
+//!   value.
+//! - **Heap grand-product accumulator** (1): permutation argument over the
+//!   heap segment.
 //!
-//! Total: 50 transition constraints (42 main + 8 auxiliary), max degree 5.
+//! Total: 83 transition constraints (72 main + 11 auxiliary), max degree 5.
 //!
 //! # Boundary assertions
 //!
-//! Seven assertions anchor the trace to the public inputs:
+//! Nine assertions anchor the trace to the public inputs:
 //!
 //! **Main segment:**
 //! - `pc[0] = 0` (execution begins at instruction zero)
@@ -51,6 +66,8 @@
 //! - `mem_acc[last] = 1` (memory grand product telescoped to one)
 //! - `rc_acc[0] = 1` (range-check accumulator multiplicative identity)
 //! - `rc_acc[last] = 1` (range-check grand product telescoped to one)
+//! - `heap_acc[0] = 1` (heap accumulator multiplicative identity)
+//! - `heap_acc[last] = 1` (heap grand product telescoped to one)
 //!
 //! # Limitations
 //!
@@ -67,7 +84,7 @@ mod degree;
 mod main_segment;
 mod public_inputs;
 
-use aux_segment::{AUX_COL_MEM_ACC, AUX_COL_RC_ACC, NUM_AUX_CONSTRAINTS};
+use aux_segment::{AUX_COL_HEAP_ACC, AUX_COL_MEM_ACC, AUX_COL_RC_ACC, NUM_AUX_CONSTRAINTS};
 pub use aux_segment::{AUX_WIDTH, NUM_AUX_RANDS, build_aux_columns};
 pub use degree::{DEGREE_BYTES, encode_degrees};
 use maat_trace::{COL_OUT, COL_PC, COL_SP};
@@ -90,7 +107,7 @@ pub type Felt = BaseElement;
 const NUM_MAIN_ASSERTIONS: usize = 3;
 
 /// Number of boundary assertions on the auxiliary trace segment.
-const NUM_AUX_ASSERTIONS: usize = 4;
+const NUM_AUX_ASSERTIONS: usize = 6;
 
 /// Algebraic Intermediate Representation for the Maat virtual machine.
 ///
@@ -203,6 +220,10 @@ impl Air for MaatAir {
             Assertion::single(AUX_COL_RC_ACC, 0, E::ONE),
             // rc_acc[last] = 1: range-check grand product telescoped to one.
             Assertion::single(AUX_COL_RC_ACC, last_step, E::ONE),
+            // heap_acc[0] = 1: heap accumulator starts at the multiplicative identity.
+            Assertion::single(AUX_COL_HEAP_ACC, 0, E::ONE),
+            // heap_acc[last] = 1: heap grand product telescoped to one.
+            Assertion::single(AUX_COL_HEAP_ACC, last_step, E::ONE),
         ]
     }
 }
@@ -268,6 +289,8 @@ mod tests {
             BaseElement::new(7),
             BaseElement::new(3),
             BaseElement::new(11),
+            BaseElement::new(13),
+            BaseElement::new(17),
         ]);
         let assertions = air.get_aux_assertions(&rand_elements);
         assert_eq!(assertions.len(), NUM_AUX_ASSERTIONS);
@@ -277,5 +300,8 @@ mod tests {
         // Range-check accumulator boundaries
         assert_eq!(assertions[2].column(), AUX_COL_RC_ACC);
         assert_eq!(assertions[3].column(), AUX_COL_RC_ACC);
+        // Heap accumulator boundaries
+        assert_eq!(assertions[4].column(), AUX_COL_HEAP_ACC);
+        assert_eq!(assertions[5].column(), AUX_COL_HEAP_ACC);
     }
 }

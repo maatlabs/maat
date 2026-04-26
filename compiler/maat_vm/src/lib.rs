@@ -5,6 +5,7 @@
 //! invocations, maintaining a value stack, globals store, and frame stack.
 #![forbid(unsafe_code)]
 
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use indexmap::IndexMap;
@@ -59,6 +60,9 @@ pub struct VM {
     frames: Vec<Frame>,
     source_map: SourceMap,
     type_registry: Vec<TypeDef>,
+    heap_alloc_ptr: usize,
+    heap_addr_map: HashMap<usize, usize>,
+    heap_values: HashMap<usize, Value>,
 }
 
 impl VM {
@@ -87,6 +91,9 @@ impl VM {
             frames: vec![main_frame],
             source_map,
             type_registry,
+            heap_alloc_ptr: 1,
+            heap_addr_map: HashMap::new(),
+            heap_values: HashMap::new(),
         }
     }
 
@@ -115,6 +122,9 @@ impl VM {
             frames: vec![main_frame],
             source_map,
             type_registry,
+            heap_alloc_ptr: 1,
+            heap_addr_map: HashMap::new(),
+            heap_values: HashMap::new(),
         }
     }
 
@@ -461,10 +471,70 @@ impl VM {
                 Opcode::FeltPow => {
                     self.execute_felt_pow()?;
                 }
+                Opcode::HeapAlloc => {
+                    self.execute_heap_alloc()?;
+                }
+                Opcode::HeapRead => {
+                    self.execute_heap_read()?;
+                }
+                Opcode::HeapWrite => {
+                    self.execute_heap_write()?;
+                }
             }
         }
 
         Ok(())
+    }
+
+    fn execute_heap_alloc(&mut self) -> Result<()> {
+        let initial = self.pop_stack()?;
+        let physical = self.alloc_heap_physical()?;
+        self.heap_addr_map.insert(physical, physical);
+        self.heap_values.insert(physical, initial);
+        self.push_stack(Value::Integer(Integer::U64(physical as u64)))
+    }
+
+    fn execute_heap_read(&mut self) -> Result<()> {
+        let logical = self.pop_heap_addr("HeapRead")?;
+        let physical = *self
+            .heap_addr_map
+            .get(&logical)
+            .ok_or_else(|| self.vm_error(format!("heap read of unallocated address {logical}")))?;
+        let value =
+            self.heap_values.get(&physical).cloned().ok_or_else(|| {
+                self.vm_error(format!("heap value missing at physical {physical}"))
+            })?;
+        self.push_stack(value)
+    }
+
+    fn execute_heap_write(&mut self) -> Result<()> {
+        let value = self.pop_stack()?;
+        let logical = self.pop_heap_addr("HeapWrite")?;
+        let physical = self.alloc_heap_physical()?;
+        self.heap_addr_map.insert(logical, physical);
+        self.heap_values.insert(physical, value);
+        Ok(())
+    }
+
+    fn pop_heap_addr(&mut self, context: &str) -> Result<usize> {
+        match self.pop_stack()? {
+            Value::Integer(int) => int.to_usize().ok_or_else(|| {
+                self.vm_error(format!("{context} expects non-negative heap address"))
+            }),
+            other => Err(self.vm_error(format!(
+                "{context} expects integer heap address, got {}",
+                other.type_name()
+            ))),
+        }
+    }
+
+    fn alloc_heap_physical(&mut self) -> Result<usize> {
+        let physical = self.heap_alloc_ptr;
+        self.heap_alloc_ptr = self
+            .heap_alloc_ptr
+            .checked_add(1)
+            .ok_or_else(|| self.vm_error("heap allocator overflow"))?;
+        Ok(physical)
     }
 
     /// Reads a 16-bit big-endian operand from the current frame's instructions.

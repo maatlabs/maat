@@ -9,7 +9,7 @@
 use maat_bytecode::Opcode;
 
 /// Number of selector columns in the trace.
-pub const NUM_SELECTORS: usize = 17;
+pub const NUM_SELECTORS: usize = 20;
 
 /// Padding / no-operation rows.
 pub const SEL_NOP: u8 = 0;
@@ -47,6 +47,15 @@ pub const SEL_FELT: u8 = 15;
 /// Division and modulo: `Div`, `Mod`. Separated from [`SEL_ARITH`] so the
 /// AIR can enforce a non-zero divisor constraint on exactly these rows.
 pub const SEL_DIV_MOD: u8 = 16;
+/// Heap allocation: `HeapAlloc`. Pops one initial-value operand and pushes a
+/// fresh heap address (net SP change: 0).
+pub const SEL_HEAP_ALLOC: u8 = 17;
+/// Heap read: `HeapRead`. Pops a heap address and pushes the value at that
+/// address (net SP change: 0).
+pub const SEL_HEAP_READ: u8 = 18;
+/// Heap write: `HeapWrite`. Pops a value and a heap address; pushes nothing
+/// (net SP change: -2).
+pub const SEL_HEAP_WRITE: u8 = 19;
 
 /// Returns the selector class index (0..16) for the given opcode.
 ///
@@ -101,6 +110,10 @@ pub const fn class_index(op: Opcode) -> u8 {
         Opcode::FeltAdd | Opcode::FeltSub | Opcode::FeltMul | Opcode::FeltInv | Opcode::FeltPow => {
             SEL_FELT
         }
+
+        Opcode::HeapAlloc => SEL_HEAP_ALLOC,
+        Opcode::HeapRead => SEL_HEAP_READ,
+        Opcode::HeapWrite => SEL_HEAP_WRITE,
     }
 }
 
@@ -110,7 +123,7 @@ mod tests {
 
     #[test]
     fn every_opcode_maps_to_valid_selector() {
-        for byte in 0..=49u8 {
+        for byte in 0..=52u8 {
             let op = Opcode::from_byte(byte).unwrap();
             let sel = class_index(op);
             assert!(
@@ -124,6 +137,13 @@ mod tests {
                 op,
             );
         }
+    }
+
+    #[test]
+    fn heap_opcodes_map_to_heap_selectors() {
+        assert_eq!(class_index(Opcode::HeapAlloc), SEL_HEAP_ALLOC);
+        assert_eq!(class_index(Opcode::HeapRead), SEL_HEAP_READ);
+        assert_eq!(class_index(Opcode::HeapWrite), SEL_HEAP_WRITE);
     }
 
     #[test]

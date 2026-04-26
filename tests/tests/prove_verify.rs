@@ -5,16 +5,18 @@
 //! from source code to cryptographic soundness.
 
 use maat_air::MaatPublicInputs;
-use maat_bytecode::Bytecode;
+use maat_bytecode::{Bytecode, Instructions, Opcode, encode};
 use maat_field::Felt;
 use maat_prover::{
     MaatProver, compute_program_hash, compute_program_hash_bytes, deserialize_proof,
     development_options, production_options, serialize_proof, verify, verify_with_inputs,
 };
+use maat_runtime::{Integer, Value};
+use maat_span::SourceMap;
 use maat_trace::encode::value_to_felt;
 use maat_trace::{
-    COL_MEM_ADDR, COL_OUT, COL_SUB_SEL_BASE, SUB_SEL_ADD, SUB_SEL_EQ, SUB_SEL_FELT_ADD,
-    SUB_SEL_NEG, TraceTable,
+    COL_HEAP_ADDR, COL_HEAP_ALLOC_FLAG, COL_HEAP_IS_READ, COL_HEAP_VAL, COL_MEM_ADDR, COL_OUT,
+    COL_SUB_SEL_BASE, SUB_SEL_ADD, SUB_SEL_EQ, SUB_SEL_FELT_ADD, SUB_SEL_NEG, TraceTable,
 };
 use winter_air::proof::Proof;
 use winter_math::FieldElement;
@@ -92,6 +94,79 @@ fn assert_tampered_trace_rejected(
             );
         }
     }
+}
+
+/// Builds bytecode that allocates a heap cell, reads it back, and produces the
+/// stored value as the program output. Used by synthetic tests; the
+/// heap opcodes are internal-only and not yet emitted by the surface compiler.
+fn synthetic_heap_alloc_read_bytecode(initial_value: i64) -> Bytecode {
+    let mut instructions = Instructions::new();
+    instructions.extend_from_bytes(&encode(Opcode::Constant, &[0]));
+    instructions.extend_from_bytes(&encode(Opcode::HeapAlloc, &[]));
+    instructions.extend_from_bytes(&encode(Opcode::HeapRead, &[]));
+    instructions.extend_from_bytes(&encode(Opcode::Pop, &[]));
+    Bytecode {
+        instructions,
+        constants: vec![Value::Integer(Integer::I64(initial_value))],
+        source_map: SourceMap::new(),
+        type_registry: vec![],
+    }
+}
+
+/// Builds bytecode that allocates a heap cell, overwrites it with a new value,
+/// reads the updated value, and produces it as the program output.
+///
+/// The trace VM keys its logical-->physical heap map by allocation address, so
+/// the literal `1` in the constant pool matches the first physical heap
+/// address (`heap_alloc_ptr` starts at 1).
+fn synthetic_heap_write_then_read_bytecode(initial: i64, updated: i64) -> Bytecode {
+    let mut instructions = Instructions::new();
+    // Constants: 0 = initial, 1 = updated, 2 = logical heap address (1).
+    // alloc: push initial, HeapAlloc -> push allocated address
+    instructions.extend_from_bytes(&encode(Opcode::Constant, &[0]));
+    instructions.extend_from_bytes(&encode(Opcode::HeapAlloc, &[]));
+    instructions.extend_from_bytes(&encode(Opcode::Pop, &[]));
+    // write: push logical addr, push updated value, HeapWrite
+    instructions.extend_from_bytes(&encode(Opcode::Constant, &[2]));
+    instructions.extend_from_bytes(&encode(Opcode::Constant, &[1]));
+    instructions.extend_from_bytes(&encode(Opcode::HeapWrite, &[]));
+    // read: push logical addr, HeapRead -> push value
+    instructions.extend_from_bytes(&encode(Opcode::Constant, &[2]));
+    instructions.extend_from_bytes(&encode(Opcode::HeapRead, &[]));
+    instructions.extend_from_bytes(&encode(Opcode::Pop, &[]));
+    Bytecode {
+        instructions,
+        constants: vec![
+            Value::Integer(Integer::I64(initial)),
+            Value::Integer(Integer::I64(updated)),
+            Value::Integer(Integer::U64(1)),
+        ],
+        source_map: SourceMap::new(),
+        type_registry: vec![],
+    }
+}
+
+fn prove_synthetic_heap(bytecode: Bytecode, expected_output: BaseElement) {
+    let (trace, _) = maat_trace::run_trace(bytecode.clone()).expect("heap trace failed");
+    let program_hash = compute_program_hash(&bytecode).expect("program hash failed");
+    let public_inputs = MaatPublicInputs::new(program_hash, vec![], expected_output);
+    let prover = MaatProver::new(development_options(), public_inputs.clone());
+    let proof = prover
+        .generate_proof(trace)
+        .expect("heap synthetic proof generation failed");
+    verify_with_inputs(proof, public_inputs).expect("heap synthetic verification failed");
+}
+
+fn prove_synthetic_heap_production(bytecode: Bytecode, expected_output: BaseElement) {
+    let (trace, _) = maat_trace::run_trace(bytecode.clone()).expect("heap trace failed");
+    let program_hash = compute_program_hash(&bytecode).expect("program hash failed");
+    let public_inputs = MaatPublicInputs::new(program_hash, vec![], expected_output);
+    let prover = MaatProver::new(production_options(), public_inputs.clone());
+    let proof = prover
+        .generate_proof(trace)
+        .expect("heap synthetic proof generation (production) failed");
+    verify_with_inputs(proof, public_inputs)
+        .expect("heap synthetic verification (production) failed");
 }
 
 #[test]
@@ -615,6 +690,172 @@ fn tampered_equality_output_rejected() {
     let (bytecode, mut trace, output) = compile_and_trace(source);
     tamper_output_on_sub_sel(&mut trace, SUB_SEL_EQ);
     assert_tampered_trace_rejected(bytecode, trace, output, "equality");
+}
+
+#[test]
+fn heap_synthetic_alloc_read_write_development() {
+    let bytecode = synthetic_heap_alloc_read_bytecode(42);
+    prove_synthetic_heap(bytecode, BaseElement::new(42));
+}
+
+#[test]
+fn heap_synthetic_alloc_read_write_production() {
+    let bytecode = synthetic_heap_alloc_read_bytecode(42);
+    prove_synthetic_heap_production(bytecode, BaseElement::new(42));
+}
+
+#[test]
+fn heap_synthetic_write_then_read_development() {
+    let bytecode = synthetic_heap_write_then_read_bytecode(7, 99);
+    prove_synthetic_heap(bytecode, BaseElement::new(99));
+}
+
+#[test]
+fn heap_synthetic_address_continuity_tampered_rejected() {
+    let bytecode = synthetic_heap_alloc_read_bytecode(42);
+    let (mut trace, _) = maat_trace::run_trace(bytecode.clone()).expect("heap trace failed");
+
+    // Shift every non-sentinel heap address up by one so the unique sorted set
+    // becomes `{0, 2, ...}` instead of `{0, 1, ...}`. This violates the heap
+    // address-continuity aux constraint.
+    let n = trace.num_rows();
+    for i in 0..n {
+        let addr = trace.row(i)[COL_HEAP_ADDR].as_u64();
+        if addr > 0 {
+            trace.row_mut(i)[COL_HEAP_ADDR] = Felt::new(addr + 1);
+        }
+    }
+
+    let program_hash = compute_program_hash(&bytecode).expect("hash failed");
+    let public_inputs = MaatPublicInputs::new(program_hash, vec![], BaseElement::new(42));
+    let prover = MaatProver::new(development_options(), public_inputs.clone());
+
+    let prove_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        prover.generate_proof(trace)
+    }));
+    match prove_result {
+        Err(_) => {}
+        Ok(proof) => {
+            let proof = proof.expect("proof generation failed");
+            assert!(
+                verify_with_inputs(proof, public_inputs).is_err(),
+                "heap address gap must be rejected by the verifier",
+            );
+        }
+    }
+}
+
+#[test]
+fn heap_synthetic_single_value_tampered_rejected() {
+    let bytecode = synthetic_heap_alloc_read_bytecode(42);
+    let (mut trace, _) = maat_trace::run_trace(bytecode.clone()).expect("heap trace failed");
+
+    // Find the first row that records heap_addr=1 and corrupt its value so the
+    // permutation argument sees the same address with two different values.
+    let n = trace.num_rows();
+    let mut tampered = false;
+    for i in 0..n {
+        if trace.row(i)[COL_HEAP_ADDR].as_u64() == 1 {
+            let cur = trace.row(i)[COL_HEAP_VAL].as_u64();
+            trace.row_mut(i)[COL_HEAP_VAL] = Felt::new(cur.wrapping_add(1));
+            tampered = true;
+            break;
+        }
+    }
+    assert!(tampered, "expected at least one heap row with address 1");
+
+    let program_hash = compute_program_hash(&bytecode).expect("hash failed");
+    let public_inputs = MaatPublicInputs::new(program_hash, vec![], BaseElement::new(42));
+    let prover = MaatProver::new(development_options(), public_inputs.clone());
+
+    let prove_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        prover.generate_proof(trace)
+    }));
+    match prove_result {
+        Err(_) => {}
+        Ok(proof) => {
+            let proof = proof.expect("proof generation failed");
+            assert!(
+                verify_with_inputs(proof, public_inputs).is_err(),
+                "heap single-value violation must be rejected by the verifier",
+            );
+        }
+    }
+}
+
+#[test]
+fn heap_synthetic_alloc_flag_tampered_rejected() {
+    let bytecode = synthetic_heap_alloc_read_bytecode(42);
+    let (mut trace, _) = maat_trace::run_trace(bytecode.clone()).expect("heap trace failed");
+
+    // Clear the alloc flag on the row that performs the heap allocation. The
+    // main-segment constraint `heap_alloc_flag = sel_heap_alloc` then evaluates
+    // to a non-zero residue and the verifier rejects the proof.
+    let n = trace.num_rows();
+    let mut tampered = false;
+    for i in 0..n {
+        if trace.row(i)[COL_HEAP_ALLOC_FLAG] == Felt::ONE {
+            trace.row_mut(i)[COL_HEAP_ALLOC_FLAG] = Felt::ZERO;
+            tampered = true;
+            break;
+        }
+    }
+    assert!(tampered, "expected at least one heap allocation row");
+
+    let program_hash = compute_program_hash(&bytecode).expect("hash failed");
+    let public_inputs = MaatPublicInputs::new(program_hash, vec![], BaseElement::new(42));
+    let prover = MaatProver::new(development_options(), public_inputs.clone());
+
+    let prove_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        prover.generate_proof(trace)
+    }));
+    match prove_result {
+        Err(_) => {}
+        Ok(proof) => {
+            let proof = proof.expect("proof generation failed");
+            assert!(
+                verify_with_inputs(proof, public_inputs).is_err(),
+                "heap_alloc_flag tampering must be rejected by the verifier",
+            );
+        }
+    }
+}
+
+#[test]
+fn heap_synthetic_alloc_is_read_tampered_rejected() {
+    let bytecode = synthetic_heap_alloc_read_bytecode(42);
+    let (mut trace, _) = maat_trace::run_trace(bytecode.clone()).expect("heap trace failed");
+
+    // Set heap_is_read=1 on the allocation row. The alloc-implies-write
+    // constraint `heap_alloc_flag * heap_is_read = 0` then fails.
+    let n = trace.num_rows();
+    let mut tampered = false;
+    for i in 0..n {
+        if trace.row(i)[COL_HEAP_ALLOC_FLAG] == Felt::ONE {
+            trace.row_mut(i)[COL_HEAP_IS_READ] = Felt::ONE;
+            tampered = true;
+            break;
+        }
+    }
+    assert!(tampered, "expected at least one heap allocation row");
+
+    let program_hash = compute_program_hash(&bytecode).expect("hash failed");
+    let public_inputs = MaatPublicInputs::new(program_hash, vec![], BaseElement::new(42));
+    let prover = MaatProver::new(development_options(), public_inputs.clone());
+
+    let prove_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        prover.generate_proof(trace)
+    }));
+    match prove_result {
+        Err(_) => {}
+        Ok(proof) => {
+            let proof = proof.expect("proof generation failed");
+            assert!(
+                verify_with_inputs(proof, public_inputs).is_err(),
+                "alloc-row heap_is_read tampering must be rejected by the verifier",
+            );
+        }
+    }
 }
 
 #[test]

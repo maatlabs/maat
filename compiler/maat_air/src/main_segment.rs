@@ -9,61 +9,66 @@
 //!
 //! | Index | Description                                   | Degree |
 //! |-------|-----------------------------------------------|--------|
-//! | 0-16  | Selector binary validity (`sel_i`)            | 2      |
-//! | 17    | Selector sum = 1                              | 1      |
-//! | 18    | SP: push (net +1)                             | 2      |
-//! | 19    | SP: binary ops (net -1)                       | 2      |
-//! | 20    | SP: unary (net 0)                             | 2      |
-//! | 21    | SP: store (net -1)                            | 2      |
-//! | 22    | SP: load (net +1)                             | 2      |
-//! | 23    | PC: universal (`pc_next = pc + op_width`)     | 2      |
-//! | 24    | Width binding: width-1 classes                | 2      |
-//! | 25    | Width binding: convert (width 2)              | 2      |
-//! | 26    | PC: unconditional jump                        | 2      |
-//! | 27    | PC: cond jump, not taken                      | 3      |
-//! | 28    | PC: cond jump, taken                          | 3      |
-//! | 29    | Cond jump: s0 is binary                       | 3      |
-//! | 30    | Load: is_read = 1                             | 2      |
-//! | 31    | Load: out = mem_val                           | 2      |
-//! | 32    | Store: is_read = 0                            | 2      |
-//! | 33    | Store: mem_val = s0                           | 2      |
-//! | 34    | FP: call (fp_next = out)                      | 2      |
-//! | 35    | FP: return (fp_next = mem_val)                | 2      |
-//! | 36    | NOP: pc frozen                                | 2      |
-//! | 37    | NOP: sp frozen                                | 2      |
-//! | 38    | NOP: fp frozen                                | 2      |
-//! | 39    | RC: reconstruction                            | 1      |
-//! | 40    | RC: convert linking                           | 2      |
-//! | 41    | RC: non-zero divisor                          | 3      |
-//! | 42    | NOP: output frozen                            | 2      |
-//! | 43    | sub_sel_add binary + ⊆ sel_arith              | 2      |
-//! | 44    | sub_sel_sub binary + ⊆ sel_arith              | 2      |
-//! | 45    | sub_sel_div binary + ⊆ sel_div_mod            | 2      |
-//! | 46    | sub_sel_neg binary + ⊆ sel_unary              | 2      |
-//! | 47    | sub_sel_felt_add binary + ⊆ sel_felt          | 2      |
-//! | 48    | sub_sel_felt_sub binary + ⊆ sel_felt          | 2      |
-//! | 49    | sub_sel_felt_mul binary + ⊆ sel_felt          | 2      |
-//! | 50    | sub_sel_eq binary + ⊆ sel_cmp                 | 2      |
-//! | 51    | sub_sel_neq binary + ⊆ sel_cmp                | 2      |
-//! | 52    | arith mutual exclusion                        | 2      |
-//! | 53    | felt mutual exclusion (add ⊥ sub)             | 2      |
-//! | 54    | felt mutual exclusion (add ⊥ mul)             | 2      |
-//! | 55    | felt mutual exclusion (sub ⊥ mul)             | 2      |
-//! | 56    | cmp mutual exclusion (eq ⊥ neq)               | 2      |
-//! | 57    | Output: arithmetic (add/sub/mul)              | 3      |
-//! | 58    | Output: division/modulo identity              | 3      |
-//! | 59    | Output: unary (neg/not)                       | 3      |
-//! | 60    | Output: felt arithmetic                       | 3      |
-//! | 61    | Comparison: out is binary                     | 3      |
-//! | 62    | Comparison: not-equal branch                  | 3      |
-//! | 63    | Comparison: equal branch                      | 4      |
+//! | 0-19  | Selector binary validity (`sel_i`)            | 2      |
+//! | 20    | Selector sum = 1                              | 1      |
+//! | 21    | SP: push (net +1)                             | 2      |
+//! | 22    | SP: binary ops (net -1)                       | 2      |
+//! | 23    | SP: unary (net 0)                             | 2      |
+//! | 24    | SP: store (net -1)                            | 2      |
+//! | 25    | SP: load (net +1)                             | 2      |
+//! | 26    | PC: universal (`pc_next = pc + op_width`)     | 2      |
+//! | 27    | Width binding: width-1 classes                | 2      |
+//! | 28    | Width binding: convert (width 2)              | 2      |
+//! | 29    | PC: unconditional jump                        | 2      |
+//! | 30    | PC: cond jump, not taken                      | 3      |
+//! | 31    | PC: cond jump, taken                          | 3      |
+//! | 32    | Cond jump: s0 is binary                       | 3      |
+//! | 33    | Load: is_read = 1                             | 2      |
+//! | 34    | Load: out = mem_val                           | 2      |
+//! | 35    | Store: is_read = 0                            | 2      |
+//! | 36    | Store: mem_val = s0                           | 2      |
+//! | 37    | FP: call (fp_next = out)                      | 2      |
+//! | 38    | FP: return (fp_next = mem_val)                | 2      |
+//! | 39    | NOP: pc frozen                                | 2      |
+//! | 40    | NOP: sp frozen                                | 2      |
+//! | 41    | NOP: fp frozen                                | 2      |
+//! | 42    | RC: reconstruction                            | 1      |
+//! | 43    | RC: convert linking                           | 2      |
+//! | 44    | RC: non-zero divisor                          | 3      |
+//! | 45    | NOP: output frozen                            | 2      |
+//! | 46    | sub_sel_add binary + ⊆ sel_arith              | 2      |
+//! | 47    | sub_sel_sub binary + ⊆ sel_arith              | 2      |
+//! | 48    | sub_sel_div binary + ⊆ sel_div_mod            | 2      |
+//! | 49    | sub_sel_neg binary + ⊆ sel_unary              | 2      |
+//! | 50    | sub_sel_felt_add binary + ⊆ sel_felt          | 2      |
+//! | 51    | sub_sel_felt_sub binary + ⊆ sel_felt          | 2      |
+//! | 52    | sub_sel_felt_mul binary + ⊆ sel_felt          | 2      |
+//! | 53    | sub_sel_eq binary + ⊆ sel_cmp                 | 2      |
+//! | 54    | sub_sel_neq binary + ⊆ sel_cmp                | 2      |
+//! | 55    | arith mutual exclusion                        | 2      |
+//! | 56    | felt mutual exclusion (add ⊥ sub)             | 2      |
+//! | 57    | felt mutual exclusion (add ⊥ mul)             | 2      |
+//! | 58    | felt mutual exclusion (sub ⊥ mul)             | 2      |
+//! | 59    | cmp mutual exclusion (eq ⊥ neq)               | 2      |
+//! | 60    | Output: arithmetic (add/sub/mul)              | 3      |
+//! | 61    | Output: division/modulo identity              | 3      |
+//! | 62    | Output: unary (neg/not)                       | 3      |
+//! | 63    | Output: felt arithmetic                       | 3      |
+//! | 64    | Comparison: out is binary                     | 3      |
+//! | 65    | Comparison: not-equal branch                  | 3      |
+//! | 66    | Comparison: equal branch                      | 4      |
+//! | 67    | Heap: heap_is_read binary                     | 2      |
+//! | 68    | Heap: heap_alloc_flag binary                  | 2      |
+//! | 69    | Heap: alloc-flag aligned with sel_heap_alloc  | 2      |
+//! | 70    | Heap: alloc implies write (flag * is_read=0)  | 2      |
+//! | 71    | SP: heap write (net -2)                       | 2      |
 
 use maat_trace::{
-    COL_CMP_INV, COL_DIV_AUX, COL_FP, COL_IS_READ, COL_MEM_VAL, COL_NONZERO_INV, COL_OP_WIDTH,
-    COL_OPERAND_0, COL_OUT, COL_PC, COL_RC_L0, COL_RC_L1, COL_RC_L2, COL_RC_L3, COL_RC_VAL, COL_S0,
-    COL_S1, COL_SEL_BASE, COL_SP, COL_SUB_SEL_BASE, SUB_SEL_ADD, SUB_SEL_DIV, SUB_SEL_EQ,
-    SUB_SEL_FELT_ADD, SUB_SEL_FELT_MUL, SUB_SEL_FELT_SUB, SUB_SEL_NEG, SUB_SEL_NEQ, SUB_SEL_SUB,
-    TRACE_WIDTH,
+    COL_CMP_INV, COL_DIV_AUX, COL_FP, COL_HEAP_ALLOC_FLAG, COL_HEAP_IS_READ, COL_IS_READ,
+    COL_MEM_VAL, COL_NONZERO_INV, COL_OP_WIDTH, COL_OPERAND_0, COL_OUT, COL_PC, COL_RC_L0,
+    COL_RC_L1, COL_RC_L2, COL_RC_L3, COL_RC_VAL, COL_S0, COL_S1, COL_SEL_BASE, COL_SP,
+    COL_SUB_SEL_BASE, SUB_SEL_ADD, SUB_SEL_DIV, SUB_SEL_EQ, SUB_SEL_FELT_ADD, SUB_SEL_FELT_MUL,
+    SUB_SEL_FELT_SUB, SUB_SEL_NEG, SUB_SEL_NEQ, SUB_SEL_SUB, TRACE_WIDTH,
 };
 use winter_math::FieldElement;
 
@@ -83,37 +88,42 @@ pub(crate) const SEL_RETURN: usize = 11;
 pub(crate) const SEL_CONVERT: usize = 13;
 pub(crate) const SEL_FELT: usize = 15;
 pub(crate) const SEL_DIV_MOD: usize = 16;
+pub(crate) const SEL_HEAP_ALLOC: usize = 17;
+pub(crate) const SEL_HEAP_READ: usize = 18;
+pub(crate) const SEL_HEAP_WRITE: usize = 19;
 
 /// Number of selector columns (must match `maat_trace::selector::NUM_SELECTORS`).
-pub(crate) const NUM_SELECTORS: usize = 17;
+pub(crate) const NUM_SELECTORS: usize = 20;
 
 /// Number of transition constraints enforced by the AIR.
-pub const NUM_CONSTRAINTS: usize = 64;
+pub const NUM_CONSTRAINTS: usize = 72;
 
 /// Degree of each transition constraint, indexed by constraint number.
 ///
 /// The prover uses these to allocate the correct evaluation domain size.
 pub const CONSTRAINT_DEGREES: [usize; NUM_CONSTRAINTS] = [
-    // 0-16: selector binary validity
-    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 17: selector sum
-    1, // 18-22: SP updates
-    2, 2, 2, 2, 2, // 23: universal PC
-    2, // 24-25: width binding
-    2, 2, // 26: unconditional jump
-    2, // 27-28: conditional jump
-    3, 3, // 29: cond jump s0 binary
-    3, // 30-33: load/store
-    2, 2, 2, 2, // 34-35: frame pointer
-    2, 2, // 36-38: NOP padding (pc, sp, fp)
-    2, 2, 2, // 39: RC reconstruction
-    1, // 40: RC convert linking
-    2, // 41: RC non-zero divisor
-    3, // 42: NOP output frozen
-    2, // 43-51: sub-selector structural (binary + ⊆ parent)
-    2, 2, 2, 2, 2, 2, 2, 2, 2, // 52-56: mutual exclusion within sub-selector classes
-    2, 2, 2, 2, 2, // 57-60: output correctness (arith, div_mod, unary, felt)
-    3, 3, 3, 3, // 61-63: comparison correctness
-    3, 3, 4,
+    // 0-19: selector binary validity (20 selectors)
+    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 20: selector sum
+    1, // 21-25: SP updates
+    2, 2, 2, 2, 2, // 26: universal PC
+    2, // 27-28: width binding
+    2, 2, // 29: unconditional jump
+    2, // 30-31: conditional jump
+    3, 3, // 32: cond jump s0 binary
+    3, // 33-36: load/store
+    2, 2, 2, 2, // 37-38: frame pointer
+    2, 2, // 39-41: NOP padding (pc, sp, fp)
+    2, 2, 2, // 42: RC reconstruction
+    1, // 43: RC convert linking
+    2, // 44: RC non-zero divisor
+    3, // 45: NOP output frozen
+    2, // 46-54: sub-selector structural (binary + ⊆ parent)
+    2, 2, 2, 2, 2, 2, 2, 2, 2, // 55-59: mutual exclusion within sub-selector classes
+    2, 2, 2, 2, 2, // 60-63: output correctness (arith, div_mod, unary, felt)
+    3, 3, 3, 3, // 64-66: comparison correctness
+    3, 3, 4, // 67-70: heap structural constraints
+    2, 2, 2, 2, // 71: SP heap write
+    2,
 ];
 
 /// Reads a selector flag from the current row.
@@ -165,6 +175,8 @@ pub fn evaluate<E: FieldElement>(current: &[E], next: &[E], result: &mut [E]) {
     let op_width = current[COL_OP_WIDTH];
     let cmp_inv = current[COL_CMP_INV];
     let div_aux = current[COL_DIV_AUX];
+    let heap_is_read = current[COL_HEAP_IS_READ];
+    let heap_alloc_flag = current[COL_HEAP_ALLOC_FLAG];
 
     let pc_next = next[COL_PC];
     let sp_next = next[COL_SP];
@@ -179,8 +191,8 @@ pub fn evaluate<E: FieldElement>(current: &[E], next: &[E], result: &mut [E]) {
     for i in 0..NUM_SELECTORS {
         sel_sum += sel(current, i);
     }
-    result[17] = sel_sum - one;
-    result[18] = sel(current, SEL_PUSH) * (sp_next - sp - one);
+    result[20] = sel_sum - one;
+    result[21] = sel(current, SEL_PUSH) * (sp_next - sp - one);
 
     let sel_arith = sel(current, SEL_ARITH);
     let sel_bitwise = sel(current, SEL_BITWISE);
@@ -196,39 +208,52 @@ pub fn evaluate<E: FieldElement>(current: &[E], next: &[E], result: &mut [E]) {
     let sel_felt = sel(current, SEL_FELT);
     let sel_div_mod = sel(current, SEL_DIV_MOD);
     let sel_nop = sel(current, SEL_NOP);
+    let sel_heap_alloc = sel(current, SEL_HEAP_ALLOC);
+    let sel_heap_read = sel(current, SEL_HEAP_READ);
+    let sel_heap_write = sel(current, SEL_HEAP_WRITE);
 
     let sel_binop = sel_arith + sel_bitwise + sel_cmp + sel_div_mod;
-    result[19] = sel_binop * (sp_next - sp + one);
-    result[20] = sel_unary * (sp_next - sp);
-    result[21] = sel_store * (sp_next - sp + one);
-    result[22] = sel_load * (sp_next - sp - one);
+    let two = one + one;
+    result[22] = sel_binop * (sp_next - sp + one);
+    // HeapAlloc and HeapRead each pop one operand and push one result, matching
+    // the unary "net 0" SP pattern.
+    result[23] = (sel_unary + sel_heap_alloc + sel_heap_read) * (sp_next - sp);
+    result[24] = sel_store * (sp_next - sp + one);
+    result[25] = sel_load * (sp_next - sp - one);
 
     let pc_uniform_gate = one - sel_jump - sel_cond_jump - sel_call - sel_return - sel_nop;
-    result[23] = pc_uniform_gate * (pc_next - pc - op_width);
+    result[26] = pc_uniform_gate * (pc_next - pc - op_width);
 
-    let width_one_gate = sel_arith + sel_bitwise + sel_cmp + sel_unary + sel_felt + sel_div_mod;
-    result[24] = width_one_gate * (op_width - one);
+    let width_one_gate = sel_arith
+        + sel_bitwise
+        + sel_cmp
+        + sel_unary
+        + sel_felt
+        + sel_div_mod
+        + sel_heap_alloc
+        + sel_heap_read
+        + sel_heap_write;
+    result[27] = width_one_gate * (op_width - one);
 
-    let two = one + one;
-    result[25] = sel_convert * (op_width - two);
+    result[28] = sel_convert * (op_width - two);
 
-    result[26] = sel_jump * (pc_next - operand_0);
+    result[29] = sel_jump * (pc_next - operand_0);
     let three = two + one;
-    result[27] = sel_cond_jump * s0 * (pc_next - pc - three);
-    result[28] = sel_cond_jump * (one - s0) * (pc_next - operand_0);
-    result[29] = sel_cond_jump * s0 * (one - s0);
+    result[30] = sel_cond_jump * s0 * (pc_next - pc - three);
+    result[31] = sel_cond_jump * (one - s0) * (pc_next - operand_0);
+    result[32] = sel_cond_jump * s0 * (one - s0);
 
-    result[30] = sel_load * (is_read - one);
-    result[31] = sel_load * (out - mem_val);
-    result[32] = sel_store * is_read;
-    result[33] = sel_store * (mem_val - s0);
+    result[33] = sel_load * (is_read - one);
+    result[34] = sel_load * (out - mem_val);
+    result[35] = sel_store * is_read;
+    result[36] = sel_store * (mem_val - s0);
 
-    result[34] = sel_call * (fp_next - out);
-    result[35] = sel_return * (fp_next - mem_val);
+    result[37] = sel_call * (fp_next - out);
+    result[38] = sel_return * (fp_next - mem_val);
 
-    result[36] = sel_nop * (pc_next - pc);
-    result[37] = sel_nop * (sp_next - sp);
-    result[38] = sel_nop * (fp_next - fp);
+    result[39] = sel_nop * (pc_next - pc);
+    result[40] = sel_nop * (sp_next - sp);
+    result[41] = sel_nop * (fp_next - fp);
 
     let rc_val = current[COL_RC_VAL];
     let l0 = current[COL_RC_L0];
@@ -237,14 +262,14 @@ pub fn evaluate<E: FieldElement>(current: &[E], next: &[E], result: &mut [E]) {
     let l3 = current[COL_RC_L3];
 
     let (p16, p32, p48) = power_of_two_constants::<E>();
-    result[39] = rc_val - (l0 + p16 * l1 + p32 * l2 + p48 * l3);
-    result[40] = sel_convert * (rc_val - out);
+    result[42] = rc_val - (l0 + p16 * l1 + p32 * l2 + p48 * l3);
+    result[43] = sel_convert * (rc_val - out);
 
     let nonzero_inv = current[COL_NONZERO_INV];
-    result[41] = sel_div_mod * (s0 * nonzero_inv - one);
+    result[44] = sel_div_mod * (s0 * nonzero_inv - one);
 
     let out_next = next[COL_OUT];
-    result[42] = sel_nop * (out_next - out);
+    result[45] = sel_nop * (out_next - out);
 
     let sub_add = sub(current, SUB_SEL_ADD);
     let sub_sub = sub(current, SUB_SEL_SUB);
@@ -256,30 +281,30 @@ pub fn evaluate<E: FieldElement>(current: &[E], next: &[E], result: &mut [E]) {
     let sub_eq = sub(current, SUB_SEL_EQ);
     let sub_neq = sub(current, SUB_SEL_NEQ);
 
-    result[43] = sub_add * (sub_add - sel_arith);
-    result[44] = sub_sub * (sub_sub - sel_arith);
-    result[45] = sub_div * (sub_div - sel_div_mod);
-    result[46] = sub_neg * (sub_neg - sel_unary);
-    result[47] = sub_felt_add * (sub_felt_add - sel_felt);
-    result[48] = sub_felt_sub * (sub_felt_sub - sel_felt);
-    result[49] = sub_felt_mul * (sub_felt_mul - sel_felt);
-    result[50] = sub_eq * (sub_eq - sel_cmp);
-    result[51] = sub_neq * (sub_neq - sel_cmp);
+    result[46] = sub_add * (sub_add - sel_arith);
+    result[47] = sub_sub * (sub_sub - sel_arith);
+    result[48] = sub_div * (sub_div - sel_div_mod);
+    result[49] = sub_neg * (sub_neg - sel_unary);
+    result[50] = sub_felt_add * (sub_felt_add - sel_felt);
+    result[51] = sub_felt_sub * (sub_felt_sub - sel_felt);
+    result[52] = sub_felt_mul * (sub_felt_mul - sel_felt);
+    result[53] = sub_eq * (sub_eq - sel_cmp);
+    result[54] = sub_neq * (sub_neq - sel_cmp);
 
-    result[52] = sub_add * sub_sub;
-    result[53] = sub_felt_add * sub_felt_sub;
-    result[54] = sub_felt_add * sub_felt_mul;
-    result[55] = sub_felt_sub * sub_felt_mul;
-    result[56] = sub_eq * sub_neq;
+    result[55] = sub_add * sub_sub;
+    result[56] = sub_felt_add * sub_felt_sub;
+    result[57] = sub_felt_add * sub_felt_mul;
+    result[58] = sub_felt_sub * sub_felt_mul;
+    result[59] = sub_eq * sub_neq;
 
     let sub_mul = sel_arith - sub_add - sub_sub;
     let sub_mod = sel_div_mod - sub_div;
     let sub_not = sel_unary - sub_neg;
 
-    result[57] = sub_add * (out - s0 - s1) + sub_sub * (out - s1 + s0) + sub_mul * (out - s0 * s1);
-    result[58] = sub_div * (s1 - s0 * out - div_aux) + sub_mod * (s1 - s0 * div_aux - out);
-    result[59] = sub_neg * (out + s0) + sub_not * (out + s0 - one);
-    result[60] = sub_felt_add * (out - s0 - s1)
+    result[60] = sub_add * (out - s0 - s1) + sub_sub * (out - s1 + s0) + sub_mul * (out - s0 * s1);
+    result[61] = sub_div * (s1 - s0 * out - div_aux) + sub_mod * (s1 - s0 * div_aux - out);
+    result[62] = sub_neg * (out + s0) + sub_not * (out + s0 - one);
+    result[63] = sub_felt_add * (out - s0 - s1)
         + sub_felt_sub * (out - s1 + s0)
         + sub_felt_mul * (out - s0 * s1);
 
@@ -287,9 +312,17 @@ pub fn evaluate<E: FieldElement>(current: &[E], next: &[E], result: &mut [E]) {
     let diff = s0 - s1;
     let one_minus_diff_inv = one - diff * cmp_inv;
 
-    result[61] = cmp_active * out * (one - out);
-    result[62] = diff * (sub_eq * out + sub_neq * (one - out));
-    result[63] = one_minus_diff_inv * (sub_eq * (one - out) + sub_neq * out);
+    result[64] = cmp_active * out * (one - out);
+    result[65] = diff * (sub_eq * out + sub_neq * (one - out));
+    result[66] = one_minus_diff_inv * (sub_eq * (one - out) + sub_neq * out);
+
+    // Heap structural constraints.
+    result[67] = heap_is_read * (one - heap_is_read);
+    result[68] = heap_alloc_flag * (one - heap_alloc_flag);
+    result[69] = heap_alloc_flag - sel_heap_alloc;
+    result[70] = heap_alloc_flag * heap_is_read;
+    // HeapWrite pops two operands (heap address, value) and pushes nothing.
+    result[71] = sel_heap_write * (sp_next - sp + two);
 }
 
 #[cfg(test)]
@@ -341,13 +374,13 @@ mod tests {
         let current = [F::ZERO; TRACE_WIDTH];
         let next = [F::ZERO; TRACE_WIDTH];
         let result = eval(&current, &next);
-        assert_ne!(result[17], F::ZERO, "zero selector sum should fail");
+        assert_ne!(result[20], F::ZERO, "zero selector sum should fail");
 
         let mut current = [F::ZERO; TRACE_WIDTH];
         current[COL_SEL_BASE + SEL_NOP] = F::ONE;
         current[COL_SEL_BASE + SEL_PUSH] = F::ONE;
         let result = eval(&current, &next);
-        assert_ne!(result[17], F::ZERO, "double selector should fail sum check");
+        assert_ne!(result[20], F::ZERO, "double selector should fail sum check");
     }
 
     #[test]
@@ -362,12 +395,12 @@ mod tests {
 
         next[COL_PC] = F::new(11);
         let result = eval(&current, &next);
-        assert_eq!(result[23], F::ZERO);
-        assert_eq!(result[24], F::ZERO);
+        assert_eq!(result[26], F::ZERO);
+        assert_eq!(result[27], F::ZERO);
 
         current[COL_OP_WIDTH] = F::new(2);
         let result = eval(&current, &next);
-        assert_ne!(result[24], F::ZERO);
+        assert_ne!(result[27], F::ZERO);
     }
 
     #[test]
@@ -386,12 +419,12 @@ mod tests {
         current[COL_RC_L0] = val;
 
         let result = eval(&current, &next);
-        assert_eq!(result[23], F::ZERO);
-        assert_eq!(result[25], F::ZERO);
+        assert_eq!(result[26], F::ZERO);
+        assert_eq!(result[28], F::ZERO);
 
         current[COL_OP_WIDTH] = F::new(3);
         let result = eval(&current, &next);
-        assert_ne!(result[25], F::ZERO);
+        assert_ne!(result[28], F::ZERO);
     }
 
     #[test]
@@ -411,12 +444,12 @@ mod tests {
         next[COL_SEL_BASE + SEL_NOP] = F::ONE;
 
         let result = eval(&current, &next);
-        assert_eq!(result[57], F::ZERO, "add output should pass for 7+35=42");
+        assert_eq!(result[60], F::ZERO, "add output should pass for 7+35=42");
 
         // Tamper output.
         current[COL_OUT] = F::new(43);
         let result = eval(&current, &next);
-        assert_ne!(result[57], F::ZERO, "wrong out must be rejected");
+        assert_ne!(result[60], F::ZERO, "wrong out must be rejected");
     }
 
     #[test]
@@ -435,11 +468,11 @@ mod tests {
         next[COL_SEL_BASE + SEL_NOP] = F::ONE;
 
         let result = eval(&current, &next);
-        assert_eq!(result[57], F::ZERO, "mul output should pass for 6*7=42");
+        assert_eq!(result[60], F::ZERO, "mul output should pass for 6*7=42");
 
         current[COL_OUT] = F::new(41);
         let result = eval(&current, &next);
-        assert_ne!(result[57], F::ZERO, "wrong mul out must be rejected");
+        assert_ne!(result[60], F::ZERO, "wrong mul out must be rejected");
     }
 
     #[test]
@@ -458,11 +491,11 @@ mod tests {
         next[COL_SEL_BASE + SEL_NOP] = F::ONE;
 
         let result = eval(&current, &next);
-        assert_eq!(result[59], F::ZERO);
+        assert_eq!(result[62], F::ZERO);
 
         current[COL_OUT] = F::new(5);
         let result = eval(&current, &next);
-        assert_ne!(result[59], F::ZERO);
+        assert_ne!(result[62], F::ZERO);
     }
 
     #[test]
@@ -483,14 +516,14 @@ mod tests {
         next[COL_SEL_BASE + SEL_NOP] = F::ONE;
 
         let result = eval(&current, &next);
-        assert_eq!(result[61], F::ZERO);
-        assert_eq!(result[62], F::ZERO);
-        assert_eq!(result[63], F::ZERO);
+        assert_eq!(result[64], F::ZERO);
+        assert_eq!(result[65], F::ZERO);
+        assert_eq!(result[66], F::ZERO);
 
         // Tamper: claim out=0 when actually equal.
         current[COL_OUT] = F::ZERO;
         let result = eval(&current, &next);
-        assert_ne!(result[63], F::ZERO);
+        assert_ne!(result[66], F::ZERO);
     }
 
     #[test]
@@ -512,14 +545,14 @@ mod tests {
         next[COL_SEL_BASE + SEL_NOP] = F::ONE;
 
         let result = eval(&current, &next);
-        assert_eq!(result[61], F::ZERO);
-        assert_eq!(result[62], F::ZERO);
-        assert_eq!(result[63], F::ZERO);
+        assert_eq!(result[64], F::ZERO);
+        assert_eq!(result[65], F::ZERO);
+        assert_eq!(result[66], F::ZERO);
 
         // Tamper: claim out=1 when actually not equal.
         current[COL_OUT] = F::ONE;
         let result = eval(&current, &next);
-        assert_ne!(result[62], F::ZERO);
+        assert_ne!(result[65], F::ZERO);
     }
 
     #[test]
@@ -541,13 +574,13 @@ mod tests {
         next[COL_SEL_BASE + SEL_NOP] = F::ONE;
 
         let result = eval(&current, &next);
-        assert_eq!(result[61], F::ZERO);
-        assert_eq!(result[62], F::ZERO);
-        assert_eq!(result[63], F::ZERO);
+        assert_eq!(result[64], F::ZERO);
+        assert_eq!(result[65], F::ZERO);
+        assert_eq!(result[66], F::ZERO);
 
         current[COL_OUT] = F::ZERO;
         let result = eval(&current, &next);
-        assert_ne!(result[62], F::ZERO);
+        assert_ne!(result[65], F::ZERO);
     }
 
     #[test]
@@ -569,11 +602,11 @@ mod tests {
         next[COL_SEL_BASE + SEL_NOP] = F::ONE;
 
         let result = eval(&current, &next);
-        assert_eq!(result[58], F::ZERO, "100 = 7*14 + 2");
+        assert_eq!(result[61], F::ZERO, "100 = 7*14 + 2");
 
         current[COL_OUT] = F::new(15);
         let result = eval(&current, &next);
-        assert_ne!(result[58], F::ZERO);
+        assert_ne!(result[61], F::ZERO);
     }
 
     #[test]
@@ -587,9 +620,74 @@ mod tests {
 
         let result = eval(&current, &next);
         assert_ne!(
-            result[43],
+            result[46],
             F::ZERO,
             "sub_add must be zero when sel_arith = 0"
+        );
+    }
+
+    #[test]
+    fn heap_alloc_flag_must_match_sel_heap_alloc() {
+        let mut current = [F::ZERO; TRACE_WIDTH];
+        let mut next = [F::ZERO; TRACE_WIDTH];
+        current[COL_SEL_BASE + SEL_HEAP_ALLOC] = F::ONE;
+        current[COL_OP_WIDTH] = F::ONE;
+        current[COL_HEAP_ALLOC_FLAG] = F::ONE;
+        next[COL_SEL_BASE + SEL_NOP] = F::ONE;
+
+        let result = eval(&current, &next);
+        assert_eq!(
+            result[69],
+            F::ZERO,
+            "heap_alloc_flag must equal sel_heap_alloc"
+        );
+
+        current[COL_HEAP_ALLOC_FLAG] = F::ZERO;
+        let result = eval(&current, &next);
+        assert_ne!(
+            result[69],
+            F::ZERO,
+            "missing heap_alloc_flag must be rejected"
+        );
+    }
+
+    #[test]
+    fn heap_alloc_implies_write() {
+        let mut current = [F::ZERO; TRACE_WIDTH];
+        let mut next = [F::ZERO; TRACE_WIDTH];
+        current[COL_SEL_BASE + SEL_HEAP_ALLOC] = F::ONE;
+        current[COL_OP_WIDTH] = F::ONE;
+        current[COL_HEAP_ALLOC_FLAG] = F::ONE;
+        current[COL_HEAP_IS_READ] = F::ONE;
+        next[COL_SEL_BASE + SEL_NOP] = F::ONE;
+
+        let result = eval(&current, &next);
+        assert_ne!(
+            result[70],
+            F::ZERO,
+            "heap_alloc_flag=1 with heap_is_read=1 must be rejected"
+        );
+    }
+
+    #[test]
+    fn heap_write_sp_net_minus_two() {
+        let mut current = [F::ZERO; TRACE_WIDTH];
+        let mut next = [F::ZERO; TRACE_WIDTH];
+        current[COL_SEL_BASE + SEL_HEAP_WRITE] = F::ONE;
+        current[COL_OP_WIDTH] = F::ONE;
+        current[COL_SP] = F::new(5);
+        next[COL_SP] = F::new(3);
+        next[COL_SEL_BASE + SEL_NOP] = F::ONE;
+
+        let result = eval(&current, &next);
+        assert_eq!(result[71], F::ZERO, "heap write must drop SP by exactly 2");
+
+        next[COL_SP] = F::new(4);
+        let result = eval(&current, &next);
+        assert_ne!(
+            result[71],
+            F::ZERO,
+            "heap write SP delta -1 must be rejected"
         );
     }
 }

@@ -44,9 +44,13 @@
 //! | 5     | RC: sorted continuity 2-->3           | 2      |
 //! | 6     | RC: sorted continuity 3-->0(next)     | 2      |
 //! | 7     | RC: permutation accumulator           | 5      |
+//! | 8     | Heap: address continuity              | 2      |
+//! | 9     | Heap: single-value consistency        | 2      |
+//! | 10    | Heap: grand-product accumulator       | 2      |
 
 use maat_trace::{
-    COL_MEM_ADDR, COL_MEM_VAL, COL_RC_L0, COL_RC_L1, COL_RC_L2, COL_RC_L3, TRACE_WIDTH,
+    COL_HEAP_ADDR, COL_HEAP_VAL, COL_MEM_ADDR, COL_MEM_VAL, COL_RC_L0, COL_RC_L1, COL_RC_L2,
+    COL_RC_L3, TRACE_WIDTH,
 };
 use winter_math::fields::f64::BaseElement;
 use winter_math::{ExtensionOf, FieldElement};
@@ -75,19 +79,30 @@ pub const AUX_COL_RC_SORTED_3: usize = 6;
 /// Auxiliary column index: range-check permutation accumulator.
 pub const AUX_COL_RC_ACC: usize = 7;
 
+/// Auxiliary column index: sorted heap address.
+pub const AUX_COL_L2_HEAP_ADDR: usize = 8;
+
+/// Auxiliary column index: sorted heap value.
+pub const AUX_COL_L2_HEAP_VAL: usize = 9;
+
+/// Auxiliary column index: heap grand-product permutation accumulator.
+pub const AUX_COL_HEAP_ACC: usize = 10;
+
 /// Total width of the auxiliary trace segment.
-pub const AUX_WIDTH: usize = 8;
+pub const AUX_WIDTH: usize = 11;
 
 /// Number of random field elements drawn for auxiliary column construction.
 ///
-/// The verifier supplies three challenges:
-/// - `z`: linear combination base for the memory permutation.
-/// - `alpha`: tuple compression coefficient for the memory permutation.
+/// The verifier supplies five challenges:
+/// - `z`: linear combination base for the main-memory permutation.
+/// - `alpha`: tuple compression coefficient for the main-memory permutation.
 /// - `z_rc`: linear combination base for the range-check permutation.
-pub const NUM_AUX_RANDS: usize = 3;
+/// - `z_heap`: linear combination base for the heap permutation.
+/// - `alpha_heap`: tuple compression coefficient for the heap permutation.
+pub const NUM_AUX_RANDS: usize = 5;
 
 /// Number of auxiliary transition constraints.
-pub const NUM_AUX_CONSTRAINTS: usize = 8;
+pub const NUM_AUX_CONSTRAINTS: usize = 11;
 
 /// Degree of each auxiliary transition constraint.
 pub const AUX_CONSTRAINT_DEGREES: [usize; NUM_AUX_CONSTRAINTS] = [
@@ -99,6 +114,9 @@ pub const AUX_CONSTRAINT_DEGREES: [usize; NUM_AUX_CONSTRAINTS] = [
     2, // RC sorted continuity 2-->3
     2, // RC sorted continuity 3-->0(next)
     5, // RC permutation accumulator
+    2, // heap address continuity
+    2, // heap single-value consistency
+    2, // heap grand-product accumulator
 ];
 
 /// Index of verifier challenge `z` (memory permutation).
@@ -109,6 +127,12 @@ const RAND_ALPHA: usize = 1;
 
 /// Index of verifier challenge `z_rc` (range-check permutation).
 const RAND_Z_RC: usize = 2;
+
+/// Index of verifier challenge `z_heap` (heap permutation).
+const RAND_Z_HEAP: usize = 3;
+
+/// Index of verifier challenge `alpha_heap` (heap tuple compression).
+const RAND_ALPHA_HEAP: usize = 4;
 
 /// Evaluates all eight auxiliary transition constraints.
 ///
@@ -191,6 +215,28 @@ pub fn evaluate<F, E>(
     let limb_prod = (z_rc - l0_next) * (z_rc - l1_next) * (z_rc - l2_next) * (z_rc - l3_next);
 
     result[7] = sorted_prod * rc_acc_next - limb_prod * rc_acc;
+
+    let l2_heap_addr = aux_current[AUX_COL_L2_HEAP_ADDR];
+    let l2_heap_addr_next = aux_next[AUX_COL_L2_HEAP_ADDR];
+    let l2_heap_val = aux_current[AUX_COL_L2_HEAP_VAL];
+    let l2_heap_val_next = aux_next[AUX_COL_L2_HEAP_VAL];
+    let heap_acc = aux_current[AUX_COL_HEAP_ACC];
+    let heap_acc_next = aux_next[AUX_COL_HEAP_ACC];
+
+    let z_heap = rand_elements[RAND_Z_HEAP];
+    let alpha_heap = rand_elements[RAND_ALPHA_HEAP];
+
+    let heap_addr_delta = l2_heap_addr_next - l2_heap_addr;
+
+    result[8] = heap_addr_delta * (heap_addr_delta - one);
+    result[9] = (l2_heap_val_next - l2_heap_val) * (heap_addr_delta - one);
+
+    let l1_heap_addr_next = E::from(main_next[COL_HEAP_ADDR]);
+    let l1_heap_val_next = E::from(main_next[COL_HEAP_VAL]);
+    let l1_heap_tuple_next = l1_heap_addr_next + alpha_heap * l1_heap_val_next;
+    let l2_heap_tuple_next = l2_heap_addr_next + alpha_heap * l2_heap_val_next;
+    result[10] =
+        (z_heap - l2_heap_tuple_next) * heap_acc_next - (z_heap - l1_heap_tuple_next) * heap_acc;
 }
 
 /// Builds the eight auxiliary trace columns from the committed main trace and
@@ -201,14 +247,15 @@ pub fn evaluate<F, E>(
 ///
 /// # Invariant: physical-address contiguity
 ///
-/// The memory permutation argument is sound only when the physical addresses in
-/// `COL_MEM_ADDR` form a contiguous range `[0, max_addr]` with no gaps.
+/// Each permutation argument (main memory and heap) is sound only when its
+/// physical addresses form a contiguous range `[0, max_addr]` with no gaps.
 /// Contiguity is enforced at trace-generation time by [`maat_trace::run_trace`].
-/// Any future change to the trace VM that allocates a physical address without a
-/// corresponding main-trace row (e.g. frame pre-allocation, speculative writes, an optimizer pass)
-/// would silently break the address-continuity constraint (aux constraint 0) and corrupt the
-/// memory permutation grand product. The `debug_assert` below catches such
-/// regressions during development before the prover commits to the trace.
+/// Any future change to the trace VM that allocates a physical address without
+/// a corresponding main-trace row (e.g. frame pre-allocation, speculative
+/// writes, an optimizer pass) would silently break the relevant address
+/// continuity constraint and corrupt the corresponding grand product. The
+/// `debug_assert`s below catch such regressions during development before the
+/// prover commits to the trace.
 ///
 /// # Panics
 ///
@@ -224,22 +271,28 @@ pub fn build_aux_columns<E: FieldElement<BaseField = BaseElement>>(
 
     #[cfg(debug_assertions)]
     {
-        let unique_addrs = main_trace[COL_MEM_ADDR]
-            .iter()
-            .map(|a| a.as_int())
-            .collect::<std::collections::BTreeSet<u64>>();
-        assert!(
-            unique_addrs
+        let assert_contiguous = |column: usize, label: &str| {
+            let unique_addrs = main_trace[column]
                 .iter()
-                .copied()
-                .zip(0_u64..)
-                .all(|(a, i)| a == i),
-            "physical address gap detected: main trace addresses are not contiguous from 0"
-        );
+                .map(|a| a.as_int())
+                .collect::<std::collections::BTreeSet<u64>>();
+            assert!(
+                unique_addrs
+                    .iter()
+                    .copied()
+                    .zip(0_u64..)
+                    .all(|(a, i)| a == i),
+                "physical address gap detected in {label} segment: addresses are not contiguous from 0"
+            );
+        };
+        assert_contiguous(COL_MEM_ADDR, "main-memory");
+        assert_contiguous(COL_HEAP_ADDR, "heap");
     }
     let z = rand_elements[RAND_Z];
     let alpha = rand_elements[RAND_ALPHA];
     let z_rc = rand_elements[RAND_Z_RC];
+    let z_heap = rand_elements[RAND_Z_HEAP];
+    let alpha_heap = rand_elements[RAND_ALPHA_HEAP];
 
     let mut pairs = (0..n)
         .map(|i| (main_trace[COL_MEM_ADDR][i], main_trace[COL_MEM_VAL][i]))
@@ -265,6 +318,38 @@ pub fn build_aux_columns<E: FieldElement<BaseField = BaseElement>>(
         let numerator = z - l1_tuple;
         let denominator = z - l2_tuple;
         mem_acc.push(mem_acc[i - 1] * numerator * denominator.inv());
+    }
+
+    let mut heap_pairs = (0..n)
+        .map(|i| (main_trace[COL_HEAP_ADDR][i], main_trace[COL_HEAP_VAL][i]))
+        .collect::<Vec<(BaseElement, BaseElement)>>();
+    heap_pairs.sort_unstable_by(|a, b| {
+        a.0.as_int()
+            .cmp(&b.0.as_int())
+            .then_with(|| a.1.as_int().cmp(&b.1.as_int()))
+    });
+
+    let l2_heap_addr = heap_pairs
+        .iter()
+        .map(|(a, _)| E::from(*a))
+        .collect::<Vec<E>>();
+    let l2_heap_val = heap_pairs
+        .iter()
+        .map(|(_, v)| E::from(*v))
+        .collect::<Vec<E>>();
+
+    let mut heap_acc = Vec::with_capacity(n);
+    heap_acc.push(E::ONE);
+
+    for i in 1..n {
+        let l1_heap_addr_i = E::from(main_trace[COL_HEAP_ADDR][i]);
+        let l1_heap_val_i = E::from(main_trace[COL_HEAP_VAL][i]);
+        let l1_heap_tuple = l1_heap_addr_i + alpha_heap * l1_heap_val_i;
+        let l2_heap_tuple = l2_heap_addr[i] + alpha_heap * l2_heap_val[i];
+
+        let numerator = z_heap - l1_heap_tuple;
+        let denominator = z_heap - l2_heap_tuple;
+        heap_acc.push(heap_acc[i - 1] * numerator * denominator.inv());
     }
 
     // Collect all 4(T) limb values from the main trace.
@@ -323,6 +408,9 @@ pub fn build_aux_columns<E: FieldElement<BaseField = BaseElement>>(
     columns[AUX_COL_RC_SORTED_2] = rc_sorted[2].clone();
     columns[AUX_COL_RC_SORTED_3] = rc_sorted[3].clone();
     columns[AUX_COL_RC_ACC] = rc_acc;
+    columns[AUX_COL_L2_HEAP_ADDR] = l2_heap_addr;
+    columns[AUX_COL_L2_HEAP_VAL] = l2_heap_val;
+    columns[AUX_COL_HEAP_ACC] = heap_acc;
     columns
 }
 
@@ -365,6 +453,18 @@ mod tests {
         columns
     }
 
+    /// Creates a main trace whose heap columns hold the supplied
+    /// `(heap_addr, heap_val)` pairs, leaving every other column zero.
+    fn mock_main_trace_with_heap(heap_pairs: &[(u64, u64)]) -> Vec<Vec<F>> {
+        let n = heap_pairs.len();
+        let mut columns = vec![vec![F::ZERO; n]; TRACE_WIDTH];
+        for (i, &(addr, val)) in heap_pairs.iter().enumerate() {
+            columns[COL_HEAP_ADDR][i] = F::new(addr);
+            columns[COL_HEAP_VAL][i] = F::new(val);
+        }
+        columns
+    }
+
     /// Evaluate auxiliary constraints on a single row pair.
     fn eval_aux(
         main_curr: &[F],
@@ -375,7 +475,7 @@ mod tests {
         alpha: F,
         z_rc: F,
     ) -> Vec<F> {
-        let rands = [z, alpha, z_rc];
+        let rands = [z, alpha, z_rc, F::new(13), F::new(17)];
         let mut result = vec![F::ZERO; NUM_AUX_CONSTRAINTS];
         evaluate(
             main_curr,
@@ -404,6 +504,9 @@ mod tests {
             F::new(sorted[2]),
             F::new(sorted[3]),
             rc_acc,
+            F::ZERO,
+            F::ZERO,
+            F::ONE,
         ]
     }
 
@@ -622,7 +725,9 @@ mod tests {
         let z = F::new(9999);
         let alpha = F::new(13);
         let z_rc = F::new(7777);
-        let rands = [z, alpha, z_rc];
+        let z_heap = F::new(8181);
+        let alpha_heap = F::new(19);
+        let rands = [z, alpha, z_rc, z_heap, alpha_heap];
 
         let aux = build_aux_columns(&main, &rands);
         assert_eq!(aux.len(), AUX_WIDTH);
@@ -655,7 +760,9 @@ mod tests {
         let z = F::new(7777);
         let alpha = F::new(31);
         let z_rc = F::new(5555);
-        let rands = [z, alpha, z_rc];
+        let z_heap = F::new(4444);
+        let alpha_heap = F::new(23);
+        let rands = [z, alpha, z_rc, z_heap, alpha_heap];
 
         let aux = build_aux_columns(&main, &rands);
 
@@ -733,7 +840,9 @@ mod tests {
         let z = F::new(9999);
         let alpha = F::new(13);
         let z_rc = F::new(7777);
-        let rands = [z, alpha, z_rc];
+        let z_heap = F::new(8181);
+        let alpha_heap = F::new(19);
+        let rands = [z, alpha, z_rc, z_heap, alpha_heap];
 
         let aux = build_aux_columns(&main, &rands);
 
@@ -790,6 +899,143 @@ mod tests {
                     r,
                     F::ZERO,
                     "aux constraint {j} violated at transition {i}-->{}",
+                    i + 1
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn heap_address_continuity_increment_by_one_passes() {
+        let mut aux_curr = [F::ZERO; AUX_WIDTH];
+        let mut aux_next = [F::ZERO; AUX_WIDTH];
+        aux_curr[AUX_COL_HEAP_ACC] = F::ONE;
+        aux_next[AUX_COL_HEAP_ACC] = F::ONE;
+        aux_curr[AUX_COL_L2_HEAP_ADDR] = F::new(2);
+        aux_next[AUX_COL_L2_HEAP_ADDR] = F::new(3);
+        let main = [F::ZERO; TRACE_WIDTH];
+        let result = eval_aux(
+            &main,
+            &main,
+            &aux_curr,
+            &aux_next,
+            F::new(7),
+            F::new(3),
+            F::new(11),
+        );
+        assert_eq!(result[8], F::ZERO, "heap addr+1 should satisfy continuity");
+    }
+
+    #[test]
+    fn heap_address_gap_fails() {
+        let mut aux_curr = [F::ZERO; AUX_WIDTH];
+        let mut aux_next = [F::ZERO; AUX_WIDTH];
+        aux_curr[AUX_COL_HEAP_ACC] = F::ONE;
+        aux_next[AUX_COL_HEAP_ACC] = F::ONE;
+        aux_curr[AUX_COL_L2_HEAP_ADDR] = F::new(2);
+        aux_next[AUX_COL_L2_HEAP_ADDR] = F::new(4);
+        let main = [F::ZERO; TRACE_WIDTH];
+        let result = eval_aux(
+            &main,
+            &main,
+            &aux_curr,
+            &aux_next,
+            F::new(7),
+            F::new(3),
+            F::new(11),
+        );
+        assert_ne!(
+            result[8],
+            F::ZERO,
+            "heap addr gap should violate continuity"
+        );
+    }
+
+    #[test]
+    fn heap_single_value_consistency_violation_fails() {
+        let mut aux_curr = [F::ZERO; AUX_WIDTH];
+        let mut aux_next = [F::ZERO; AUX_WIDTH];
+        aux_curr[AUX_COL_HEAP_ACC] = F::ONE;
+        aux_next[AUX_COL_HEAP_ACC] = F::ONE;
+        aux_curr[AUX_COL_L2_HEAP_ADDR] = F::new(2);
+        aux_next[AUX_COL_L2_HEAP_ADDR] = F::new(2);
+        aux_curr[AUX_COL_L2_HEAP_VAL] = F::new(7);
+        aux_next[AUX_COL_L2_HEAP_VAL] = F::new(99);
+        let main = [F::ZERO; TRACE_WIDTH];
+        let result = eval_aux(
+            &main,
+            &main,
+            &aux_curr,
+            &aux_next,
+            F::new(7),
+            F::new(3),
+            F::new(11),
+        );
+        assert_ne!(
+            result[9],
+            F::ZERO,
+            "same heap addr with different values must fail"
+        );
+    }
+
+    #[test]
+    fn build_aux_columns_heap_grand_product_telescopes() {
+        // Heap accesses use addresses 0 and 1; each address appears with one value.
+        let main = mock_main_trace_with_heap(&[
+            (0, 0),
+            (1, 42),
+            (1, 42),
+            (0, 0),
+            (1, 42),
+            (0, 0),
+            (0, 0),
+            (0, 0),
+        ]);
+        let z = F::new(9999);
+        let alpha = F::new(13);
+        let z_rc = F::new(7777);
+        let z_heap = F::new(8181);
+        let alpha_heap = F::new(19);
+        let rands = [z, alpha, z_rc, z_heap, alpha_heap];
+
+        let aux = build_aux_columns(&main, &rands);
+        assert_eq!(aux[AUX_COL_HEAP_ACC][0], F::ONE, "heap_acc[0] must be 1");
+        assert_eq!(
+            aux[AUX_COL_HEAP_ACC][7],
+            F::ONE,
+            "heap_acc[n-1] must be 1 for valid heap permutation"
+        );
+
+        for i in 0..7 {
+            assert!(
+                aux[AUX_COL_L2_HEAP_ADDR][i].as_int() <= aux[AUX_COL_L2_HEAP_ADDR][i + 1].as_int(),
+                "L2 heap must be sorted by address at row {i}"
+            );
+        }
+
+        for i in 0..7 {
+            let mut main_curr = vec![F::ZERO; TRACE_WIDTH];
+            let mut main_next = vec![F::ZERO; TRACE_WIDTH];
+            for col in 0..TRACE_WIDTH {
+                main_curr[col] = main[col][i];
+                main_next[col] = main[col][i + 1];
+            }
+            let aux_curr = (0..AUX_WIDTH).map(|c| aux[c][i]).collect::<Vec<F>>();
+            let aux_next = (0..AUX_WIDTH).map(|c| aux[c][i + 1]).collect::<Vec<F>>();
+            let mut result = vec![F::ZERO; NUM_AUX_CONSTRAINTS];
+            evaluate(
+                &main_curr,
+                &main_next,
+                &aux_curr,
+                &aux_next,
+                &rands,
+                &mut result,
+            );
+            for (j, &r) in result.iter().enumerate().skip(8).take(3) {
+                assert_eq!(
+                    r,
+                    F::ZERO,
+                    "heap aux constraint {j} violated at transition {i}-->{}",
                     i + 1
                 );
             }

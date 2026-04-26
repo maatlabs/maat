@@ -23,11 +23,12 @@ use maat_span::{SourceMap, Span};
 use crate::encode::value_to_felt;
 use crate::selector::{SEL_NOP, class_index};
 use crate::table::{
-    COL_CMP_INV, COL_DIV_AUX, COL_FP, COL_IS_READ, COL_MEM_ADDR, COL_MEM_VAL, COL_NONZERO_INV,
-    COL_OP_WIDTH, COL_OPCODE, COL_OPERAND_0, COL_OPERAND_1, COL_OUT, COL_PC, COL_RC_L0, COL_RC_L1,
-    COL_RC_L2, COL_RC_L3, COL_RC_VAL, COL_S0, COL_S1, COL_S2, COL_SEL_BASE, COL_SP,
-    COL_SUB_SEL_BASE, SUB_SEL_ADD, SUB_SEL_DIV, SUB_SEL_EQ, SUB_SEL_FELT_ADD, SUB_SEL_FELT_MUL,
-    SUB_SEL_FELT_SUB, SUB_SEL_NEG, SUB_SEL_NEQ, SUB_SEL_SUB, TRACE_WIDTH, TraceRow, TraceTable,
+    COL_CMP_INV, COL_DIV_AUX, COL_FP, COL_HEAP_ADDR, COL_HEAP_ALLOC_FLAG, COL_HEAP_IS_READ,
+    COL_HEAP_VAL, COL_IS_READ, COL_MEM_ADDR, COL_MEM_VAL, COL_NONZERO_INV, COL_OP_WIDTH,
+    COL_OPCODE, COL_OPERAND_0, COL_OPERAND_1, COL_OUT, COL_PC, COL_RC_L0, COL_RC_L1, COL_RC_L2,
+    COL_RC_L3, COL_RC_VAL, COL_S0, COL_S1, COL_S2, COL_SEL_BASE, COL_SP, COL_SUB_SEL_BASE,
+    SUB_SEL_ADD, SUB_SEL_DIV, SUB_SEL_EQ, SUB_SEL_FELT_ADD, SUB_SEL_FELT_MUL, SUB_SEL_FELT_SUB,
+    SUB_SEL_NEG, SUB_SEL_NEQ, SUB_SEL_SUB, TRACE_WIDTH, TraceRow, TraceTable,
 };
 
 /// Trace metadata captured for a single instruction step.
@@ -54,6 +55,16 @@ struct TraceData {
     /// Auxiliary witness for the division/modulo identity. On `Div` rows holds
     /// the remainder; on `Mod` rows holds the quotient.
     div_aux: Felt,
+    /// Heap address accessed on this row.
+    heap_addr: Felt,
+    /// Heap value at `heap_addr`.
+    heap_val: Felt,
+    /// `1` if the row reads the heap, `0` if it writes the heap.
+    heap_is_read: Felt,
+    /// `1` if the row allocates a fresh heap cell, `0` otherwise.
+    heap_alloc_flag: Felt,
+    /// Whether this instruction performs a real heap access.
+    has_heap_access: bool,
 }
 
 /// Decomposes a 64-bit value into four 16-bit limbs.
@@ -137,13 +148,9 @@ pub struct TraceVM {
     type_registry: Vec<TypeDef>,
 
     trace: TraceTable,
-    /// Next physical address to allocate. Starts at 1; address 0 is a
-    /// sentinel with value zero that absorbs dummy reads before the
-    /// first real memory operation.
+    /// Next physical address to allocate.
     alloc_ptr: usize,
     /// Maps logical addresses to their latest physical address.
-    /// Logical addresses: globals at `[0, MAX_GLOBALS)`, locals at
-    /// `[fp, fp + frame_depth)`.
     addr_map: HashMap<usize, usize>,
     /// Current frame pointer (logical address space).
     fp: usize,
@@ -153,6 +160,16 @@ pub struct TraceVM {
     last_mem_addr: Felt,
     /// Last memory value at `last_mem_addr`.
     last_mem_val: Felt,
+    /// Next physical heap address to allocate.
+    heap_alloc_ptr: usize,
+    /// Maps logical heap addresses to their latest physical heap address.
+    heap_addr_map: HashMap<usize, usize>,
+    /// Stored values at each physical heap address.
+    heap_values: HashMap<usize, Felt>,
+    /// Last physical heap address accessed (for dummy reads on non-heap rows).
+    last_heap_addr: Felt,
+    /// Last heap value at `last_heap_addr`.
+    last_heap_val: Felt,
 }
 
 impl TraceVM {
@@ -185,6 +202,11 @@ impl TraceVM {
             fp_stack: Vec::new(),
             last_mem_addr: Felt::ZERO,
             last_mem_val: Felt::ZERO,
+            heap_alloc_ptr: 1,
+            heap_addr_map: HashMap::new(),
+            heap_values: HashMap::new(),
+            last_heap_addr: Felt::ZERO,
+            last_heap_val: Felt::ZERO,
         }
     }
 
@@ -405,6 +427,19 @@ impl TraceVM {
             row[COL_CMP_INV] = trace_info.cmp_inv;
             row[COL_DIV_AUX] = trace_info.div_aux;
 
+            if trace_info.has_heap_access {
+                row[COL_HEAP_ADDR] = trace_info.heap_addr;
+                row[COL_HEAP_VAL] = trace_info.heap_val;
+                row[COL_HEAP_IS_READ] = trace_info.heap_is_read;
+                row[COL_HEAP_ALLOC_FLAG] = trace_info.heap_alloc_flag;
+                self.last_heap_addr = trace_info.heap_addr;
+                self.last_heap_val = trace_info.heap_val;
+            } else {
+                row[COL_HEAP_ADDR] = self.last_heap_addr;
+                row[COL_HEAP_VAL] = self.last_heap_val;
+                row[COL_HEAP_IS_READ] = Felt::ONE;
+            }
+
             self.trace.push_row(row);
         }
 
@@ -429,10 +464,13 @@ impl TraceVM {
         row[COL_SP] = Felt::new(self.sp as u64);
         row[COL_FP] = Felt::new(self.fp as u64);
         row[COL_SEL_BASE + SEL_NOP as usize] = Felt::ONE;
-        // Dummy memory read from last-accessed location.
+        // Dummy main-memory and heap reads from the last-accessed locations.
         row[COL_MEM_ADDR] = self.last_mem_addr;
         row[COL_MEM_VAL] = self.last_mem_val;
         row[COL_IS_READ] = Felt::ONE;
+        row[COL_HEAP_ADDR] = self.last_heap_addr;
+        row[COL_HEAP_VAL] = self.last_heap_val;
+        row[COL_HEAP_IS_READ] = Felt::ONE;
         self.trace.push_row(row);
     }
 
@@ -793,9 +831,95 @@ impl TraceVM {
                 self.execute_felt_pow()?;
                 info.out = self.peek_top_felt();
             }
+            Opcode::HeapAlloc => {
+                self.execute_heap_alloc(&mut info)?;
+            }
+            Opcode::HeapRead => {
+                self.execute_heap_read(&mut info)?;
+            }
+            Opcode::HeapWrite => {
+                self.execute_heap_write(&mut info)?;
+            }
         }
 
         Ok(info)
+    }
+
+    fn execute_heap_alloc(&mut self, info: &mut TraceData) -> Result<()> {
+        let initial = self.pop_stack()?;
+        let initial_felt = value_to_felt(&initial);
+        let physical = self.alloc_heap_physical()?;
+        self.heap_addr_map.insert(physical, physical);
+        self.heap_values.insert(physical, initial_felt);
+        let logical_value = Value::Integer(maat_runtime::Integer::U64(physical as u64));
+        info.out = Felt::new(physical as u64);
+        self.push_stack(logical_value)?;
+        Self::record_heap_access(info, physical, initial_felt, false, true);
+        Ok(())
+    }
+
+    fn execute_heap_read(&mut self, info: &mut TraceData) -> Result<()> {
+        let logical = self.pop_heap_addr("HeapRead")?;
+        let physical = *self
+            .heap_addr_map
+            .get(&logical)
+            .ok_or_else(|| self.vm_error(format!("heap read of unallocated address {logical}")))?;
+        let value = *self
+            .heap_values
+            .get(&physical)
+            .ok_or_else(|| self.vm_error(format!("heap value missing at physical {physical}")))?;
+        info.out = value;
+        self.push_stack(Value::Felt(value))?;
+        Self::record_heap_access(info, physical, value, true, false);
+        Ok(())
+    }
+
+    fn execute_heap_write(&mut self, info: &mut TraceData) -> Result<()> {
+        let value = self.pop_stack()?;
+        let value_felt = value_to_felt(&value);
+        let logical = self.pop_heap_addr("HeapWrite")?;
+        let physical = self.alloc_heap_physical()?;
+        self.heap_addr_map.insert(logical, physical);
+        self.heap_values.insert(physical, value_felt);
+        Self::record_heap_access(info, physical, value_felt, false, false);
+        Ok(())
+    }
+
+    /// Pops a stack value interpreted as a heap address (a non-negative integer).
+    fn pop_heap_addr(&mut self, context: &str) -> Result<usize> {
+        match self.pop_stack()? {
+            Value::Integer(int) => int.to_usize().ok_or_else(|| {
+                self.vm_error(format!("{context} expects non-negative heap address"))
+            }),
+            other => Err(self.vm_error(format!(
+                "{context} expects integer heap address, got {}",
+                other.type_name()
+            ))),
+        }
+    }
+
+    /// Reserves a fresh physical heap address.
+    fn alloc_heap_physical(&mut self) -> Result<usize> {
+        let physical = self.heap_alloc_ptr;
+        self.heap_alloc_ptr = self
+            .heap_alloc_ptr
+            .checked_add(1)
+            .ok_or_else(|| self.vm_error("heap allocator overflow"))?;
+        Ok(physical)
+    }
+
+    fn record_heap_access(
+        info: &mut TraceData,
+        physical: usize,
+        value: Felt,
+        is_read: bool,
+        is_alloc: bool,
+    ) {
+        info.heap_addr = Felt::new(physical as u64);
+        info.heap_val = value;
+        info.heap_is_read = if is_read { Felt::ONE } else { Felt::ZERO };
+        info.heap_alloc_flag = if is_alloc { Felt::ONE } else { Felt::ZERO };
+        info.has_heap_access = true;
     }
 
     /// Peeks at the top of the stack as a felt (without popping).
@@ -880,6 +1004,11 @@ impl TraceVM {
             row[COL_MEM_ADDR] = mem_addr;
             row[COL_MEM_VAL] = arg_felt;
             row[COL_IS_READ] = Felt::ZERO;
+            // Carry forward the heap dummy read so the heap permutation
+            // argument stays consistent across synthetic NOP rows.
+            row[COL_HEAP_ADDR] = self.last_heap_addr;
+            row[COL_HEAP_VAL] = self.last_heap_val;
+            row[COL_HEAP_IS_READ] = Felt::ONE;
 
             self.last_mem_addr = mem_addr;
             self.last_mem_val = arg_felt;

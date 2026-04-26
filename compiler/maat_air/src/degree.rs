@@ -189,17 +189,19 @@ fn quotient_degree_to_declared(quotient_degree: usize, n: usize) -> usize {
 /// Deterministic placeholder challenges used to materialize the auxiliary
 /// trace for degree detection.
 ///
-/// The auxiliary trace structure depends on three verifier-supplied random
-/// elements `[z, alpha, z_rc]`. Real proving derives them via Fiat-Shamir
-/// after committing to the main trace, which is unavailable at AIR
-/// construction time. For the sole purpose of measuring polynomial degree
-/// in `x`, any non-zero triple suffices: the polynomial degree of a
-/// multivariate constraint is the maximum over all monomial degree
-/// signatures in `x`, and a generic placeholder reveals it.
+/// The auxiliary trace structure depends on five verifier-supplied random
+/// elements `[z, alpha, z_rc, z_heap, alpha_heap]`. Real proving derives
+/// them via Fiat-Shamir after committing to the main trace, which is
+/// unavailable at AIR construction time. For the sole purpose of measuring
+/// polynomial degree in `x`, any non-zero quintuple suffices: the
+/// polynomial degree of a multivariate constraint is the maximum over all
+/// monomial degree signatures in `x`, and a generic placeholder reveals it.
 const AUX_DEGREE_PROBE: [u64; NUM_AUX_RANDS] = [
     0xa8d2_f0d4_ec99_3b1d,
     0x6b7e_a31a_4f01_22e9,
     0xd71f_44b8_94c5_06af,
+    0x4c91_3e2a_8b56_f127,
+    0x9e23_d075_a4f8_61bd,
 ];
 
 /// Computes the effective transition degree for every auxiliary-segment

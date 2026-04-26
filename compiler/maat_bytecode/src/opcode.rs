@@ -227,6 +227,30 @@ pub enum Opcode {
     /// Build a fixed-size array from the top N stack elements.
     /// Operands: [u16] - number of elements
     Array = 49,
+
+    /// Allocate a fresh heap cell, write the popped value as its initial
+    /// contents, and push the new heap address.
+    ///
+    /// Internal-only opcode; not emitted by the surface language. Composite
+    /// types (`Vector<T>`, `[T; N]`, `Map<K, V>`, `Set<T>`, `str`, `struct`,
+    /// `enum`, closures) lower to sequences of `HeapAlloc`/`HeapRead`/`HeapWrite`.
+    /// Operands: none
+    HeapAlloc = 50,
+
+    /// Read the value at the heap address on top of the stack and push it.
+    ///
+    /// Internal-only opcode; not emitted by the surface language.
+    /// Operands: none
+    HeapRead = 51,
+
+    /// Write the value at the second stack slot to the heap address on top
+    /// of the stack. Both operands are popped; nothing is pushed.
+    ///
+    /// Each `HeapWrite` allocates a fresh physical address mapped to the
+    /// caller-supplied logical heap address, preserving the write-once
+    /// invariant required by the heap permutation argument.
+    /// Operands: none
+    HeapWrite = 52,
 }
 
 impl Opcode {
@@ -283,6 +307,9 @@ impl Opcode {
             Self::FeltInv => "OpFeltInv",
             Self::FeltPow => "OpFeltPow",
             Self::Array => "OpArray",
+            Self::HeapAlloc => "OpHeapAlloc",
+            Self::HeapRead => "OpHeapRead",
+            Self::HeapWrite => "OpHeapWrite",
         }
     }
 
@@ -341,7 +368,10 @@ impl Opcode {
             | Self::FeltSub
             | Self::FeltMul
             | Self::FeltInv
-            | Self::FeltPow => &[],
+            | Self::FeltPow
+            | Self::HeapAlloc
+            | Self::HeapRead
+            | Self::HeapWrite => &[],
         }
     }
 
@@ -399,6 +429,9 @@ impl Opcode {
             47 => Some(Self::FeltInv),
             48 => Some(Self::FeltPow),
             49 => Some(Self::Array),
+            50 => Some(Self::HeapAlloc),
+            51 => Some(Self::HeapRead),
+            52 => Some(Self::HeapWrite),
             _ => None,
         }
     }
@@ -518,10 +551,17 @@ mod tests {
 
     #[test]
     fn opcode_roundtrip() {
-        for byte in 0..=49 {
+        for byte in 0..=52 {
             let opcode = Opcode::from_byte(byte).unwrap();
             assert_eq!(opcode.to_byte(), byte);
         }
+    }
+
+    #[test]
+    fn heap_opcodes_are_operandless() {
+        assert_eq!(Opcode::HeapAlloc.operand_widths(), &[]);
+        assert_eq!(Opcode::HeapRead.operand_widths(), &[]);
+        assert_eq!(Opcode::HeapWrite.operand_widths(), &[]);
     }
 
     #[test]

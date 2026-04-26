@@ -1,8 +1,8 @@
 //! Execution trace table for the Maat ZK backend.
 //!
-//! The [`TraceTable`] records every instruction step as a row of 36 Goldilocks
-//! field elements. The trace is the algebraic witness that the STARK prover
-//! commits to and the verifier checks against the AIR constraints.
+//! The [`TraceTable`] records every instruction step as a row of [`TRACE_WIDTH`]
+//! Goldilocks field elements. The trace is the algebraic witness that the STARK
+//! prover commits to and the verifier checks against the AIR constraints.
 //!
 //! # Range-check columns
 //!
@@ -13,6 +13,17 @@
 //!   `rc_val = l0 + 2^16 * l1 + 2^32 * l2 + 2^48 * l3`.
 //! - **`nonzero_inv`**: multiplicative inverse of the divisor on `sel_div_mod`
 //!   rows, proving the divisor is non-zero.
+//!
+//! # Heap-segment columns
+//!
+//! Columns [`COL_HEAP_ADDR`], [`COL_HEAP_VAL`], and [`COL_HEAP_IS_READ`]
+//! together with the dedicated allocation flag [`COL_HEAP_ALLOC_FLAG`]
+//! carry the heap-access witness for composite-type tracing. Every row
+//! records one heap interaction; non-heap rows perform a dummy read of the
+//! last accessed address (mirroring the main-memory pattern). The heap
+//! permutation argument in the auxiliary segment ties execution-order
+//! heap accesses to the sorted-by-address list, enforcing single-value
+//! consistency over the heap address space.
 
 use std::fmt;
 use std::io::{self, Write};
@@ -77,8 +88,22 @@ pub const COL_CMP_INV: usize = COL_OP_WIDTH + 1;
 /// Auxiliary witness for the division/modulo identity.
 pub const COL_DIV_AUX: usize = COL_CMP_INV + 1;
 
+/// Heap address accessed on this row (zero on rows with no real heap access).
+pub const COL_HEAP_ADDR: usize = COL_DIV_AUX + 1;
+
+/// Heap value at [`COL_HEAP_ADDR`].
+pub const COL_HEAP_VAL: usize = COL_HEAP_ADDR + 1;
+
+/// `1` if the row reads the heap, `0` if it writes the heap.
+pub const COL_HEAP_IS_READ: usize = COL_HEAP_VAL + 1;
+
+/// Heap-allocation flag: `1` on rows that allocate a fresh heap cell,
+/// `0` otherwise. Used by the AIR to constrain monotonic heap-pointer
+/// growth and to distinguish allocations from in-place reads/writes.
+pub const COL_HEAP_ALLOC_FLAG: usize = COL_HEAP_IS_READ + 1;
+
 /// Base column index for the per-opcode sub-selector flags.
-pub const COL_SUB_SEL_BASE: usize = COL_DIV_AUX + 1;
+pub const COL_SUB_SEL_BASE: usize = COL_HEAP_ALLOC_FLAG + 1;
 
 /// Sub-selector: `Add` (parent `SEL_ARITH`).
 pub const SUB_SEL_ADD: usize = 0;
@@ -139,6 +164,9 @@ pub const COLUMN_NAMES: [&str; TRACE_WIDTH] = [
     "sel_14",
     "sel_15",
     "sel_16",
+    "sel_17",
+    "sel_18",
+    "sel_19",
     "rc_val",
     "rc_l0",
     "rc_l1",
@@ -148,6 +176,10 @@ pub const COLUMN_NAMES: [&str; TRACE_WIDTH] = [
     "op_width",
     "cmp_inv",
     "div_aux",
+    "heap_addr",
+    "heap_val",
+    "heap_is_read",
+    "heap_alloc_flag",
     "sub_sel_add",
     "sub_sel_sub",
     "sub_sel_div",
@@ -239,11 +271,14 @@ impl TraceTable {
             row[COL_SP] = last[COL_SP];
             row[COL_FP] = last[COL_FP];
             row[COL_OUT] = last[COL_OUT];
-            // Dummy read: repeat the last memory access to preserve
-            // address/value consistency in the permutation argument.
+            // Dummy reads: repeat the last main-memory and heap accesses to
+            // preserve address/value consistency in both permutation arguments.
             row[COL_MEM_ADDR] = last[COL_MEM_ADDR];
             row[COL_MEM_VAL] = last[COL_MEM_VAL];
             row[COL_IS_READ] = Felt::ONE;
+            row[COL_HEAP_ADDR] = last[COL_HEAP_ADDR];
+            row[COL_HEAP_VAL] = last[COL_HEAP_VAL];
+            row[COL_HEAP_IS_READ] = Felt::ONE;
         }
         row[COL_SEL_BASE + SEL_NOP as usize] = Felt::ONE;
         row
@@ -301,19 +336,25 @@ impl TraceTable {
         columns
     }
 
-    /// Asserts that physical addresses in [`COL_MEM_ADDR`] form a contiguous range
-    /// `[0, max_addr]` with no gaps.
+    /// Asserts that physical addresses in [`COL_MEM_ADDR`] and [`COL_HEAP_ADDR`]
+    /// each form a contiguous range `[0, max_addr]` with no gaps.
     pub fn validate_address_contiguity(&self) -> Result<()> {
+        self.assert_contiguous(COL_MEM_ADDR, "main-memory")?;
+        self.assert_contiguous(COL_HEAP_ADDR, "heap")?;
+        Ok(())
+    }
+
+    fn assert_contiguous(&self, column: usize, label: &str) -> Result<()> {
         let n = self.num_rows();
         let mut addrs = (0..n)
-            .map(|i| self.row(i)[COL_MEM_ADDR].as_u64())
+            .map(|i| self.row(i)[column].as_u64())
             .collect::<Vec<u64>>();
         addrs.sort_unstable();
         addrs.dedup();
         for (expected, &actual) in addrs.iter().enumerate() {
             if actual != expected as u64 {
                 return Err(VmError::new(format!(
-                "physical address gap in execution trace: expected address {expected}, found {actual}"
+                "physical address gap in {label} segment: expected address {expected}, found {actual}"
             ))
             .into());
             }
