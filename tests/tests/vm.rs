@@ -18,7 +18,6 @@ enum TestValue {
     Bool(bool),
     Str(String),
     IntVector(Vec<i64>),
-    IntArray(Vec<i64>),
     Map(Vec<(i64, i64)>),
     Range(Integer, Integer),
     RangeInclusive(Integer, Integer),
@@ -138,27 +137,6 @@ fn run_vm_test(input: &str, expected: TestValue) {
                 }
             }
             _ => panic!("expected vector, got: {:?}", stack_elem),
-        },
-        TestValue::IntArray(expected_vals) => match stack_elem {
-            Value::Array(elements) => {
-                assert_eq!(
-                    elements.len(),
-                    expected_vals.len(),
-                    "wrong array length for input: {input}"
-                );
-                for (i, expected_elem) in expected_vals.iter().enumerate() {
-                    match &elements[i] {
-                        Value::Integer(Integer::I64(val)) => assert_eq!(
-                            *val, *expected_elem,
-                            "wrong array element at index {i} for input: {input}"
-                        ),
-                        other => {
-                            panic!("expected integer in array at index {i}, got: {:?}", other)
-                        }
-                    }
-                }
-            }
-            _ => panic!("expected array, got: {:?}", stack_elem),
         },
         TestValue::Map(expected_pairs) => match &stack_elem {
             Value::Map(map_obj) => {
@@ -2339,11 +2317,6 @@ fn felt_in_conditional() {
 
 #[test]
 fn fixed_size_arrays() {
-    run_vm_test(
-        "let a: [i64; 3] = [10, 20, 30]; a",
-        TestValue::IntArray(vec![10, 20, 30]),
-    );
-
     run_vm_test("let a: [i64; 3] = [1, 2, 3]; a[0]", TestValue::I64(1));
     run_vm_test("let a: [i64; 3] = [1, 2, 3]; a[2]", TestValue::I64(3));
 

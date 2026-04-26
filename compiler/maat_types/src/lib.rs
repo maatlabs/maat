@@ -634,7 +634,11 @@ impl TypeChecker {
         let _index_ty = self.infer_expression(&mut idx.index);
         let resolved = self.subst.apply(&collection);
         match resolved {
-            Type::Vector(elem) | Type::Array(elem, _) => *elem,
+            Type::Array(elem, n) => {
+                idx.array_len = Some(n);
+                *elem
+            }
+            Type::Vector(elem) => *elem,
             Type::Map(_, v) => *v,
             _ => self.env.fresh_var(),
         }
@@ -1062,6 +1066,21 @@ impl TypeChecker {
         let obj_ty = self.infer_expression(&mut mc.object);
         let resolved = self.subst.apply(&obj_ty);
         mc.receiver = resolved.receiver_name();
+        if let Type::Array(_, n) = &resolved {
+            mc.array_len = Some(*n);
+            if mc.method == "len" || mc.method == "length" {
+                if !mc.arguments.is_empty() {
+                    self.errors.push(
+                        TypeErrorKind::WrongArity {
+                            expected: 0,
+                            found: mc.arguments.len(),
+                        }
+                        .at(mc.span),
+                    );
+                }
+                return Type::Usize;
+            }
+        }
 
         let arg_types = mc
             .arguments
@@ -1619,6 +1638,14 @@ impl TypeChecker {
             infix.operator.as_str(),
             "<" | ">" | "<=" | ">=" | "==" | "!="
         );
+        // Fixed-size array equality: record the static length so codegen can
+        // unroll the comparison into an element-wise chain over heap reads.
+        if matches!(infix.operator.as_str(), "==" | "!=")
+            && let (Type::Array(_, n_lhs), Type::Array(_, n_rhs)) = (&lhs_resolved, &rhs_resolved)
+            && n_lhs == n_rhs
+        {
+            infix.array_eq_len = Some(*n_lhs);
+        }
         // String concatenation and comparison
         if lhs_resolved == Type::Str && rhs_resolved == Type::Str {
             if infix.operator == "+" {

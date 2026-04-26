@@ -825,13 +825,7 @@ impl Compiler {
                 self.emit(Opcode::Vector, &[array.elements.len()], span);
                 Ok(())
             }
-            Expr::Array(arr) => {
-                for element in &arr.elements {
-                    self.compile_expression(element)?;
-                }
-                self.emit(Opcode::Array, &[arr.elements.len()], span);
-                Ok(())
-            }
+            Expr::Array(arr) => self.compile_array_literal(arr, span),
             Expr::Map(map) => {
                 for (key, value) in &map.pairs {
                     self.compile_expression(key)?;
@@ -840,12 +834,7 @@ impl Compiler {
                 self.emit(Opcode::Map, &[map.pairs.len() * 2], span);
                 Ok(())
             }
-            Expr::Index(index_expr) => {
-                self.compile_expression(&index_expr.expr)?;
-                self.compile_expression(&index_expr.index)?;
-                self.emit(Opcode::Index, &[], span);
-                Ok(())
-            }
+            Expr::Index(index_expr) => self.compile_index_expression(index_expr, span),
             Expr::Lambda(lambda) => {
                 self.compile_fn_body(
                     None,
@@ -986,6 +975,11 @@ impl Compiler {
                 Ok(())
             }
             _ => {
+                if let Some(n) = infix_expr.array_eq_len
+                    && matches!(infix_expr.operator.as_str(), "==" | "!=")
+                {
+                    return self.compile_array_equality(infix_expr, n, span);
+                }
                 self.compile_expression(&infix_expr.lhs)?;
                 self.compile_expression(&infix_expr.rhs)?;
                 if matches!(infix_expr.op_class, BinOpClass::Felt) {
@@ -1480,6 +1474,12 @@ impl Compiler {
         if self.is_desugared_higher_order(mc) {
             return self.compile_desugared_higher_order(mc);
         }
+        if let Some(n) = mc.array_len
+            && (mc.method == "len" || mc.method == "length")
+            && mc.arguments.is_empty()
+        {
+            return self.compile_array_len_constant(mc, n, span);
+        }
         let qualified_name = self.resolve_method_name(mc).ok_or_else(|| {
             CompileErrorKind::UndefinedVariable {
                 name: format!("unknown method `{}`", mc.method),
@@ -1494,6 +1494,125 @@ impl Compiler {
         }
         let total_args = 1 + mc.arguments.len();
         self.emit(Opcode::Call, &[total_args], span);
+        Ok(())
+    }
+
+    /// Lowers a fixed-size array literal `[e0, e1, ..., eN-1]` onto the heap
+    /// segment.
+    fn compile_array_literal(&mut self, arr: &ArrayLit, span: Span) -> Result<()> {
+        if arr.elements.is_empty() {
+            let zero_idx = self.add_constant(Value::Integer(Integer::I64(0)))?;
+            self.emit(Opcode::Constant, &[zero_idx], span);
+            self.emit(Opcode::HeapAlloc, &[], span);
+            return Ok(());
+        }
+        for element in &arr.elements {
+            self.compile_expression(element)?;
+            self.emit(Opcode::HeapAlloc, &[], span);
+        }
+        for _ in 1..arr.elements.len() {
+            self.emit(Opcode::Pop, &[], span);
+        }
+        Ok(())
+    }
+
+    /// Compiles an index expression. When the type checker has tagged the
+    /// indexed collection as a fixed-size array, the access lowers onto the
+    /// heap segment (`base + i` followed by `HeapRead`). Other collection
+    /// types fall through to the existing `OpIndex` dispatch.
+    fn compile_index_expression(&mut self, index_expr: &IndexExpr, span: Span) -> Result<()> {
+        if index_expr.array_len.is_some() {
+            self.compile_expression(&index_expr.expr)?;
+            self.compile_expression(&index_expr.index)?;
+
+            self.emit(Opcode::Convert, &[TypeTag::U64.to_byte() as usize], span);
+            self.emit(Opcode::Add, &[], span);
+            self.emit(Opcode::HeapRead, &[], span);
+            return Ok(());
+        }
+        self.compile_expression(&index_expr.expr)?;
+        self.compile_expression(&index_expr.index)?;
+        self.emit(Opcode::Index, &[], span);
+        Ok(())
+    }
+
+    /// Lowers `a == b` (or `a != b`) on fixed-size arrays of length `N` into
+    /// a short-circuit chain of element-wise comparisons.
+    fn compile_array_equality(
+        &mut self,
+        infix_expr: &InfixExpr,
+        n: usize,
+        span: Span,
+    ) -> Result<()> {
+        let id = self.for_loop_counter;
+        self.for_loop_counter += 1;
+        let lhs_name = format!("__arr_eq_lhs_{id}");
+        let rhs_name = format!("__arr_eq_rhs_{id}");
+
+        self.compile_expression(&infix_expr.lhs)?;
+        let lhs_sym = self.define_and_set(&lhs_name, false, span)?;
+        self.compile_expression(&infix_expr.rhs)?;
+        let rhs_sym = self.define_and_set(&rhs_name, false, span)?;
+
+        if n == 0 {
+            self.emit(Opcode::True, &[], span);
+        } else {
+            self.emit_array_element_equal(&lhs_sym, &rhs_sym, 0, span)?;
+            let mut end_jumps: Vec<usize> = Vec::with_capacity(n.saturating_sub(1));
+            for i in 1..n {
+                let cond_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+                self.emit_array_element_equal(&lhs_sym, &rhs_sym, i, span)?;
+                let jump_to_end = self.emit(Opcode::Jump, &[Self::JUMP], span);
+                let false_branch = self.current_instructions().len();
+                self.replace_operand(cond_jump, false_branch)?;
+                self.emit(Opcode::False, &[], span);
+                end_jumps.push(jump_to_end);
+            }
+            let end_pos = self.current_instructions().len();
+            for jump in end_jumps {
+                self.replace_operand(jump, end_pos)?;
+            }
+        }
+
+        if infix_expr.operator == "!=" {
+            self.emit(Opcode::Bang, &[], span);
+        }
+        Ok(())
+    }
+
+    /// Emits the bytecode that pushes `lhs[i] == rhs[i]` onto the stack.
+    fn emit_array_element_equal(
+        &mut self,
+        lhs_sym: &Symbol,
+        rhs_sym: &Symbol,
+        i: usize,
+        span: Span,
+    ) -> Result<()> {
+        let i_const = self.add_constant(Value::Integer(Integer::U64(i as u64)))?;
+        self.load_symbol(lhs_sym, span);
+        self.emit(Opcode::Constant, &[i_const], span);
+        self.emit(Opcode::Add, &[], span);
+        self.emit(Opcode::HeapRead, &[], span);
+        self.load_symbol(rhs_sym, span);
+        self.emit(Opcode::Constant, &[i_const], span);
+        self.emit(Opcode::Add, &[], span);
+        self.emit(Opcode::HeapRead, &[], span);
+        self.emit(Opcode::Equal, &[], span);
+        Ok(())
+    }
+
+    /// Emits a constant `Usize(N)` for `array.len()` calls on fixed-size
+    /// arrays whose length is statically known.
+    fn compile_array_len_constant(
+        &mut self,
+        mc: &MethodCallExpr,
+        n: usize,
+        span: Span,
+    ) -> Result<()> {
+        self.compile_expression(&mc.object)?;
+        self.emit(Opcode::Pop, &[], span);
+        let idx = self.add_constant(Value::Integer(Integer::Usize(n)))?;
+        self.emit(Opcode::Constant, &[idx], span);
         Ok(())
     }
 

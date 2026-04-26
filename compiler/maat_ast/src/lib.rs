@@ -451,11 +451,16 @@ pub struct ArrayLit {
     pub span: Span,
 }
 
-/// Indexing operation: `<expr>[<index>]`
+/// Indexing operation: `<expr>[<index>]`.
+///
+/// `array_len` is populated by the type checker when the indexed collection is
+/// a fixed-size array `[T; N]`; it carries `N` so the codegen can lower the
+/// access onto the heap segment instead of `OpIndex`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct IndexExpr {
     pub expr: Box<Expr>,
     pub index: Box<Expr>,
+    pub array_len: Option<usize>,
     pub span: Span,
 }
 
@@ -486,12 +491,18 @@ pub enum BinOpClass {
 }
 
 /// Binary/infix expression: `<lhs> <operator> <rhs>`.
+///
+/// `array_eq_len` is populated by the type checker when the operator is
+/// `==` or `!=` and both operands resolve to the same fixed-size array type
+/// `[T; N]`; it carries `N` so the codegen can lower the comparison to an
+/// element-wise chain over the heap segment.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct InfixExpr {
     pub lhs: Box<Expr>,
     pub operator: String,
     pub rhs: Box<Expr>,
     pub op_class: BinOpClass,
+    pub array_eq_len: Option<usize>,
     pub span: Span,
 }
 
@@ -837,14 +848,21 @@ pub struct FieldAccessExpr {
 }
 
 /// Method call: `expr.method(args)`.
+///
+/// `array_len` is populated by the type checker when the receiver type is a
+/// fixed-size array `[T; N]`; it carries `N` so the codegen can lower
+/// statically-known operations (e.g. `.len()`) to a constant emit instead of
+/// dispatching through the runtime builtin.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MethodCallExpr {
     pub object: Box<Expr>,
     pub method: String,
     /// Arguments passed to the method (excluding the receiver).
     pub arguments: Vec<Expr>,
-    /// Receiver type name resolved by the type checker (e.g. `"Vector"`, `"str"`, `"Set"`, `"Map"`).
+    /// Receiver type name resolved by the type checker
+    /// (e.g. `"Vector"`, `"str"`, `"Set"`, `"Map"`).
     pub receiver: Option<String>,
+    pub array_len: Option<usize>,
     pub span: Span,
 }
 

@@ -165,7 +165,7 @@ pub struct TraceVM {
     /// Maps logical heap addresses to their latest physical heap address.
     heap_addr_map: HashMap<usize, usize>,
     /// Stored values at each physical heap address.
-    heap_values: HashMap<usize, Felt>,
+    heap_values: HashMap<usize, Value>,
     /// Last physical heap address accessed (for dummy reads on non-heap rows).
     last_heap_addr: Felt,
     /// Last heap value at `last_heap_addr`.
@@ -850,8 +850,8 @@ impl TraceVM {
         let initial_felt = value_to_felt(&initial);
         let physical = self.alloc_heap_physical()?;
         self.heap_addr_map.insert(physical, physical);
-        self.heap_values.insert(physical, initial_felt);
-        let logical_value = Value::Integer(maat_runtime::Integer::U64(physical as u64));
+        self.heap_values.insert(physical, initial);
+        let logical_value = Value::Integer(Integer::U64(physical as u64));
         info.out = Felt::new(physical as u64);
         self.push_stack(logical_value)?;
         Self::record_heap_access(info, physical, initial_felt, false, true);
@@ -864,13 +864,14 @@ impl TraceVM {
             .heap_addr_map
             .get(&logical)
             .ok_or_else(|| self.vm_error(format!("heap read of unallocated address {logical}")))?;
-        let value = *self
-            .heap_values
-            .get(&physical)
-            .ok_or_else(|| self.vm_error(format!("heap value missing at physical {physical}")))?;
-        info.out = value;
-        self.push_stack(Value::Felt(value))?;
-        Self::record_heap_access(info, physical, value, true, false);
+        let value =
+            self.heap_values.get(&physical).cloned().ok_or_else(|| {
+                self.vm_error(format!("heap value missing at physical {physical}"))
+            })?;
+        let value_felt = value_to_felt(&value);
+        info.out = value_felt;
+        self.push_stack(value)?;
+        Self::record_heap_access(info, physical, value_felt, true, false);
         Ok(())
     }
 
@@ -880,7 +881,7 @@ impl TraceVM {
         let logical = self.pop_heap_addr("HeapWrite")?;
         let physical = self.alloc_heap_physical()?;
         self.heap_addr_map.insert(logical, physical);
-        self.heap_values.insert(physical, value_felt);
+        self.heap_values.insert(physical, value);
         Self::record_heap_access(info, physical, value_felt, false, false);
         Ok(())
     }

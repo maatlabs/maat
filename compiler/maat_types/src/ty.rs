@@ -350,13 +350,13 @@ impl Type {
 
     /// Maps a resolved type to the dispatch prefix used in builtin qualified names.
     ///
-    /// Returns `Some("Vector")` for vector types, `Some("str")` for strings,
+    /// Returns `Some("Vector")` for vector/array types, `Some("str")` for strings,
     /// `Some("Map")` for map types, `Some("Set")` for set types, and
     /// `Some(name)` for user-defined structs/enums. Returns `None` for
     /// unresolved type variables or primitive types that have no inherent methods.
     pub fn receiver_name(&self) -> Option<String> {
         match self {
-            Self::Vector(_) => Some("Vector".to_string()),
+            Self::Vector(_) | Self::Array(..) => Some("Vector".to_string()),
             Self::Char => Some("char".to_string()),
             Self::Str => Some("str".to_string()),
             Self::Map(..) => Some("Map".to_string()),

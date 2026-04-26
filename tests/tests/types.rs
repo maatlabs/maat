@@ -41,6 +41,7 @@ fn infix(lhs: Expr, op: &str, rhs: Expr) -> Expr {
         operator: op.to_string(),
         rhs: Box::new(rhs),
         op_class: BinOpClass::default(),
+        array_eq_len: None,
         span: S,
     })
 }
@@ -102,6 +103,7 @@ fn method_call(obj: Expr, method: &str, args: Vec<Expr>) -> Expr {
         method: method.to_string(),
         arguments: args,
         receiver: None,
+        array_len: None,
         span: S,
     })
 }

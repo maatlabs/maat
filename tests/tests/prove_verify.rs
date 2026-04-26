@@ -268,6 +268,108 @@ fn prove_and_verify_nested_if() {
 }
 
 #[test]
+fn prove_and_verify_fixed_size_array_literal_and_index() {
+    prove_and_verify(
+        "
+        let a: [i64; 3] = [10, 20, 30];
+        a[0] + a[1] + a[2]
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_fixed_size_array_sum_loop_unrolled() {
+    prove_and_verify(
+        "
+        let b: [i64; 4] = [1, 2, 3, 4];
+        b[0] + b[1] + b[2] + b[3]
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_fixed_size_array_length_method() {
+    prove_and_verify(
+        "
+        let a: [i64; 5] = [1, 2, 3, 4, 5];
+        a.len() as i64
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_fixed_size_array_equality_true() {
+    prove_and_verify(
+        "
+        let c: [i64; 2] = [42, 99];
+        let d: [i64; 2] = [42, 99];
+        if c == d { 1i64 } else { 0i64 }
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_fixed_size_array_equality_false() {
+    prove_and_verify(
+        "
+        let c: [i64; 2] = [42, 99];
+        let e: [i64; 2] = [42, 100];
+        if c == e { 1i64 } else { 0i64 }
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_fixed_size_array_inequality() {
+    prove_and_verify(
+        "
+        let c: [i64; 2] = [42, 99];
+        let e: [i64; 2] = [42, 100];
+        if c != e { 1i64 } else { 0i64 }
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_fixed_size_array_function_param_and_return() {
+    prove_and_verify(
+        "
+        fn dot(x: [i64; 3], y: [i64; 3]) -> i64 {
+            x[0] * y[0] + x[1] * y[1] + x[2] * y[2]
+        }
+        let v1: [i64; 3] = [1, 2, 3];
+        let v2: [i64; 3] = [4, 5, 6];
+        dot(v1, v2)
+        ",
+    );
+}
+
+#[test]
+fn fixed_size_array_element_tamper_rejected() {
+    let source = "
+        let a: [i64; 3] = [10, 20, 30];
+        a[0] + a[1] + a[2]
+    ";
+    let (bytecode, mut trace, output) = compile_and_trace(source);
+
+    // Find the first heap row that records value 10 (the first allocated
+    // element) and corrupt it. The heap permutation argument is built from
+    // the recorded execution-order pairs, so flipping a value at an existing
+    // address breaks single-value consistency on subsequent dummy reads.
+    let n = trace.num_rows();
+    let mut tampered = false;
+    for i in 0..n {
+        if trace.row(i)[COL_HEAP_VAL].as_u64() == 10 {
+            trace.row_mut(i)[COL_HEAP_VAL] = Felt::new(99);
+            tampered = true;
+            break;
+        }
+    }
+    assert!(tampered, "expected at least one heap row carrying value 10");
+    assert_tampered_trace_rejected(bytecode, trace, output, "array element");
+}
+
+#[test]
 fn prove_and_verify_range_loop() {
     prove_and_verify(
         "
