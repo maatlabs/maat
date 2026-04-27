@@ -19,6 +19,7 @@ use maat_ast::*;
 use maat_errors::{
     MissingTraitMethodError, TraitMethodSignatureMismatchError, TypeError, TypeErrorKind,
 };
+use maat_field::MODULUS as GOLDILOCKS_MODULUS;
 use maat_span::Span;
 pub use resolve::resolve_type_expr;
 pub use ty::{
@@ -36,6 +37,24 @@ pub struct TypeChecker {
     env: TypeEnv,
     subst: Substitution,
     errors: Vec<TypeError>,
+    bitwise_ops: Vec<BitwiseOp>,
+}
+
+/// A bitwise or shift operation captured during inference for late
+/// validation against the resolved operand types.
+///
+/// Bitwise opcodes are sound in the AIR only when both operands are
+/// unsigned integers in the canonical felt range, because the trace's
+/// `value_to_felt` encoding interprets a signed `i64` as a
+/// modular integer (`from_i64(-1) = p - 1`) while the
+/// bitwise semantics operate on the raw two's-complement bit pattern; the
+/// two views are not field-congruent.
+struct BitwiseOp {
+    operator: String,
+    lhs_ty: Type,
+    rhs_ty: Type,
+    lhs_span: Span,
+    rhs_span: Span,
 }
 
 impl Default for TypeChecker {
@@ -53,6 +72,7 @@ impl TypeChecker {
             env,
             subst: Substitution::new(),
             errors: Vec::new(),
+            bitwise_ops: Vec::new(),
         }
     }
 
@@ -96,6 +116,8 @@ impl TypeChecker {
             self.check_statement(stmt);
         }
         self.subst.resolve_inferred_literals(program);
+        self.validate_bitwise_ops();
+        self.validate_u64_literals(program);
     }
 
     /// Returns the accumulated type errors.
@@ -1638,6 +1660,19 @@ impl TypeChecker {
             infix.operator.as_str(),
             "<" | ">" | "<=" | ">=" | "==" | "!="
         );
+        // Record bitwise and shift operators for a late validation pass
+        // after inference completes; the operand types may still be
+        // `IntVar`s here, and a top-level `let x: u64 = ...` annotation only
+        // propagates after `check_infix` returns.
+        if matches!(infix.operator.as_str(), "&" | "|" | "^" | "<<" | ">>") {
+            self.bitwise_ops.push(BitwiseOp {
+                operator: infix.operator.clone(),
+                lhs_ty: lhs_resolved.clone(),
+                rhs_ty: rhs_resolved.clone(),
+                lhs_span: infix.lhs.span(),
+                rhs_span: infix.rhs.span(),
+            });
+        }
         // Fixed-size array equality: record the static length so codegen can
         // unroll the comparison into an element-wise chain over heap reads.
         if matches!(infix.operator.as_str(), "==" | "!=")
@@ -1734,6 +1769,257 @@ impl TypeChecker {
             } else {
                 lhs_resolved
             }
+        }
+    }
+
+    /// Validates that every recorded bitwise / shift operation has unsigned-integer
+    /// operands whose canonical felt encoding equals their raw bit pattern.
+    fn validate_bitwise_ops(&mut self) {
+        let ops = std::mem::take(&mut self.bitwise_ops);
+        for op in ops {
+            let lhs = self.subst.resolve_int_vars(&op.lhs_ty);
+            let rhs = self.subst.resolve_int_vars(&op.rhs_ty);
+            self.check_bitwise_operand(&op.operator, &lhs, op.lhs_span);
+            self.check_bitwise_operand(&op.operator, &rhs, op.rhs_span);
+        }
+    }
+
+    fn check_bitwise_operand(&mut self, operator: &str, ty: &Type, span: Span) {
+        if Self::is_bitwise_safe_unsigned(ty) {
+            return;
+        }
+        self.errors.push(
+            TypeErrorKind::Unsupported(format!(
+                "bitwise operator `{operator}` requires an unsigned integer operand \
+                 in the range `u8`/`u16`/`u32`/`u64`/`usize`, found `{ty}`; \
+                 cast the operand via `as u64` before applying `{operator}`."
+            ))
+            .at(span),
+        );
+    }
+
+    /// Returns `true` iff `ty` is an unsigned integer whose `value_to_felt`
+    /// encoding equals its raw bit pattern in the canonical `[0, p)` range.
+    ///
+    /// `u128` is excluded because its felt encoding is `Felt::ZERO` (lossy);
+    /// signed integers are excluded because `Felt::from_i64` interprets them
+    /// as modular integers, not as bit strings.
+    fn is_bitwise_safe_unsigned(ty: &Type) -> bool {
+        matches!(
+            ty,
+            Type::U8 | Type::U16 | Type::U32 | Type::U64 | Type::Usize
+        )
+    }
+
+    /// Rejects `u64` and `usize` literals whose value lies in the off-canonical
+    /// sliver `[p, 2^64)`. Goldilocks `p = 2^64 - 2^32 + 1`, so values in this
+    /// range round-trip as `value - p` through the field encoding, breaking
+    /// bit-pattern equality on the prover side. Programs that genuinely need
+    /// values in this range must construct them via `Felt::new(...)` directly.
+    fn validate_u64_literals(&mut self, program: &mut Program) {
+        for stmt in &program.statements {
+            self.validate_u64_literals_in_stmt(stmt);
+        }
+    }
+
+    fn validate_u64_literals_in_stmt(&mut self, stmt: &Stmt) {
+        match stmt {
+            Stmt::Let(let_stmt) => self.validate_u64_literals_in_expr(&let_stmt.value),
+            Stmt::ReAssign(assign) => self.validate_u64_literals_in_expr(&assign.value),
+            Stmt::Return(ret) => self.validate_u64_literals_in_expr(&ret.value),
+            Stmt::Expr(expr_stmt) => self.validate_u64_literals_in_expr(&expr_stmt.value),
+            Stmt::Block(block) => {
+                for s in &block.statements {
+                    self.validate_u64_literals_in_stmt(s);
+                }
+            }
+            Stmt::FuncDef(fn_item) => {
+                for s in &fn_item.body.statements {
+                    self.validate_u64_literals_in_stmt(s);
+                }
+            }
+            Stmt::Loop(loop_stmt) => {
+                for s in &loop_stmt.body.statements {
+                    self.validate_u64_literals_in_stmt(s);
+                }
+            }
+            Stmt::While(while_stmt) => {
+                self.validate_u64_literals_in_expr(&while_stmt.condition);
+                for s in &while_stmt.body.statements {
+                    self.validate_u64_literals_in_stmt(s);
+                }
+            }
+            Stmt::For(for_stmt) => {
+                self.validate_u64_literals_in_expr(&for_stmt.iterable);
+                for s in &for_stmt.body.statements {
+                    self.validate_u64_literals_in_stmt(s);
+                }
+            }
+            Stmt::Mod(mod_stmt) => {
+                if let Some(body) = &mod_stmt.body {
+                    for s in body {
+                        self.validate_u64_literals_in_stmt(s);
+                    }
+                }
+            }
+            Stmt::ImplBlock(impl_block) => {
+                for method in &impl_block.methods {
+                    for s in &method.body.statements {
+                        self.validate_u64_literals_in_stmt(s);
+                    }
+                }
+            }
+            Stmt::StructDecl(_) | Stmt::EnumDecl(_) | Stmt::TraitDecl(_) | Stmt::Use(_) => {}
+        }
+    }
+
+    fn validate_u64_literals_in_expr(&mut self, expr: &Expr) {
+        match expr {
+            Expr::Number(lit) => self.validate_u64_literal_value(lit),
+            Expr::Prefix(prefix) => self.validate_u64_literals_in_expr(&prefix.operand),
+            Expr::Infix(infix) => {
+                self.validate_u64_literals_in_expr(&infix.lhs);
+                self.validate_u64_literals_in_expr(&infix.rhs);
+            }
+            Expr::Call(call) => {
+                self.validate_u64_literals_in_expr(&call.function);
+                for arg in &call.arguments {
+                    self.validate_u64_literals_in_expr(arg);
+                }
+            }
+            Expr::MacroCall(mc) => {
+                for arg in &mc.arguments {
+                    self.validate_u64_literals_in_expr(arg);
+                }
+            }
+            Expr::MethodCall(mc) => {
+                self.validate_u64_literals_in_expr(&mc.object);
+                for arg in &mc.arguments {
+                    self.validate_u64_literals_in_expr(arg);
+                }
+            }
+            Expr::Index(idx) => {
+                self.validate_u64_literals_in_expr(&idx.expr);
+                self.validate_u64_literals_in_expr(&idx.index);
+            }
+            Expr::FieldAccess(fa) => self.validate_u64_literals_in_expr(&fa.object),
+            Expr::Cast(cast) => self.validate_u64_literals_in_expr(&cast.expr),
+            Expr::Try(try_expr) => self.validate_u64_literals_in_expr(&try_expr.expr),
+            Expr::Vector(vec) => {
+                for elem in &vec.elements {
+                    self.validate_u64_literals_in_expr(elem);
+                }
+            }
+            Expr::Map(map) => {
+                for (k, v) in &map.pairs {
+                    self.validate_u64_literals_in_expr(k);
+                    self.validate_u64_literals_in_expr(v);
+                }
+            }
+            Expr::Tuple(tuple) => {
+                for elem in &tuple.elements {
+                    self.validate_u64_literals_in_expr(elem);
+                }
+            }
+            Expr::Range(range) => {
+                self.validate_u64_literals_in_expr(&range.start);
+                self.validate_u64_literals_in_expr(&range.end);
+            }
+            Expr::Array(arr) => {
+                for elem in &arr.elements {
+                    self.validate_u64_literals_in_expr(elem);
+                }
+            }
+            Expr::Cond(cond) => {
+                self.validate_u64_literals_in_expr(&cond.condition);
+                for s in &cond.consequence.statements {
+                    self.validate_u64_literals_in_stmt(s);
+                }
+                if let Some(alt) = &cond.alternative {
+                    for s in &alt.statements {
+                        self.validate_u64_literals_in_stmt(s);
+                    }
+                }
+            }
+            Expr::Lambda(lambda) => {
+                for s in &lambda.body.statements {
+                    self.validate_u64_literals_in_stmt(s);
+                }
+            }
+            Expr::Match(match_expr) => {
+                self.validate_u64_literals_in_expr(&match_expr.scrutinee);
+                for arm in &match_expr.arms {
+                    self.validate_u64_literals_in_pattern(&arm.pattern);
+                    if let Some(guard) = &arm.guard {
+                        self.validate_u64_literals_in_expr(guard);
+                    }
+                    self.validate_u64_literals_in_expr(&arm.body);
+                }
+            }
+            Expr::Break(brk) => {
+                if let Some(value) = &brk.value {
+                    self.validate_u64_literals_in_expr(value);
+                }
+            }
+            Expr::StructLit(struct_lit) => {
+                for (_, value) in &struct_lit.fields {
+                    self.validate_u64_literals_in_expr(value);
+                }
+                if let Some(base) = &struct_lit.base {
+                    self.validate_u64_literals_in_expr(base);
+                }
+            }
+            Expr::Bool(_)
+            | Expr::Str(_)
+            | Expr::Char(_)
+            | Expr::Ident(_)
+            | Expr::Continue(_)
+            | Expr::PathExpr(_)
+            | Expr::MacroLit(_) => {}
+        }
+    }
+
+    fn validate_u64_literals_in_pattern(&mut self, pat: &Pattern) {
+        match pat {
+            Pattern::Literal(expr) => self.validate_u64_literals_in_expr(expr),
+            Pattern::TupleStruct { fields, .. } => {
+                for sub in fields {
+                    self.validate_u64_literals_in_pattern(sub);
+                }
+            }
+            Pattern::Struct { fields, .. } => {
+                for f in fields {
+                    if let Some(sub) = &f.pattern {
+                        self.validate_u64_literals_in_pattern(sub);
+                    }
+                }
+            }
+            Pattern::Tuple(items, _) | Pattern::Or(items, _) => {
+                for sub in items {
+                    self.validate_u64_literals_in_pattern(sub);
+                }
+            }
+            Pattern::Wildcard(_) | Pattern::Ident { .. } => {}
+        }
+    }
+
+    fn validate_u64_literal_value(&mut self, lit: &Number) {
+        if !matches!(lit.kind, NumKind::U64 | NumKind::Usize) {
+            return;
+        }
+        let Ok(value) = u64::try_from(lit.value) else {
+            return;
+        };
+        if value >= GOLDILOCKS_MODULUS {
+            self.errors.push(
+                TypeErrorKind::Unsupported(format!(
+                    "u64 literal `{value}` lies in the Goldilocks off-canonical range \
+                     `[p, 2^64)` (where `p = 2^64 - 2^32 + 1`); use a value less than \
+                     `0xFFFF_FFFF_0000_0001`, or construct the field element \
+                     directly via `Felt::new(...)`."
+                ))
+                .at(lit.span),
+            );
         }
     }
 

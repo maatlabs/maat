@@ -1095,16 +1095,19 @@ fn modulo_ops() {
 
 #[test]
 fn bitwise_ops() {
-    run_vm_test("0xFF & 0x0F", TestValue::I64(15));
-    run_vm_test("0xF0 | 0x0F", TestValue::I64(255));
-    run_vm_test("0xFF ^ 0x0F", TestValue::I64(240));
-    run_vm_test("1 | 2 & 3", TestValue::I64(3));
+    // Bitwise operators in the ZK backend require unsigned operands; the
+    // explicit `u64` annotations propagate to the literal IntVars on both
+    // sides via let-binding inference.
+    run_vm_test("let x: u64 = 0xFF & 0x0F; x", TestValue::U64(15));
+    run_vm_test("let x: u64 = 0xF0 | 0x0F; x", TestValue::U64(255));
+    run_vm_test("let x: u64 = 0xFF ^ 0x0F; x", TestValue::U64(240));
+    run_vm_test("let x: u64 = 1 | 2 & 3; x", TestValue::U64(3));
 }
 
 #[test]
 fn shift_ops() {
-    run_vm_test("1 << 8", TestValue::I64(256));
-    run_vm_test("256 >> 4", TestValue::I64(16));
+    run_vm_test("let x: u64 = 1 << 8; x", TestValue::U64(256));
+    run_vm_test("let x: u64 = 256 >> 4; x", TestValue::U64(16));
 }
 
 #[test]

@@ -312,7 +312,7 @@ impl Substitution {
     /// Resolves a type, defaulting any remaining `IntVar`s to `i64`.
     ///
     /// Called after inference completes to produce fully concrete types.
-    fn resolve_int_vars(&self, ty: &Type) -> Type {
+    pub fn resolve_int_vars(&self, ty: &Type) -> Type {
         let resolved = self.apply(ty);
         match resolved {
             Type::IntVar(_) => Type::I64,

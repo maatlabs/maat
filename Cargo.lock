@@ -926,6 +926,7 @@ dependencies = [
  "indexmap",
  "maat_ast",
  "maat_errors",
+ "maat_field",
  "maat_span",
 ]
 

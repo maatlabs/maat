@@ -217,8 +217,8 @@ acc
 ";
 
     pub const BITWISE_SOURCE: &str = "
-let mut x: i64 = 0;
-for i in 0..100 {
+let mut x: u64 = 0;
+for i in 0u64..100u64 {
     x = (x ^ i) & 0xFF;
     x = x | (i << 1);
     x = x >> 1;
