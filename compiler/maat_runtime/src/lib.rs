@@ -87,6 +87,22 @@ pub enum Value {
 }
 
 impl Value {
+    /// Encodes this runtime value as a single Goldilocks field element.
+    ///
+    /// Primitive types encode losslessly within the 64-bit field; composite types
+    /// (`Vector`, `Map`, `Struct`, closures, etc.) currently encode as
+    /// [`Felt::ZERO`].
+    pub fn to_felt(&self) -> Felt {
+        match self {
+            Self::Integer(int) => int.to_felt(),
+            Self::Felt(f) => *f,
+            Self::Bool(b) => Felt::new(*b as u64),
+            Self::Char(c) => Felt::new(*c as u32 as u64),
+            Self::Unit => Felt::ZERO,
+            _ => Felt::ZERO,
+        }
+    }
+
     /// Converts a [`Number`] AST node into its corresponding runtime `Value`.
     ///
     /// The type checker validates that `lit.value` fits within the target type
