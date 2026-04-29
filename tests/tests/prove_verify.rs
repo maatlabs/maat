@@ -5,7 +5,9 @@
 //! from source code to cryptographic soundness.
 
 use maat_air::MaatPublicInputs;
-use maat_bytecode::{Bytecode, Instructions, Opcode, encode};
+use maat_bytecode::{
+    Bytecode, Instructions, Opcode, SUB_SEL_ADD, SUB_SEL_EQ, SUB_SEL_FELT_ADD, SUB_SEL_NEG, encode,
+};
 use maat_field::Felt;
 use maat_prover::{
     MaatProver, compute_program_hash, compute_program_hash_bytes, deserialize_proof,
@@ -13,10 +15,9 @@ use maat_prover::{
 };
 use maat_runtime::{Integer, Value};
 use maat_span::SourceMap;
-use maat_trace::encode::value_to_felt;
 use maat_trace::{
     COL_HEAP_ADDR, COL_HEAP_ALLOC_FLAG, COL_HEAP_IS_READ, COL_HEAP_VAL, COL_MEM_ADDR, COL_OUT,
-    COL_SUB_SEL_BASE, SUB_SEL_ADD, SUB_SEL_EQ, SUB_SEL_FELT_ADD, SUB_SEL_NEG, TraceTable,
+    COL_SUB_SEL_BASE, TraceTable,
 };
 use winter_air::proof::Proof;
 use winter_math::FieldElement;
@@ -27,7 +28,7 @@ fn compile_and_trace(source: &str) -> (Bytecode, TraceTable, BaseElement) {
     let bytecode = maat_tests::compile(source);
     let (trace, result) = maat_trace::run_trace(bytecode.clone()).expect("trace execution failed");
     let output = result
-        .map(|v| value_to_felt(&v).into_base_element())
+        .map(|v| v.to_felt().into_base_element())
         .unwrap_or(BaseElement::ZERO);
     (bytecode, trace, output)
 }

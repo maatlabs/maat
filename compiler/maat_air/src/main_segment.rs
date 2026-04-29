@@ -63,12 +63,15 @@
 //! | 70    | Heap: alloc implies write (flag * is_read=0)  | 2      |
 //! | 71    | SP: heap write (net -2)                       | 2      |
 
+use maat_bytecode::{
+    SUB_SEL_ADD, SUB_SEL_DIV, SUB_SEL_EQ, SUB_SEL_FELT_ADD, SUB_SEL_FELT_MUL, SUB_SEL_FELT_SUB,
+    SUB_SEL_NEG, SUB_SEL_NEQ, SUB_SEL_SUB,
+};
 use maat_trace::{
     COL_CMP_INV, COL_DIV_AUX, COL_FP, COL_HEAP_ALLOC_FLAG, COL_HEAP_IS_READ, COL_IS_READ,
     COL_MEM_VAL, COL_NONZERO_INV, COL_OP_WIDTH, COL_OPERAND_0, COL_OUT, COL_PC, COL_RC_L0,
     COL_RC_L1, COL_RC_L2, COL_RC_L3, COL_RC_VAL, COL_S0, COL_S1, COL_SEL_BASE, COL_SP,
-    COL_SUB_SEL_BASE, SUB_SEL_ADD, SUB_SEL_DIV, SUB_SEL_EQ, SUB_SEL_FELT_ADD, SUB_SEL_FELT_MUL,
-    SUB_SEL_FELT_SUB, SUB_SEL_NEG, SUB_SEL_NEQ, SUB_SEL_SUB, TRACE_WIDTH,
+    COL_SUB_SEL_BASE, TRACE_WIDTH,
 };
 use winter_math::FieldElement;
 

@@ -13,7 +13,6 @@ use maat_prover::{
     development_options, production_options, serialize_proof,
 };
 use maat_runtime::Value;
-use maat_trace::encode::value_to_felt;
 use maat_vm::VM;
 use winter_math::FieldElement;
 use winter_math::fields::f64::BaseElement;
@@ -203,7 +202,7 @@ pub fn prove(
 
     let output = result
         .as_ref()
-        .map(|v| value_to_felt(v).into_base_element())
+        .map(|v| v.to_felt().into_base_element())
         .unwrap_or(BaseElement::ZERO);
 
     let program_hash = match compute_program_hash(&bytecode) {

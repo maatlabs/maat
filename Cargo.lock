@@ -739,6 +739,7 @@ dependencies = [
 name = "maat_air"
 version = "0.13.0"
 dependencies = [
+ "maat_bytecode",
  "maat_trace",
  "winter-air",
  "winter-math",
@@ -911,12 +912,11 @@ dependencies = [
 name = "maat_trace"
 version = "0.13.0"
 dependencies = [
- "indexmap",
  "maat_bytecode",
  "maat_errors",
  "maat_field",
  "maat_runtime",
- "maat_span",
+ "maat_vm",
 ]
 
 [[package]]
@@ -939,6 +939,7 @@ dependencies = [
  "maat_bytecode",
  "maat_codegen",
  "maat_errors",
+ "maat_field",
  "maat_lexer",
  "maat_parser",
  "maat_runtime",
