@@ -17,7 +17,8 @@ use indexmap::{IndexMap, IndexSet};
 use maat_ast::{BlockStmt, Node, Number};
 pub use maat_ast::{CastTarget, NumKind};
 use maat_errors::{Error, EvalError, Result};
-pub use maat_field::Felt;
+use maat_field::FieldElement;
+pub use maat_field::{Felt, StarkField, from_i64, try_div, try_inv};
 use maat_span::SourceMap;
 pub use num::{Integer, WideInt};
 use serde::{Deserialize, Serialize};
@@ -264,7 +265,7 @@ impl Serialize for Value {
         let val = match self {
             Self::Unit => SerVal::Unit,
             Self::Integer(v) => SerVal::Integer(*v),
-            Self::Felt(v) => SerVal::Felt(v.as_u64()),
+            Self::Felt(v) => SerVal::Felt(v.as_int()),
             Self::Bool(v) => SerVal::Bool(*v),
             Self::Char(v) => SerVal::Char(*v),
             Self::Str(v) => SerVal::Str(v.clone()),
@@ -489,7 +490,7 @@ impl TryFrom<Value> for Hashable {
     fn try_from(value: Value) -> Result<Self> {
         match value {
             Value::Integer(i) => Ok(Self::Integer(i)),
-            Value::Felt(f) => Ok(Self::Felt(f.as_u64())),
+            Value::Felt(f) => Ok(Self::Felt(f.as_int())),
             Value::Bool(b) => Ok(Self::Bool(b)),
             Value::Char(c) => Ok(Self::Char(c)),
             Value::Str(s) => Ok(Self::Str(s)),

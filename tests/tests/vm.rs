@@ -188,7 +188,7 @@ fn run_vm_test(input: &str, expected: TestValue) {
         },
         TestValue::Felt(exp) => match stack_elem {
             Value::Felt(val) => {
-                assert_eq!(val.as_u64(), exp, "wrong Felt value for input: {input}")
+                assert_eq!(val.as_int(), exp, "wrong Felt value for input: {input}")
             }
             _ => panic!("expected Felt, got: {stack_elem:?}"),
         },

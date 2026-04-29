@@ -108,11 +108,7 @@ impl MaatTrace {
     /// pairs it with Winterfell's [`TraceInfo`] that declares the
     /// auxiliary segment dimensions required by [`MaatAir`].
     fn from_trace_table(table: TraceTable) -> MaatTrace {
-        let columns = table
-            .into_columns()
-            .into_iter()
-            .map(|col| col.into_iter().map(|f| f.into_base_element()).collect())
-            .collect::<Vec<Vec<BaseElement>>>();
+        let columns: Vec<Vec<BaseElement>> = table.into_columns();
 
         let trace_length = columns[0].len();
         let info = TraceInfo::new_multi_segment(

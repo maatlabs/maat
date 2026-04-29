@@ -1,75 +1,63 @@
-//! Finite field arithmetic and value-to-field encoding for the Maat zero-knowledge backend.
+//! Goldilocks-field type alias and runtime-value-to-field encoding for the Maat STARK prover/verifier.
 //!
-//! This crate defines [`Felt`], a newtype wrapper around Winterfell's `f64::BaseElement`
-//! (the 64-bit Goldilocks prime field `p = 2^64 - 2^32 + 1`). `Felt` is exposed as a
-//! first-class primitive type in Maat and is used throughout the ZK pipeline
-//! as the canonical algebraic element over which traces, constraints, and proofs are built.
+//! This crate exposes [`Felt`] as a transparent alias for Winterfell's
+//! `f64::BaseElement` (the Goldilocks prime field `p = 2^64 - 2^32 + 1`), so the
+//! algebraic operators (`Add`, `Sub`, `Mul`, `Neg`, `Div`, `inv`, `exp`,
+//! `as_int`, ...) carry through directly from the upstream implementation
+//! without a forwarding wrapper. The crate's own contribution is the
+//! [`Encodable`] trait that lifts every primitive Maat runtime type into the
+//! field, the [`from_i64`] helper that bakes in two's-complement sign
+//! extension, and the [`try_inv`]/[`try_div`] wrappers that surface the
+//! division-by-zero distinction Winterfell silently absorbs.
 //!
 //! # Field choice
 //!
-//! The Goldilocks prime is selected for its native 64-bit arithmetic (no Montgomery
-//! overhead at the logical level), first-class Winterfell support, and proven production
-//! use in systems such as Plonky2 and Plonky3. The concrete backing field is intentionally
-//! localized to this crate so that future work--e.g. swapping to M31 or STARK-252--
-//! requires only a configuration change here.
+//! Goldilocks is selected for native 64-bit arithmetic, first-class Winterfell
+//! support, and proven production use in Plonky2/Plonky3. The concrete backing
+//! field is intentionally localised to this single type alias so a future move
+//! to M31 or STARK-252 only touches this file.
 //!
 //! # Value-to-field encoding contract
 //!
-//! The [`Encodable`] trait defines how each runtime value is lifted into the field.
+//! The [`Encodable`] trait defines how each primitive runtime value is lifted
+//! into the field.
 //!
-//! | Maat type                                                 | Felt encoding                                               |
-//! | --------------------------------------------------------- | ----------------------------------------------------------- |
-//! | `i8`..`i64`                                               | Sign-extended `i64`, reduced mod `p` via two's-complement   |
-//! | `u8`..`u64`                                               | Direct reduction mod `p`                                    |
-//! | `i128`, `u128`                                            | Two elements `(hi, lo)` split at 64 bits                    |
-//! | `bool`                                                    | `0` or `1`                                                  |
-//! | `char`                                                    | Unicode scalar as `u32`                                     |
-//! | `Felt`                                                    | Direct (native element)                                     |
-//! | `Unit`                                                    | `0`                                                         |
-//! | `str`, `Vector<T>`, `Map`, `Set`, `Struct`, `EnumVariant` | Currently not encodable                                     |
+//! | Maat type        | Felt encoding                                              |
+//! | ---------------- | ---------------------------------------------------------- |
+//! | `i8`..`i64`      | Sign-extended `i64`, reduced mod `p` via two's-complement  |
+//! | `u8`..`u64`      | Direct reduction mod `p`                                   |
+//! | `i128`, `u128`   | Two elements `(hi, lo)` split at 64 bits                   |
+//! | `bool`           | `0` or `1`                                                 |
+//! | `char`           | Unicode scalar as `u32`                                    |
+//! | `Felt`           | Direct (native element)                                    |
+//! | `Unit`           | `0`                                                        |
+//!
+//! Composite runtime values (`str`, `Vector<T>`, `Map`, `Set`, `Struct`,
+//! `EnumVariant`) are not encodable here and are lowered onto the unified
+//! memory segment by `maat_codegen`.
 //!
 //! # Division semantics
 //!
-//! Field division is defined as multiplication by the modular inverse. `Felt::div(a, b)`
-//! delegates to `a * b.inv()`. The only operation that can fail is `Felt::inv(Felt::ZERO)`,
-//! which returns [`FieldError::InverseOfZero`]. All other field arithmetic is total.
+//! The `Div` operator on [`Felt`] (inherited from Winterfell) returns the field
+//! product `lhs * rhs.inv()` and silently yields zero when `rhs` is zero.
+//! Maat's compiler emits divisions that must surface a runtime error in that
+//! case; [`try_div`] and [`try_inv`] are the wrappers used by the VM and the
+//! trace recorder to preserve the [`FieldError::InverseOfZero`] distinction.
 #![deny(missing_docs)]
 #![forbid(unsafe_code)]
 
-use core::fmt;
-use core::ops::{Add, Div, Mul, Neg, Sub};
-
 use winter_math::fields::f64::BaseElement;
-use winter_math::{FieldElement, StarkField};
+pub use winter_math::{FieldElement, StarkField};
+
+/// A canonical element of the Maat base field.
+///
+/// Transparent alias for Winterfell's Goldilocks `BaseElement`. All arithmetic
+/// is total except [`try_inv`] applied to zero, which returns
+/// [`FieldError::InverseOfZero`].
+pub type Felt = BaseElement;
 
 /// The Goldilocks prime `p = 2^64 - 2^32 + 1`.
-///
-/// This is the canonical modulus of the base field used by the ZK backend.
-pub const MODULUS: u64 = BaseElement::MODULUS;
-
-/// A canonical element of the base field.
-///
-/// Internally wraps Winterfell's `BaseElement` so that the algebraic surface used by the
-/// compiler and VM is decoupled from the specific field implementation. All arithmetic is
-/// total except [`Felt::inv`] applied to zero, which returns [`FieldError::InverseOfZero`].
-#[derive(Copy, Clone, Default)]
-pub struct Felt(BaseElement);
-
-impl PartialEq for Felt {
-    #[inline]
-    fn eq(&self, other: &Self) -> bool {
-        self.0.as_int() == other.0.as_int()
-    }
-}
-
-impl Eq for Felt {}
-
-impl core::hash::Hash for Felt {
-    #[inline]
-    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        self.0.as_int().hash(state);
-    }
-}
+pub const MODULUS: u64 = <Felt as StarkField>::MODULUS;
 
 /// Errors raised by fallible field operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -79,136 +67,45 @@ pub enum FieldError {
     InverseOfZero,
 }
 
-impl Felt {
-    /// The additive identity of the field.
-    pub const ZERO: Self = Self(BaseElement::ZERO);
-
-    /// The multiplicative identity of the field.
-    pub const ONE: Self = Self(BaseElement::ONE);
-
-    /// Constructs a field element from a `u64` value, reducing modulo [`MODULUS`].
-    #[inline]
-    pub const fn new(value: u64) -> Self {
-        Self(BaseElement::new(value))
-    }
-
-    /// Returns the canonical integer representation of this field element in `[0, p)`.
-    #[inline]
-    pub fn as_u64(self) -> u64 {
-        self.0.as_int()
-    }
-
-    /// Lifts an `i64` into the field, encoding negatives as `p + value`.
-    ///
-    /// The computation is performed in `u64` wrapping arithmetic; because `|value| < p`
-    /// for every `i64`, the canonical result lies in `[0, p)` after a single addition.
-    #[inline]
-    pub fn from_i64(value: i64) -> Self {
-        if value >= 0 {
-            Self::new(value as u64)
-        } else {
-            Self::new(MODULUS.wrapping_add(value as u64))
-        }
-    }
-
-    /// Multiplicative inverse. Returns [`FieldError::InverseOfZero`] when applied to zero.
-    #[inline]
-    pub fn inv(self) -> Result<Self, FieldError> {
-        if self.0 == BaseElement::ZERO {
-            Err(FieldError::InverseOfZero)
-        } else {
-            Ok(Self(self.0.inv()))
-        }
-    }
-
-    /// Field division, defined as `self * rhs.inv()`. Fails only when `rhs` is zero.
-    #[inline]
-    #[allow(clippy::should_implement_trait)]
-    pub fn div(self, rhs: Self) -> Result<Self, FieldError> {
-        rhs.inv().map(|inv| self * inv)
-    }
-
-    /// Exponentiation by a non-negative integer exponent using Winterfell's constant-time
-    /// square-and-multiply. `Felt::ZERO.pow(0)` returns [`Felt::ONE`], matching the
-    /// conventional empty-product semantics.
-    #[inline]
-    pub fn pow(self, exponent: u64) -> Self {
-        Self(self.0.exp(exponent))
-    }
-
-    /// Returns the underlying Winterfell field element.
-    ///
-    /// Exposed for downstream crates that must
-    /// interface directly with Winterfell APIs.
-    #[inline]
-    pub fn into_base_element(self) -> BaseElement {
-        self.0
-    }
-
-    /// Wraps a Winterfell base element into a [`Felt`].
-    #[inline]
-    pub fn from_base_element(element: BaseElement) -> Self {
-        Self(element)
+/// Lifts an `i64` into the field, encoding negatives as `p + value`.
+///
+/// The computation is performed in `u64` wrapping arithmetic; because
+/// `|value| < p` for every `i64`, the canonical result lies in `[0, p)` after
+/// a single addition.
+#[inline]
+pub fn from_i64(value: i64) -> Felt {
+    if value >= 0 {
+        Felt::new(value as u64)
+    } else {
+        Felt::new(MODULUS.wrapping_add(value as u64))
     }
 }
 
-impl fmt::Debug for Felt {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Felt({})", self.as_u64())
+/// Multiplicative inverse, surfacing the zero-element case as a typed error.
+///
+/// Winterfell's `BaseElement::inv` returns zero for `Felt::ZERO`; this wrapper
+/// lifts that case into [`FieldError::InverseOfZero`] so callers cannot
+/// silently miscompute.
+#[inline]
+pub fn try_inv(value: Felt) -> Result<Felt, FieldError> {
+    if value == Felt::ZERO {
+        Err(FieldError::InverseOfZero)
+    } else {
+        Ok(value.inv())
     }
 }
 
-impl fmt::Display for Felt {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.as_u64())
-    }
-}
-
-impl Add for Felt {
-    type Output = Self;
-    #[inline]
-    fn add(self, rhs: Self) -> Self {
-        Self(self.0 + rhs.0)
-    }
-}
-
-impl Sub for Felt {
-    type Output = Self;
-    #[inline]
-    fn sub(self, rhs: Self) -> Self {
-        Self(self.0 - rhs.0)
-    }
-}
-
-impl Mul for Felt {
-    type Output = Self;
-    #[inline]
-    fn mul(self, rhs: Self) -> Self {
-        Self(self.0 * rhs.0)
-    }
-}
-
-impl Neg for Felt {
-    type Output = Self;
-    #[inline]
-    fn neg(self) -> Self {
-        Self(-self.0)
-    }
-}
-
-impl Div for Felt {
-    type Output = Result<Self, FieldError>;
-    #[inline]
-    fn div(self, rhs: Self) -> Self::Output {
-        self.div(rhs)
-    }
+/// Field division `lhs * try_inv(rhs)`. Fails only when `rhs` is zero.
+#[inline]
+pub fn try_div(lhs: Felt, rhs: Felt) -> Result<Felt, FieldError> {
+    try_inv(rhs).map(|inv| lhs * inv)
 }
 
 /// Encoding of a runtime value as one or more base-field elements.
 ///
-/// Most scalar types fit in a single field element. The 128-bit integer types are the
-/// only values that require a two-element `(hi, lo)` split because the Goldilocks
-/// modulus is itself 64 bits wide.
+/// Most scalar types fit in a single field element. The 128-bit integer types
+/// are the only values that require a two-element `(hi, lo)` split because the
+/// Goldilocks modulus is itself 64 bits wide.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FeltEncode {
     /// A single-element encoding.
@@ -228,9 +125,10 @@ pub enum EncodingError {
 
 /// A value that can be lifted into the base field.
 ///
-/// This trait is the single source of truth for the value-to-field encoding contract.
-/// Implementations must be total for their supported input space;
-/// values that fall outside that space must return [`EncodingError::UnsupportedValueKind`].
+/// This trait is the single source of truth for the value-to-field encoding
+/// contract. Implementations must be total for their supported input space;
+/// values that fall outside that space must return
+/// [`EncodingError::UnsupportedValueKind`].
 pub trait Encodable {
     /// Lifts `self` into its canonical field encoding, or fails with a diagnostic error.
     fn encode(&self) -> Result<FeltEncode, EncodingError>;
@@ -283,7 +181,7 @@ macro_rules! impl_encodable_signed {
             impl Encodable for $ty {
                 #[inline]
                 fn encode(&self) -> Result<FeltEncode, EncodingError> {
-                    Ok(FeltEncode::Single(Felt::from_i64(i64::from(*self))))
+                    Ok(FeltEncode::Single(from_i64(i64::from(*self))))
                 }
             }
         )*
@@ -317,88 +215,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn zero_and_one_are_identities() {
-        let x = Felt::new(1234567);
-        assert_eq!(x + Felt::ZERO, x);
-        assert_eq!(x * Felt::ONE, x);
-    }
-
-    #[test]
-    fn addition_wraps_modulo_prime() {
-        let a = Felt::new(MODULUS - 1);
-        let b = Felt::new(2);
-        assert_eq!((a + b).as_u64(), 1);
-    }
-
-    #[test]
-    fn subtraction_is_inverse_of_addition() {
-        let a = Felt::new(42);
-        let b = Felt::new(1729);
-        assert_eq!((a + b) - b, a);
-    }
-
-    #[test]
-    fn negation_produces_additive_inverse() {
-        let a = Felt::new(99);
-        assert_eq!(a + a.neg(), Felt::ZERO);
-    }
-
-    #[test]
     fn from_i64_handles_negatives_via_twos_complement() {
-        let neg = Felt::from_i64(-1);
+        let neg = from_i64(-1);
         let one = Felt::new(1);
         assert_eq!(neg + one, Felt::ZERO);
     }
 
     #[test]
-    fn multiplication_is_commutative() {
-        let a = Felt::new(7);
-        let b = Felt::new(11);
-        assert_eq!(a * b, b * a);
+    fn try_inv_of_zero_is_an_error() {
+        assert_eq!(try_inv(Felt::ZERO), Err(FieldError::InverseOfZero));
     }
 
     #[test]
-    fn inverse_is_multiplicative_identity_witness() {
+    fn try_inv_of_non_zero_round_trips() {
         let a = Felt::new(987654321);
-        let inv = a.inv().expect("non-zero invertible");
-        assert_eq!(a * inv, Felt::ONE);
+        assert_eq!(a * try_inv(a).unwrap(), Felt::ONE);
     }
 
     #[test]
-    fn inverse_of_zero_is_an_error() {
-        assert_eq!(Felt::ZERO.inv(), Err(FieldError::InverseOfZero));
-    }
-
-    #[test]
-    fn division_by_non_zero_is_total() {
+    fn try_div_by_non_zero_is_total() {
         let a = Felt::new(100);
         let b = Felt::new(25);
-        assert_eq!(a.div(b).unwrap() * b, a);
+        assert_eq!(try_div(a, b).unwrap() * b, a);
     }
 
     #[test]
-    fn division_by_zero_is_an_error() {
-        let a = Felt::new(1);
-        assert_eq!(a.div(Felt::ZERO), Err(FieldError::InverseOfZero));
-    }
-
-    #[test]
-    fn pow_zero_exponent_is_one() {
-        assert_eq!(Felt::new(123).pow(0), Felt::ONE);
-        assert_eq!(Felt::ZERO.pow(0), Felt::ONE);
-    }
-
-    #[test]
-    fn pow_matches_repeated_multiplication() {
-        let a = Felt::new(3);
-        let expected = a * a * a * a * a;
-        assert_eq!(a.pow(5), expected);
-    }
-
-    #[test]
-    fn fermat_little_theorem_holds() {
-        let a = Felt::new(12345);
-        assert_eq!(a.pow(MODULUS - 1), Felt::ONE);
+    fn try_div_by_zero_is_an_error() {
+        assert_eq!(
+            try_div(Felt::new(1), Felt::ZERO),
+            Err(FieldError::InverseOfZero)
+        );
     }
 
     #[test]

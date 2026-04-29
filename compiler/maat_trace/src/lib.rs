@@ -28,7 +28,7 @@ pub mod table;
 
 use maat_bytecode::Bytecode;
 use maat_errors::Result;
-use maat_field::Felt;
+use maat_field::{Felt, FieldElement};
 use maat_runtime::Value;
 use maat_vm::VM;
 pub use recorder::TraceRecorder;

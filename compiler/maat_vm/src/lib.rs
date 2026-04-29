@@ -13,7 +13,7 @@ use std::rc::Rc;
 use indexmap::IndexMap;
 use maat_bytecode::{Bytecode, MAX_FRAMES, MAX_GLOBALS, MAX_STACK_SIZE, Opcode, TypeTag};
 use maat_errors::{Result, VmError};
-use maat_field::Felt;
+use maat_field::{Felt, FieldElement, from_i64, try_inv};
 use maat_runtime::{
     BUILTINS, Closure, CompiledFn, EnumVariantVal, FALSE, Hashable, Integer, Map, StructVal, TRUE,
     TypeDef, UNIT, Value, WideInt,
@@ -973,11 +973,11 @@ impl VM {
 
         let felt = match value {
             Value::Felt(f) => return Ok(Value::Felt(*f)),
-            Value::Integer(I::I8(v)) => Felt::from_i64(*v as i64),
-            Value::Integer(I::I16(v)) => Felt::from_i64(*v as i64),
-            Value::Integer(I::I32(v)) => Felt::from_i64(*v as i64),
-            Value::Integer(I::I64(v)) => Felt::from_i64(*v),
-            Value::Integer(I::Isize(v)) => Felt::from_i64(*v as i64),
+            Value::Integer(I::I8(v)) => from_i64(*v as i64),
+            Value::Integer(I::I16(v)) => from_i64(*v as i64),
+            Value::Integer(I::I32(v)) => from_i64(*v as i64),
+            Value::Integer(I::I64(v)) => from_i64(*v),
+            Value::Integer(I::Isize(v)) => from_i64(*v as i64),
             Value::Integer(I::U8(v)) => Felt::new(u64::from(*v)),
             Value::Integer(I::U16(v)) => Felt::new(u64::from(*v)),
             Value::Integer(I::U32(v)) => Felt::new(u64::from(*v)),
@@ -1009,9 +1009,8 @@ impl VM {
 
     fn execute_felt_inv(&mut self) -> Result<()> {
         let operand = self.pop_felt("Felt inverse")?;
-        let inv = operand
-            .inv()
-            .map_err(|e| self.vm_error(format!("Felt inverse error: {e}")))?;
+        let inv =
+            try_inv(operand).map_err(|e| self.vm_error(format!("Felt inverse error: {e}")))?;
         self.push_stack(Value::Felt(inv))
     }
 
@@ -1033,7 +1032,7 @@ impl VM {
             }
         };
         let base = self.pop_felt("Felt power")?;
-        self.push_stack(Value::Felt(base.pow(exponent)))
+        self.push_stack(Value::Felt(base.exp(exponent)))
     }
 
     /// Builds a vector, tuple, or array from the top N stack elements.

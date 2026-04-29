@@ -27,9 +27,7 @@ use winter_math::fields::f64::BaseElement;
 fn compile_and_trace(source: &str) -> (Bytecode, TraceTable, BaseElement) {
     let bytecode = maat_tests::compile(source);
     let (trace, result) = maat_trace::run_trace(bytecode.clone()).expect("trace execution failed");
-    let output = result
-        .map(|v| v.to_felt().into_base_element())
-        .unwrap_or(BaseElement::ZERO);
+    let output = result.map(|v| v.to_felt()).unwrap_or(BaseElement::ZERO);
     (bytecode, trace, output)
 }
 
@@ -61,7 +59,7 @@ fn tamper_output_on_sub_sel(trace: &mut TraceTable, sub_selector: usize) {
     let n = trace.num_rows();
     for i in 0..n {
         if trace.row(i)[COL_SUB_SEL_BASE + sub_selector] == Felt::ONE {
-            let cur = trace.row(i)[COL_OUT].as_u64();
+            let cur = trace.row(i)[COL_OUT].as_int();
             trace.row_mut(i)[COL_OUT] = Felt::new(cur.wrapping_add(1));
             return;
         }
@@ -360,7 +358,7 @@ fn fixed_size_array_element_tamper_rejected() {
     let n = trace.num_rows();
     let mut tampered = false;
     for i in 0..n {
-        if trace.row(i)[COL_HEAP_VAL].as_u64() == 10 {
+        if trace.row(i)[COL_HEAP_VAL].as_int() == 10 {
             trace.row_mut(i)[COL_HEAP_VAL] = Felt::new(99);
             tampered = true;
             break;
@@ -823,7 +821,7 @@ fn heap_synthetic_address_continuity_tampered_rejected() {
     // address-continuity aux constraint.
     let n = trace.num_rows();
     for i in 0..n {
-        let addr = trace.row(i)[COL_HEAP_ADDR].as_u64();
+        let addr = trace.row(i)[COL_HEAP_ADDR].as_int();
         if addr > 0 {
             trace.row_mut(i)[COL_HEAP_ADDR] = Felt::new(addr + 1);
         }
@@ -858,8 +856,8 @@ fn heap_synthetic_single_value_tampered_rejected() {
     let n = trace.num_rows();
     let mut tampered = false;
     for i in 0..n {
-        if trace.row(i)[COL_HEAP_ADDR].as_u64() == 1 {
-            let cur = trace.row(i)[COL_HEAP_VAL].as_u64();
+        if trace.row(i)[COL_HEAP_ADDR].as_int() == 1 {
+            let cur = trace.row(i)[COL_HEAP_VAL].as_int();
             trace.row_mut(i)[COL_HEAP_VAL] = Felt::new(cur.wrapping_add(1));
             tampered = true;
             break;
@@ -970,7 +968,7 @@ fn physical_address_gap_rejected() {
     // leaving the unique sorted address set as {0, 2, ...} instead of {0, 1, ...}.
     let n = trace.num_rows();
     for i in 0..n {
-        let addr = trace.row(i)[COL_MEM_ADDR].as_u64();
+        let addr = trace.row(i)[COL_MEM_ADDR].as_int();
         if addr > 0 {
             trace.row_mut(i)[COL_MEM_ADDR] = Felt::new(addr + 1);
         }

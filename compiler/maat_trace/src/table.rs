@@ -30,7 +30,7 @@ use std::io::{self, Write};
 
 use maat_bytecode::{NUM_SELECTORS, NUM_SUB_SELECTORS, SEL_NOP};
 use maat_errors::{Result, VmError};
-use maat_field::Felt;
+use maat_field::{Felt, FieldElement};
 
 /// Program counter.
 pub const COL_PC: usize = 0;
@@ -281,7 +281,7 @@ impl TraceTable {
                 if i > 0 {
                     write!(w, ",")?;
                 }
-                write!(w, "{}", felt.as_u64())?;
+                write!(w, "{}", felt.as_int())?;
             }
             writeln!(w)?;
         }
@@ -325,7 +325,7 @@ impl TraceTable {
     fn assert_contiguous(&self, column: usize, label: &str) -> Result<()> {
         let n = self.num_rows();
         let mut addrs = (0..n)
-            .map(|i| self.row(i)[column].as_u64())
+            .map(|i| self.row(i)[column].as_int())
             .collect::<Vec<u64>>();
         addrs.sort_unstable();
         addrs.dedup();

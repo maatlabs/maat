@@ -5,7 +5,7 @@ use maat_ast::*;
 use maat_errors::{EvalError, Result};
 use maat_runtime::{
     Env, FALSE, Felt, Function, Hashable, Integer, Macro, Map, Quote, TRUE, UNIT, Value, WideInt,
-    get_builtin,
+    from_i64, get_builtin, try_div,
 };
 
 use crate::{QUOTE, UNQUOTE};
@@ -502,7 +502,7 @@ fn eval_infix_felt(op: &str, lhs: Felt, rhs: Felt) -> Result<Value> {
         "+" => Ok(Value::Felt(lhs + rhs)),
         "-" => Ok(Value::Felt(lhs - rhs)),
         "*" => Ok(Value::Felt(lhs * rhs)),
-        "/" => (lhs / rhs)
+        "/" => try_div(lhs, rhs)
             .map(Value::Felt)
             .map_err(|e| EvalError::Number(format!("Felt division error: {e}")).into()),
         "==" => Ok(Value::Bool(lhs == rhs)),
@@ -659,11 +659,11 @@ fn cast_to_felt(value: Value) -> Result<Value> {
 
     let felt = match value {
         Value::Felt(f) => return Ok(Value::Felt(f)),
-        Value::Integer(I::I8(v)) => Felt::from_i64(v as i64),
-        Value::Integer(I::I16(v)) => Felt::from_i64(v as i64),
-        Value::Integer(I::I32(v)) => Felt::from_i64(v as i64),
-        Value::Integer(I::I64(v)) => Felt::from_i64(v),
-        Value::Integer(I::Isize(v)) => Felt::from_i64(v as i64),
+        Value::Integer(I::I8(v)) => from_i64(v as i64),
+        Value::Integer(I::I16(v)) => from_i64(v as i64),
+        Value::Integer(I::I32(v)) => from_i64(v as i64),
+        Value::Integer(I::I64(v)) => from_i64(v),
+        Value::Integer(I::Isize(v)) => from_i64(v as i64),
         Value::Integer(I::U8(v)) => Felt::new(u64::from(v)),
         Value::Integer(I::U16(v)) => Felt::new(u64::from(v)),
         Value::Integer(I::U32(v)) => Felt::new(u64::from(v)),

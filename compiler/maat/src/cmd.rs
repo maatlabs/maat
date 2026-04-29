@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use maat_air::MaatPublicInputs;
 use maat_bytecode::Bytecode;
-use maat_field::Felt;
+use maat_field::from_i64;
 use maat_module::{check_and_compile, resolve_module_graph};
 use maat_prover::{
     MaatProver, compute_program_hash, compute_program_hash_bytes, deserialize_proof,
@@ -202,7 +202,7 @@ pub fn prove(
 
     let output = result
         .as_ref()
-        .map(|v| v.to_felt().into_base_element())
+        .map(|v| v.to_felt())
         .unwrap_or(BaseElement::ZERO);
 
     let program_hash = match compute_program_hash(&bytecode) {
@@ -397,7 +397,7 @@ fn parse_inputs_file(path: &Path) -> Vec<BaseElement> {
         .map(|v| match v {
             serde_json::Value::Number(n) => {
                 if let Some(i) = n.as_i64() {
-                    Felt::from_i64(i).into_base_element()
+                    from_i64(i)
                 } else if let Some(u) = n.as_u64() {
                     BaseElement::new(u)
                 } else {
@@ -432,7 +432,7 @@ fn parse_value(s: &str) -> BaseElement {
         }
     } else if s.starts_with('-') {
         match s.parse::<i64>() {
-            Ok(n) => Felt::from_i64(n).into_base_element(),
+            Ok(n) => from_i64(n),
             Err(e) => {
                 eprintln!("error: invalid integer literal '{}': {e}", s);
                 process::exit(1);

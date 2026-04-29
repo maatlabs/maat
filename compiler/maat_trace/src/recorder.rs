@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use maat_bytecode::{MAX_GLOBALS, Opcode, SEL_NOP};
 use maat_errors::{Result, VmError};
-use maat_field::Felt;
+use maat_field::{Felt, FieldElement, try_inv};
 use maat_vm::trace::{CallCtx, DispatchCtx, Tracer};
 
 use crate::table::{
@@ -292,7 +292,7 @@ impl Tracer for TraceRecorder {
         if divisor == Felt::ZERO {
             return;
         }
-        let inv = divisor.inv().expect("non-zero field element has inverse");
+        let inv = try_inv(divisor).expect("non-zero field element has inverse");
         self.current[COL_NONZERO_INV] = inv;
         self.current[COL_DIV_AUX] = match op {
             Opcode::Div => dividend - divisor * result,
@@ -304,12 +304,12 @@ impl Tracer for TraceRecorder {
     fn record_cmp_witness(&mut self, s0: Felt, s1: Felt) {
         let diff = s0 - s1;
         if diff != Felt::ZERO {
-            self.current[COL_CMP_INV] = diff.inv().expect("non-zero field element has inverse");
+            self.current[COL_CMP_INV] = try_inv(diff).expect("non-zero field element has inverse");
         }
     }
 
     fn record_convert_witness(&mut self, result: Felt) {
-        let raw = result.as_u64();
+        let raw = result.as_int();
         self.current[COL_RC_VAL] = result;
         let limbs = decompose_limbs(raw);
         self.current[COL_RC_L0] = limbs[0];
