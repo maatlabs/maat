@@ -28,10 +28,9 @@
 use std::fmt;
 use std::io::{self, Write};
 
+use maat_bytecode::{NUM_SELECTORS, NUM_SUB_SELECTORS, SEL_NOP};
 use maat_errors::{Result, VmError};
 use maat_field::Felt;
-
-use crate::selector::{NUM_SELECTORS, SEL_NOP};
 
 /// Program counter.
 pub const COL_PC: usize = 0;
@@ -102,32 +101,11 @@ pub const COL_HEAP_IS_READ: usize = COL_HEAP_VAL + 1;
 /// growth and to distinguish allocations from in-place reads/writes.
 pub const COL_HEAP_ALLOC_FLAG: usize = COL_HEAP_IS_READ + 1;
 
-/// Base column index for the per-opcode sub-selector flags.
+/// Base column index for the per-opcode sub-selector flags. The sub-selector
+/// indices themselves (`SUB_SEL_ADD`, `SUB_SEL_SUB`, ...) live in
+/// `maat_bytecode` so the trace recorder and the AIR read them from the
+/// same source.
 pub const COL_SUB_SEL_BASE: usize = COL_HEAP_ALLOC_FLAG + 1;
-
-/// Sub-selector: `Add` (parent `SEL_ARITH`).
-pub const SUB_SEL_ADD: usize = 0;
-/// Sub-selector: `Sub` (parent `SEL_ARITH`).
-pub const SUB_SEL_SUB: usize = 1;
-/// Sub-selector: `Div` (parent `SEL_DIV_MOD`). `sel_mod` is derived as
-/// `sel_div_mod - sel_div`.
-pub const SUB_SEL_DIV: usize = 2;
-/// Sub-selector: `Minus` (parent `SEL_UNARY`). `sel_not` is derived as
-/// `sel_unary - sel_neg`.
-pub const SUB_SEL_NEG: usize = 3;
-/// Sub-selector: `FeltAdd` (parent `SEL_FELT`).
-pub const SUB_SEL_FELT_ADD: usize = 4;
-/// Sub-selector: `FeltSub` (parent `SEL_FELT`).
-pub const SUB_SEL_FELT_SUB: usize = 5;
-/// Sub-selector: `FeltMul` (parent `SEL_FELT`).
-pub const SUB_SEL_FELT_MUL: usize = 6;
-/// Sub-selector: `Equal` (parent `SEL_CMP`).
-pub const SUB_SEL_EQ: usize = 7;
-/// Sub-selector: `NotEqual` (parent `SEL_CMP`).
-pub const SUB_SEL_NEQ: usize = 8;
-
-/// Number of per-opcode sub-selector witness columns.
-pub const NUM_SUB_SELECTORS: usize = 9;
 
 /// Total number of columns in the main execution trace.
 pub const TRACE_WIDTH: usize = COL_SUB_SEL_BASE + NUM_SUB_SELECTORS;
@@ -280,7 +258,7 @@ impl TraceTable {
             row[COL_HEAP_VAL] = last[COL_HEAP_VAL];
             row[COL_HEAP_IS_READ] = Felt::ONE;
         }
-        row[COL_SEL_BASE + SEL_NOP as usize] = Felt::ONE;
+        row[COL_SEL_BASE + SEL_NOP] = Felt::ONE;
         row
     }
 

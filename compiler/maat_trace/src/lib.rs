@@ -1,18 +1,8 @@
-//! Trace-generating virtual machine for the Maat ZK backend.
+//! Execution trace generation for the Maat STARK prover.
 //!
-//! This crate provides a VM that executes Maat bytecode while recording a
-//! 36-column execution trace suitable for STARK proving. Each instruction
-//! step produces one row capturing the program counter, stack state, memory
-//! accesses, a one-hot opcode selector, and range-check witness data.
-//!
-//! # Architecture
-//!
-//! - **[`TraceTable`]** stores the trace matrix and handles power-of-two
-//!   padding required by the Winterfell FRI prover.
-//! - **[`TraceVM`]** mirrors `maat_vm::VM` but instruments every instruction
-//!   to emit a trace row.
-//! - **[`selector`]** maps each opcode to one of 17 constraint classes.
-//! - **[`encode`]** converts runtime values to Goldilocks field elements.
+//! This crate executes Maat bytecode through [`maat_vm::VM`]
+//! while recording a 36-column execution trace into a [`TraceTable`]
+//! suitable for STARK proving.
 //!
 //! # Range-check columns
 //!
@@ -33,48 +23,40 @@
 //! ```
 #![forbid(unsafe_code)]
 
-pub mod encode;
-pub mod selector;
+pub mod recorder;
 pub mod table;
-pub mod vm;
 
 use maat_bytecode::Bytecode;
 use maat_errors::Result;
+use maat_field::Felt;
 use maat_runtime::Value;
+use maat_vm::VM;
+pub use recorder::TraceRecorder;
 pub use table::{
     COL_CMP_INV, COL_DIV_AUX, COL_FP, COL_HEAP_ADDR, COL_HEAP_ALLOC_FLAG, COL_HEAP_IS_READ,
     COL_HEAP_VAL, COL_IS_READ, COL_MEM_ADDR, COL_MEM_VAL, COL_NONZERO_INV, COL_OP_WIDTH,
     COL_OPCODE, COL_OPERAND_0, COL_OPERAND_1, COL_OUT, COL_PC, COL_RC_L0, COL_RC_L1, COL_RC_L2,
     COL_RC_L3, COL_RC_VAL, COL_S0, COL_S1, COL_S2, COL_SEL_BASE, COL_SP, COL_SUB_SEL_BASE,
-    COLUMN_NAMES, NUM_SUB_SELECTORS, SUB_SEL_ADD, SUB_SEL_DIV, SUB_SEL_EQ, SUB_SEL_FELT_ADD,
-    SUB_SEL_FELT_MUL, SUB_SEL_FELT_SUB, SUB_SEL_NEG, SUB_SEL_NEQ, SUB_SEL_SUB, TRACE_WIDTH,
-    TraceRow, TraceTable,
+    COLUMN_NAMES, TRACE_WIDTH, TraceRow, TraceTable,
 };
-pub use vm::TraceVM;
 
 /// Executes bytecode and returns the padded execution trace alongside
 /// the program's result value (if any).
 ///
 /// This is the primary entry point for trace generation. The returned
-/// [`TraceTable`] is padded to a power-of-two length (minimum 8 rows)
-/// as required by the STARK prover.
+/// [`TraceTable`] is padded to a power-of-two length (minimum 32 rows) as
+/// required by the STARK prover.
 pub fn run_trace(bytecode: Bytecode) -> Result<(TraceTable, Option<Value>)> {
-    let mut vm = TraceVM::new(bytecode);
-    vm.run()?;
+    let mut recorder = TraceRecorder::new();
+    let mut vm = VM::new(bytecode);
+    vm.run_with_recorder(&mut recorder)?;
     let result = vm.last_popped_stack_elem().cloned();
-    let trace = vm.into_trace();
 
+    let mut trace = recorder.into_trace();
     trace.validate_address_contiguity()?;
 
-    // Stamp the program output onto the last execution row so the boundary
-    // assertion `out[last] = public_output` holds after NOP padding.
-    let output_felt = result
-        .as_ref()
-        .map(encode::value_to_felt)
-        .unwrap_or(maat_field::Felt::ZERO);
-    let mut trace = trace;
+    let output_felt = result.as_ref().map(|v| v.to_felt()).unwrap_or(Felt::ZERO);
     trace.stamp_output(output_felt);
-
     trace.pad_to_power_of_two();
     Ok((trace, result))
 }

@@ -15,5 +15,4 @@ maat_bytecode = { path = "../maat_bytecode", version = "0.13.0" }
 maat_errors = { path = "../maat_errors", version = "0.13.0" }
 maat_field = { path = "../maat_field", version = "0.13.0" }
 maat_runtime = { path = "../maat_runtime", version = "0.13.0" }
-maat_span = { path = "../maat_span", version = "0.13.0" }
-indexmap.workspace = true
+maat_vm = { path = "../maat_vm", version = "0.13.0" }
