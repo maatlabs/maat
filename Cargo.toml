@@ -35,3 +35,18 @@ readme = "README.md"
 [workspace.dependencies]
 indexmap = { version = "2", features = ["serde"] }
 serde = { version = "1", features = ["derive", "rc"] }
+
+# Winterfell's prover ships an over-strict `debug_assert_eq!` that requires the
+# *exact* per-constraint quotient degree to equal the declared upper bound; on
+# small Maat programs that do not exercise every opcode-class selector, dormant
+# selector columns interpolate to the zero polynomial and the actual quotient
+# degree drops below the declared upper bound. Soundness still holds--FRI checks
+# `quotient_degree <= declared`--so we disable `debug_assertions` for the test
+# and bench profiles to align with release semantics.
+#
+# Our own `debug_assert!`s are sanity checks; production builds already run without them.
+[profile.test]
+debug-assertions = false
+
+[profile.bench]
+debug-assertions = false

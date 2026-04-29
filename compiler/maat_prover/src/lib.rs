@@ -115,11 +115,13 @@ impl MaatTrace {
             .collect::<Vec<Vec<BaseElement>>>();
 
         let trace_length = columns[0].len();
-        let meta = maat_air::encode_degrees(&columns);
-        debug_assert_eq!(meta.len(), maat_air::DEGREE_BYTES);
-
-        let info =
-            TraceInfo::new_multi_segment(TRACE_WIDTH, AUX_WIDTH, NUM_AUX_RANDS, trace_length, meta);
+        let info = TraceInfo::new_multi_segment(
+            TRACE_WIDTH,
+            AUX_WIDTH,
+            NUM_AUX_RANDS,
+            trace_length,
+            Vec::new(),
+        );
         let main = ColMatrix::new(columns);
 
         MaatTrace { info, main }

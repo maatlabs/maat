@@ -182,7 +182,7 @@ pub struct TraceTable {
 }
 
 impl TraceTable {
-    const MIN_ROWS: usize = 32;
+    const MIN_ROWS: usize = 8;
 
     /// Creates an empty trace table.
     pub fn new() -> Self {

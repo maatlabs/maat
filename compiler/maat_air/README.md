@@ -20,28 +20,21 @@ CPU constraint system (AIR) for the Maat programming language.
 
 **Universal PC advance:** a single constraint enforces `pc_next = pc + COL_OP_WIDTH` for all non-jump/call/return rows, replacing the family of width-specific PC constraints.
 
-**Per-trace tight degrees:** `encode_degrees(main_columns)` runs an FFT-based detector that recovers the exact polynomial degree of every transition constraint on the concrete trace (main and auxiliary). The byte vector is shipped via `winter_air::TraceInfo::meta`; the verifier reconstructs the same `TransitionConstraintDegree` array. Sparse selector activations no longer trigger Winterfell's debug-mode degree-mismatch panic.
+**Static transition degrees:** `CONSTRAINT_DEGREES` and `AUX_CONSTRAINT_DEGREES` are declared as `pub const` arrays. The prover does no per-trace degree detection and `winter_air::TraceInfo::meta` is empty; the verifier reconstructs the same `TransitionConstraintDegree` array from the same constants. Winterfell's `quotient_degree <= declared` contract makes upper-bound declarations sound on every trace.
 
 ## Usage
 
 ```rust
-use maat_air::{
-    AUX_WIDTH, DEGREE_BYTES, MaatAir, MaatPublicInputs, NUM_AUX_RANDS, build_aux_columns,
-    encode_degrees,
-};
+use maat_air::{AUX_WIDTH, MaatAir, MaatPublicInputs, NUM_AUX_RANDS, build_aux_columns};
 use winter_air::TraceInfo;
 
 let public_inputs = MaatPublicInputs::new(program_hash, vec![], output_felt);
-// Compute tight per-constraint degrees from the concrete trace and ship them
-// in the trace metadata so the verifier reconstructs the same AIR context.
-let meta = encode_degrees(&main_columns);
-debug_assert_eq!(meta.len(), DEGREE_BYTES);
 let trace_info = TraceInfo::new_multi_segment(
     maat_trace::TRACE_WIDTH,
     AUX_WIDTH,
     NUM_AUX_RANDS,
     trace_length,
-    meta,
+    Vec::new(),
 );
 // Pass `MaatAir` to the Winterfell prover alongside the trace and auxiliary columns
 ```

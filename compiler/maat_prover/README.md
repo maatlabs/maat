@@ -4,7 +4,7 @@ Zero knowledge STARK prover and verifier for the Maat programming language.
 
 ## Role
 
-`maat_prover` wires together the Maat AIR constraint system (`maat_air`), the execution trace (`maat_trace`), and Winterfell's proving infrastructure to produce and verify cryptographic proofs of correct program execution. It implements Winterfell's `Prover` trait via `MaatProver`, handles proof serialization with a self-contained binary format, and provides a thin verification wrapper around Winterfell's verifier. `MaatTrace::from_trace_table` runs `maat_air::encode_degrees` on the main trace and ships the per-constraint tight degrees through `winter_air::TraceInfo::meta`, so the verifier reconstructs the same `AirContext` without any out-of-band coordination.
+`maat_prover` wires together the Maat AIR constraint system (`maat_air`), the execution trace (`maat_trace`), and Winterfell's proving infrastructure to produce and verify cryptographic proofs of correct program execution. It implements Winterfell's `Prover` trait via `MaatProver`, handles proof serialization with a self-contained binary format, and provides a thin verification wrapper around Winterfell's verifier. The AIR declares static upper-bound transition degrees via `pub const` arrays, so `winter_air::TraceInfo::meta` is empty and the verifier reconstructs the same `AirContext` directly from the AIR constants.
 
 ## Architecture
 
