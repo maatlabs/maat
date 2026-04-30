@@ -57,21 +57,16 @@
 //! | 64    | Comparison: out is binary                     | 3      |
 //! | 65    | Comparison: not-equal branch                  | 3      |
 //! | 66    | Comparison: equal branch                      | 4      |
-//! | 67    | Heap: heap_is_read binary                     | 2      |
-//! | 68    | Heap: heap_alloc_flag binary                  | 2      |
-//! | 69    | Heap: alloc-flag aligned with sel_heap_alloc  | 2      |
-//! | 70    | Heap: alloc implies write (flag * is_read=0)  | 2      |
-//! | 71    | SP: heap write (net -2)                       | 2      |
+//! | 67    | SP: heap write (net -2)                       | 2      |
 
 use maat_bytecode::{
     SUB_SEL_ADD, SUB_SEL_DIV, SUB_SEL_EQ, SUB_SEL_FELT_ADD, SUB_SEL_FELT_MUL, SUB_SEL_FELT_SUB,
     SUB_SEL_NEG, SUB_SEL_NEQ, SUB_SEL_SUB,
 };
 use maat_trace::{
-    COL_CMP_INV, COL_DIV_AUX, COL_FP, COL_HEAP_ALLOC_FLAG, COL_HEAP_IS_READ, COL_IS_READ,
-    COL_MEM_VAL, COL_NONZERO_INV, COL_OP_WIDTH, COL_OPERAND_0, COL_OUT, COL_PC, COL_RC_L0,
-    COL_RC_L1, COL_RC_L2, COL_RC_L3, COL_RC_VAL, COL_S0, COL_S1, COL_SEL_BASE, COL_SP,
-    COL_SUB_SEL_BASE, TRACE_WIDTH,
+    COL_CMP_INV, COL_DIV_AUX, COL_FP, COL_IS_READ, COL_MEM_VAL, COL_NONZERO_INV, COL_OP_WIDTH,
+    COL_OPERAND_0, COL_OUT, COL_PC, COL_RC_L0, COL_RC_L1, COL_RC_L2, COL_RC_L3, COL_RC_VAL, COL_S0,
+    COL_S1, COL_SEL_BASE, COL_SP, COL_SUB_SEL_BASE, TRACE_WIDTH,
 };
 use winter_math::FieldElement;
 
@@ -99,7 +94,7 @@ pub(crate) const SEL_HEAP_WRITE: usize = 19;
 pub(crate) const NUM_SELECTORS: usize = 20;
 
 /// Number of transition constraints enforced by the AIR.
-pub const NUM_CONSTRAINTS: usize = 72;
+pub const NUM_CONSTRAINTS: usize = 68;
 
 /// Degree of each transition constraint, indexed by constraint number.
 ///
@@ -124,8 +119,7 @@ pub const CONSTRAINT_DEGREES: [usize; NUM_CONSTRAINTS] = [
     2, 2, 2, 2, 2, 2, 2, 2, 2, // 55-59: mutual exclusion within sub-selector classes
     2, 2, 2, 2, 2, // 60-63: output correctness (arith, div_mod, unary, felt)
     3, 3, 3, 3, // 64-66: comparison correctness
-    3, 3, 4, // 67-70: heap structural constraints
-    2, 2, 2, 2, // 71: SP heap write
+    3, 3, 4, // 67: SP heap write
     2,
 ];
 
@@ -178,8 +172,6 @@ pub fn evaluate<E: FieldElement>(current: &[E], next: &[E], result: &mut [E]) {
     let op_width = current[COL_OP_WIDTH];
     let cmp_inv = current[COL_CMP_INV];
     let div_aux = current[COL_DIV_AUX];
-    let heap_is_read = current[COL_HEAP_IS_READ];
-    let heap_alloc_flag = current[COL_HEAP_ALLOC_FLAG];
 
     let pc_next = next[COL_PC];
     let sp_next = next[COL_SP];
@@ -319,13 +311,8 @@ pub fn evaluate<E: FieldElement>(current: &[E], next: &[E], result: &mut [E]) {
     result[65] = diff * (sub_eq * out + sub_neq * (one - out));
     result[66] = one_minus_diff_inv * (sub_eq * (one - out) + sub_neq * out);
 
-    // Heap structural constraints.
-    result[67] = heap_is_read * (one - heap_is_read);
-    result[68] = heap_alloc_flag * (one - heap_alloc_flag);
-    result[69] = heap_alloc_flag - sel_heap_alloc;
-    result[70] = heap_alloc_flag * heap_is_read;
     // HeapWrite pops two operands (heap address, value) and pushes nothing.
-    result[71] = sel_heap_write * (sp_next - sp + two);
+    result[67] = sel_heap_write * (sp_next - sp + two);
 }
 
 #[cfg(test)]
@@ -630,49 +617,6 @@ mod tests {
     }
 
     #[test]
-    fn heap_alloc_flag_must_match_sel_heap_alloc() {
-        let mut current = [F::ZERO; TRACE_WIDTH];
-        let mut next = [F::ZERO; TRACE_WIDTH];
-        current[COL_SEL_BASE + SEL_HEAP_ALLOC] = F::ONE;
-        current[COL_OP_WIDTH] = F::ONE;
-        current[COL_HEAP_ALLOC_FLAG] = F::ONE;
-        next[COL_SEL_BASE + SEL_NOP] = F::ONE;
-
-        let result = eval(&current, &next);
-        assert_eq!(
-            result[69],
-            F::ZERO,
-            "heap_alloc_flag must equal sel_heap_alloc"
-        );
-
-        current[COL_HEAP_ALLOC_FLAG] = F::ZERO;
-        let result = eval(&current, &next);
-        assert_ne!(
-            result[69],
-            F::ZERO,
-            "missing heap_alloc_flag must be rejected"
-        );
-    }
-
-    #[test]
-    fn heap_alloc_implies_write() {
-        let mut current = [F::ZERO; TRACE_WIDTH];
-        let mut next = [F::ZERO; TRACE_WIDTH];
-        current[COL_SEL_BASE + SEL_HEAP_ALLOC] = F::ONE;
-        current[COL_OP_WIDTH] = F::ONE;
-        current[COL_HEAP_ALLOC_FLAG] = F::ONE;
-        current[COL_HEAP_IS_READ] = F::ONE;
-        next[COL_SEL_BASE + SEL_NOP] = F::ONE;
-
-        let result = eval(&current, &next);
-        assert_ne!(
-            result[70],
-            F::ZERO,
-            "heap_alloc_flag=1 with heap_is_read=1 must be rejected"
-        );
-    }
-
-    #[test]
     fn heap_write_sp_net_minus_two() {
         let mut current = [F::ZERO; TRACE_WIDTH];
         let mut next = [F::ZERO; TRACE_WIDTH];
@@ -683,12 +627,12 @@ mod tests {
         next[COL_SEL_BASE + SEL_NOP] = F::ONE;
 
         let result = eval(&current, &next);
-        assert_eq!(result[71], F::ZERO, "heap write must drop SP by exactly 2");
+        assert_eq!(result[67], F::ZERO, "heap write must drop SP by exactly 2");
 
         next[COL_SP] = F::new(4);
         let result = eval(&current, &next);
         assert_ne!(
-            result[71],
+            result[67],
             F::ZERO,
             "heap write SP delta -1 must be rejected"
         );

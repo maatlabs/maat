@@ -28,17 +28,13 @@ pub trait Tracer {
     #[inline(always)]
     fn record_local_access(&mut self, _local_index: usize, _value: Felt, _is_read: bool) {}
 
-    /// Records a fresh heap allocation at `physical` initialised with `initial`.
+    /// Records a heap access (alloc, read, or write) against the unified
+    /// memory permutation argument. `heap_id` is a unique-per-event identifier
+    /// allocated by the VM; the recorder lifts it out of the locals/globals
+    /// logical address space before threading it through the same code path
+    /// used for globals and locals.
     #[inline(always)]
-    fn record_heap_alloc(&mut self, _physical: usize, _initial: Felt) {}
-
-    /// Records a heap read at `physical`.
-    #[inline(always)]
-    fn record_heap_read(&mut self, _physical: usize, _value: Felt) {}
-
-    /// Records a heap write that landed at fresh physical address `physical`.
-    #[inline(always)]
-    fn record_heap_write(&mut self, _physical: usize, _value: Felt) {}
+    fn record_heap_access(&mut self, _heap_id: usize, _value: Felt, _is_read: bool) {}
 
     /// Records entry into a closure frame: emits one synthetic per-parameter
     /// memory-write row plus the saved-frame-pointer write that goes on the

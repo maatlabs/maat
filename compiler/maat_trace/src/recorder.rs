@@ -9,12 +9,15 @@ use maat_field::{Felt, FieldElement, try_inv};
 use maat_vm::trace::{CallCtx, DispatchCtx, Tracer};
 
 use crate::table::{
-    COL_CMP_INV, COL_DIV_AUX, COL_FP, COL_HEAP_ADDR, COL_HEAP_ALLOC_FLAG, COL_HEAP_IS_READ,
-    COL_HEAP_VAL, COL_IS_READ, COL_MEM_ADDR, COL_MEM_VAL, COL_NONZERO_INV, COL_OP_WIDTH,
-    COL_OPCODE, COL_OPERAND_0, COL_OPERAND_1, COL_OUT, COL_PC, COL_RC_L0, COL_RC_L1, COL_RC_L2,
-    COL_RC_L3, COL_RC_VAL, COL_S0, COL_S1, COL_S2, COL_SEL_BASE, COL_SP, COL_SUB_SEL_BASE,
-    TRACE_WIDTH, TraceRow, TraceTable,
+    COL_CMP_INV, COL_DIV_AUX, COL_FP, COL_IS_READ, COL_MEM_ADDR, COL_MEM_VAL, COL_NONZERO_INV,
+    COL_OP_WIDTH, COL_OPERAND_0, COL_OUT, COL_PC, COL_RC_L0, COL_RC_L1, COL_RC_L2, COL_RC_L3,
+    COL_RC_VAL, COL_S0, COL_S1, COL_S2, COL_SEL_BASE, COL_SP, COL_SUB_SEL_BASE, TRACE_WIDTH,
+    TraceRow, TraceTable,
 };
+
+/// Logical-address offset that lifts heap accesses out of the locals/globals
+/// region of the unified memory segment.
+const HEAP_LOGICAL_BASE: usize = 1usize << 32;
 
 /// Decomposes a 64-bit value into four 16-bit limbs `[l0, l1, l2, l3]` such
 /// that `val = l0 + 2^16 l1 + 2^32 l2 + 2^48 l3`.
@@ -37,8 +40,6 @@ pub struct TraceRecorder {
     fp_stack: Vec<usize>,
     last_mem_addr: Felt,
     last_mem_val: Felt,
-    last_heap_addr: Felt,
-    last_heap_val: Felt,
 }
 
 impl TraceRecorder {
@@ -54,8 +55,6 @@ impl TraceRecorder {
             fp_stack: Vec::new(),
             last_mem_addr: Felt::ZERO,
             last_mem_val: Felt::ZERO,
-            last_heap_addr: Felt::ZERO,
-            last_heap_val: Felt::ZERO,
         }
     }
 
@@ -100,16 +99,6 @@ impl TraceRecorder {
         Ok(())
     }
 
-    fn write_heap_fields(&mut self, physical: usize, value: Felt, is_read: bool, is_alloc: bool) {
-        let addr_felt = Felt::new(physical as u64);
-        self.current[COL_HEAP_ADDR] = addr_felt;
-        self.current[COL_HEAP_VAL] = value;
-        self.current[COL_HEAP_IS_READ] = if is_read { Felt::ONE } else { Felt::ZERO };
-        self.current[COL_HEAP_ALLOC_FLAG] = if is_alloc { Felt::ONE } else { Felt::ZERO };
-        self.last_heap_addr = addr_felt;
-        self.last_heap_val = value;
-    }
-
     /// Emits one synthetic NOP row per parameter, provably writing the
     /// argument value to the callee's logical slot `new_fp + i`.
     fn emit_parameter_writes(
@@ -141,11 +130,6 @@ impl TraceRecorder {
             row[COL_MEM_ADDR] = mem_addr;
             row[COL_MEM_VAL] = arg_felt;
             row[COL_IS_READ] = Felt::ZERO;
-            // Carry the heap dummy read forward so the heap permutation
-            // argument stays consistent across these synthetic rows.
-            row[COL_HEAP_ADDR] = self.last_heap_addr;
-            row[COL_HEAP_VAL] = self.last_heap_val;
-            row[COL_HEAP_IS_READ] = Felt::ONE;
 
             self.last_mem_addr = mem_addr;
             self.last_mem_val = arg_felt;
@@ -168,9 +152,7 @@ impl Tracer for TraceRecorder {
         row[COL_PC] = Felt::new(ctx.ip as u64);
         row[COL_SP] = Felt::new(ctx.sp as u64);
         row[COL_FP] = Felt::new(self.fp as u64);
-        row[COL_OPCODE] = Felt::new(ctx.op.to_byte() as u64);
         row[COL_OPERAND_0] = Felt::new(ctx.operand0 as u64);
-        row[COL_OPERAND_1] = Felt::new(ctx.operand1 as u64);
         row[COL_S0] = ctx.s0;
         row[COL_S1] = ctx.s1;
         row[COL_S2] = ctx.s2;
@@ -179,14 +161,11 @@ impl Tracer for TraceRecorder {
         if let Some(sub) = info.sub_selector {
             row[COL_SUB_SEL_BASE + sub] = Felt::ONE;
         }
-        // Default to a dummy memory and heap read; real accesses overwrite
-        // these fields in the corresponding `record_*` methods.
+        // Default to a dummy memory read; real accesses overwrite these
+        // fields in the corresponding `record_*` methods.
         row[COL_MEM_ADDR] = self.last_mem_addr;
         row[COL_MEM_VAL] = self.last_mem_val;
         row[COL_IS_READ] = Felt::ONE;
-        row[COL_HEAP_ADDR] = self.last_heap_addr;
-        row[COL_HEAP_VAL] = self.last_heap_val;
-        row[COL_HEAP_IS_READ] = Felt::ONE;
         self.current = row;
     }
 
@@ -219,16 +198,16 @@ impl Tracer for TraceRecorder {
         }
     }
 
-    fn record_heap_alloc(&mut self, physical: usize, initial: Felt) {
-        self.write_heap_fields(physical, initial, false, true);
-    }
-
-    fn record_heap_read(&mut self, physical: usize, value: Felt) {
-        self.write_heap_fields(physical, value, true, false);
-    }
-
-    fn record_heap_write(&mut self, physical: usize, value: Felt) {
-        self.write_heap_fields(physical, value, false, false);
+    fn record_heap_access(&mut self, heap_id: usize, value: Felt, is_read: bool) {
+        let logical = HEAP_LOGICAL_BASE.wrapping_add(heap_id);
+        let result = if is_read {
+            self.record_mem_read(logical, value)
+        } else {
+            self.record_mem_write(logical, value)
+        };
+        if let Err(e) = result {
+            panic!("trace recorder: heap access failed: {e}");
+        }
     }
 
     fn record_call_closure(&mut self, ctx: CallCtx<'_>) -> Result<()> {
@@ -332,9 +311,6 @@ impl Tracer for TraceRecorder {
         row[COL_MEM_ADDR] = self.last_mem_addr;
         row[COL_MEM_VAL] = self.last_mem_val;
         row[COL_IS_READ] = Felt::ONE;
-        row[COL_HEAP_ADDR] = self.last_heap_addr;
-        row[COL_HEAP_VAL] = self.last_heap_val;
-        row[COL_HEAP_IS_READ] = Felt::ONE;
         self.trace.push_row(row);
     }
 }

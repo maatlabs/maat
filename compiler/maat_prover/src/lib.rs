@@ -71,7 +71,7 @@ type VC = MerkleTree<HashFn>;
 ///
 /// Winterfell's [`TraceTable`](winter_prover::TraceTable) always creates
 /// single-segment metadata, but the Maat AIR declares an auxiliary segment
-/// (8 columns, 3 random elements) via Winterfell's
+/// via Winterfell's
 /// [`AirContext::new_multi_segment`](winter_air::AirContext::new_multi_segment()).
 /// `MaatTrace` bridges this gap by pairing the main-segment column matrix
 /// with a [`TraceInfo`] that declares the auxiliary segment dimensions,
@@ -123,15 +123,13 @@ impl MaatTrace {
         MaatTrace { info, main }
     }
 
-    /// Extracts column-major data from a [`MaatTrace`].
+    /// Borrows each main-segment column as a slice for the auxiliary builder.
     ///
-    /// The `build_aux_columns` function in `maat_air` expects `&[Vec<BaseElement>]`.
-    /// This function copies each column from the [`ColMatrix`] into an owned `Vec`
-    /// for the auxiliary builder.
-    fn extract_main_columns(&self) -> Vec<Vec<BaseElement>> {
-        (0..TRACE_WIDTH)
-            .map(|i| self.main.get_column(i).to_vec())
-            .collect()
+    /// `build_aux_columns` reads the main trace through `&[&[BaseElement]]`,
+    /// so the prover hands it borrowed views into the committed [`ColMatrix`]
+    /// instead of cloning the entire trace per `prove`.
+    fn main_column_slices(&self) -> Vec<&[BaseElement]> {
+        (0..TRACE_WIDTH).map(|i| self.main.get_column(i)).collect()
     }
 }
 
@@ -222,7 +220,7 @@ impl Prover for MaatProver {
         main_trace: &Self::Trace,
         aux_rand_elements: &AuxRandElements<E>,
     ) -> ColMatrix<E> {
-        let main_columns = main_trace.extract_main_columns();
+        let main_columns = main_trace.main_column_slices();
         let aux_columns =
             maat_air::build_aux_columns(&main_columns, aux_rand_elements.rand_elements());
         ColMatrix::new(aux_columns)

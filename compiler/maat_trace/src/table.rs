@@ -6,7 +6,8 @@
 //!
 //! # Range-check columns
 //!
-//! Columns 30--35 carry the range-check sub-AIR witness data:
+//! Columns [`COL_RC_VAL`]..[`COL_NONZERO_INV`] carry the range-check sub-AIR
+//! witness data:
 //!
 //! - **`rc_val`**: the value being range-checked (zero on non-trigger rows).
 //! - **`rc_l0`..`rc_l3`**: four 16-bit limbs satisfying
@@ -14,22 +15,18 @@
 //! - **`nonzero_inv`**: multiplicative inverse of the divisor on `sel_div_mod`
 //!   rows, proving the divisor is non-zero.
 //!
-//! # Heap-segment columns
+//! # Unified memory model
 //!
-//! Columns [`COL_HEAP_ADDR`], [`COL_HEAP_VAL`], and [`COL_HEAP_IS_READ`]
-//! together with the dedicated allocation flag [`COL_HEAP_ALLOC_FLAG`]
-//! carry the heap-access witness for composite-type tracing. Every row
-//! records one heap interaction; non-heap rows perform a dummy read of the
-//! last accessed address (mirroring the main-memory pattern). The heap
-//! permutation argument in the auxiliary segment ties execution-order
-//! heap accesses to the sorted-by-address list, enforcing single-value
-//! consistency over the heap address space.
+//! Locals, globals, and heap cells share a single memory permutation argument
+//! over the `(mem_addr, mem_val, is_read)` triple. Heap accesses are emitted
+//! into the same columns as locals/globals; the recorder offsets heap logical
+//! addresses out of the locals/globals space so the sorted-by-address list
+//! cleanly separates the two regions.
 
 use std::fmt;
 use std::io::{self, Write};
 
 use maat_bytecode::{NUM_SELECTORS, NUM_SUB_SELECTORS, SEL_NOP};
-use maat_errors::{Result, VmError};
 use maat_field::{Felt, FieldElement};
 
 /// Program counter.
@@ -38,28 +35,25 @@ pub const COL_PC: usize = 0;
 pub const COL_SP: usize = 1;
 /// Frame pointer (base address in flat memory).
 pub const COL_FP: usize = 2;
-/// Current opcode byte.
-pub const COL_OPCODE: usize = 3;
-/// First opcode operand (zero if absent).
-pub const COL_OPERAND_0: usize = 4;
-/// Second opcode operand (zero if absent).
-pub const COL_OPERAND_1: usize = 5;
+/// First opcode operand (zero if absent). Read by the unconditional and
+/// conditional jump constraints.
+pub const COL_OPERAND_0: usize = 3;
 /// Stack top before instruction.
-pub const COL_S0: usize = 6;
+pub const COL_S0: usize = 4;
 /// Stack second element before instruction.
-pub const COL_S1: usize = 7;
+pub const COL_S1: usize = 5;
 /// Stack third element before instruction.
-pub const COL_S2: usize = 8;
+pub const COL_S2: usize = 6;
 /// Result value pushed to stack (or zero for store/jump).
-pub const COL_OUT: usize = 9;
-/// Flat memory address accessed (for loads/stores).
-pub const COL_MEM_ADDR: usize = 10;
+pub const COL_OUT: usize = 7;
+/// Flat memory address accessed (for loads/stores and heap accesses).
+pub const COL_MEM_ADDR: usize = 8;
 /// Memory value at `mem_addr`.
-pub const COL_MEM_VAL: usize = 11;
+pub const COL_MEM_VAL: usize = 9;
 /// `1` if memory read, `0` if memory write.
-pub const COL_IS_READ: usize = 12;
+pub const COL_IS_READ: usize = 10;
 /// Base column index for the 17 selector flags (`sel_0..sel_16`).
-pub const COL_SEL_BASE: usize = 13;
+pub const COL_SEL_BASE: usize = 11;
 
 /// Base index of the range-check columns (immediately after selectors).
 const COL_RC_BASE: usize = COL_SEL_BASE + NUM_SELECTORS;
@@ -87,25 +81,11 @@ pub const COL_CMP_INV: usize = COL_OP_WIDTH + 1;
 /// Auxiliary witness for the division/modulo identity.
 pub const COL_DIV_AUX: usize = COL_CMP_INV + 1;
 
-/// Heap address accessed on this row (zero on rows with no real heap access).
-pub const COL_HEAP_ADDR: usize = COL_DIV_AUX + 1;
-
-/// Heap value at [`COL_HEAP_ADDR`].
-pub const COL_HEAP_VAL: usize = COL_HEAP_ADDR + 1;
-
-/// `1` if the row reads the heap, `0` if it writes the heap.
-pub const COL_HEAP_IS_READ: usize = COL_HEAP_VAL + 1;
-
-/// Heap-allocation flag: `1` on rows that allocate a fresh heap cell,
-/// `0` otherwise. Used by the AIR to constrain monotonic heap-pointer
-/// growth and to distinguish allocations from in-place reads/writes.
-pub const COL_HEAP_ALLOC_FLAG: usize = COL_HEAP_IS_READ + 1;
-
 /// Base column index for the per-opcode sub-selector flags. The sub-selector
 /// indices themselves (`SUB_SEL_ADD`, `SUB_SEL_SUB`, ...) live in
 /// `maat_bytecode` so the trace recorder and the AIR read them from the
 /// same source.
-pub const COL_SUB_SEL_BASE: usize = COL_HEAP_ALLOC_FLAG + 1;
+pub const COL_SUB_SEL_BASE: usize = COL_DIV_AUX + 1;
 
 /// Total number of columns in the main execution trace.
 pub const TRACE_WIDTH: usize = COL_SUB_SEL_BASE + NUM_SUB_SELECTORS;
@@ -115,9 +95,7 @@ pub const COLUMN_NAMES: [&str; TRACE_WIDTH] = [
     "pc",
     "sp",
     "fp",
-    "opcode",
     "operand_0",
-    "operand_1",
     "s0",
     "s1",
     "s2",
@@ -154,10 +132,6 @@ pub const COLUMN_NAMES: [&str; TRACE_WIDTH] = [
     "op_width",
     "cmp_inv",
     "div_aux",
-    "heap_addr",
-    "heap_val",
-    "heap_is_read",
-    "heap_alloc_flag",
     "sub_sel_add",
     "sub_sel_sub",
     "sub_sel_div",
@@ -249,14 +223,11 @@ impl TraceTable {
             row[COL_SP] = last[COL_SP];
             row[COL_FP] = last[COL_FP];
             row[COL_OUT] = last[COL_OUT];
-            // Dummy reads: repeat the last main-memory and heap accesses to
-            // preserve address/value consistency in both permutation arguments.
+            // Dummy read: repeat the last memory access so the unified memory
+            // permutation argument stays consistent across padding rows.
             row[COL_MEM_ADDR] = last[COL_MEM_ADDR];
             row[COL_MEM_VAL] = last[COL_MEM_VAL];
             row[COL_IS_READ] = Felt::ONE;
-            row[COL_HEAP_ADDR] = last[COL_HEAP_ADDR];
-            row[COL_HEAP_VAL] = last[COL_HEAP_VAL];
-            row[COL_HEAP_IS_READ] = Felt::ONE;
         }
         row[COL_SEL_BASE + SEL_NOP] = Felt::ONE;
         row
@@ -266,7 +237,6 @@ impl TraceTable {
     ///
     /// Field elements are serialized as decimal `u64` values.
     pub fn write_csv<W: Write>(&self, mut w: W) -> io::Result<()> {
-        // Header
         for (i, name) in COLUMN_NAMES.iter().enumerate() {
             if i > 0 {
                 write!(w, ",")?;
@@ -275,7 +245,6 @@ impl TraceTable {
         }
         writeln!(w)?;
 
-        // Rows
         for row in &self.rows {
             for (i, felt) in row.iter().enumerate() {
                 if i > 0 {
@@ -312,32 +281,6 @@ impl TraceTable {
             }
         }
         columns
-    }
-
-    /// Asserts that physical addresses in [`COL_MEM_ADDR`] and [`COL_HEAP_ADDR`]
-    /// each form a contiguous range `[0, max_addr]` with no gaps.
-    pub fn validate_address_contiguity(&self) -> Result<()> {
-        self.assert_contiguous(COL_MEM_ADDR, "main-memory")?;
-        self.assert_contiguous(COL_HEAP_ADDR, "heap")?;
-        Ok(())
-    }
-
-    fn assert_contiguous(&self, column: usize, label: &str) -> Result<()> {
-        let n = self.num_rows();
-        let mut addrs = (0..n)
-            .map(|i| self.row(i)[column].as_int())
-            .collect::<Vec<u64>>();
-        addrs.sort_unstable();
-        addrs.dedup();
-        for (expected, &actual) in addrs.iter().enumerate() {
-            if actual != expected as u64 {
-                return Err(VmError::new(format!(
-                "physical address gap in {label} segment: expected address {expected}, found {actual}"
-            ))
-            .into());
-            }
-        }
-        Ok(())
     }
 }
 
@@ -381,7 +324,6 @@ mod tests {
         t.push_row(row);
         t.pad_to_power_of_two();
         assert_eq!(t.num_rows(), TraceTable::MIN_ROWS);
-        // Padding rows inherit pc/sp from last real row
         assert_eq!(t.row(1)[COL_PC], Felt::new(5));
         assert_eq!(t.row(1)[COL_SP], Felt::new(2));
     }

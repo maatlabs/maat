@@ -457,7 +457,7 @@ impl VM {
                 self.heap_values.insert(physical, initial);
                 self.push_stack(Value::Integer(Integer::U64(physical as u64)))?;
                 recorder.record_out(Felt::new(physical as u64));
-                recorder.record_heap_alloc(physical, initial_felt);
+                recorder.record_heap_access(physical, initial_felt, false);
             }
             Opcode::HeapRead => {
                 let logical = self.pop_heap_addr("HeapRead")?;
@@ -469,7 +469,7 @@ impl VM {
                 })?;
                 let value_felt = value.to_felt();
                 recorder.record_out(value_felt);
-                recorder.record_heap_read(physical, value_felt);
+                recorder.record_heap_access(physical, value_felt, true);
                 self.push_stack(value)?;
             }
             Opcode::HeapWrite => {
@@ -479,7 +479,7 @@ impl VM {
                 let physical = self.alloc_heap_physical()?;
                 self.heap_addr_map.insert(logical, physical);
                 self.heap_values.insert(physical, value);
-                recorder.record_heap_write(physical, value_felt);
+                recorder.record_heap_access(physical, value_felt, false);
             }
         }
         Ok(())
