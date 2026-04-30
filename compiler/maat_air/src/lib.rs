@@ -1,83 +1,65 @@
-//! CPU constraint system (AIR) for the Maat ZK backend.
+//! CPU constraint system (AIR) for the Maat STARK prover/verifier.
 //!
-//! This crate defines [`MaatAir`], an Algebraic Intermediate Representation that
-//! encodes the execution semantics of the Maat virtual machine as polynomial
-//! constraints over a Goldilocks field trace. Implementing Winterfell's `Air`
-//! trait, the AIR is the bridge between the trace-generating VM (`maat_trace`)
-//! and the STARK prover (`maat_prover`).
+//! This crate defines [`MaatAir`], an Algebraic Intermediate Representation
+//! that encodes the execution semantics of the Maat virtual machine as
+//! polynomial constraints over a Goldilocks field trace. Implementing
+//! Winterfell's [`Air`] trait, the AIR is the bridge between the
+//! trace generator (`maat_trace`) and the STARK prover (`maat_prover`).
 //!
 //! # Constraint summary
 //!
-//! The constraint system enforces:
+//! ## Main segment (49 columns, 68 transition constraints, 3 boundary assertions)
 //!
-//! ## Main segment (49 columns, 68 constraints)
+//! Selector validity, stack/PC/FP transitions, memory access flags, NOP
+//! padding invariance, range-check reconstruction, and per-opcode
+//! sub-selector structural and output constraints. See `main_segment` for
+//! the full table.
 //!
-//! - **Selector validity** (21): one-hot encoding of 20 opcode classes plus
-//!   selector-sum equals one.
-//! - **Stack pointer transitions** (6): net SP change per selector class
-//!   (push, binop, unary/heap-access, store, load, heap-write).
-//! - **Program counter transitions** (5): PC increment for uniform-width
-//!   opcode classes, unconditional and conditional jumps.
-//! - **Memory access consistency** (4): load/store read/write flags and values.
-//! - **Frame pointer management** (2): FP updates on call and return.
-//! - **NOP padding invariance** (4): frozen pc, sp, fp, and output during
-//!   trace padding rows.
-//! - **Range-check reconstruction** (1): limb decomposition identity.
-//! - **Range-check convert linking** (1): rc_val = OUT on convert rows.
-//! - **Range-check non-zero divisor** (1): S0 * inv = 1 on div/mod rows.
-//! - **Sub-selector structural & output** (22): per-opcode sub-selector
-//!   binary, parent-class subset, mutual exclusion, and output correctness
-//!   for arithmetic, division/modulo, unary, felt arithmetic, and equality.
-//! - **Width binding** (2): width-1 classes plus convert width-2.
+//! ## Auxiliary segment
 //!
-//! ## Auxiliary segment (8 columns, 8 constraints)
+//! The aux trace is partitioned between the unified memory permutation
+//! argument (owned by the CPU AIR directly) and one slice per registered
+//! builtin via the [`builtin::Builtin`] trait:
 //!
-//! - **Memory address continuity** (1): sorted memory addresses step by at
-//!   most 1.
-//! - **Memory single-value consistency** (1): same address implies same
-//!   value.
-//! - **Memory grand-product accumulator** (1): permutation argument proving
-//!   execution-order and address-sorted memory lists are the same multiset.
-//! - **Range-check sorted continuity** (4): consecutive sorted limb values
-//!   differ by at most 1, proving every limb lies in `[0, 2^16)`.
-//! - **Range-check permutation accumulator** (1): grand-product proving the
-//!   sorted limb pool is a permutation of the execution-order limbs.
-//!
-//! Total: 76 transition constraints (68 main + 8 auxiliary), max degree 5.
+//! - **Memory permutation** (3 columns, 3 transitions, 2 boundary
+//!   assertions, 2 verifier challenges): proves the execution-order and
+//!   address-sorted memory lists are permutations of each other under the
+//!   challenges `z` and `alpha`.
+//! - **Range-check builtin** (5 columns, 5 transitions, 2 boundary
+//!   assertions, 1 verifier challenge): proves every 16-bit limb emitted on
+//!   range-check trigger rows lies in `[0, 2^16)` via a sorted-pool grand
+//!   product.
+//! - **Identity builtin** (1 column, 1 transition, 2 boundary assertions,
+//!   0 verifier challenges): a structural smoke test that exercises the
+//!   dispatcher in production traces.
 //!
 //! Locals, globals, and heap cells share the unified memory permutation
-//! argument; heap accesses are lifted into a non-overlapping logical address
-//! range by the trace recorder.
+//! argument; heap accesses are lifted into a non-overlapping logical
+//! address range by the trace recorder.
 //!
 //! # Boundary assertions
 //!
-//! Seven assertions anchor the trace to the public inputs:
+//! Three on the main segment:
 //!
-//! **Main segment:**
 //! - `pc[0] = 0` (execution begins at instruction zero)
-//! - `sp[0] = 0` (empty stack at start)
+//! - `sp[0] = 0` (empty operand stack at start)
 //! - `out[last] = public_output` (program result matches claimed output)
 //!
-//! **Auxiliary segment:**
-//! - `mem_acc[0] = 1` (memory accumulator multiplicative identity)
-//! - `mem_acc[last] = 1` (memory grand product telescoped to one)
-//! - `rc_acc[0] = 1` (range-check accumulator multiplicative identity)
-//! - `rc_acc[last] = 1` (range-check grand product telescoped to one)
-//!
-//! # Limitations
-//!
-//! - Arithmetic/comparison/felt output verification is currently deferred
-//!   (requires opcode sub-selectors or auxiliary columns for discrimination).
-//! - PC increment for mixed-width selector classes (`sel_push`, `sel_load`,
-//!   `sel_construct`, `sel_collection`) is not yet constrained.
+//! Aux boundary assertions are contributed by the memory permutation
+//! argument and each registered builtin via the `aux_assertions` helper in
+//! the `aux_segment` module.
 #![forbid(unsafe_code)]
 
 mod aux_segment;
+mod builtin;
 mod main_segment;
 mod public_inputs;
 
-use aux_segment::{AUX_COL_MEM_ACC, AUX_COL_RC_ACC, AUX_CONSTRAINT_DEGREES};
 pub use aux_segment::{AUX_WIDTH, NUM_AUX_RANDS, build_aux_columns};
+use aux_segment::{
+    NUM_AUX_ASSERTIONS, NUM_AUX_CONSTRAINTS, aux_assertions, aux_constraint_degrees,
+};
+pub use builtin::{Builtin, BuiltinSet, IdentityBuiltin, RangeCheckBuiltin};
 use maat_trace::{COL_OUT, COL_PC, COL_SP};
 use main_segment::CONSTRAINT_DEGREES;
 pub use public_inputs::MaatPublicInputs;
@@ -88,28 +70,10 @@ use winter_air::{
 use winter_math::fields::f64::BaseElement;
 use winter_math::{ExtensionOf, FieldElement};
 
-/// The base field type used throughout the AIR.
-///
-/// This is the Goldilocks prime field `p = 2^64 - 2^32 + 1`, matching
-/// the field used by `maat_field::Felt`.
-pub type Felt = BaseElement;
-
 /// Number of boundary assertions on the main trace segment.
 const NUM_MAIN_ASSERTIONS: usize = 3;
 
-/// Number of boundary assertions on the auxiliary trace segment.
-const NUM_AUX_ASSERTIONS: usize = 4;
-
 /// Algebraic Intermediate Representation for the Maat virtual machine.
-///
-/// Encodes the execution semantics as a two-segment STARK constraint system:
-///
-/// - **Main segment** (49 columns): 68 transition constraints and 3 boundary
-///   assertions covering opcode selectors, stack/PC/FP transitions, memory
-///   access flags, NOP padding invariance, and range-check reconstruction.
-/// - **Auxiliary segment** (8 columns): 8 transition constraints and 4 boundary
-///   assertions implementing the unified memory permutation argument and the
-///   range-check sorted-limb permutation argument.
 pub struct MaatAir {
     context: AirContext<BaseElement>,
     public_inputs: MaatPublicInputs,
@@ -125,9 +89,9 @@ impl Air for MaatAir {
             .map(|&d| TransitionConstraintDegree::new(d))
             .collect::<Vec<_>>();
 
-        let aux_degrees = AUX_CONSTRAINT_DEGREES
-            .iter()
-            .map(|&d| TransitionConstraintDegree::new(d))
+        let aux_degrees = aux_constraint_degrees()
+            .into_iter()
+            .map(TransitionConstraintDegree::new)
             .collect::<Vec<_>>();
 
         let context = AirContext::new_multi_segment(
@@ -169,6 +133,7 @@ impl Air for MaatAir {
         F: FieldElement<BaseField = Self::BaseField>,
         E: FieldElement<BaseField = Self::BaseField> + ExtensionOf<F>,
     {
+        debug_assert_eq!(result.len(), NUM_AUX_CONSTRAINTS);
         aux_segment::evaluate(
             main_frame.current(),
             main_frame.next(),
@@ -181,13 +146,9 @@ impl Air for MaatAir {
 
     fn get_assertions(&self) -> Vec<Assertion<Self::BaseField>> {
         let last_step = self.trace_length() - 1;
-
         vec![
-            // pc[0] = 0: execution starts at instruction zero.
             Assertion::single(COL_PC, 0, BaseElement::ZERO),
-            // sp[0] = 0: empty operand stack at start.
             Assertion::single(COL_SP, 0, BaseElement::ZERO),
-            // out[last] = public_output: program produces the claimed result.
             Assertion::single(COL_OUT, last_step, self.public_inputs.output),
         ]
     }
@@ -196,18 +157,7 @@ impl Air for MaatAir {
         &self,
         _aux_rand_elements: &AuxRandElements<E>,
     ) -> Vec<Assertion<E>> {
-        let last_step = self.trace_length() - 1;
-
-        vec![
-            // mem_acc[0] = 1: memory accumulator starts at the multiplicative identity.
-            Assertion::single(AUX_COL_MEM_ACC, 0, E::ONE),
-            // mem_acc[last] = 1: memory grand product telescoped to one.
-            Assertion::single(AUX_COL_MEM_ACC, last_step, E::ONE),
-            // rc_acc[0] = 1: range-check accumulator starts at the multiplicative identity.
-            Assertion::single(AUX_COL_RC_ACC, 0, E::ONE),
-            // rc_acc[last] = 1: range-check grand product telescoped to one.
-            Assertion::single(AUX_COL_RC_ACC, last_step, E::ONE),
-        ]
+        aux_assertions::<E>(self.trace_length() - 1)
     }
 }
 
@@ -216,7 +166,7 @@ mod tests {
     use maat_trace::TRACE_WIDTH;
 
     use super::*;
-    use crate::aux_segment::{AUX_WIDTH, NUM_AUX_CONSTRAINTS, NUM_AUX_RANDS};
+    use crate::aux_segment::AUX_COL_MEM_ACC;
     use crate::main_segment::NUM_CONSTRAINTS;
 
     fn test_options() -> ProofOptions {
@@ -264,7 +214,7 @@ mod tests {
     }
 
     #[test]
-    fn aux_assertions_target_accumulators() {
+    fn aux_assertions_cover_memory_and_builtins() {
         let trace_info = multi_segment_trace_info(8);
         let pub_inputs = MaatPublicInputs::with_output(BaseElement::new(99));
         let air = MaatAir::new(trace_info, pub_inputs, test_options());
@@ -275,12 +225,9 @@ mod tests {
             BaseElement::new(11),
         ]);
         let assertions = air.get_aux_assertions(&rand_elements);
-        assert_eq!(assertions.len(), NUM_AUX_ASSERTIONS);
-        // Memory accumulator boundaries
+        assert_eq!(assertions.len(), aux_segment::NUM_AUX_ASSERTIONS);
+        // Memory boundary assertions come first.
         assert_eq!(assertions[0].column(), AUX_COL_MEM_ACC);
         assert_eq!(assertions[1].column(), AUX_COL_MEM_ACC);
-        // Range-check accumulator boundaries
-        assert_eq!(assertions[2].column(), AUX_COL_RC_ACC);
-        assert_eq!(assertions[3].column(), AUX_COL_RC_ACC);
     }
 }
