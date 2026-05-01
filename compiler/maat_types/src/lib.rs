@@ -28,11 +28,6 @@ pub use ty::{
 };
 use unify::{Substitution, UnifyError};
 
-/// Compile-time type checker for the AST.
-///
-/// Performs Hindley-Milner-style type inference with explicit annotations,
-/// numeric promotion rules, compile-time overflow checking, and full
-/// validation of user-defined types (structs, enums, traits, impls).
 pub struct TypeChecker {
     env: TypeEnv,
     subst: Substitution,
@@ -40,15 +35,6 @@ pub struct TypeChecker {
     bitwise_ops: Vec<BitwiseOp>,
 }
 
-/// A bitwise or shift operation captured during inference for late
-/// validation against the resolved operand types.
-///
-/// Bitwise opcodes are sound in the AIR only when both operands are
-/// unsigned integers in the canonical felt range, because the trace's
-/// `value_to_felt` encoding interprets a signed `i64` as a
-/// modular integer (`from_i64(-1) = p - 1`) while the
-/// bitwise semantics operate on the raw two's-complement bit pattern; the
-/// two views are not field-congruent.
 struct BitwiseOp {
     operator: String,
     lhs_ty: Type,
@@ -64,7 +50,6 @@ impl Default for TypeChecker {
 }
 
 impl TypeChecker {
-    /// Creates a new type checker with builtins pre-registered.
     pub fn new() -> Self {
         let mut env = TypeEnv::new();
         env.register_builtins();
@@ -76,33 +61,19 @@ impl TypeChecker {
         }
     }
 
-    /// Returns a reference to the type environment.
     pub fn env(&self) -> &TypeEnv {
         &self.env
     }
 
-    /// Returns a mutable reference to the type environment.
     pub fn env_mut(&mut self) -> &mut TypeEnv {
         &mut self.env
     }
 
-    /// Type-checks a program, mutating the AST to insert promotion casts.
-    ///
-    /// Performs two passes: the first registers all type declarations (structs,
-    /// enums, traits) so that forward references resolve correctly; the second
-    /// checks all statements including impl blocks and expressions.
-    ///
-    /// Returns accumulated type errors (empty if the program is well-typed).
     pub fn check_program(mut self, program: &mut Program) -> Vec<TypeError> {
         self.check_program_mut(program);
         self.errors
     }
 
-    /// Type-checks a program without consuming the checker.
-    ///
-    /// Behaves identically to [`check_program`](Self::check_program) but
-    /// borrows `self` mutably, allowing the caller to inspect the type
-    /// environment afterwards (e.g., to extract module exports).
     pub fn check_program_mut(&mut self, program: &mut Program) {
         for stmt in &program.statements {
             match stmt {
@@ -120,16 +91,10 @@ impl TypeChecker {
         self.validate_u64_literals(program);
     }
 
-    /// Returns the accumulated type errors.
     pub fn errors(&self) -> &[TypeError] {
         &self.errors
     }
 
-    /// Drains and returns all accumulated type errors, leaving the
-    /// error buffer empty for the next check cycle.
-    ///
-    /// This is used by the REPL to persist a single `TypeChecker` across
-    /// iterations while collecting errors per-iteration.
     pub fn drain_errors(&mut self) -> Vec<TypeError> {
         std::mem::take(&mut self.errors)
     }
@@ -254,8 +219,6 @@ impl TypeChecker {
         });
     }
 
-    /// Resolves a type expression for a struct/enum field, treating names
-    /// that match a generic parameter as `Type::Generic`.
     fn resolve_field_type(&mut self, ty: &TypeExpr, generic_params: &[String]) -> Type {
         match ty {
             TypeExpr::Named(named) if generic_params.contains(&named.name) => {
@@ -365,7 +328,6 @@ impl TypeChecker {
         self.env.pop_scope();
     }
 
-    /// Type-checks a named function declaration and binds it in the environment.
     fn check_fn_item(&mut self, fn_item: &mut FuncDef) {
         let fn_ty = self.infer_fn_body(
             &fn_item.generic_params,
@@ -378,7 +340,6 @@ impl TypeChecker {
         self.env.define_scheme(&fn_item.name, scheme);
     }
 
-    /// Shared inference logic for function bodies (used by both `FuncDef` and `Lambda`).
     fn infer_fn_body(
         &mut self,
         generic_params: &[GenericParam],
@@ -473,8 +434,6 @@ impl TypeChecker {
         });
     }
 
-    /// Verifies that an impl block provides all required trait methods with
-    /// compatible signatures.
     fn verify_trait_satisfaction(
         &mut self,
         trait_name: &str,
@@ -524,8 +483,6 @@ impl TypeChecker {
         }
     }
 
-    /// Infers the type of an expression, potentially mutating it
-    /// (e.g., inserting promotion casts on infix operands).
     fn infer_expression(&mut self, expr: &mut Expr) -> Type {
         match expr {
             Expr::Number(lit) => match lit.kind {
@@ -604,7 +561,6 @@ impl TypeChecker {
         }
     }
 
-    /// Infers the element type of a vector.
     fn infer_vector(&mut self, vector: &mut Vector) -> Type {
         if vector.elements.is_empty() {
             let elem = self.env.fresh_var();
@@ -621,7 +577,6 @@ impl TypeChecker {
         }
     }
 
-    /// Infers the key and value types of a map literal.
     fn infer_map(&mut self, map: &mut MapLit) -> Type {
         if map.pairs.is_empty() {
             let k = self.env.fresh_var();
@@ -650,7 +605,6 @@ impl TypeChecker {
         }
     }
 
-    /// Infers the result type of an index expression (`expr[index]`).
     fn infer_index(&mut self, idx: &mut IndexExpr) -> Type {
         let collection = self.infer_expression(&mut idx.expr);
         let _index_ty = self.infer_expression(&mut idx.index);
@@ -666,7 +620,6 @@ impl TypeChecker {
         }
     }
 
-    /// Infers the result type of a prefix (unary) expression.
     fn infer_prefix(&mut self, prefix: &mut PrefixExpr) -> Type {
         let operand_ty = self.infer_expression(&mut prefix.operand);
         let resolved = self.subst.apply(&operand_ty);
@@ -691,7 +644,6 @@ impl TypeChecker {
         }
     }
 
-    /// Infers the result type of an `if`/`else` conditional expression.
     fn infer_conditional(&mut self, cond: &mut CondExpr) -> Type {
         let cond_ty = self.infer_expression(&mut cond.condition);
         let cond_resolved = self.subst.apply(&cond_ty);
@@ -714,7 +666,6 @@ impl TypeChecker {
         }
     }
 
-    /// Infers the type of a range expression (`start..end` or `start..=end`).
     fn infer_range(&mut self, range: &mut RangeExpr) -> Type {
         let start_ty = self.infer_expression(&mut range.start);
         let end_ty = self.infer_expression(&mut range.end);
@@ -737,10 +688,6 @@ impl TypeChecker {
         Type::Range(Box::new(elem_ty))
     }
 
-    /// Infers the element type and length of a fixed-size array literal.
-    ///
-    /// All elements must unify to a single type. The resulting type carries the
-    /// static length `N`, making `[T; 3]` and `[T; 4]` distinct types.
     fn infer_array(&mut self, arr: &mut ArrayLit) -> Type {
         if arr.elements.is_empty() {
             let elem = self.env.fresh_var();
@@ -756,12 +703,6 @@ impl TypeChecker {
         Type::Array(Box::new(self.subst.apply(&first)), arr.elements.len())
     }
 
-    /// Attempts to coerce a `Vector` literal to a fixed-size `Array` type.
-    ///
-    /// Returns `true` if the coercion was applied (i.e., the expected type is
-    /// `[T; N]`, the inferred type is `[T]`, and the literal has exactly `N`
-    /// elements). Element types are unified; a length mismatch is reported as
-    /// a type error.
     fn try_coerce_vector_to_array(
         &mut self,
         expected: &Type,
@@ -807,7 +748,6 @@ impl TypeChecker {
         true
     }
 
-    /// Type-checks a function call expression.
     fn check_call_expr(&mut self, call: &mut CallExpr) -> Type {
         let func_ty = self.infer_expression(&mut call.function);
         let resolved = self.subst.apply(&func_ty);
@@ -858,7 +798,6 @@ impl TypeChecker {
         }
     }
 
-    /// Validates that a `Type::from(value)` call is a lossless conversion.
     fn validate_from_conversion(&mut self, call: &CallExpr, arg_types: &[Type], ret: &Type) {
         let is_from_path = matches!(
             call.function.as_ref(),
@@ -883,7 +822,6 @@ impl TypeChecker {
         }
     }
 
-    /// Type-checks a builtin macro invocation.
     fn check_macro_call(&mut self, mc: &mut MacroCallExpr) -> Type {
         for arg in &mut mc.arguments {
             self.infer_expression(arg);
@@ -895,8 +833,6 @@ impl TypeChecker {
         }
     }
 
-    /// Type-checks a struct literal expression (e.g., `Point { x: 1, y: 2 }`)
-    /// or with functional update syntax (e.g., `Point { x: 10, ..other }`).
     fn check_struct_literal(&mut self, lit: &mut StructLitExpr) -> Type {
         let struct_def = self.env.lookup_struct(&lit.name).cloned();
         let Some(def) = struct_def else {
@@ -952,7 +888,6 @@ impl TypeChecker {
         expected_struct_ty
     }
 
-    /// Type-checks a path expression (e.g., `Option::Some`, `Color::Red`).
     fn check_path_expr(&mut self, path: &PathExpr) -> Type {
         if path.segments.len() == 2 {
             let type_name = &path.segments[0];
@@ -1168,10 +1103,6 @@ impl TypeChecker {
         }
     }
 
-    /// Type-checks the try operator (`expr?`).
-    ///
-    /// Validates that the operand is `Option<T>` or `Result<T, E>` and
-    /// returns the inner success type `T`.
     fn check_try_expr(&mut self, expr: &mut TryExpr) -> Type {
         let inner_ty = self.infer_expression(&mut expr.expr);
         let resolved = self.subst.apply(&inner_ty);
@@ -1229,8 +1160,6 @@ impl TypeChecker {
             .unwrap_or(Type::Never)
     }
 
-    /// Checks a pattern against the scrutinee type, introducing bindings
-    /// into the current scope.
     fn check_pattern(&mut self, p: &Pattern, scrutinee_ty: &Type) {
         match p {
             Pattern::Wildcard(_) => {}
@@ -1292,7 +1221,6 @@ impl TypeChecker {
         }
     }
 
-    /// Checks a tuple-struct pattern (e.g., `Some(x)`) against the scrutinee.
     fn check_tuple_struct_pattern(
         &mut self,
         variant_name: &str,
@@ -1372,7 +1300,6 @@ impl TypeChecker {
         }
     }
 
-    /// Checks a struct pattern (e.g., `Point { x, y }`) against the scrutinee.
     fn check_struct_pattern(
         &mut self,
         type_name: &str,
@@ -1433,10 +1360,6 @@ impl TypeChecker {
         }
     }
 
-    /// Resolves a bare identifier as an enum variant constructor.
-    ///
-    /// Enables prelude-style usage: `Some(x)`, `None`, `Ok(v)`, `Err(e)`
-    /// without requiring qualified paths like `Option::Some(x)`.
     fn resolve_bare_variant(&mut self, name: &str) -> Option<Type> {
         let (enum_def, type_args) = self.find_enum_for_variant(name)?;
         let variant = enum_def.variants.iter().find(|v| v.name == name)?;
@@ -1467,7 +1390,6 @@ impl TypeChecker {
         }
     }
 
-    /// Searches all registered enums for a variant with the given name.
     fn find_enum_for_variant(&mut self, variant_name: &str) -> Option<(EnumDef, Vec<Type>)> {
         let def = self
             .env
@@ -1482,7 +1404,6 @@ impl TypeChecker {
         Some((def, type_args))
     }
 
-    /// Substitutes generic type parameters with concrete type arguments.
     fn instantiate_generic_type(
         &self,
         ty: &Type,
@@ -1534,11 +1455,6 @@ impl TypeChecker {
         }
     }
 
-    /// Checks that a `match` expression is exhaustive.
-    ///
-    /// For enum types, verifies that all variants are covered (or a wildcard/
-    /// catch-all pattern is present). For non-enum types, requires a wildcard
-    /// or ident catch-all.
     fn check_exhaustiveness(&mut self, scrutinee_ty: &Type, match_expr: &MatchExpr) {
         let enum_def = match scrutinee_ty {
             Type::Enum(name, _) => self.env.lookup_enum(name).cloned(),
@@ -1603,10 +1519,6 @@ impl TypeChecker {
         }
     }
 
-    /// Returns `true` if the pattern catches all values unconditionally.
-    ///
-    /// An ident pattern is a catch-all unless it matches a known enum variant
-    /// name in the scrutinee's enum type.
     fn pattern_is_catch_all(&self, p: &Pattern, enum_def: &Option<EnumDef>) -> bool {
         match p {
             Pattern::Wildcard(_) => true,
@@ -1617,7 +1529,6 @@ impl TypeChecker {
         }
     }
 
-    /// Extracts the variant name from a pattern if it is a constructor pattern.
     fn extract_variant_name<'a>(&self, p: &'a Pattern, enum_def: &EnumDef) -> Option<&'a str> {
         match p {
             Pattern::TupleStruct { path, .. } => Some(path.as_str()),
@@ -1637,7 +1548,6 @@ impl TypeChecker {
         }
     }
 
-    /// Checks an infix expression, inserting promotion casts if needed.
     fn check_infix(&mut self, infix: &mut InfixExpr) -> Type {
         if infix.operator == "&&" || infix.operator == "||" {
             let lhs_ty = self.infer_expression(&mut infix.lhs);
@@ -1660,10 +1570,7 @@ impl TypeChecker {
             infix.operator.as_str(),
             "<" | ">" | "<=" | ">=" | "==" | "!="
         );
-        // Record bitwise and shift operators for a late validation pass
-        // after inference completes; the operand types may still be
-        // `IntVar`s here, and a top-level `let x: u64 = ...` annotation only
-        // propagates after `check_infix` returns.
+
         if matches!(infix.operator.as_str(), "&" | "|" | "^" | "<<" | ">>") {
             self.bitwise_ops.push(BitwiseOp {
                 operator: infix.operator.clone(),
@@ -1673,15 +1580,14 @@ impl TypeChecker {
                 rhs_span: infix.rhs.span(),
             });
         }
-        // Fixed-size array equality: record the static length so codegen can
-        // unroll the comparison into an element-wise chain over heap reads.
+
         if matches!(infix.operator.as_str(), "==" | "!=")
             && let (Type::Array(_, n_lhs), Type::Array(_, n_rhs)) = (&lhs_resolved, &rhs_resolved)
             && n_lhs == n_rhs
         {
             infix.array_eq_len = Some(*n_lhs);
         }
-        // String concatenation and comparison
+
         if lhs_resolved == Type::Str && rhs_resolved == Type::Str {
             if infix.operator == "+" {
                 return Type::Str;
@@ -1690,18 +1596,18 @@ impl TypeChecker {
                 return Type::Bool;
             }
         }
-        // Boolean equality
+
         if (infix.operator == "==" || infix.operator == "!=")
             && lhs_resolved == Type::Bool
             && rhs_resolved == Type::Bool
         {
             return Type::Bool;
         }
-        // Char equality and comparison
+
         if lhs_resolved == Type::Char && rhs_resolved == Type::Char && is_comparison {
             return Type::Bool;
         }
-        // Field-element arithmetic
+
         if lhs_resolved == Type::Felt && rhs_resolved == Type::Felt {
             match infix.operator.as_str() {
                 "+" | "-" | "*" | "/" => {
@@ -1726,7 +1632,7 @@ impl TypeChecker {
                 _ => {}
             }
         }
-        // Numeric operations: both operands must be the same integer type.
+
         if lhs_resolved.is_integer() && rhs_resolved.is_integer() {
             if lhs_resolved != rhs_resolved {
                 if matches!(lhs_resolved, Type::IntVar(_))
@@ -1772,8 +1678,6 @@ impl TypeChecker {
         }
     }
 
-    /// Validates that every recorded bitwise / shift operation has unsigned-integer
-    /// operands whose canonical felt encoding equals their raw bit pattern.
     fn validate_bitwise_ops(&mut self) {
         let ops = std::mem::take(&mut self.bitwise_ops);
         for op in ops {
@@ -1785,7 +1689,21 @@ impl TypeChecker {
     }
 
     fn check_bitwise_operand(&mut self, operator: &str, ty: &Type, span: Span) {
-        if Self::is_bitwise_safe_unsigned(ty) {
+        let is_shift = matches!(operator, "<<" | ">>");
+        if is_shift {
+            if ty.is_shift_safe_unsigned() {
+                return;
+            }
+            self.errors.push(
+                TypeErrorKind::Unsupported(format!(
+                    "bitwise operator `{operator}` requires an unsigned integer operand \
+                     in the range `u64`/`usize`, found `{ty}`; cast the operand via `as u64`."
+                ))
+                .at(span),
+            );
+            return;
+        }
+        if ty.is_bitwise_safe_unsigned() {
             return;
         }
         self.errors.push(
@@ -1798,24 +1716,6 @@ impl TypeChecker {
         );
     }
 
-    /// Returns `true` iff `ty` is an unsigned integer whose `value_to_felt`
-    /// encoding equals its raw bit pattern in the canonical `[0, p)` range.
-    ///
-    /// `u128` is excluded because its felt encoding is `Felt::ZERO` (lossy);
-    /// signed integers are excluded because `Felt::from_i64` interprets them
-    /// as modular integers, not as bit strings.
-    fn is_bitwise_safe_unsigned(ty: &Type) -> bool {
-        matches!(
-            ty,
-            Type::U8 | Type::U16 | Type::U32 | Type::U64 | Type::Usize
-        )
-    }
-
-    /// Rejects `u64` and `usize` literals whose value lies in the off-canonical
-    /// sliver `[p, 2^64)`. Goldilocks `p = 2^64 - 2^32 + 1`, so values in this
-    /// range round-trip as `value - p` through the field encoding, breaking
-    /// bit-pattern equality on the prover side. Programs that genuinely need
-    /// values in this range must construct them via `Felt::new(...)` directly.
     fn validate_u64_literals(&mut self, program: &mut Program) {
         for stmt in &program.statements {
             self.validate_u64_literals_in_stmt(stmt);
@@ -2023,7 +1923,6 @@ impl TypeChecker {
         }
     }
 
-    /// Infers the type of a block (the type of its last expression statement).
     fn infer_block(&mut self, block: &mut BlockStmt) -> Type {
         let mut last = Type::Unit;
         for stmt in &mut block.statements {
@@ -2044,7 +1943,6 @@ impl TypeChecker {
         last
     }
 
-    /// Checks that a literal value fits within the declared type's range.
     fn check_literal_range(&mut self, expr: &Expr, expected: &Type, span: Span) {
         let Some(val) = expr.extract_integer_value() else {
             return;
@@ -2081,7 +1979,6 @@ impl TypeChecker {
         }
     }
 
-    /// Ensures a resolved type is `Bool`, reporting a mismatch if not.
     fn require_bool(&mut self, resolved: &Type, span: Span) {
         if !matches!(resolved, Type::Bool | Type::Var(_)) {
             self.errors.push(

@@ -6,29 +6,17 @@ use maat_errors::TypeErrorKind;
 
 use crate::{FnType, Type, TypeVarId};
 
-/// A mapping from type variables to their resolved types.
 #[derive(Debug, Clone, Default)]
 pub struct Substitution {
     map: IndexMap<TypeVarId, Type>,
 }
 
 impl Substitution {
-    /// Creates an empty substitution.
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Applies this substitution to a type, recursively resolving all type variables.
-    ///
-    /// # Stack depth
-    ///
-    /// The `Type::Var` branch recurses through chained variable bindings
-    /// (`?0 -> ?1 -> ?2 -> ... -> T`). In well-formed substitutions produced by
-    /// `unify`, chain depth is bounded by the number of distinct type variables
-    /// in the program. However, pathologically deep chains could exhaust the
-    /// call stack in debug builds (where frames are larger and tail-call
-    /// optimization is absent). This is acceptable for the current compiler
-    /// because real Maat programs produce substitution chains of trivial depth.
     pub fn apply(&self, ty: &Type) -> Type {
         match ty {
             Type::Var(id) | Type::IntVar(id) => match self.get(id) {
@@ -124,19 +112,16 @@ impl Substitution {
         }
     }
 
-    /// Looks up the binding for a type variable.
     pub fn get(&self, var: &TypeVarId) -> Option<&Type> {
         self.map.get(var)
     }
 
-    /// Resolves all `NumKind::Int` literals to concrete integer types.
     pub fn resolve_inferred_literals(&self, program: &mut Program) {
         for stmt in &mut program.statements {
             self.resolve_literals_in_stmt(stmt);
         }
     }
 
-    /// Resolves `NumKind::Int` literals within a single statement, iteratively.
     fn resolve_literals_in_stmt(&self, stmt: &mut Stmt) {
         match stmt {
             Stmt::Let(let_stmt) => self.resolve_literals_in_expr(&mut let_stmt.value),
@@ -185,7 +170,6 @@ impl Substitution {
         }
     }
 
-    /// Resolves `NumKind::Int` literals within an expression tree.
     fn resolve_literals_in_expr(&self, expr: &mut Expr) {
         match expr {
             Expr::Number(lit) if matches!(lit.kind, NumKind::Int { .. }) => {
@@ -309,9 +293,6 @@ impl Substitution {
         }
     }
 
-    /// Resolves a type, defaulting any remaining `IntVar`s to `i64`.
-    ///
-    /// Called after inference completes to produce fully concrete types.
     pub fn resolve_int_vars(&self, ty: &Type) -> Type {
         let resolved = self.apply(ty);
         match resolved {
@@ -320,12 +301,10 @@ impl Substitution {
         }
     }
 
-    /// Binds a type variable to a type.
     pub fn bind(&mut self, var: TypeVarId, ty: Type) {
         self.map.insert(var, ty);
     }
 
-    /// Binds a type variable to a type, performing the `occurs` check.
     fn bind_var(&mut self, var: TypeVarId, ty: &Type) -> Result<(), UnifyError> {
         if self.occurs(var, ty) {
             return Err(UnifyError::OccursCheck(var, ty.clone()));
@@ -334,7 +313,6 @@ impl Substitution {
         Ok(())
     }
 
-    /// Returns `true` if the type variable `var` occurs anywhere in `ty`.
     fn occurs(&self, var: TypeVarId, ty: &Type) -> bool {
         match ty {
             Type::Var(id) | Type::IntVar(id) => *id == var,
@@ -352,12 +330,9 @@ impl Substitution {
     }
 }
 
-/// Unification error details.
 #[derive(Debug, Clone)]
 pub enum UnifyError {
-    /// These two types cannot be unified.
     Mismatch(Type, Type),
-    /// A type variable occurs in the type it would be bound to (infinite type).
     OccursCheck(TypeVarId, Type),
 }
 
