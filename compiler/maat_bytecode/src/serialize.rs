@@ -1,8 +1,7 @@
 //! Binary serialization and deserialization for compiled bytecode.
 //!
-//! Uses [`postcard`] (a `serde`-compatible compact binary format) for the
-//! payload, wrapped in a custom header for format identification and version
-//! control.
+//! Uses [`postcard`] for the payload, wrapped in a custom header for
+//! format identification and version control.
 //!
 //! # Wire Format
 //!
@@ -10,47 +9,20 @@
 //! Header:  BYTECODE_MAGIC "MATC" (4B) + FORMAT_VERSION u32 BE (4B)
 //! Payload: postcard-encoded Bytecode (variable length)
 //! ```
-//!
-//! The header uses fixed big-endian encoding for human-readable hex dumps
-//! and consistent identification. The payload delegates entirely to postcard's
-//! varint-based encoding, which handles all `Bytecode` fields including the
-//! constant pool, source map, and instruction stream.
 
 use maat_errors::SerializationError;
 
 use crate::{Bytecode, MAX_CONSTANT_POOL_SIZE};
 
-/// Magic bytes identifying a Maat bytecode file.
 const BYTECODE_MAGIC: [u8; 4] = *b"MATC";
-
-/// Current format version. Incremented when the binary layout changes
-/// in a backward-incompatible way.
 const BYTECODE_VERSION: u32 = 1;
-
-/// Header size in bytes (4-byte magic + 4-byte version).
 const HEADER_SIZE: usize = 4 + 4;
-
-/// Maximum payload size (16 MiB). Rejects absurdly large `.mtc` files before
-/// postcard attempts allocation-heavy deserialization.
 const MAX_PAYLOAD_SIZE: usize = 16 * 1024 * 1024;
-
-/// Maximum number of bytecode instructions (1M). Prevents malicious files from
-/// allocating huge instruction streams.
 const MAX_INSTRUCTION_COUNT: usize = 1_000_000;
 
 type Result<T> = std::result::Result<T, SerializationError>;
 
 impl Bytecode {
-    /// Serializes this bytecode to a binary representation.
-    ///
-    /// The output can be written to a `.mtc` file and later restored with
-    /// [`deserialize`](Self::deserialize). The format consists of an 8-byte
-    /// header (magic + version) followed by a postcard-encoded payload.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the constant pool contains value types that cannot be represented in
-    /// the binary format (e.g., `Builtin` function pointers or tree-walking `Function` objects).
     pub fn serialize(&self) -> Result<Vec<u8>> {
         let payload = postcard::to_allocvec(self)
             .map_err(|e| SerializationError::PostcardEncode(e.to_string()))?;
@@ -62,13 +34,6 @@ impl Bytecode {
         Ok(out)
     }
 
-    /// Deserializes bytecode from a binary representation produced by
-    /// [`serialize`](Self::serialize).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the data is malformed, exceeds resource limits,
-    /// or contains an unsupported format version.
     pub fn deserialize(bytes: &[u8]) -> Result<Self> {
         if bytes.len() < HEADER_SIZE {
             return Err(SerializationError::UnexpectedEof {

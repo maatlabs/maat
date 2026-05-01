@@ -43,8 +43,6 @@ pub struct TraceRecorder {
 }
 
 impl TraceRecorder {
-    /// Creates a fresh recorder with an empty trace and the initial frame
-    /// pointer rooted at the global address space boundary.
     pub fn new() -> Self {
         Self {
             trace: TraceTable::new(),
@@ -58,7 +56,6 @@ impl TraceRecorder {
         }
     }
 
-    /// Consumes the recorder and returns the populated trace table.
     pub fn into_trace(self) -> TraceTable {
         self.trace
     }
@@ -99,8 +96,6 @@ impl TraceRecorder {
         Ok(())
     }
 
-    /// Emits one synthetic NOP row per parameter, provably writing the
-    /// argument value to the callee's logical slot `new_fp + i`.
     fn emit_parameter_writes(
         &mut self,
         call_ip: usize,
@@ -239,7 +234,6 @@ impl Tracer for TraceRecorder {
     }
 
     fn record_call_builtin(&mut self) {
-        // Builtin calls do not change FP; constraint 33 expects out = fp_next = fp.
         self.current[COL_OUT] = Felt::new(self.fp as u64);
     }
 
@@ -265,9 +259,6 @@ impl Tracer for TraceRecorder {
     }
 
     fn record_div_mod_witness(&mut self, op: Opcode, divisor: Felt, dividend: Felt, result: Felt) {
-        // The divisor is the pre-execution stack top (`s0`) and the dividend
-        // is one below (`s1`). `nonzero_inv` proves the divisor is non-zero
-        // and `div_aux` closes the `Div`/`Mod` identity.
         if divisor == Felt::ZERO {
             return;
         }

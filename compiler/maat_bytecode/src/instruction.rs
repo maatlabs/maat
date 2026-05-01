@@ -6,17 +6,10 @@ use serde::{Deserialize, Serialize};
 use crate::Opcode;
 
 /// A sequence of bytecode instructions.
-///
-/// Instructions are represented as a byte vector where each instruction
-/// consists of an opcode byte followed by zero or more operand bytes.
-/// All multi-byte operands are encoded in big-endian format.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Instructions(Vec<u8>);
 
-/// Tracks the most recently emitted instruction for peephole operations.
-///
-/// The compiler maintains a two-instruction history to support operations
-/// like removing trailing `OpPop` instructions from block expressions.
+/// The most recently emitted instruction for peephole operations.
 #[derive(Debug, Clone, Copy)]
 pub struct Instruction {
     pub opcode: Opcode,
@@ -24,58 +17,43 @@ pub struct Instruction {
 }
 
 impl Instructions {
-    /// Creates an empty instruction sequence.
     #[inline]
     pub const fn new() -> Self {
         Self(Vec::new())
     }
 
-    /// Creates an instruction sequence from a byte vector.
     #[inline]
     pub fn from_bytes(bytes: Vec<u8>) -> Self {
         Self(bytes)
     }
 
-    /// Returns a reference to the underlying byte slice.
     #[inline]
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 
-    /// Returns the number of bytes in this instruction sequence.
     #[inline]
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
-    /// Returns `true` if this instruction sequence is empty.
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 
-    /// Appends another instruction sequence to this one.
     pub fn extend(&mut self, other: &Self) {
         self.0.extend_from_slice(&other.0);
     }
 
-    /// Appends raw bytes to this instruction sequence.
     pub fn extend_from_bytes(&mut self, bytes: &[u8]) {
         self.0.extend_from_slice(bytes);
     }
 
-    /// Replaces bytes in the instruction stream starting at `pos`.
-    ///
-    /// Used by the compiler to patch forward jump targets after
-    /// the jump destination is known.
     pub fn replace_bytes(&mut self, pos: usize, bytes: &[u8]) {
         self.0[pos..pos + bytes.len()].copy_from_slice(bytes);
     }
 
-    /// Truncates the instruction stream to the given length.
-    ///
-    /// Used by the compiler to remove trailing instructions (e.g., removing
-    /// a trailing `OpPop` from block expressions).
     pub fn truncate(&mut self, len: usize) {
         self.0.truncate(len);
     }
@@ -156,20 +134,6 @@ impl fmt::Display for Instructions {
 /// # Returns
 ///
 /// A byte vector containing the opcode byte followed by encoded operand bytes.
-///
-/// # Examples
-///
-/// ```
-/// use maat_bytecode::{Opcode, encode};
-///
-/// // Encode OpConstant instruction referencing constant pool index 65534
-/// let instruction = encode(Opcode::Constant, &[65534]);
-/// assert_eq!(instruction, vec![0, 255, 254]);
-///
-/// // Encode OpAdd instruction with no operands
-/// let instruction = encode(Opcode::Add, &[]);
-/// assert_eq!(instruction, vec![1]);
-/// ```
 pub fn encode(opcode: Opcode, operands: &[usize]) -> Vec<u8> {
     let widths = opcode.operand_widths();
     let mut instruction = vec![opcode.to_byte()];
@@ -198,19 +162,6 @@ pub fn encode(opcode: Opcode, operands: &[usize]) -> Vec<u8> {
 ///
 /// Returns `DecodeError` if the bytecode is malformed (truncated operands or
 /// unsupported operand widths).
-///
-/// # Examples
-///
-/// ```
-/// use maat_bytecode::{Opcode, encode, decode_operands};
-///
-/// let instruction = encode(Opcode::Constant, &[65535]);
-/// let widths = Opcode::Constant.operand_widths();
-/// let (operands, bytes_read) = decode_operands(widths, &instruction[1..]).unwrap();
-///
-/// assert_eq!(operands, vec![65535]);
-/// assert_eq!(bytes_read, 2);
-/// ```
 pub fn decode_operands(widths: &[usize], bytes: &[u8]) -> Result<(Vec<usize>, usize), DecodeError> {
     let mut operands = Vec::with_capacity(widths.len());
     let mut offset = 0;

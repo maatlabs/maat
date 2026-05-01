@@ -6,7 +6,8 @@
 
 use maat_air::MaatPublicInputs;
 use maat_bytecode::{
-    Bytecode, Instructions, Opcode, SUB_SEL_ADD, SUB_SEL_EQ, SUB_SEL_FELT_ADD, SUB_SEL_NEG, encode,
+    Bytecode, Instructions, Opcode, SUB_SEL_ADD, SUB_SEL_AND, SUB_SEL_EQ, SUB_SEL_FELT_ADD,
+    SUB_SEL_NEG, SUB_SEL_OR, SUB_SEL_SHL, SUB_SEL_SHR, SUB_SEL_XOR, encode,
 };
 use maat_field::Felt;
 use maat_prover::{
@@ -23,7 +24,7 @@ use winter_math::fields::f64::BaseElement;
 /// Compiles source, runs the trace, and returns everything needed for proving.
 fn compile_and_trace(source: &str) -> (Bytecode, TraceTable, BaseElement) {
     let bytecode = maat_tests::compile(source);
-    let (trace, result) = maat_trace::run_trace(bytecode.clone()).expect("trace execution failed");
+    let (trace, result) = maat_trace::run(bytecode.clone()).expect("trace execution failed");
     let output = result.map(|v| v.to_felt()).unwrap_or(BaseElement::ZERO);
     (bytecode, trace, output)
 }
@@ -143,7 +144,7 @@ fn synthetic_heap_write_then_read_bytecode(initial: i64, updated: i64) -> Byteco
 }
 
 fn prove_synthetic_heap(bytecode: Bytecode, expected_output: BaseElement) {
-    let (trace, _) = maat_trace::run_trace(bytecode.clone()).expect("heap trace failed");
+    let (trace, _) = maat_trace::run(bytecode.clone()).expect("heap trace failed");
     let program_hash = compute_program_hash(&bytecode).expect("program hash failed");
     let public_inputs = MaatPublicInputs::new(program_hash, vec![], expected_output);
     let prover = MaatProver::new(development_options(), public_inputs.clone());
@@ -154,7 +155,7 @@ fn prove_synthetic_heap(bytecode: Bytecode, expected_output: BaseElement) {
 }
 
 fn prove_synthetic_heap_production(bytecode: Bytecode, expected_output: BaseElement) {
-    let (trace, _) = maat_trace::run_trace(bytecode.clone()).expect("heap trace failed");
+    let (trace, _) = maat_trace::run(bytecode.clone()).expect("heap trace failed");
     let program_hash = compute_program_hash(&bytecode).expect("program hash failed");
     let public_inputs = MaatPublicInputs::new(program_hash, vec![], expected_output);
     let prover = MaatProver::new(production_options(), public_inputs.clone());
@@ -814,7 +815,7 @@ fn heap_synthetic_write_then_read_development() {
 #[test]
 fn heap_synthetic_single_value_tampered_rejected() {
     let bytecode = synthetic_heap_alloc_read_bytecode(42);
-    let (mut trace, _) = maat_trace::run_trace(bytecode.clone()).expect("heap trace failed");
+    let (mut trace, _) = maat_trace::run(bytecode.clone()).expect("heap trace failed");
 
     // Find the first row that records the heap-allocated value 42 in the
     // unified memory column and corrupt it. The memory permutation argument
@@ -885,4 +886,119 @@ fn physical_address_gap_rejected() {
             );
         }
     }
+}
+
+#[test]
+fn prove_and_verify_bitwise_and() {
+    prove_and_verify(
+        "
+        let a: u64 = 0xCAFEBABEDEADBEEF;
+        let b: u64 = 0x0F0F0F0F0F0F0F0F;
+        a & b
+        ",
+    );
+}
+
+#[test]
+fn tampered_bitwise_and_output_rejected() {
+    let source = "
+        let a: u64 = 0xCAFEBABEDEADBEEF;
+        let b: u64 = 0x0F0F0F0F0F0F0F0F;
+        a & b
+    ";
+    let (bytecode, mut trace, output) = compile_and_trace(source);
+    tamper_output_on_sub_sel(&mut trace, SUB_SEL_AND);
+    assert_tampered_trace_rejected(bytecode, trace, output, "bitwise and");
+}
+
+#[test]
+fn prove_and_verify_bitwise_or() {
+    prove_and_verify(
+        "
+        let a: u64 = 0xAAAAAAAAAAAAAAAA;
+        let b: u64 = 0x5555555555555555;
+        a | b
+        ",
+    );
+}
+
+#[test]
+fn tampered_bitwise_or_output_rejected() {
+    let source = "
+        let a: u64 = 0xAAAAAAAAAAAAAAAA;
+        let b: u64 = 0x5555555555555555;
+        a | b
+    ";
+    let (bytecode, mut trace, output) = compile_and_trace(source);
+    tamper_output_on_sub_sel(&mut trace, SUB_SEL_OR);
+    assert_tampered_trace_rejected(bytecode, trace, output, "bitwise or");
+}
+
+#[test]
+fn prove_and_verify_bitwise_xor() {
+    prove_and_verify(
+        "
+        let a: u64 = 0x123456789ABCDEF0;
+        let b: u64 = 0xFEDCBA9876543210;
+        a ^ b
+        ",
+    );
+}
+
+#[test]
+fn tampered_bitwise_xor_output_rejected() {
+    let source = "
+        let a: u64 = 0x123456789ABCDEF0;
+        let b: u64 = 0xFEDCBA9876543210;
+        a ^ b
+    ";
+    let (bytecode, mut trace, output) = compile_and_trace(source);
+    tamper_output_on_sub_sel(&mut trace, SUB_SEL_XOR);
+    assert_tampered_trace_rejected(bytecode, trace, output, "bitwise xor");
+}
+
+#[test]
+fn prove_and_verify_bitwise_shl() {
+    prove_and_verify(
+        "
+        let a: u64 = 0xCAFE;
+        let b: u64 = 16;
+        a << b
+        ",
+    );
+}
+
+#[test]
+fn tampered_bitwise_shl_output_rejected() {
+    let source = "
+        let a: u64 = 0xCAFE;
+        let b: u64 = 16;
+        a << b
+    ";
+    let (bytecode, mut trace, output) = compile_and_trace(source);
+    tamper_output_on_sub_sel(&mut trace, SUB_SEL_SHL);
+    assert_tampered_trace_rejected(bytecode, trace, output, "bitwise shl");
+}
+
+#[test]
+fn prove_and_verify_bitwise_shr() {
+    prove_and_verify(
+        "
+        let a: u64 = 0xDEADBEEF00000000;
+        let b: u64 = 32;
+        a >> b
+        ",
+    );
+}
+
+#[test]
+fn tampered_bitwise_shr_output_rejected() {
+    let source = "
+        let a: u64 = 0xDEADBEEF00000000;
+        let b: u64 = 32;
+        a >> b
+    ";
+    let (bytecode, mut trace, output) = compile_and_trace(source);
+    tamper_output_on_sub_sel(&mut trace, SUB_SEL_SHR);
+    assert_tampered_trace_rejected(bytecode, trace, output, "bitwise shr");
 }

@@ -60,7 +60,7 @@ pub const SEL_HEAP_READ: usize = 18;
 pub const SEL_HEAP_WRITE: usize = 19;
 
 /// Number of per-opcode sub-selector flags.
-pub const NUM_SUB_SELECTORS: usize = 9;
+pub const NUM_SUB_SELECTORS: usize = 14;
 
 /// Sub-selector index: `Add` (parent [`SEL_ARITH`]).
 pub const SUB_SEL_ADD: usize = 0;
@@ -80,26 +80,25 @@ pub const SUB_SEL_FELT_MUL: usize = 6;
 pub const SUB_SEL_EQ: usize = 7;
 /// Sub-selector index: `NotEqual` (parent [`SEL_CMP`]).
 pub const SUB_SEL_NEQ: usize = 8;
+/// Sub-selector index: `BitAnd` (parent [`SEL_BITWISE`]).
+pub const SUB_SEL_AND: usize = 9;
+/// Sub-selector index: `BitOr` (parent [`SEL_BITWISE`]).
+pub const SUB_SEL_OR: usize = 10;
+/// Sub-selector index: `BitXor` (parent [`SEL_BITWISE`]).
+pub const SUB_SEL_XOR: usize = 11;
+/// Sub-selector index: `Shl` (parent [`SEL_BITWISE`]).
+pub const SUB_SEL_SHL: usize = 12;
+/// Sub-selector index: `Shr` (parent [`SEL_BITWISE`]).
+pub const SUB_SEL_SHR: usize = 13;
 
-/// Compile-time metadata for a single opcode.
-///
-/// Combines the opcode's selector class, optional sub-selector index, and
-/// operand widths into one record. The trace recorder, the VM, and the
-/// AIR constraint system all consume this record so that no layer
-/// can drift from the others without a corresponding match-arm update here.
 #[derive(Debug, Clone, Copy)]
 pub struct OpcodeInfo {
-    /// Selector class index in `[0, NUM_SELECTORS)`. One-hot at `COL_SEL_BASE + class`.
     pub selector: usize,
-    /// Sub-selector column index in `[0, NUM_SUB_SELECTORS)` for opcodes whose
-    /// per-opcode behaviour the AIR needs to distinguish; `None` otherwise.
     pub sub_selector: Option<usize>,
-    /// Operand widths in bytes (matches [`Opcode::operand_widths`]).
     pub operand_widths: &'static [usize],
 }
 
 impl OpcodeInfo {
-    /// Total instruction width (opcode byte plus operand bytes).
     #[inline]
     pub const fn instruction_width(&self) -> usize {
         let mut total = 1;
@@ -113,7 +112,6 @@ impl OpcodeInfo {
 }
 
 impl Opcode {
-    /// Returns the per-opcode static metadata used by the trace recorder and AIR.
     #[inline]
     pub const fn info(self) -> OpcodeInfo {
         OpcodeInfo {
@@ -124,10 +122,6 @@ impl Opcode {
     }
 }
 
-/// Returns the selector class index for the given opcode.
-///
-/// Every executed opcode maps to exactly one class. [`SEL_NOP`] is reserved
-/// for trace padding rows and never returned by this function.
 pub const fn selector_index(op: Opcode) -> usize {
     match op {
         Opcode::Constant
@@ -183,8 +177,6 @@ pub const fn selector_index(op: Opcode) -> usize {
     }
 }
 
-/// Returns the sub-selector column index for the given opcode, or `None` if
-/// the opcode does not require sub-selector witness data.
 pub const fn sub_selector_index(op: Opcode) -> Option<usize> {
     match op {
         Opcode::Add => Some(SUB_SEL_ADD),
@@ -196,6 +188,11 @@ pub const fn sub_selector_index(op: Opcode) -> Option<usize> {
         Opcode::FeltMul => Some(SUB_SEL_FELT_MUL),
         Opcode::Equal => Some(SUB_SEL_EQ),
         Opcode::NotEqual => Some(SUB_SEL_NEQ),
+        Opcode::BitAnd => Some(SUB_SEL_AND),
+        Opcode::BitOr => Some(SUB_SEL_OR),
+        Opcode::BitXor => Some(SUB_SEL_XOR),
+        Opcode::Shl => Some(SUB_SEL_SHL),
+        Opcode::Shr => Some(SUB_SEL_SHR),
         _ => None,
     }
 }

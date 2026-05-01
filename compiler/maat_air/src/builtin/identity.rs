@@ -4,22 +4,6 @@
 //! exercise the [`BuiltinSet`](super::BuiltinSet) dispatcher in production
 //! traces so a regression that bypasses the registry path is caught
 //! structurally rather than relying on a future builtin to surface it.
-//!
-//! # Aux column layout
-//!
-//! | Local index | Description                         |
-//! |-------------|-------------------------------------|
-//! | 0           | Constant-one column                 |
-//!
-//! # Transition constraint shape
-//!
-//! | Local idx | Description           | Degree |
-//! |-----------|-----------------------|--------|
-//! | 0         | Column is frozen      | 1      |
-//!
-//! Combined with boundary assertions at row 0 and the last row, the
-//! transition `aux_next - aux_curr = 0` pins the column to one across the
-//! full trace.
 
 use winter_air::Assertion;
 use winter_math::fields::f64::BaseElement;
@@ -30,24 +14,22 @@ use super::Builtin;
 /// Aux column offset (within this builtin): the constant-one column.
 pub const IDENTITY_COL: usize = 0;
 
-/// Identity builtin. See module-level docs.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct IdentityBuiltin;
 
 impl IdentityBuiltin {
-    /// Identifier for diagnostics.
     pub const NAME: &'static str = "identity";
-    /// Aux columns owned.
+
     pub const AUX_WIDTH: usize = 1;
-    /// Verifier challenges consumed (none).
+
     pub const NUM_AUX_RANDS: usize = 0;
-    /// Transition constraints declared.
+
     pub const NUM_AUX_CONSTRAINTS: usize = 1;
-    /// Boundary assertions contributed.
+
     pub const NUM_AUX_ASSERTIONS: usize = 2;
-    /// Per-constraint degrees in declaration order.
+
     pub const AUX_CONSTRAINT_DEGREES: &'static [usize] = &[1];
-    /// Reserved address range. Unused at present; kept for ABI symmetry.
+
     pub const RESERVED_ADDRESS_RANGE: (u64, u64) = (1u64 << 34, (1u64 << 35) - 1);
 }
 

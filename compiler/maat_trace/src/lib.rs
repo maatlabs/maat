@@ -1,29 +1,5 @@
 //! Execution trace generation for the Maat STARK prover.
-//!
-//! This crate executes Maat bytecode through [`maat_vm::VM`] while recording
-//! the execution into a [`TraceTable`] suitable for STARK proving. Locals,
-//! globals, and heap cells share a single memory permutation argument; heap
-//! logical addresses are offset out of the locals/globals space inside the
-//! recorder so the sorted-by-address list cleanly separates the two regions.
-//!
-//! # Range-check columns
-//!
-//! Columns [`COL_RC_VAL`]..[`COL_NONZERO_INV`] carry the range-check sub-AIR
-//! witness:
-//!
-//! - `rc_val`: the value being range-checked (zero on non-trigger rows).
-//! - `rc_l0`..`rc_l3`: 16-bit limb decomposition of `rc_val`.
-//! - `nonzero_inv`: multiplicative inverse of the divisor on `sel_div_mod`
-//!   rows, proving the divisor is non-zero.
-//!
-//! # Usage
-//!
-//! ```ignore
-//! use maat_trace::run_trace;
-//!
-//! let (trace, result) = run_trace(bytecode)?;
-//! println!("{}", trace.to_csv());
-//! ```
+
 #![forbid(unsafe_code)]
 
 pub mod recorder;
@@ -48,7 +24,7 @@ pub use table::{
 /// This is the primary entry point for trace generation. The returned
 /// [`TraceTable`] is padded to a power-of-two length (minimum 8 rows) as
 /// required by the Winterfell prover.
-pub fn run_trace(bytecode: Bytecode) -> Result<(TraceTable, Option<Value>)> {
+pub fn run(bytecode: Bytecode) -> Result<(TraceTable, Option<Value>)> {
     let mut recorder = TraceRecorder::new();
     let mut vm = VM::new(bytecode);
     vm.run_with_recorder(&mut recorder)?;

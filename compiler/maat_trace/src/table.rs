@@ -1,27 +1,8 @@
-//! Execution trace table for the Maat ZK backend.
+//! Execution trace table for the Maat STARK prover/verifier.
 //!
 //! The [`TraceTable`] records every instruction step as a row of [`TRACE_WIDTH`]
 //! Goldilocks field elements. The trace is the algebraic witness that the STARK
 //! prover commits to and the verifier checks against the AIR constraints.
-//!
-//! # Range-check columns
-//!
-//! Columns [`COL_RC_VAL`]..[`COL_NONZERO_INV`] carry the range-check sub-AIR
-//! witness data:
-//!
-//! - **`rc_val`**: the value being range-checked (zero on non-trigger rows).
-//! - **`rc_l0`..`rc_l3`**: four 16-bit limbs satisfying
-//!   `rc_val = l0 + 2^16 * l1 + 2^32 * l2 + 2^48 * l3`.
-//! - **`nonzero_inv`**: multiplicative inverse of the divisor on `sel_div_mod`
-//!   rows, proving the divisor is non-zero.
-//!
-//! # Unified memory model
-//!
-//! Locals, globals, and heap cells share a single memory permutation argument
-//! over the `(mem_addr, mem_val, is_read)` triple. Heap accesses are emitted
-//! into the same columns as locals/globals; the recorder offsets heap logical
-//! addresses out of the locals/globals space so the sorted-by-address list
-//! cleanly separates the two regions.
 
 use std::fmt;
 use std::io::{self, Write};
@@ -141,16 +122,17 @@ pub const COLUMN_NAMES: [&str; TRACE_WIDTH] = [
     "sub_sel_felt_mul",
     "sub_sel_eq",
     "sub_sel_neq",
+    "sub_sel_and",
+    "sub_sel_or",
+    "sub_sel_xor",
+    "sub_sel_shl",
+    "sub_sel_shr",
 ];
 
 /// A single trace row: an array of [`TRACE_WIDTH`] field elements.
 pub type TraceRow = [Felt; TRACE_WIDTH];
 
 /// Execution trace matrix.
-///
-/// Each row records the machine state for one instruction step. After
-/// execution, the trace is padded to the next power of two (minimum 8 rows)
-/// as required by the Winterfell FRI prover.
 pub struct TraceTable {
     rows: Vec<TraceRow>,
 }
@@ -158,41 +140,27 @@ pub struct TraceTable {
 impl TraceTable {
     const MIN_ROWS: usize = 8;
 
-    /// Creates an empty trace table.
     pub fn new() -> Self {
         Self { rows: Vec::new() }
     }
 
-    /// Appends a row to the trace.
     pub fn push_row(&mut self, row: TraceRow) {
         self.rows.push(row);
     }
 
-    /// Returns the number of rows (before or after padding).
     pub fn num_rows(&self) -> usize {
         self.rows.len()
     }
 
-    /// Returns a reference to the row at the given index.
     pub fn row(&self, index: usize) -> &TraceRow {
         &self.rows[index]
     }
 
-    /// Returns a mutable reference to the row at the given index.
     pub fn row_mut(&mut self, index: usize) -> &mut TraceRow {
         &mut self.rows[index]
     }
 
-    /// Returns a reference to the last row, or `None` if empty.
-    pub fn last_row(&self) -> Option<&TraceRow> {
-        self.rows.last()
-    }
-
     /// Writes the program output into [`COL_OUT`] on the last row.
-    ///
-    /// This must be called before [`pad_to_power_of_two`](Self::pad_to_power_of_two)
-    /// so that the NOP padding rows inherit the output value, satisfying the
-    /// boundary assertion `out[last] = public_output` in the AIR.
     pub fn stamp_output(&mut self, output: Felt) {
         if let Some(last) = self.rows.last_mut() {
             last[COL_OUT] = output;
@@ -200,10 +168,6 @@ impl TraceTable {
     }
 
     /// Pads the trace to the next power of two (minimum 8 rows).
-    ///
-    /// Padding rows use `sel_nop` (selector 0 = 1, all others = 0) and
-    /// repeat the final `pc`, `sp`, `fp`, and `out` values from the last
-    /// real row.
     pub fn pad_to_power_of_two(&mut self) {
         let target = if self.rows.len() <= Self::MIN_ROWS {
             Self::MIN_ROWS
@@ -215,7 +179,6 @@ impl TraceTable {
         self.rows.resize(target, pad_row);
     }
 
-    /// Constructs a NOP padding row from the final execution state.
     fn make_padding_row(&self) -> TraceRow {
         let mut row = [Felt::ZERO; TRACE_WIDTH];
         if let Some(last) = self.rows.last() {
@@ -233,9 +196,6 @@ impl TraceTable {
         row
     }
 
-    /// Writes the trace as CSV to the given writer.
-    ///
-    /// Field elements are serialized as decimal `u64` values.
     pub fn write_csv<W: Write>(&self, mut w: W) -> io::Result<()> {
         for (i, name) in COLUMN_NAMES.iter().enumerate() {
             if i > 0 {
@@ -257,7 +217,6 @@ impl TraceTable {
         Ok(())
     }
 
-    /// Serializes the trace to a CSV string.
     pub fn to_csv(&self) -> String {
         let mut buf = Vec::new();
         self.write_csv(&mut buf)
@@ -265,11 +224,6 @@ impl TraceTable {
         String::from_utf8(buf).expect("CSV is valid UTF-8")
     }
 
-    /// Transposes the row-major table into column-major vectors.
-    ///
-    /// Returns a vector of `TRACE_WIDTH` columns, each containing one
-    /// field element per row. This is the layout expected by Winterfell's
-    /// `TraceTable::init`.
     pub fn into_columns(self) -> Vec<Vec<Felt>> {
         let num_rows = self.rows.len();
         let mut columns = (0..TRACE_WIDTH)
@@ -366,7 +320,7 @@ mod tests {
         let cols = header.split(',').collect::<Vec<_>>();
         assert_eq!(cols.len(), TRACE_WIDTH);
         assert_eq!(cols[0], "pc");
-        assert_eq!(cols[TRACE_WIDTH - 1], "sub_sel_neq");
+        assert_eq!(cols[TRACE_WIDTH - 1], "sub_sel_shr");
     }
 
     #[test]

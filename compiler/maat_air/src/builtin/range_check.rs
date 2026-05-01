@@ -3,31 +3,6 @@
 //! Owns five auxiliary columns (a four-column sorted limb pool and a
 //! permutation accumulator) and proves that every 16-bit limb emitted on a
 //! range-check trigger row lies in `[0, 2^16)`.
-//!
-//! # Aux column layout
-//!
-//! | Local index | Description                                        |
-//! |-------------|----------------------------------------------------|
-//! | 0           | Sorted limb pool, column 0 (smallest of four)      |
-//! | 1           | Sorted limb pool, column 1                         |
-//! | 2           | Sorted limb pool, column 2                         |
-//! | 3           | Sorted limb pool, column 3 (largest of four)       |
-//! | 4           | Permutation grand-product accumulator              |
-//!
-//! # Transition constraint shape
-//!
-//! | Local idx | Description                                | Degree |
-//! |-----------|--------------------------------------------|--------|
-//! | 0         | Sorted continuity 0 --> 1                  | 2      |
-//! | 1         | Sorted continuity 1 --> 2                  | 2      |
-//! | 2         | Sorted continuity 2 --> 3                  | 2      |
-//! | 3         | Sorted continuity 3 --> 0(next)            | 2      |
-//! | 4         | Permutation accumulator                    | 5      |
-//!
-//! # Reserved memory range
-//!
-//! `[2^33, 2^34)` is reserved in the unified memory segment for the CPU AIR
-//! to route range-check input/output via the memory permutation argument.
 
 use maat_trace::{COL_RC_L0, COL_RC_L1, COL_RC_L2, COL_RC_L3};
 use winter_air::Assertion;
@@ -50,27 +25,22 @@ pub const RC_ACC: usize = 4;
 /// Verifier-challenge offset (within this builtin's slice).
 const RAND_Z_RC: usize = 0;
 
-/// Range-check builtin: proves limbs lie in `[0, 2^16)`.
-///
-/// See module-level docs for column and constraint layout.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RangeCheckBuiltin;
 
 impl RangeCheckBuiltin {
-    /// Identifier for diagnostics.
     pub const NAME: &'static str = "range_check";
-    /// Number of aux columns owned by this builtin.
+
     pub const AUX_WIDTH: usize = 5;
-    /// Verifier challenges consumed.
+
     pub const NUM_AUX_RANDS: usize = 1;
-    /// Transition constraints declared.
+
     pub const NUM_AUX_CONSTRAINTS: usize = 5;
-    /// Boundary assertions contributed.
+
     pub const NUM_AUX_ASSERTIONS: usize = 2;
-    /// Per-constraint degrees in declaration order.
+
     pub const AUX_CONSTRAINT_DEGREES: &'static [usize] = &[2, 2, 2, 2, 5];
-    /// Reserved address range used to link the CPU AIR
-    /// to the builtin's input via the unified memory permutation argument.
+
     pub const RESERVED_ADDRESS_RANGE: (u64, u64) = (1u64 << 33, (1u64 << 34) - 1);
 }
 

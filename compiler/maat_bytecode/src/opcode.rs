@@ -254,7 +254,6 @@ pub enum Opcode {
 }
 
 impl Opcode {
-    /// Returns the name of this opcode for disassembly.
     pub const fn name(self) -> &'static str {
         match self {
             Self::Constant => "OpConstant",
@@ -313,10 +312,6 @@ impl Opcode {
         }
     }
 
-    /// Returns the operand widths for this opcode.
-    ///
-    /// Each element in the returned slice represents the byte width
-    /// of an operand. For example, `&[2]` means one 2-byte operand.
     #[inline]
     pub const fn operand_widths(self) -> &'static [usize] {
         match self {
@@ -375,7 +370,6 @@ impl Opcode {
         }
     }
 
-    /// Attempts to convert a byte to an opcode.
     #[inline]
     pub const fn from_byte(byte: u8) -> Option<Self> {
         match byte {
@@ -436,7 +430,6 @@ impl Opcode {
         }
     }
 
-    /// Converts this opcode to its byte representation.
     #[inline]
     pub const fn to_byte(self) -> u8 {
         self as u8
@@ -467,7 +460,6 @@ pub enum TypeTag {
 }
 
 impl TypeTag {
-    /// Converts a byte to a type tag.
     #[inline]
     pub const fn from_byte(byte: u8) -> Option<Self> {
         match byte {
@@ -489,15 +481,11 @@ impl TypeTag {
         }
     }
 
-    /// Converts this type tag to its byte representation.
     #[inline]
     pub const fn to_byte(self) -> u8 {
         self as u8
     }
 
-    /// Maps a numeric bytecode type tag to a number type.
-    ///
-    /// Returns `None` for `Char`, which has no `NumKind` equivalent.
     pub fn to_num_kind(self) -> Option<NumKind> {
         match self {
             Self::I8 => Some(NumKind::I8),
@@ -517,7 +505,6 @@ impl TypeTag {
         }
     }
 
-    /// Maps a source-level numeric type annotation to a bytecode type tag.
     pub fn from_num_kind(t: NumKind) -> Self {
         match t {
             NumKind::I8 => Self::I8,
@@ -536,7 +523,6 @@ impl TypeTag {
         }
     }
 
-    /// Maps a source-level cast target to a bytecode type tag.
     pub fn from_cast_target(t: CastTarget) -> Self {
         match t {
             CastTarget::Num(k) => Self::from_num_kind(k),

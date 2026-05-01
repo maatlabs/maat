@@ -1,67 +1,9 @@
 //! Main segment transition constraint evaluation for the Maat CPU AIR.
-//!
-//! All constraints evaluate to zero on valid execution traces. Each constraint
-//! is gated by one or more selector flags so that only the relevant rows are
-//! checked. The constraint index assignments are documented in
-//! [`CONSTRAINT_DEGREES`].
-//!
-//! # Constraint index map
-//!
-//! | Index | Description                                   | Degree |
-//! |-------|-----------------------------------------------|--------|
-//! | 0-19  | Selector binary validity (`sel_i`)            | 2      |
-//! | 20    | Selector sum = 1                              | 1      |
-//! | 21    | SP: push (net +1)                             | 2      |
-//! | 22    | SP: binary ops (net -1)                       | 2      |
-//! | 23    | SP: unary (net 0)                             | 2      |
-//! | 24    | SP: store (net -1)                            | 2      |
-//! | 25    | SP: load (net +1)                             | 2      |
-//! | 26    | PC: universal (`pc_next = pc + op_width`)     | 2      |
-//! | 27    | Width binding: width-1 classes                | 2      |
-//! | 28    | Width binding: convert (width 2)              | 2      |
-//! | 29    | PC: unconditional jump                        | 2      |
-//! | 30    | PC: cond jump, not taken                      | 3      |
-//! | 31    | PC: cond jump, taken                          | 3      |
-//! | 32    | Cond jump: s0 is binary                       | 3      |
-//! | 33    | Load: is_read = 1                             | 2      |
-//! | 34    | Load: out = mem_val                           | 2      |
-//! | 35    | Store: is_read = 0                            | 2      |
-//! | 36    | Store: mem_val = s0                           | 2      |
-//! | 37    | FP: call (fp_next = out)                      | 2      |
-//! | 38    | FP: return (fp_next = mem_val)                | 2      |
-//! | 39    | NOP: pc frozen                                | 2      |
-//! | 40    | NOP: sp frozen                                | 2      |
-//! | 41    | NOP: fp frozen                                | 2      |
-//! | 42    | RC: reconstruction                            | 1      |
-//! | 43    | RC: convert linking                           | 2      |
-//! | 44    | RC: non-zero divisor                          | 3      |
-//! | 45    | NOP: output frozen                            | 2      |
-//! | 46    | sub_sel_add binary + ⊆ sel_arith              | 2      |
-//! | 47    | sub_sel_sub binary + ⊆ sel_arith              | 2      |
-//! | 48    | sub_sel_div binary + ⊆ sel_div_mod            | 2      |
-//! | 49    | sub_sel_neg binary + ⊆ sel_unary              | 2      |
-//! | 50    | sub_sel_felt_add binary + ⊆ sel_felt          | 2      |
-//! | 51    | sub_sel_felt_sub binary + ⊆ sel_felt          | 2      |
-//! | 52    | sub_sel_felt_mul binary + ⊆ sel_felt          | 2      |
-//! | 53    | sub_sel_eq binary + ⊆ sel_cmp                 | 2      |
-//! | 54    | sub_sel_neq binary + ⊆ sel_cmp                | 2      |
-//! | 55    | arith mutual exclusion                        | 2      |
-//! | 56    | felt mutual exclusion (add ⊥ sub)             | 2      |
-//! | 57    | felt mutual exclusion (add ⊥ mul)             | 2      |
-//! | 58    | felt mutual exclusion (sub ⊥ mul)             | 2      |
-//! | 59    | cmp mutual exclusion (eq ⊥ neq)               | 2      |
-//! | 60    | Output: arithmetic (add/sub/mul)              | 3      |
-//! | 61    | Output: division/modulo identity              | 3      |
-//! | 62    | Output: unary (neg/not)                       | 3      |
-//! | 63    | Output: felt arithmetic                       | 3      |
-//! | 64    | Comparison: out is binary                     | 3      |
-//! | 65    | Comparison: not-equal branch                  | 3      |
-//! | 66    | Comparison: equal branch                      | 4      |
-//! | 67    | SP: heap write (net -2)                       | 2      |
 
 use maat_bytecode::{
-    SUB_SEL_ADD, SUB_SEL_DIV, SUB_SEL_EQ, SUB_SEL_FELT_ADD, SUB_SEL_FELT_MUL, SUB_SEL_FELT_SUB,
-    SUB_SEL_NEG, SUB_SEL_NEQ, SUB_SEL_SUB,
+    SUB_SEL_ADD, SUB_SEL_AND, SUB_SEL_DIV, SUB_SEL_EQ, SUB_SEL_FELT_ADD, SUB_SEL_FELT_MUL,
+    SUB_SEL_FELT_SUB, SUB_SEL_NEG, SUB_SEL_NEQ, SUB_SEL_OR, SUB_SEL_SHL, SUB_SEL_SHR, SUB_SEL_SUB,
+    SUB_SEL_XOR,
 };
 use maat_trace::{
     COL_CMP_INV, COL_DIV_AUX, COL_FP, COL_IS_READ, COL_MEM_VAL, COL_NONZERO_INV, COL_OP_WIDTH,
@@ -90,15 +32,13 @@ pub(crate) const SEL_HEAP_ALLOC: usize = 17;
 pub(crate) const SEL_HEAP_READ: usize = 18;
 pub(crate) const SEL_HEAP_WRITE: usize = 19;
 
-/// Number of selector columns (must match `maat_trace::selector::NUM_SELECTORS`).
+/// Number of selector columns.
 pub(crate) const NUM_SELECTORS: usize = 20;
 
 /// Number of transition constraints enforced by the AIR.
-pub const NUM_CONSTRAINTS: usize = 68;
+pub const NUM_CONSTRAINTS: usize = 74;
 
 /// Degree of each transition constraint, indexed by constraint number.
-///
-/// The prover uses these to allocate the correct evaluation domain size.
 pub const CONSTRAINT_DEGREES: [usize; NUM_CONSTRAINTS] = [
     // 0-19: selector binary validity (20 selectors)
     2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 20: selector sum
@@ -120,7 +60,9 @@ pub const CONSTRAINT_DEGREES: [usize; NUM_CONSTRAINTS] = [
     2, 2, 2, 2, 2, // 60-63: output correctness (arith, div_mod, unary, felt)
     3, 3, 3, 3, // 64-66: comparison correctness
     3, 3, 4, // 67: SP heap write
-    2,
+    2, // 68-72: bitwise sub-selector structural (binary + ⊆ sel_bitwise)
+    2, 2, 2, 2, 2, // 73: bitwise sub-selectors sum to sel_bitwise
+    1,
 ];
 
 /// Reads a selector flag from the current row.
@@ -148,11 +90,6 @@ fn power_of_two_constants<E: FieldElement>() -> (E, E, E) {
     (p16, p32, p48)
 }
 
-/// Evaluates all main-segment transition constraints.
-///
-/// `current` and `next` are consecutive trace rows (each of width [`TRACE_WIDTH`]).
-/// The result slice must have length [`NUM_CONSTRAINTS`]; each entry is the
-/// constraint evaluation (zero on valid traces).
 pub fn evaluate<E: FieldElement>(current: &[E], next: &[E], result: &mut [E]) {
     debug_assert_eq!(current.len(), TRACE_WIDTH);
     debug_assert_eq!(next.len(), TRACE_WIDTH);
@@ -210,8 +147,7 @@ pub fn evaluate<E: FieldElement>(current: &[E], next: &[E], result: &mut [E]) {
     let sel_binop = sel_arith + sel_bitwise + sel_cmp + sel_div_mod;
     let two = one + one;
     result[22] = sel_binop * (sp_next - sp + one);
-    // HeapAlloc and HeapRead each pop one operand and push one result, matching
-    // the unary "net 0" SP pattern.
+
     result[23] = (sel_unary + sel_heap_alloc + sel_heap_read) * (sp_next - sp);
     result[24] = sel_store * (sp_next - sp + one);
     result[25] = sel_load * (sp_next - sp - one);
@@ -311,8 +247,20 @@ pub fn evaluate<E: FieldElement>(current: &[E], next: &[E], result: &mut [E]) {
     result[65] = diff * (sub_eq * out + sub_neq * (one - out));
     result[66] = one_minus_diff_inv * (sub_eq * (one - out) + sub_neq * out);
 
-    // HeapWrite pops two operands (heap address, value) and pushes nothing.
     result[67] = sel_heap_write * (sp_next - sp + two);
+
+    let sub_and = sub(current, SUB_SEL_AND);
+    let sub_or = sub(current, SUB_SEL_OR);
+    let sub_xor = sub(current, SUB_SEL_XOR);
+    let sub_shl = sub(current, SUB_SEL_SHL);
+    let sub_shr = sub(current, SUB_SEL_SHR);
+
+    result[68] = sub_and * (sub_and - sel_bitwise);
+    result[69] = sub_or * (sub_or - sel_bitwise);
+    result[70] = sub_xor * (sub_xor - sel_bitwise);
+    result[71] = sub_shl * (sub_shl - sel_bitwise);
+    result[72] = sub_shr * (sub_shr - sel_bitwise);
+    result[73] = sub_and + sub_or + sub_xor + sub_shl + sub_shr - sel_bitwise;
 }
 
 #[cfg(test)]

@@ -1,24 +1,5 @@
 //! Auxiliary trace segment: unified memory permutation argument plus the
 //! aux-column slices owned by registered builtinss.
-//!
-//! # Memory permutation argument
-//!
-//! A two-list permutation argument enforces memory consistency over the
-//! unified memory segment (locals, globals, and heap):
-//!
-//! - **L1** (execution order): `(mem_addr, mem_val)` from the main trace.
-//! - **L2** (sorted order): the same pairs sorted by address, stored in
-//!   [`AUX_COL_L2_ADDR`] and [`AUX_COL_L2_VAL`].
-//! - **Grand-product accumulator** ([`AUX_COL_MEM_ACC`]): proves L1 and L2
-//!   are permutations under the verifier challenges `z` and `alpha`.
-//!
-//! # Memory constraint summary
-//!
-//! | Index | Description                       | Degree |
-//! |-------|-----------------------------------|--------|
-//! | 0     | Address continuity                | 2      |
-//! | 1     | Single-value consistency          | 2      |
-//! | 2     | Grand-product accumulator         | 2      |
 
 use maat_trace::{COL_MEM_ADDR, COL_MEM_VAL};
 use winter_air::Assertion;
@@ -70,8 +51,33 @@ pub const NUM_AUX_CONSTRAINTS: usize =
 /// Total auxiliary boundary-assertion count.
 pub const NUM_AUX_ASSERTIONS: usize = MEMORY_NUM_ASSERTIONS + BuiltinSet::TOTAL_NUM_AUX_ASSERTIONS;
 
-/// Returns the per-constraint aux degrees in declaration order:
-/// memory permutation first, then every registered builtin.
+pub fn evaluate<F, E>(
+    main_current: &[F],
+    main_next: &[F],
+    aux_current: &[E],
+    aux_next: &[E],
+    rand_elements: &[E],
+    result: &mut [E],
+) where
+    F: FieldElement<BaseField = BaseElement>,
+    E: FieldElement<BaseField = BaseElement> + ExtensionOf<F>,
+{
+    debug_assert_eq!(result.len(), NUM_AUX_CONSTRAINTS);
+
+    let (mem_result, builtin_result) = result.split_at_mut(MEMORY_NUM_CONSTRAINTS);
+    let (memory_rands, _) = rand_elements.split_at(MEMORY_NUM_AUX_RANDS);
+    evaluate_memory::<F, E>(main_next, aux_current, aux_next, memory_rands, mem_result);
+
+    BuiltinSet::evaluate_aux_transition::<F, E>(
+        main_current,
+        main_next,
+        aux_current,
+        aux_next,
+        rand_elements,
+        builtin_result,
+    );
+}
+
 pub fn aux_constraint_degrees() -> Vec<usize> {
     let mut out = Vec::with_capacity(NUM_AUX_CONSTRAINTS);
     out.extend_from_slice(&MEMORY_AUX_CONSTRAINT_DEGREES);
@@ -79,18 +85,6 @@ pub fn aux_constraint_degrees() -> Vec<usize> {
     out
 }
 
-/// Memory boundary assertions: `mem_acc[0] = 1` and `mem_acc[last] = 1`.
-fn memory_aux_assertions<E: FieldElement<BaseField = BaseElement>>(
-    last_step: usize,
-) -> Vec<Assertion<E>> {
-    vec![
-        Assertion::single(AUX_COL_MEM_ACC, 0, E::ONE),
-        Assertion::single(AUX_COL_MEM_ACC, last_step, E::ONE),
-    ]
-}
-
-/// Returns every aux boundary assertion the AIR enforces, memory first then
-/// each registered builtin in registration order.
 pub fn aux_assertions<E: FieldElement<BaseField = BaseElement>>(
     last_step: usize,
 ) -> Vec<Assertion<E>> {
@@ -100,8 +94,27 @@ pub fn aux_assertions<E: FieldElement<BaseField = BaseElement>>(
     out
 }
 
-/// Evaluates the unified memory permutation argument's three transition
-/// constraints over the aux segment.
+fn memory_aux_assertions<E: FieldElement<BaseField = BaseElement>>(
+    last_step: usize,
+) -> Vec<Assertion<E>> {
+    vec![
+        Assertion::single(AUX_COL_MEM_ACC, 0, E::ONE),
+        Assertion::single(AUX_COL_MEM_ACC, last_step, E::ONE),
+    ]
+}
+
+pub fn build_aux_columns<E: FieldElement<BaseField = BaseElement>>(
+    main_columns: &[&[BaseElement]],
+    rand_elements: &[E],
+) -> Vec<Vec<E>> {
+    let memory_rands = &rand_elements[..MEMORY_NUM_AUX_RANDS];
+
+    let mut columns = Vec::with_capacity(AUX_WIDTH);
+    columns.extend(build_memory_columns(main_columns, memory_rands));
+    columns.extend(BuiltinSet::build_aux_columns(main_columns, rand_elements));
+    columns
+}
+
 fn evaluate_memory<F, E>(
     main_next: &[F],
     aux_curr: &[E],
@@ -138,36 +151,6 @@ fn evaluate_memory<F, E>(
     result[2] = (z - l2_tuple_next) * mem_acc_next - (z - l1_tuple_next) * mem_acc;
 }
 
-/// Evaluates every aux-segment transition constraint: memory permutation
-/// followed by each registered builtin in registration order.
-pub fn evaluate<F, E>(
-    main_current: &[F],
-    main_next: &[F],
-    aux_current: &[E],
-    aux_next: &[E],
-    rand_elements: &[E],
-    result: &mut [E],
-) where
-    F: FieldElement<BaseField = BaseElement>,
-    E: FieldElement<BaseField = BaseElement> + ExtensionOf<F>,
-{
-    debug_assert_eq!(result.len(), NUM_AUX_CONSTRAINTS);
-
-    let (mem_result, builtin_result) = result.split_at_mut(MEMORY_NUM_CONSTRAINTS);
-    let (memory_rands, _) = rand_elements.split_at(MEMORY_NUM_AUX_RANDS);
-    evaluate_memory::<F, E>(main_next, aux_current, aux_next, memory_rands, mem_result);
-
-    BuiltinSet::evaluate_aux_transition::<F, E>(
-        main_current,
-        main_next,
-        aux_current,
-        aux_next,
-        rand_elements,
-        builtin_result,
-    );
-}
-
-/// Builds the unified memory permutation argument's three aux columns.
 fn build_memory_columns<E: FieldElement<BaseField = BaseElement>>(
     main_columns: &[&[BaseElement]],
     rand_elements: &[E],
@@ -201,29 +184,6 @@ fn build_memory_columns<E: FieldElement<BaseField = BaseElement>>(
     }
 
     vec![l2_addr, l2_val, mem_acc]
-}
-
-/// Builds the auxiliary trace columns from the committed main trace and the
-/// verifier-supplied random challenges.
-///
-/// The returned vector is laid out as `[memory_columns ++ builtin_columns]`,
-/// where `builtin_columns` is the concatenation of every registered
-/// builtin's aux columns in registration order.
-///
-/// # Panics
-///
-/// Panics if `rand_elements` does not contain at least [`NUM_AUX_RANDS`]
-/// elements, or if `main_columns` does not provide the required columns.
-pub fn build_aux_columns<E: FieldElement<BaseField = BaseElement>>(
-    main_columns: &[&[BaseElement]],
-    rand_elements: &[E],
-) -> Vec<Vec<E>> {
-    let memory_rands = &rand_elements[..MEMORY_NUM_AUX_RANDS];
-
-    let mut columns = Vec::with_capacity(AUX_WIDTH);
-    columns.extend(build_memory_columns(main_columns, memory_rands));
-    columns.extend(BuiltinSet::build_aux_columns(main_columns, rand_elements));
-    columns
 }
 
 #[cfg(test)]

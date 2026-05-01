@@ -5,49 +5,7 @@
 //! polynomial constraints over a Goldilocks field trace. Implementing
 //! Winterfell's [`Air`] trait, the AIR is the bridge between the
 //! trace generator (`maat_trace`) and the STARK prover (`maat_prover`).
-//!
-//! # Constraint summary
-//!
-//! ## Main segment (49 columns, 68 transition constraints, 3 boundary assertions)
-//!
-//! Selector validity, stack/PC/FP transitions, memory access flags, NOP
-//! padding invariance, range-check reconstruction, and per-opcode
-//! sub-selector structural and output constraints. See `main_segment` for
-//! the full table.
-//!
-//! ## Auxiliary segment
-//!
-//! The aux trace is partitioned between the unified memory permutation
-//! argument (owned by the CPU AIR directly) and one slice per registered
-//! builtin via the [`builtin::Builtin`] trait:
-//!
-//! - **Memory permutation** (3 columns, 3 transitions, 2 boundary
-//!   assertions, 2 verifier challenges): proves the execution-order and
-//!   address-sorted memory lists are permutations of each other under the
-//!   challenges `z` and `alpha`.
-//! - **Range-check builtin** (5 columns, 5 transitions, 2 boundary
-//!   assertions, 1 verifier challenge): proves every 16-bit limb emitted on
-//!   range-check trigger rows lies in `[0, 2^16)` via a sorted-pool grand
-//!   product.
-//! - **Identity builtin** (1 column, 1 transition, 2 boundary assertions,
-//!   0 verifier challenges): a structural smoke test that exercises the
-//!   dispatcher in production traces.
-//!
-//! Locals, globals, and heap cells share the unified memory permutation
-//! argument; heap accesses are lifted into a non-overlapping logical
-//! address range by the trace recorder.
-//!
-//! # Boundary assertions
-//!
-//! Three on the main segment:
-//!
-//! - `pc[0] = 0` (execution begins at instruction zero)
-//! - `sp[0] = 0` (empty operand stack at start)
-//! - `out[last] = public_output` (program result matches claimed output)
-//!
-//! Aux boundary assertions are contributed by the memory permutation
-//! argument and each registered builtin via the `aux_assertions` helper in
-//! the `aux_segment` module.
+
 #![forbid(unsafe_code)]
 
 mod aux_segment;
@@ -59,7 +17,7 @@ pub use aux_segment::{AUX_WIDTH, NUM_AUX_RANDS, build_aux_columns};
 use aux_segment::{
     NUM_AUX_ASSERTIONS, NUM_AUX_CONSTRAINTS, aux_assertions, aux_constraint_degrees,
 };
-pub use builtin::{Builtin, BuiltinSet, IdentityBuiltin, RangeCheckBuiltin};
+pub use builtin::{BitwiseBuiltin, Builtin, BuiltinSet, IdentityBuiltin, RangeCheckBuiltin};
 use maat_trace::{COL_OUT, COL_PC, COL_SP};
 use main_segment::CONSTRAINT_DEGREES;
 pub use public_inputs::MaatPublicInputs;
@@ -73,7 +31,6 @@ use winter_math::{ExtensionOf, FieldElement};
 /// Number of boundary assertions on the main trace segment.
 const NUM_MAIN_ASSERTIONS: usize = 3;
 
-/// Algebraic Intermediate Representation for the Maat virtual machine.
 pub struct MaatAir {
     context: AirContext<BaseElement>,
     public_inputs: MaatPublicInputs,

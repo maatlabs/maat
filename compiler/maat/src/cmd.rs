@@ -117,7 +117,7 @@ pub fn trace(path: &Path, output_path: Option<&Path>) {
     require_extension(path, "maat", "trace");
 
     let bytecode = compile_source(path);
-    let (trace, result) = match maat_trace::run_trace(bytecode) {
+    let (trace, result) = match maat_trace::run(bytecode) {
         Ok(pair) => pair,
         Err(e) => {
             eprintln!("error: {}: {e}", path.display());
@@ -177,7 +177,7 @@ pub fn prove(
     let inputs = load_inputs(input, inputs_file);
     let bytecode = compile_source(path);
 
-    let (trace, result) = match maat_trace::run_trace(bytecode.clone()) {
+    let (trace, result) = match maat_trace::run(bytecode.clone()) {
         Ok(pair) => pair,
         Err(e) => {
             eprintln!("error: trace generation failed: {e}");
