@@ -7,8 +7,9 @@
 use std::fmt;
 use std::io::{self, Write};
 
-use maat_bytecode::selector::{NUM_SELECTORS, NUM_SUB_SELECTORS, SEL_NOP};
 use maat_field::{Felt, FieldElement};
+
+use crate::selector::{NUM_SELECTORS, NUM_SUB_SELECTORS, SEL_NOP};
 
 /// Program counter.
 pub const COL_PC: usize = 0;

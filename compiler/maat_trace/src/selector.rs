@@ -6,11 +6,11 @@
 //! flag distinguishing same-class operations whose output formulas differ
 //! (e.g. `Add` vs. `Sub`).
 //!
-//! The [`OpcodeInfo`] struct exposes both lookups together with the opcode's
+//! The [`OpcodeMeta`] struct exposes both lookups together with the opcode's
 //! operand widths so that the trace recorder, the VM, and the AIR
 //! constraint system all read from a single source.
 
-use crate::Opcode;
+use maat_bytecode::Opcode;
 
 /// Number of selector columns reserved by the trace.
 pub const NUM_SELECTORS: usize = 20;
@@ -96,13 +96,22 @@ pub const SUB_SEL_LT: usize = 14;
 pub const SUB_SEL_GT: usize = 15;
 
 #[derive(Debug, Clone, Copy)]
-pub struct OpcodeInfo {
+pub struct OpcodeMeta {
     pub selector: usize,
     pub sub_selector: Option<usize>,
     pub operand_widths: &'static [usize],
 }
 
-impl OpcodeInfo {
+impl OpcodeMeta {
+    #[inline]
+    pub const fn new(op: Opcode) -> OpcodeMeta {
+        OpcodeMeta {
+            selector: selector_index(op),
+            sub_selector: sub_selector_index(op),
+            operand_widths: op.operand_widths(),
+        }
+    }
+
     #[inline]
     pub const fn instruction_width(&self) -> usize {
         let mut total = 1;
@@ -112,17 +121,6 @@ impl OpcodeInfo {
             i += 1;
         }
         total
-    }
-}
-
-impl Opcode {
-    #[inline]
-    pub const fn info(self) -> OpcodeInfo {
-        OpcodeInfo {
-            selector: selector_index(self),
-            sub_selector: sub_selector_index(self),
-            operand_widths: self.operand_widths(),
-        }
     }
 }
 
@@ -259,16 +257,16 @@ mod tests {
     }
 
     #[test]
-    fn opcode_info_matches_helpers() {
-        let info = Opcode::Add.info();
-        assert_eq!(info.selector, SEL_ARITH);
-        assert_eq!(info.sub_selector, Some(SUB_SEL_ADD));
-        assert_eq!(info.operand_widths, Opcode::Add.operand_widths());
-        assert_eq!(info.instruction_width(), 1);
+    fn opcode_meta_matches_helpers() {
+        let meta = OpcodeMeta::new(Opcode::Add);
+        assert_eq!(meta.selector, SEL_ARITH);
+        assert_eq!(meta.sub_selector, Some(SUB_SEL_ADD));
+        assert_eq!(meta.operand_widths, Opcode::Add.operand_widths());
+        assert_eq!(meta.instruction_width(), 1);
 
-        let info = Opcode::Closure.info();
-        assert_eq!(info.selector, SEL_CONSTRUCT);
-        assert_eq!(info.sub_selector, None);
-        assert_eq!(info.instruction_width(), 1 + 2 + 1);
+        let meta = OpcodeMeta::new(Opcode::Closure);
+        assert_eq!(meta.selector, SEL_CONSTRUCT);
+        assert_eq!(meta.sub_selector, None);
+        assert_eq!(meta.instruction_width(), 1 + 2 + 1);
     }
 }

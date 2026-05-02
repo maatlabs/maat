@@ -1,7 +1,7 @@
 //! Main segment transition constraint evaluation for the Maat CPU AIR.
 
-use maat_bytecode::selector::*;
 use maat_field::FieldElement;
+use maat_trace::selector::*;
 use maat_trace::table::*;
 
 // Selector column indices relative to `COL_SEL_BASE`.

@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 pub mod recorder;
+pub mod selector;
 pub mod table;
 
 use maat_bytecode::Bytecode;

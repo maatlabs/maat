@@ -7,7 +7,6 @@ use maat_span::SourceMap;
 
 mod instruction;
 mod opcode;
-pub mod selector;
 mod serialize;
 
 pub use instruction::{Instruction, Instructions, decode_operands, encode};

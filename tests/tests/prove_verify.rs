@@ -5,7 +5,6 @@
 //! from source code to cryptographic soundness.
 
 use maat_air::{MaatPublicInputs, Proof};
-use maat_bytecode::selector::*;
 use maat_bytecode::{Bytecode, Instructions, Opcode, encode};
 use maat_field::{BaseElement, Felt, FieldElement};
 use maat_prover::{
@@ -14,6 +13,7 @@ use maat_prover::{
 };
 use maat_runtime::{Integer, Value};
 use maat_span::SourceMap;
+use maat_trace::selector::*;
 use maat_trace::table::{COL_MEM_ADDR, COL_MEM_VAL, COL_OUT, COL_SUB_SEL_BASE, TraceTable};
 
 /// Compiles source, runs the trace, and returns everything needed for proving.

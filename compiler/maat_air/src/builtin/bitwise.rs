@@ -1,9 +1,9 @@
 //! Bitwise builtin segment.
 
-use maat_bytecode::selector::{
+use maat_field::{BaseElement, ExtensionOf, FieldElement};
+use maat_trace::selector::{
     SEL_BITWISE, SUB_SEL_AND, SUB_SEL_OR, SUB_SEL_SHL, SUB_SEL_SHR, SUB_SEL_XOR,
 };
-use maat_field::{BaseElement, ExtensionOf, FieldElement};
 use maat_trace::table::{COL_OUT, COL_S0, COL_S1, COL_SEL_BASE, COL_SUB_SEL_BASE};
 use winter_air::Assertion;
 

@@ -3,12 +3,12 @@
 
 use std::collections::HashMap;
 
-use maat_bytecode::selector::SEL_NOP;
 use maat_bytecode::{MAX_GLOBALS, Opcode};
 use maat_errors::{Result, VmError};
 use maat_field::{Felt, FieldElement, try_inv};
 use maat_vm::trace::{CallCtx, DispatchCtx, Tracer};
 
+use crate::selector::{OpcodeMeta, SEL_NOP};
 use crate::table::*;
 
 /// Logical-address offset that lifts heap accesses out of the locals/globals
@@ -137,7 +137,7 @@ impl Default for TraceRecorder {
 
 impl Tracer for TraceRecorder {
     fn before_dispatch(&mut self, ctx: DispatchCtx) {
-        let info = ctx.op.info();
+        let meta = OpcodeMeta::new(ctx.op);
         let mut row = [Felt::ZERO; TRACE_WIDTH];
         row[COL_PC] = Felt::new(ctx.ip as u64);
         row[COL_SP] = Felt::new(ctx.sp as u64);
@@ -146,9 +146,9 @@ impl Tracer for TraceRecorder {
         row[COL_S0] = ctx.s0;
         row[COL_S1] = ctx.s1;
         row[COL_S2] = ctx.s2;
-        row[COL_OP_WIDTH] = Felt::new(info.instruction_width() as u64);
-        row[COL_SEL_BASE + info.selector] = Felt::ONE;
-        if let Some(sub) = info.sub_selector {
+        row[COL_OP_WIDTH] = Felt::new(meta.instruction_width() as u64);
+        row[COL_SEL_BASE + meta.selector] = Felt::ONE;
+        if let Some(sub) = meta.sub_selector {
             row[COL_SUB_SEL_BASE + sub] = Felt::ONE;
         }
         // Default to a dummy memory read; real accesses overwrite these
