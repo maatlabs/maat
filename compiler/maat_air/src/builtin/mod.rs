@@ -28,10 +28,9 @@ pub mod range_check;
 
 pub use bitwise::BitwiseBuiltin;
 pub use identity::IdentityBuiltin;
+use maat_field::{BaseElement, ExtensionOf, FieldElement};
 pub use range_check::RangeCheckBuiltin;
 use winter_air::Assertion;
-use winter_math::fields::f64::BaseElement;
-use winter_math::{ExtensionOf, FieldElement};
 
 use crate::aux_segment::{MEMORY_AUX_WIDTH, MEMORY_NUM_AUX_RANDS};
 

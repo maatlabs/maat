@@ -3,12 +3,11 @@
 //! Provides a thin wrapper around Winterfell's verifier,
 //! binding the Maat AIR, hash function, and commitment scheme.
 
-use maat_air::{MaatAir, MaatPublicInputs};
+use maat_air::{MaatAir, MaatPublicInputs, Proof};
 use maat_errors::VerificationError;
-use winter_air::proof::Proof;
+use maat_field::BaseElement;
 use winter_crypto::hashers::Blake3_256;
 use winter_crypto::{DefaultRandomCoin, MerkleTree};
-use winter_math::fields::f64::BaseElement;
 use winter_verifier::AcceptableOptions;
 
 use crate::gadgets::hasher::hash_bytes_to_field_elements;

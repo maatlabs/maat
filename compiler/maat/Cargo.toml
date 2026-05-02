@@ -36,4 +36,3 @@ maat_vm = { path = "../maat_vm", version = "0.13.0" }
 maat_air = { path = "../maat_air", version = "0.13.0" }
 maat_field = { path = "../maat_field", version = "0.13.0" }
 maat_prover = { path = "../maat_prover", version = "0.13.0" }
-winter-math = "0.13"

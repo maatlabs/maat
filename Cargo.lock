@@ -732,7 +732,6 @@ dependencies = [
  "maat_vm",
  "rustyline",
  "serde_json",
- "winter-math",
 ]
 
 [[package]]
@@ -740,9 +739,9 @@ name = "maat_air"
 version = "0.13.0"
 dependencies = [
  "maat_bytecode",
+ "maat_field",
  "maat_trace",
  "winter-air",
- "winter-math",
 ]
 
 [[package]]
@@ -851,9 +850,7 @@ dependencies = [
  "maat_errors",
  "maat_field",
  "maat_trace",
- "winter-air",
  "winter-crypto",
- "winter-math",
  "winter-prover",
  "winter-verifier",
 ]
@@ -904,8 +901,6 @@ dependencies = [
  "maat_vm",
  "proptest",
  "tempfile",
- "winter-air",
- "winter-math",
 ]
 
 [[package]]

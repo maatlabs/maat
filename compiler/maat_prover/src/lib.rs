@@ -38,18 +38,16 @@ mod verifier;
 
 pub use gadgets::hasher::{compute_program_hash, compute_program_hash_bytes};
 pub use gadgets::proof_serializer::{ProofPublicInputs, deserialize_proof, serialize_proof};
-use maat_air::{AUX_WIDTH, MaatAir, MaatPublicInputs, NUM_AUX_RANDS};
+use maat_air::{
+    AUX_WIDTH, AuxRandElements, BatchingMethod, EvaluationFrame, FieldExtension, MaatAir,
+    MaatPublicInputs, NUM_AUX_RANDS, PartitionOptions, ProofOptions, TraceInfo,
+};
 use maat_errors::ProverError;
+use maat_field::{BaseElement, FieldElement};
 use maat_trace::table::{TRACE_WIDTH, TraceTable};
 pub use verifier::{verify, verify_with_inputs};
-use winter_air::{
-    AuxRandElements, BatchingMethod, EvaluationFrame, FieldExtension, PartitionOptions,
-    ProofOptions, TraceInfo,
-};
 use winter_crypto::hashers::Blake3_256;
 use winter_crypto::{DefaultRandomCoin, MerkleTree};
-use winter_math::FieldElement;
-use winter_math::fields::f64::BaseElement;
 use winter_prover::matrix::ColMatrix;
 use winter_prover::{
     CompositionPoly, CompositionPolyTrace, ConstraintCompositionCoefficients,

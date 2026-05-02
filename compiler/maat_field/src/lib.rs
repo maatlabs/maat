@@ -43,11 +43,12 @@
 //! Maat's compiler emits divisions that must surface a runtime error in that
 //! case; [`try_div`] and [`try_inv`] are the wrappers used by the VM and the
 //! trace recorder to preserve the [`FieldError::InverseOfZero`] distinction.
+
 #![deny(missing_docs)]
 #![forbid(unsafe_code)]
 
-use winter_math::fields::f64::BaseElement;
-pub use winter_math::{FieldElement, StarkField};
+pub use winter_math::fields::f64::BaseElement;
+pub use winter_math::{ExtensionOf, FieldElement, StarkField, ToElements};
 
 /// A canonical element of the Maat base field.
 ///

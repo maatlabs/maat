@@ -9,8 +9,7 @@ pub mod hasher {
 
     use maat_bytecode::Bytecode;
     use maat_errors::ProverError;
-    use winter_math::fields::f64::BaseElement;
-    use winter_math::{FieldElement, StarkField};
+    use maat_field::{BaseElement, FieldElement, StarkField};
 
     pub fn compute_program_hash(bytecode: &Bytecode) -> Result<[BaseElement; 4], ProverError> {
         let bytes = bytecode.serialize()?;
@@ -75,9 +74,9 @@ pub mod proof_serializer {
     //!
     //! Minimum header: 48 bytes (with zero inputs).
 
+    use maat_air::Proof;
     use maat_errors::SerializationError;
-    use winter_air::proof::Proof;
-    use winter_math::fields::f64::BaseElement;
+    use maat_field::BaseElement;
 
     const PROOF_MAGIC: [u8; 4] = *b"MATP";
     const PROOF_VERSION: u16 = 2;

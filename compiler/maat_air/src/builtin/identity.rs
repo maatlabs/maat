@@ -5,9 +5,8 @@
 //! traces so a regression that bypasses the registry path is caught
 //! structurally rather than relying on a future builtin to surface it.
 
+use maat_field::{BaseElement, ExtensionOf, FieldElement};
 use winter_air::Assertion;
-use winter_math::fields::f64::BaseElement;
-use winter_math::{ExtensionOf, FieldElement};
 
 use super::Builtin;
 

@@ -28,8 +28,6 @@ maat_prover = { path = "../compiler/maat_prover" }
 tempfile = "3"
 criterion = { version = "0.8", features = ["html_reports"] }
 proptest = "1"
-winter-air = "0.13"
-winter-math = "0.13"
 
 [[bench]]
 name = "benchmarks"

@@ -1,7 +1,6 @@
 //! Public inputs for the STARK constraint system.
 
-use winter_math::fields::f64::BaseElement;
-use winter_math::{FieldElement, ToElements};
+use maat_field::{BaseElement, FieldElement, ToElements};
 
 /// Number of field elements in the program hash.
 const PROGRAM_HASH_LEN: usize = 4;

@@ -1,8 +1,8 @@
 //! Main segment transition constraint evaluation for the Maat CPU AIR.
 
 use maat_bytecode::selector::*;
+use maat_field::FieldElement;
 use maat_trace::table::*;
-use winter_math::FieldElement;
 
 // Selector column indices relative to `COL_SEL_BASE`.
 pub(crate) const SEL_NOP: usize = 0;
@@ -273,7 +273,7 @@ pub fn evaluate<E: FieldElement>(current: &[E], next: &[E], result: &mut [E]) {
 
 #[cfg(test)]
 mod tests {
-    use winter_math::fields::f64::BaseElement;
+    use maat_field::BaseElement;
 
     use super::*;
 

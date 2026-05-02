@@ -4,10 +4,10 @@
 //! produces a STARK proof, and verifies it; exercising the full pipeline
 //! from source code to cryptographic soundness.
 
-use maat_air::MaatPublicInputs;
+use maat_air::{MaatPublicInputs, Proof};
 use maat_bytecode::selector::*;
 use maat_bytecode::{Bytecode, Instructions, Opcode, encode};
-use maat_field::Felt;
+use maat_field::{BaseElement, Felt, FieldElement};
 use maat_prover::{
     MaatProver, compute_program_hash, compute_program_hash_bytes, deserialize_proof,
     development_options, production_options, serialize_proof, verify, verify_with_inputs,
@@ -15,9 +15,6 @@ use maat_prover::{
 use maat_runtime::{Integer, Value};
 use maat_span::SourceMap;
 use maat_trace::table::{COL_MEM_ADDR, COL_MEM_VAL, COL_OUT, COL_SUB_SEL_BASE, TraceTable};
-use winter_air::proof::Proof;
-use winter_math::FieldElement;
-use winter_math::fields::f64::BaseElement;
 
 /// Compiles source, runs the trace, and returns everything needed for proving.
 fn compile_and_trace(source: &str) -> (Bytecode, TraceTable, BaseElement) {
