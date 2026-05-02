@@ -3,6 +3,7 @@
 //! The VM uses a stack-based architecture with call frames. Operands are
 //! pushed onto a value stack, operations pop operands and push results, and
 //! function calls create new frames with their own instruction pointers.
+
 #![forbid(unsafe_code)]
 
 pub mod trace;
@@ -22,7 +23,6 @@ use maat_span::{SourceMap, Span};
 
 use crate::trace::{CallCtx, DispatchCtx, NoOpRecorder, Tracer};
 
-/// A single call frame on the VM's frame stack.
 #[derive(Debug, Clone)]
 struct Frame {
     closure: Closure,
@@ -48,7 +48,6 @@ impl Frame {
     }
 }
 
-/// Virtual machine for executing bytecode instructions.
 #[derive(Debug)]
 pub struct VM {
     constants: Vec<Value>,
@@ -64,15 +63,10 @@ pub struct VM {
 }
 
 impl VM {
-    /// Creates a new virtual machine from compiled bytecode.
     pub fn new(bytecode: Bytecode) -> Self {
         Self::with_globals(bytecode, Vec::with_capacity(MAX_GLOBALS))
     }
 
-    /// Creates a VM with an existing globals store.
-    ///
-    /// This enables REPL sessions where global variable values persist across
-    /// multiple bytecode executions.
     pub fn with_globals(bytecode: Bytecode, globals: Vec<Value>) -> Self {
         let source_map = bytecode.source_map;
         let type_registry = bytecode.type_registry;
@@ -100,15 +94,10 @@ impl VM {
         }
     }
 
-    /// Returns a reference to the VM's global variable store.
     pub fn globals(&self) -> &[Value] {
         &self.globals
     }
 
-    /// Returns the last value popped from the stack.
-    ///
-    /// After execution completes, the top-level expression result sits at the
-    /// stack position just below `sp` (the slot vacated by the final `OpPop`).
     pub fn last_popped_stack_elem(&self) -> Option<&Value> {
         if self.sp < self.stack.len() {
             Some(&self.stack[self.sp])
@@ -117,16 +106,10 @@ impl VM {
         }
     }
 
-    /// Executes the bytecode without trace instrumentation.
     pub fn run(&mut self) -> Result<()> {
         self.run_with_recorder(&mut NoOpRecorder)
     }
 
-    /// Executes the bytecode while feeding trace events to `recorder`.
-    ///
-    /// The dispatch loop is identical to [`run`](Self::run); this entry point
-    /// adds a recorder callback at every instrumentation point so the trace
-    /// crate can record one row per instruction step.
     pub fn run_with_recorder<R: Tracer>(&mut self, recorder: &mut R) -> Result<()> {
         loop {
             let frame = self.current_frame()?;
@@ -170,8 +153,6 @@ impl VM {
         Ok(())
     }
 
-    /// Dispatches a single opcode, threading `recorder` through any sub-calls
-    /// that need to emit additional events.
     fn dispatch<R: Tracer>(
         &mut self,
         op: Opcode,
@@ -221,8 +202,12 @@ impl VM {
             }
             Opcode::Equal | Opcode::NotEqual | Opcode::GreaterThan | Opcode::LessThan => {
                 self.execute_comparison(op)?;
-                recorder.record_out(self.peek_top_felt());
+                let result = self.peek_top_felt();
+                recorder.record_out(result);
                 recorder.record_cmp_witness(s0_pre, s1_pre);
+                if matches!(op, Opcode::LessThan | Opcode::GreaterThan) {
+                    recorder.record_lt_gt_witness(op, s0_pre, s1_pre, result);
+                }
             }
             Opcode::Bang => {
                 self.execute_bang_operator()?;
@@ -639,7 +624,6 @@ impl VM {
             .ok_or_else(|| self.vm_error("frame stack underflow"))
     }
 
-    /// Reads operands for the given opcode without advancing `ip`.
     fn read_operands(&self, ip: usize, op: Opcode) -> Result<(usize, usize)> {
         let widths = op.operand_widths();
         let mut operand0 = 0;
@@ -726,8 +710,6 @@ impl VM {
         }
     }
 
-    /// Reads the top three stack elements as field elements without popping.
-    /// Slots beyond the stack top are returned as [`Felt::ZERO`].
     fn peek_stack_felts(&self) -> (Felt, Felt, Felt) {
         let s0 = if self.sp >= 1 {
             self.stack[self.sp - 1].to_felt()
@@ -747,7 +729,6 @@ impl VM {
         (s0, s1, s2)
     }
 
-    /// Returns the top stack element as a field element, or zero if empty.
     fn peek_top_felt(&self) -> Felt {
         if self.sp >= 1 {
             self.stack[self.sp - 1].to_felt()
@@ -1035,7 +1016,6 @@ impl VM {
         self.push_stack(Value::Felt(base.exp(exponent)))
     }
 
-    /// Builds a vector, tuple, or array from the top N stack elements.
     fn build_collection(&mut self, n: usize, ctor: fn(Vec<Value>) -> Value) -> Result<Value> {
         if n > self.sp {
             return Err(self.vm_error(format!(

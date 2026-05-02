@@ -1,7 +1,7 @@
 //! Auxiliary trace segment: unified memory permutation argument plus the
 //! aux-column slices owned by registered builtinss.
 
-use maat_trace::{COL_MEM_ADDR, COL_MEM_VAL};
+use maat_trace::table::{COL_MEM_ADDR, COL_MEM_VAL};
 use winter_air::Assertion;
 use winter_math::fields::f64::BaseElement;
 use winter_math::{ExtensionOf, FieldElement};
@@ -188,7 +188,7 @@ fn build_memory_columns<E: FieldElement<BaseField = BaseElement>>(
 
 #[cfg(test)]
 mod tests {
-    use maat_trace::{COL_RC_L0, COL_RC_L1, COL_RC_L2, COL_RC_L3, TRACE_WIDTH};
+    use maat_trace::table::{COL_RC_L0, COL_RC_L1, COL_RC_L2, COL_RC_L3, TRACE_WIDTH};
     use winter_math::fields::f64::BaseElement;
 
     use super::*;

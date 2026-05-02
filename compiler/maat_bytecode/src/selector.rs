@@ -60,7 +60,7 @@ pub const SEL_HEAP_READ: usize = 18;
 pub const SEL_HEAP_WRITE: usize = 19;
 
 /// Number of per-opcode sub-selector flags.
-pub const NUM_SUB_SELECTORS: usize = 14;
+pub const NUM_SUB_SELECTORS: usize = 16;
 
 /// Sub-selector index: `Add` (parent [`SEL_ARITH`]).
 pub const SUB_SEL_ADD: usize = 0;
@@ -90,6 +90,10 @@ pub const SUB_SEL_XOR: usize = 11;
 pub const SUB_SEL_SHL: usize = 12;
 /// Sub-selector index: `Shr` (parent [`SEL_BITWISE`]).
 pub const SUB_SEL_SHR: usize = 13;
+/// Sub-selector index: `LessThan` (parent [`SEL_CMP`]).
+pub const SUB_SEL_LT: usize = 14;
+/// Sub-selector index: `GreaterThan` (parent [`SEL_CMP`]).
+pub const SUB_SEL_GT: usize = 15;
 
 #[derive(Debug, Clone, Copy)]
 pub struct OpcodeInfo {
@@ -193,6 +197,8 @@ pub const fn sub_selector_index(op: Opcode) -> Option<usize> {
         Opcode::BitXor => Some(SUB_SEL_XOR),
         Opcode::Shl => Some(SUB_SEL_SHL),
         Opcode::Shr => Some(SUB_SEL_SHR),
+        Opcode::LessThan => Some(SUB_SEL_LT),
+        Opcode::GreaterThan => Some(SUB_SEL_GT),
         _ => None,
     }
 }

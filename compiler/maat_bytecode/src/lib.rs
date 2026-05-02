@@ -7,19 +7,11 @@ use maat_span::SourceMap;
 
 mod instruction;
 mod opcode;
-mod selector;
+pub mod selector;
 mod serialize;
 
 pub use instruction::{Instruction, Instructions, decode_operands, encode};
 pub use opcode::{Opcode, TypeTag};
-pub use selector::{
-    NUM_SELECTORS, NUM_SUB_SELECTORS, OpcodeInfo, SEL_ARITH, SEL_BITWISE, SEL_CALL, SEL_CMP,
-    SEL_COLLECTION, SEL_COND_JUMP, SEL_CONSTRUCT, SEL_CONVERT, SEL_DIV_MOD, SEL_FELT,
-    SEL_HEAP_ALLOC, SEL_HEAP_READ, SEL_HEAP_WRITE, SEL_JUMP, SEL_LOAD, SEL_NOP, SEL_PUSH,
-    SEL_RETURN, SEL_STORE, SEL_UNARY, SUB_SEL_ADD, SUB_SEL_AND, SUB_SEL_DIV, SUB_SEL_EQ,
-    SUB_SEL_FELT_ADD, SUB_SEL_FELT_MUL, SUB_SEL_FELT_SUB, SUB_SEL_NEG, SUB_SEL_NEQ, SUB_SEL_OR,
-    SUB_SEL_SHL, SUB_SEL_SHR, SUB_SEL_SUB, SUB_SEL_XOR, selector_index, sub_selector_index,
-};
 
 /// Maximum number of constants in the constant pool.
 pub const MAX_CONSTANT_POOL_SIZE: usize = u16::MAX as usize;

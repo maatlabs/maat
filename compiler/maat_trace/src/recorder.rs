@@ -3,17 +3,13 @@
 
 use std::collections::HashMap;
 
-use maat_bytecode::{MAX_GLOBALS, Opcode, SEL_NOP};
+use maat_bytecode::selector::SEL_NOP;
+use maat_bytecode::{MAX_GLOBALS, Opcode};
 use maat_errors::{Result, VmError};
 use maat_field::{Felt, FieldElement, try_inv};
 use maat_vm::trace::{CallCtx, DispatchCtx, Tracer};
 
-use crate::table::{
-    COL_CMP_INV, COL_DIV_AUX, COL_FP, COL_IS_READ, COL_MEM_ADDR, COL_MEM_VAL, COL_NONZERO_INV,
-    COL_OP_WIDTH, COL_OPERAND_0, COL_OUT, COL_PC, COL_RC_L0, COL_RC_L1, COL_RC_L2, COL_RC_L3,
-    COL_RC_VAL, COL_S0, COL_S1, COL_S2, COL_SEL_BASE, COL_SP, COL_SUB_SEL_BASE, TRACE_WIDTH,
-    TraceRow, TraceTable,
-};
+use crate::table::*;
 
 /// Logical-address offset that lifts heap accesses out of the locals/globals
 /// region of the unified memory segment.
@@ -30,7 +26,6 @@ fn decompose_limbs(val: u64) -> [Felt; 4] {
     ]
 }
 
-/// Records every `maat_vm` dispatch event into a row of the [`TraceTable`].
 pub struct TraceRecorder {
     trace: TraceTable,
     current: TraceRow,
@@ -276,6 +271,22 @@ impl Tracer for TraceRecorder {
         if diff != Felt::ZERO {
             self.current[COL_CMP_INV] = try_inv(diff).expect("non-zero field element has inverse");
         }
+    }
+
+    fn record_lt_gt_witness(&mut self, op: Opcode, s0: Felt, s1: Felt, result: Felt) {
+        let one = Felt::ONE;
+        let one_minus_result = one - result;
+        let c = match op {
+            Opcode::LessThan => result * (s0 - s1 - one) + one_minus_result * (s1 - s0),
+            Opcode::GreaterThan => result * (s1 - s0 - one) + one_minus_result * (s0 - s1),
+            _ => return,
+        };
+        self.current[COL_RC_VAL] = c;
+        let limbs = decompose_limbs(c.as_int());
+        self.current[COL_RC_L0] = limbs[0];
+        self.current[COL_RC_L1] = limbs[1];
+        self.current[COL_RC_L2] = limbs[2];
+        self.current[COL_RC_L3] = limbs[3];
     }
 
     fn record_convert_witness(&mut self, result: Felt) {

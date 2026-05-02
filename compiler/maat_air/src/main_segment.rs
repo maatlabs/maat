@@ -1,15 +1,7 @@
 //! Main segment transition constraint evaluation for the Maat CPU AIR.
 
-use maat_bytecode::{
-    SUB_SEL_ADD, SUB_SEL_AND, SUB_SEL_DIV, SUB_SEL_EQ, SUB_SEL_FELT_ADD, SUB_SEL_FELT_MUL,
-    SUB_SEL_FELT_SUB, SUB_SEL_NEG, SUB_SEL_NEQ, SUB_SEL_OR, SUB_SEL_SHL, SUB_SEL_SHR, SUB_SEL_SUB,
-    SUB_SEL_XOR,
-};
-use maat_trace::{
-    COL_CMP_INV, COL_DIV_AUX, COL_FP, COL_IS_READ, COL_MEM_VAL, COL_NONZERO_INV, COL_OP_WIDTH,
-    COL_OPERAND_0, COL_OUT, COL_PC, COL_RC_L0, COL_RC_L1, COL_RC_L2, COL_RC_L3, COL_RC_VAL, COL_S0,
-    COL_S1, COL_SEL_BASE, COL_SP, COL_SUB_SEL_BASE, TRACE_WIDTH,
-};
+use maat_bytecode::selector::*;
+use maat_trace::table::*;
 use winter_math::FieldElement;
 
 // Selector column indices relative to `COL_SEL_BASE`.
@@ -36,7 +28,7 @@ pub(crate) const SEL_HEAP_WRITE: usize = 19;
 pub(crate) const NUM_SELECTORS: usize = 20;
 
 /// Number of transition constraints enforced by the AIR.
-pub const NUM_CONSTRAINTS: usize = 74;
+pub const NUM_CONSTRAINTS: usize = 81;
 
 /// Degree of each transition constraint, indexed by constraint number.
 pub const CONSTRAINT_DEGREES: [usize; NUM_CONSTRAINTS] = [
@@ -58,10 +50,14 @@ pub const CONSTRAINT_DEGREES: [usize; NUM_CONSTRAINTS] = [
     2, // 46-54: sub-selector structural (binary + ⊆ parent)
     2, 2, 2, 2, 2, 2, 2, 2, 2, // 55-59: mutual exclusion within sub-selector classes
     2, 2, 2, 2, 2, // 60-63: output correctness (arith, div_mod, unary, felt)
-    3, 3, 3, 3, // 64-66: comparison correctness
+    3, 3, 3, 3, // 64-66: comparison correctness (binary, equal-path, not-equal-path)
     3, 3, 4, // 67: SP heap write
     2, // 68-72: bitwise sub-selector structural (binary + ⊆ sel_bitwise)
     2, 2, 2, 2, 2, // 73: bitwise sub-selectors sum to sel_bitwise
+    1, // 74-75: ordering sub-selector structural (binary + ⊆ sel_cmp)
+    2, 2, // 76-77: cmp_diff slack fits in 2^32 on LT/GT rows
+    2, 2, // 78-79: ordering output correctness via range-checked slack
+    3, 3, // 80: comparison sub-selectors sum to sel_cmp
     1,
 ];
 
@@ -239,7 +235,9 @@ pub fn evaluate<E: FieldElement>(current: &[E], next: &[E], result: &mut [E]) {
         + sub_felt_sub * (out - s1 + s0)
         + sub_felt_mul * (out - s0 * s1);
 
-    let cmp_active = sub_eq + sub_neq;
+    let sub_lt = sub(current, SUB_SEL_LT);
+    let sub_gt = sub(current, SUB_SEL_GT);
+    let cmp_active = sub_eq + sub_neq + sub_lt + sub_gt;
     let diff = s0 - s1;
     let one_minus_diff_inv = one - diff * cmp_inv;
 
@@ -261,6 +259,16 @@ pub fn evaluate<E: FieldElement>(current: &[E], next: &[E], result: &mut [E]) {
     result[71] = sub_shl * (sub_shl - sel_bitwise);
     result[72] = sub_shr * (sub_shr - sel_bitwise);
     result[73] = sub_and + sub_or + sub_xor + sub_shl + sub_shr - sel_bitwise;
+
+    let sub_cmp_class = sub_lt + sub_gt;
+    let two_out_minus_one = out + out - one;
+    result[74] = sub_lt * (sub_lt - sel_cmp);
+    result[75] = sub_gt * (sub_gt - sel_cmp);
+    result[76] = sub_cmp_class * l2;
+    result[77] = sub_cmp_class * l3;
+    result[78] = sub_lt * (rc_val - two_out_minus_one * (s0 - s1) + out);
+    result[79] = sub_gt * (rc_val - two_out_minus_one * (s1 - s0) + out);
+    result[80] = sub_eq + sub_neq + sub_lt + sub_gt - sel_cmp;
 }
 
 #[cfg(test)]

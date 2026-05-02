@@ -5,10 +5,8 @@
 //! from source code to cryptographic soundness.
 
 use maat_air::MaatPublicInputs;
-use maat_bytecode::{
-    Bytecode, Instructions, Opcode, SUB_SEL_ADD, SUB_SEL_AND, SUB_SEL_EQ, SUB_SEL_FELT_ADD,
-    SUB_SEL_NEG, SUB_SEL_OR, SUB_SEL_SHL, SUB_SEL_SHR, SUB_SEL_XOR, encode,
-};
+use maat_bytecode::selector::*;
+use maat_bytecode::{Bytecode, Instructions, Opcode, encode};
 use maat_field::Felt;
 use maat_prover::{
     MaatProver, compute_program_hash, compute_program_hash_bytes, deserialize_proof,
@@ -16,7 +14,7 @@ use maat_prover::{
 };
 use maat_runtime::{Integer, Value};
 use maat_span::SourceMap;
-use maat_trace::{COL_MEM_ADDR, COL_MEM_VAL, COL_OUT, COL_SUB_SEL_BASE, TraceTable};
+use maat_trace::table::{COL_MEM_ADDR, COL_MEM_VAL, COL_OUT, COL_SUB_SEL_BASE, TraceTable};
 use winter_air::proof::Proof;
 use winter_math::FieldElement;
 use winter_math::fields::f64::BaseElement;
@@ -1001,4 +999,116 @@ fn tampered_bitwise_shr_output_rejected() {
     let (bytecode, mut trace, output) = compile_and_trace(source);
     tamper_output_on_sub_sel(&mut trace, SUB_SEL_SHR);
     assert_tampered_trace_rejected(bytecode, trace, output, "bitwise shr");
+}
+
+#[test]
+fn prove_and_verify_ordering_lt_true() {
+    prove_and_verify(
+        "
+        let a: u32 = 7u32;
+        let b: u32 = 42u32;
+        if a < b { 1i64 } else { 0i64 }
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_ordering_lt_false() {
+    prove_and_verify(
+        "
+        let a: u32 = 50u32;
+        let b: u32 = 42u32;
+        if a < b { 1i64 } else { 0i64 }
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_ordering_lt_equal() {
+    prove_and_verify(
+        "
+        let a: u32 = 42u32;
+        let b: u32 = 42u32;
+        if a < b { 1i64 } else { 0i64 }
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_ordering_gt_true() {
+    prove_and_verify(
+        "
+        let a: u32 = 99u32;
+        let b: u32 = 42u32;
+        if a > b { 1i64 } else { 0i64 }
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_ordering_gt_false() {
+    prove_and_verify(
+        "
+        let a: u32 = 7u32;
+        let b: u32 = 42u32;
+        if a > b { 1i64 } else { 0i64 }
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_ordering_le_boundary() {
+    prove_and_verify(
+        "
+        let a: u32 = 42u32;
+        let b: u32 = 42u32;
+        if a <= b { 1i64 } else { 0i64 }
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_ordering_ge_boundary() {
+    prove_and_verify(
+        "
+        let a: u32 = 42u32;
+        let b: u32 = 42u32;
+        if a >= b { 1i64 } else { 0i64 }
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_ordering_signed_negatives() {
+    prove_and_verify(
+        "
+        let a: i32 = -7i32;
+        let b: i32 = -3i32;
+        if a < b { 1i64 } else { 0i64 }
+        ",
+    );
+}
+
+#[test]
+fn tampered_lt_output_rejected() {
+    let source = "
+        let a: u32 = 7u32;
+        let b: u32 = 42u32;
+        if a < b { 1i64 } else { 0i64 }
+    ";
+    let (bytecode, mut trace, output) = compile_and_trace(source);
+    tamper_output_on_sub_sel(&mut trace, SUB_SEL_LT);
+    assert_tampered_trace_rejected(bytecode, trace, output, "ordering lt");
+}
+
+#[test]
+fn tampered_gt_output_rejected() {
+    let source = "
+        let a: u32 = 99u32;
+        let b: u32 = 42u32;
+        if a > b { 1i64 } else { 0i64 }
+    ";
+    let (bytecode, mut trace, output) = compile_and_trace(source);
+    tamper_output_on_sub_sel(&mut trace, SUB_SEL_GT);
+    assert_tampered_trace_rejected(bytecode, trace, output, "ordering gt");
 }

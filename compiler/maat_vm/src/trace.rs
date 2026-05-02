@@ -1,10 +1,10 @@
-//! Execution trace callback surface.
+//! Execution trace callback interface.
 
 use maat_bytecode::Opcode;
 use maat_errors::Result;
 use maat_field::Felt;
 
-/// Callback surface the VM dispatch loop consults at each instrumentation point.
+/// Interface the VM dispatch loop consults at each instrumentation point.
 ///
 /// The VM pays no overhead beyond the call-site itself: every method has a
 /// default no-op body and the dispatch loop is generic over the recorder type, so a
@@ -29,16 +29,11 @@ pub trait Tracer {
     fn record_local_access(&mut self, _local_index: usize, _value: Felt, _is_read: bool) {}
 
     /// Records a heap access (alloc, read, or write) against the unified
-    /// memory permutation argument. `heap_id` is a unique-per-event identifier
-    /// allocated by the VM; the recorder lifts it out of the locals/globals
-    /// logical address space before threading it through the same code path
-    /// used for globals and locals.
+    /// memory permutation argument.
     #[inline(always)]
     fn record_heap_access(&mut self, _heap_id: usize, _value: Felt, _is_read: bool) {}
 
-    /// Records entry into a closure frame: emits one synthetic per-parameter
-    /// memory-write row plus the saved-frame-pointer write that goes on the
-    /// current `Call` row, and updates the recorder's logical frame-pointer.
+    /// Records entry into a closure frame.
     #[inline(always)]
     fn record_call_closure(&mut self, _ctx: CallCtx<'_>) -> Result<()> {
         Ok(())
@@ -48,8 +43,7 @@ pub trait Tracer {
     #[inline(always)]
     fn record_call_builtin(&mut self) {}
 
-    /// Records a function return: emits the saved-frame-pointer read into the
-    /// current row and pops the recorder's logical frame-pointer.
+    /// Records a function return.
     #[inline(always)]
     fn record_return(&mut self) -> Result<()> {
         Ok(())
@@ -62,6 +56,11 @@ pub trait Tracer {
     /// Supplies the witness data needed by the equality/inequality AIR rule.
     #[inline(always)]
     fn record_cmp_witness(&mut self, _s0: Felt, _s1: Felt) {}
+
+    /// Supplies the witness data needed by the ordering AIR rule on
+    /// `LessThan` / `GreaterThan` rows.
+    #[inline(always)]
+    fn record_lt_gt_witness(&mut self, _op: Opcode, _s0: Felt, _s1: Felt, _result: Felt) {}
 
     /// Supplies the witness data needed by the type-conversion range check.
     #[inline(always)]

@@ -4,7 +4,7 @@
 //! permutation accumulator) and proves that every 16-bit limb emitted on a
 //! range-check trigger row lies in `[0, 2^16)`.
 
-use maat_trace::{COL_RC_L0, COL_RC_L1, COL_RC_L2, COL_RC_L3};
+use maat_trace::table::{COL_RC_L0, COL_RC_L1, COL_RC_L2, COL_RC_L3};
 use winter_air::Assertion;
 use winter_math::fields::f64::BaseElement;
 use winter_math::{ExtensionOf, FieldElement};

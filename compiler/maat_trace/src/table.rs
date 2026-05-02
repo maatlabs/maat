@@ -7,7 +7,7 @@
 use std::fmt;
 use std::io::{self, Write};
 
-use maat_bytecode::{NUM_SELECTORS, NUM_SUB_SELECTORS, SEL_NOP};
+use maat_bytecode::selector::{NUM_SELECTORS, NUM_SUB_SELECTORS, SEL_NOP};
 use maat_field::{Felt, FieldElement};
 
 /// Program counter.
@@ -62,10 +62,7 @@ pub const COL_CMP_INV: usize = COL_OP_WIDTH + 1;
 /// Auxiliary witness for the division/modulo identity.
 pub const COL_DIV_AUX: usize = COL_CMP_INV + 1;
 
-/// Base column index for the per-opcode sub-selector flags. The sub-selector
-/// indices themselves (`SUB_SEL_ADD`, `SUB_SEL_SUB`, ...) live in
-/// `maat_bytecode` so the trace recorder and the AIR read them from the
-/// same source.
+/// Base column index for the per-opcode sub-selector flags.
 pub const COL_SUB_SEL_BASE: usize = COL_DIV_AUX + 1;
 
 /// Total number of columns in the main execution trace.
@@ -127,12 +124,12 @@ pub const COLUMN_NAMES: [&str; TRACE_WIDTH] = [
     "sub_sel_xor",
     "sub_sel_shl",
     "sub_sel_shr",
+    "sub_sel_lt",
+    "sub_sel_gt",
 ];
 
-/// A single trace row: an array of [`TRACE_WIDTH`] field elements.
 pub type TraceRow = [Felt; TRACE_WIDTH];
 
-/// Execution trace matrix.
 pub struct TraceTable {
     rows: Vec<TraceRow>,
 }
@@ -160,14 +157,12 @@ impl TraceTable {
         &mut self.rows[index]
     }
 
-    /// Writes the program output into [`COL_OUT`] on the last row.
     pub fn stamp_output(&mut self, output: Felt) {
         if let Some(last) = self.rows.last_mut() {
             last[COL_OUT] = output;
         }
     }
 
-    /// Pads the trace to the next power of two (minimum 8 rows).
     pub fn pad_to_power_of_two(&mut self) {
         let target = if self.rows.len() <= Self::MIN_ROWS {
             Self::MIN_ROWS
@@ -320,7 +315,7 @@ mod tests {
         let cols = header.split(',').collect::<Vec<_>>();
         assert_eq!(cols.len(), TRACE_WIDTH);
         assert_eq!(cols[0], "pc");
-        assert_eq!(cols[TRACE_WIDTH - 1], "sub_sel_shr");
+        assert_eq!(cols[TRACE_WIDTH - 1], "sub_sel_gt");
     }
 
     #[test]

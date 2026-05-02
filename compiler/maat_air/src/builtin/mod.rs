@@ -213,7 +213,7 @@ impl BuiltinSet {
 
 #[cfg(test)]
 mod tests {
-    use maat_trace::TRACE_WIDTH;
+    use maat_trace::table::TRACE_WIDTH;
 
     use super::*;
     use crate::aux_segment::{MEMORY_AUX_WIDTH, MEMORY_NUM_AUX_RANDS};

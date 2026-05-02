@@ -18,7 +18,7 @@ use aux_segment::{
     NUM_AUX_ASSERTIONS, NUM_AUX_CONSTRAINTS, aux_assertions, aux_constraint_degrees,
 };
 pub use builtin::{BitwiseBuiltin, Builtin, BuiltinSet, IdentityBuiltin, RangeCheckBuiltin};
-use maat_trace::{COL_OUT, COL_PC, COL_SP};
+use maat_trace::table::{COL_OUT, COL_PC, COL_SP};
 use main_segment::CONSTRAINT_DEGREES;
 pub use public_inputs::MaatPublicInputs;
 use winter_air::{
@@ -120,7 +120,7 @@ impl Air for MaatAir {
 
 #[cfg(test)]
 mod tests {
-    use maat_trace::TRACE_WIDTH;
+    use maat_trace::table::TRACE_WIDTH;
 
     use super::*;
     use crate::aux_segment::AUX_COL_MEM_ACC;
