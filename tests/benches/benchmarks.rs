@@ -1,7 +1,7 @@
 use std::hint::black_box;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use maat_ast::{Node, fold_constants};
+use maat_ast::{MaatAst, fold_constants};
 use maat_bytecode::Bytecode;
 use maat_codegen::Compiler;
 use maat_lexer::{MaatLexer, TokenKind};
@@ -64,7 +64,7 @@ fn check_and_compile(source: &str) {
     let _ = fold_constants(&mut program);
     let mut compiler = Compiler::new();
     compiler
-        .compile(&Node::Program(program))
+        .compile(&MaatAst::Program(program))
         .expect("compilation failed");
     let _ = black_box(compiler.bytecode());
 }

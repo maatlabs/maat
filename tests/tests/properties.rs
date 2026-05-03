@@ -1,4 +1,4 @@
-use maat_ast::{Node, Program};
+use maat_ast::{MaatAst, Program};
 use maat_bytecode::Bytecode;
 use maat_codegen::Compiler;
 use maat_lexer::{MaatLexer, TokenKind};
@@ -102,7 +102,7 @@ fn type_check_and_compile(source: &str) -> Option<Bytecode> {
         return None;
     }
     let mut compiler = Compiler::new();
-    compiler.compile(&Node::Program(program)).ok()?;
+    compiler.compile(&MaatAst::Program(program)).ok()?;
     compiler.bytecode().ok()
 }
 

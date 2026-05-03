@@ -15,7 +15,7 @@ use std::rc::Rc;
 pub use builtins::{BUILTIN_COUNT, BUILTINS, get_builtin};
 pub use env::Env;
 use indexmap::{IndexMap, IndexSet};
-use maat_ast::{BlockStmt, Node, Number};
+use maat_ast::{BlockStmt, MaatAst, Number};
 pub use maat_ast::{CastTarget, NumKind};
 use maat_errors::{Error, EvalError, Result};
 use maat_field::FieldElement;
@@ -128,21 +128,21 @@ impl Value {
         }
     }
 
-    pub fn to_ast_node(val: &Self) -> Option<Node> {
+    pub fn to_ast_node(val: &Self) -> Option<MaatAst> {
         use maat_ast::*;
         use maat_span::Span;
 
         match val {
             Value::Integer(i) => {
                 let (kind, value) = i.to_ast_literal()?;
-                Some(Node::Expr(Expr::Number(Number {
+                Some(MaatAst::Expr(Expr::Number(Number {
                     kind,
                     value,
                     radix: Radix::Dec,
                     span: Span::ZERO,
                 })))
             }
-            Value::Bool(b) => Some(Node::Expr(Expr::Bool(BoolLit {
+            Value::Bool(b) => Some(MaatAst::Expr(Expr::Bool(BoolLit {
                 value: *b,
                 span: Span::ZERO,
             }))),
@@ -336,7 +336,7 @@ pub struct Macro {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Quote {
-    pub node: Node,
+    pub node: MaatAst,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

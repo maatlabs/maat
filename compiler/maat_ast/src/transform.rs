@@ -6,57 +6,57 @@
 use crate::*;
 
 /// A function that takes a node and returns a potentially modified one.
-pub type TransformFn<'a> = &'a mut dyn FnMut(Node) -> Node;
+pub type TransformFn<'a> = &'a mut dyn FnMut(MaatAst) -> MaatAst;
 
 /// Recursively traverses and modifies an AST node using the provided transformer function.
 ///
 /// The traversal follows a post-order pattern: first, all child nodes are recursively
 /// transformed, then the transformer function is applied to the current node. This ensures
 /// that changes are applied from the leaves up to the root.
-pub fn transform(node: Node, transformer: TransformFn) -> Node {
+pub fn transform(node: MaatAst, transformer: TransformFn) -> MaatAst {
     let node = match node {
-        Node::Program(mut program) => {
+        MaatAst::Program(mut program) => {
             program.statements = program
                 .statements
                 .into_iter()
-                .map(|stmt| match transform(Node::Stmt(stmt), transformer) {
-                    Node::Stmt(s) => s,
+                .map(|stmt| match transform(MaatAst::Stmt(stmt), transformer) {
+                    MaatAst::Stmt(s) => s,
                     _ => unreachable!("Stmt transformation returned non-statement"),
                 })
                 .collect();
-            Node::Program(program)
+            MaatAst::Program(program)
         }
 
-        Node::Stmt(stmt) => {
+        MaatAst::Stmt(stmt) => {
             let new_stmt = match stmt {
                 Stmt::Let(mut let_stmt) => {
-                    let_stmt.value = match transform(Node::Expr(let_stmt.value), transformer) {
-                        Node::Expr(e) => e,
+                    let_stmt.value = match transform(MaatAst::Expr(let_stmt.value), transformer) {
+                        MaatAst::Expr(e) => e,
                         _ => unreachable!("Expr transformation returned non-expression"),
                     };
                     Stmt::Let(let_stmt)
                 }
 
                 Stmt::ReAssign(mut assign_stmt) => {
-                    assign_stmt.value = match transform(Node::Expr(assign_stmt.value), transformer)
-                    {
-                        Node::Expr(e) => e,
-                        _ => unreachable!("Expr transformation returned non-expression"),
-                    };
+                    assign_stmt.value =
+                        match transform(MaatAst::Expr(assign_stmt.value), transformer) {
+                            MaatAst::Expr(e) => e,
+                            _ => unreachable!("Expr transformation returned non-expression"),
+                        };
                     Stmt::ReAssign(assign_stmt)
                 }
 
                 Stmt::Return(mut ret_stmt) => {
-                    ret_stmt.value = match transform(Node::Expr(ret_stmt.value), transformer) {
-                        Node::Expr(e) => e,
+                    ret_stmt.value = match transform(MaatAst::Expr(ret_stmt.value), transformer) {
+                        MaatAst::Expr(e) => e,
                         _ => unreachable!("Expr transformation returned non-expression"),
                     };
                     Stmt::Return(ret_stmt)
                 }
 
                 Stmt::Expr(mut expr_stmt) => {
-                    expr_stmt.value = match transform(Node::Expr(expr_stmt.value), transformer) {
-                        Node::Expr(e) => e,
+                    expr_stmt.value = match transform(MaatAst::Expr(expr_stmt.value), transformer) {
+                        MaatAst::Expr(e) => e,
                         _ => unreachable!("Expr transformation returned non-expression"),
                     };
                     Stmt::Expr(expr_stmt)
@@ -66,8 +66,8 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                     block.statements = block
                         .statements
                         .into_iter()
-                        .map(|stmt| match transform(Node::Stmt(stmt), transformer) {
-                            Node::Stmt(s) => s,
+                        .map(|stmt| match transform(MaatAst::Stmt(stmt), transformer) {
+                            MaatAst::Stmt(s) => s,
                             _ => unreachable!("Stmt transformation returned non-statement"),
                         })
                         .collect();
@@ -76,8 +76,8 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
 
                 Stmt::FuncDef(mut fn_item) => {
                     fn_item.body =
-                        match transform(Node::Stmt(Stmt::Block(fn_item.body)), transformer) {
-                            Node::Stmt(Stmt::Block(b)) => b,
+                        match transform(MaatAst::Stmt(Stmt::Block(fn_item.body)), transformer) {
+                            MaatAst::Stmt(Stmt::Block(b)) => b,
                             _ => unreachable!("Block transformation returned non-block"),
                         };
                     Stmt::FuncDef(fn_item)
@@ -85,8 +85,8 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
 
                 Stmt::Loop(mut loop_stmt) => {
                     loop_stmt.body =
-                        match transform(Node::Stmt(Stmt::Block(loop_stmt.body)), transformer) {
-                            Node::Stmt(Stmt::Block(b)) => b,
+                        match transform(MaatAst::Stmt(Stmt::Block(loop_stmt.body)), transformer) {
+                            MaatAst::Stmt(Stmt::Block(b)) => b,
                             _ => unreachable!("Block transformation returned non-block"),
                         };
                     Stmt::Loop(loop_stmt)
@@ -94,14 +94,14 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
 
                 Stmt::While(mut while_stmt) => {
                     while_stmt.condition = Box::new(
-                        match transform(Node::Expr(*while_stmt.condition), transformer) {
-                            Node::Expr(e) => e,
+                        match transform(MaatAst::Expr(*while_stmt.condition), transformer) {
+                            MaatAst::Expr(e) => e,
                             _ => unreachable!("Expr transformation returned non-expression"),
                         },
                     );
                     while_stmt.body =
-                        match transform(Node::Stmt(Stmt::Block(while_stmt.body)), transformer) {
-                            Node::Stmt(Stmt::Block(b)) => b,
+                        match transform(MaatAst::Stmt(Stmt::Block(while_stmt.body)), transformer) {
+                            MaatAst::Stmt(Stmt::Block(b)) => b,
                             _ => unreachable!("Block transformation returned non-block"),
                         };
                     Stmt::While(while_stmt)
@@ -109,14 +109,14 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
 
                 Stmt::For(mut for_stmt) => {
                     for_stmt.iterable = Box::new(
-                        match transform(Node::Expr(*for_stmt.iterable), transformer) {
-                            Node::Expr(e) => e,
+                        match transform(MaatAst::Expr(*for_stmt.iterable), transformer) {
+                            MaatAst::Expr(e) => e,
                             _ => unreachable!("Expr transformation returned non-expression"),
                         },
                     );
                     for_stmt.body =
-                        match transform(Node::Stmt(Stmt::Block(for_stmt.body)), transformer) {
-                            Node::Stmt(Stmt::Block(b)) => b,
+                        match transform(MaatAst::Stmt(Stmt::Block(for_stmt.body)), transformer) {
+                            MaatAst::Stmt(Stmt::Block(b)) => b,
                             _ => unreachable!("Block transformation returned non-block"),
                         };
                     Stmt::For(for_stmt)
@@ -126,8 +126,8 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                     if let Some(body) = mod_stmt.body {
                         mod_stmt.body = Some(
                             body.into_iter()
-                                .map(|stmt| match transform(Node::Stmt(stmt), transformer) {
-                                    Node::Stmt(s) => s,
+                                .map(|stmt| match transform(MaatAst::Stmt(stmt), transformer) {
+                                    MaatAst::Stmt(s) => s,
                                     _ => {
                                         unreachable!("Stmt transformation returned non-statement")
                                     }
@@ -148,17 +148,17 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                 | Stmt::ImplBlock(_)
                 | Stmt::Use(_)) => stmt,
             };
-            Node::Stmt(new_stmt)
+            MaatAst::Stmt(new_stmt)
         }
 
-        Node::Expr(expr) => {
+        MaatAst::Expr(expr) => {
             let new_expr = match expr {
                 Expr::Vector(mut vector) => {
                     vector.elements = vector
                         .elements
                         .into_iter()
-                        .map(|elem| match transform(Node::Expr(elem), transformer) {
-                            Node::Expr(e) => e,
+                        .map(|elem| match transform(MaatAst::Expr(elem), transformer) {
+                            MaatAst::Expr(e) => e,
                             _ => unreachable!("Expr transformation returned non-expression"),
                         })
                         .collect();
@@ -166,13 +166,14 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                 }
 
                 Expr::Index(mut index) => {
-                    index.expr = Box::new(match transform(Node::Expr(*index.expr), transformer) {
-                        Node::Expr(e) => e,
-                        _ => unreachable!("Expr transformation returned non-expression"),
-                    });
+                    index.expr =
+                        Box::new(match transform(MaatAst::Expr(*index.expr), transformer) {
+                            MaatAst::Expr(e) => e,
+                            _ => unreachable!("Expr transformation returned non-expression"),
+                        });
                     index.index =
-                        Box::new(match transform(Node::Expr(*index.index), transformer) {
-                            Node::Expr(e) => e,
+                        Box::new(match transform(MaatAst::Expr(*index.index), transformer) {
+                            MaatAst::Expr(e) => e,
                             _ => unreachable!("Expr transformation returned non-expression"),
                         });
                     Expr::Index(index)
@@ -183,14 +184,14 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                         .pairs
                         .into_iter()
                         .map(|(key, val)| {
-                            let new_key = match transform(Node::Expr(key), transformer) {
-                                Node::Expr(e) => e,
+                            let new_key = match transform(MaatAst::Expr(key), transformer) {
+                                MaatAst::Expr(e) => e,
                                 _ => {
                                     unreachable!("Expr transformation returned non-expression")
                                 }
                             };
-                            let new_val = match transform(Node::Expr(val), transformer) {
-                                Node::Expr(e) => e,
+                            let new_val = match transform(MaatAst::Expr(val), transformer) {
+                                MaatAst::Expr(e) => e,
                                 _ => {
                                     unreachable!("Expr transformation returned non-expression")
                                 }
@@ -202,76 +203,82 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                 }
 
                 Expr::Prefix(mut prefix) => {
-                    prefix.operand =
-                        Box::new(match transform(Node::Expr(*prefix.operand), transformer) {
-                            Node::Expr(e) => e,
+                    prefix.operand = Box::new(
+                        match transform(MaatAst::Expr(*prefix.operand), transformer) {
+                            MaatAst::Expr(e) => e,
                             _ => unreachable!("Expr transformation returned non-expression"),
-                        });
+                        },
+                    );
                     Expr::Prefix(prefix)
                 }
 
                 Expr::Infix(mut infix) => {
-                    infix.lhs = Box::new(match transform(Node::Expr(*infix.lhs), transformer) {
-                        Node::Expr(e) => e,
+                    infix.lhs = Box::new(match transform(MaatAst::Expr(*infix.lhs), transformer) {
+                        MaatAst::Expr(e) => e,
                         _ => unreachable!("Expr transformation returned non-expression"),
                     });
-                    infix.rhs = Box::new(match transform(Node::Expr(*infix.rhs), transformer) {
-                        Node::Expr(e) => e,
+                    infix.rhs = Box::new(match transform(MaatAst::Expr(*infix.rhs), transformer) {
+                        MaatAst::Expr(e) => e,
                         _ => unreachable!("Expr transformation returned non-expression"),
                     });
                     Expr::Infix(infix)
                 }
 
                 Expr::Cond(mut cond) => {
-                    cond.condition =
-                        Box::new(match transform(Node::Expr(*cond.condition), transformer) {
-                            Node::Expr(e) => e,
+                    cond.condition = Box::new(
+                        match transform(MaatAst::Expr(*cond.condition), transformer) {
+                            MaatAst::Expr(e) => e,
                             _ => unreachable!("Expr transformation returned non-expression"),
-                        });
-                    cond.consequence =
-                        match transform(Node::Stmt(Stmt::Block(cond.consequence)), transformer) {
-                            Node::Stmt(Stmt::Block(b)) => b,
-                            _ => unreachable!("Block transformation returned non-block"),
-                        };
+                        },
+                    );
+                    cond.consequence = match transform(
+                        MaatAst::Stmt(Stmt::Block(cond.consequence)),
+                        transformer,
+                    ) {
+                        MaatAst::Stmt(Stmt::Block(b)) => b,
+                        _ => unreachable!("Block transformation returned non-block"),
+                    };
                     if let Some(alt) = cond.alternative {
-                        cond.alternative =
-                            Some(match transform(Node::Stmt(Stmt::Block(alt)), transformer) {
-                                Node::Stmt(Stmt::Block(b)) => b,
+                        cond.alternative = Some(
+                            match transform(MaatAst::Stmt(Stmt::Block(alt)), transformer) {
+                                MaatAst::Stmt(Stmt::Block(b)) => b,
                                 _ => unreachable!("Block transformation returned non-block"),
-                            });
+                            },
+                        );
                     }
                     Expr::Cond(cond)
                 }
 
                 Expr::Lambda(mut lambda) => {
-                    lambda.body = match transform(Node::Stmt(Stmt::Block(lambda.body)), transformer)
-                    {
-                        Node::Stmt(Stmt::Block(b)) => b,
-                        _ => unreachable!("Block transformation returned non-block"),
-                    };
+                    lambda.body =
+                        match transform(MaatAst::Stmt(Stmt::Block(lambda.body)), transformer) {
+                            MaatAst::Stmt(Stmt::Block(b)) => b,
+                            _ => unreachable!("Block transformation returned non-block"),
+                        };
                     Expr::Lambda(lambda)
                 }
 
                 Expr::MacroLit(mut macro_lit) => {
                     macro_lit.body =
-                        match transform(Node::Stmt(Stmt::Block(macro_lit.body)), transformer) {
-                            Node::Stmt(Stmt::Block(b)) => b,
+                        match transform(MaatAst::Stmt(Stmt::Block(macro_lit.body)), transformer) {
+                            MaatAst::Stmt(Stmt::Block(b)) => b,
                             _ => unreachable!("Block transformation returned non-block"),
                         };
                     Expr::MacroLit(macro_lit)
                 }
 
                 Expr::Call(mut call) => {
-                    call.function =
-                        Box::new(match transform(Node::Expr(*call.function), transformer) {
-                            Node::Expr(e) => e,
+                    call.function = Box::new(
+                        match transform(MaatAst::Expr(*call.function), transformer) {
+                            MaatAst::Expr(e) => e,
                             _ => unreachable!("Expr transformation returned non-expression"),
-                        });
+                        },
+                    );
                     call.arguments = call
                         .arguments
                         .into_iter()
-                        .map(|arg| match transform(Node::Expr(arg), transformer) {
-                            Node::Expr(e) => e,
+                        .map(|arg| match transform(MaatAst::Expr(arg), transformer) {
+                            MaatAst::Expr(e) => e,
                             _ => unreachable!("Expr transformation returned non-expression"),
                         })
                         .collect();
@@ -282,8 +289,8 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                     mc.arguments = mc
                         .arguments
                         .into_iter()
-                        .map(|arg| match transform(Node::Expr(arg), transformer) {
-                            Node::Expr(e) => e,
+                        .map(|arg| match transform(MaatAst::Expr(arg), transformer) {
+                            MaatAst::Expr(e) => e,
                             _ => unreachable!("Expr transformation returned non-expression"),
                         })
                         .collect();
@@ -291,8 +298,8 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                 }
 
                 Expr::Cast(mut cast) => {
-                    cast.expr = Box::new(match transform(Node::Expr(*cast.expr), transformer) {
-                        Node::Expr(e) => e,
+                    cast.expr = Box::new(match transform(MaatAst::Expr(*cast.expr), transformer) {
+                        MaatAst::Expr(e) => e,
                         _ => unreachable!("Expr transformation returned non-expression"),
                     });
                     Expr::Cast(cast)
@@ -300,8 +307,8 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
 
                 Expr::Break(mut break_expr) => {
                     break_expr.value = break_expr.value.map(|v| {
-                        Box::new(match transform(Node::Expr(*v), transformer) {
-                            Node::Expr(e) => e,
+                        Box::new(match transform(MaatAst::Expr(*v), transformer) {
+                            MaatAst::Expr(e) => e,
                             _ => unreachable!("Expr transformation returned non-expression"),
                         })
                     });
@@ -309,18 +316,19 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                 }
 
                 Expr::Try(mut try_expr) => {
-                    try_expr.expr =
-                        Box::new(match transform(Node::Expr(*try_expr.expr), transformer) {
-                            Node::Expr(e) => e,
+                    try_expr.expr = Box::new(
+                        match transform(MaatAst::Expr(*try_expr.expr), transformer) {
+                            MaatAst::Expr(e) => e,
                             _ => unreachable!("Expr transformation returned non-expression"),
-                        });
+                        },
+                    );
                     Expr::Try(try_expr)
                 }
 
                 Expr::Match(mut match_expr) => {
                     match_expr.scrutinee = Box::new(
-                        match transform(Node::Expr(*match_expr.scrutinee), transformer) {
-                            Node::Expr(e) => e,
+                        match transform(MaatAst::Expr(*match_expr.scrutinee), transformer) {
+                            MaatAst::Expr(e) => e,
                             _ => unreachable!("Expr transformation returned non-expression"),
                         },
                     );
@@ -328,14 +336,14 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                         .arms
                         .into_iter()
                         .map(|mut arm| {
-                            arm.body = match transform(Node::Expr(arm.body), transformer) {
-                                Node::Expr(e) => e,
+                            arm.body = match transform(MaatAst::Expr(arm.body), transformer) {
+                                MaatAst::Expr(e) => e,
                                 _ => unreachable!("Expr transformation returned non-expression"),
                             };
                             if let Some(guard) = arm.guard {
                                 arm.guard = Some(Box::new(
-                                    match transform(Node::Expr(*guard), transformer) {
-                                        Node::Expr(e) => e,
+                                    match transform(MaatAst::Expr(*guard), transformer) {
+                                        MaatAst::Expr(e) => e,
                                         _ => unreachable!(
                                             "Expr transformation returned non-expression"
                                         ),
@@ -350,8 +358,8 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
 
                 Expr::FieldAccess(mut field_access) => {
                     field_access.object = Box::new(
-                        match transform(Node::Expr(*field_access.object), transformer) {
-                            Node::Expr(e) => e,
+                        match transform(MaatAst::Expr(*field_access.object), transformer) {
+                            MaatAst::Expr(e) => e,
                             _ => unreachable!("Expr transformation returned non-expression"),
                         },
                     );
@@ -360,16 +368,16 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
 
                 Expr::MethodCall(mut method_call) => {
                     method_call.object = Box::new(
-                        match transform(Node::Expr(*method_call.object), transformer) {
-                            Node::Expr(e) => e,
+                        match transform(MaatAst::Expr(*method_call.object), transformer) {
+                            MaatAst::Expr(e) => e,
                             _ => unreachable!("Expr transformation returned non-expression"),
                         },
                     );
                     method_call.arguments = method_call
                         .arguments
                         .into_iter()
-                        .map(|arg| match transform(Node::Expr(arg), transformer) {
-                            Node::Expr(e) => e,
+                        .map(|arg| match transform(MaatAst::Expr(arg), transformer) {
+                            MaatAst::Expr(e) => e,
                             _ => unreachable!("Expr transformation returned non-expression"),
                         })
                         .collect();
@@ -381,16 +389,16 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                         .fields
                         .into_iter()
                         .map(|(name, val)| {
-                            let new_val = match transform(Node::Expr(val), transformer) {
-                                Node::Expr(e) => e,
+                            let new_val = match transform(MaatAst::Expr(val), transformer) {
+                                MaatAst::Expr(e) => e,
                                 _ => unreachable!("Expr transformation returned non-expression"),
                             };
                             (name, new_val)
                         })
                         .collect();
                     struct_lit.base = struct_lit.base.map(|base| {
-                        Box::new(match transform(Node::Expr(*base), transformer) {
-                            Node::Expr(e) => e,
+                        Box::new(match transform(MaatAst::Expr(*base), transformer) {
+                            MaatAst::Expr(e) => e,
                             _ => unreachable!("Expr transformation returned non-expression"),
                         })
                     });
@@ -401,8 +409,8 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                     tuple.elements = tuple
                         .elements
                         .into_iter()
-                        .map(|elem| match transform(Node::Expr(elem), transformer) {
-                            Node::Expr(e) => e,
+                        .map(|elem| match transform(MaatAst::Expr(elem), transformer) {
+                            MaatAst::Expr(e) => e,
                             _ => unreachable!("Expr transformation returned non-expression"),
                         })
                         .collect();
@@ -411,12 +419,12 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
 
                 Expr::Range(mut range) => {
                     range.start =
-                        Box::new(match transform(Node::Expr(*range.start), transformer) {
-                            Node::Expr(e) => e,
+                        Box::new(match transform(MaatAst::Expr(*range.start), transformer) {
+                            MaatAst::Expr(e) => e,
                             _ => unreachable!("Expr transformation returned non-expression"),
                         });
-                    range.end = Box::new(match transform(Node::Expr(*range.end), transformer) {
-                        Node::Expr(e) => e,
+                    range.end = Box::new(match transform(MaatAst::Expr(*range.end), transformer) {
+                        MaatAst::Expr(e) => e,
                         _ => unreachable!("Expr transformation returned non-expression"),
                     });
                     Expr::Range(range)
@@ -425,7 +433,7 @@ pub fn transform(node: Node, transformer: TransformFn) -> Node {
                 // Leaf nodes (literals, identifiers, continue, paths) need no recursive traversal
                 expr => expr,
             };
-            Node::Expr(new_expr)
+            MaatAst::Expr(new_expr)
         }
     };
 

@@ -15,7 +15,7 @@
 mod interpreter;
 
 pub use interpreter::{eval, eval_block_statement};
-use maat_ast::{Expr, Node, Program, Stmt, transform};
+use maat_ast::{Expr, MaatAst, Program, Stmt, transform};
 use maat_runtime::{Env, Macro, Quote, Value};
 
 /// The name of the `quote` special form for AST quoting.
@@ -53,9 +53,9 @@ pub fn extract_macros(mut program: Program, env: &Env) -> Program {
     program
 }
 
-pub fn expand_macros(program: Node, env: &Env) -> Node {
+pub fn expand_macros(program: MaatAst, env: &Env) -> MaatAst {
     transform(program, &mut |node| {
-        if let Node::Expr(Expr::Call(call_expr)) = &node
+        if let MaatAst::Expr(Expr::Call(call_expr)) = &node
             && let Expr::Ident(ident) = &*call_expr.function
             && let Some(Value::Macro(val)) = env.get(&ident.value)
         {
@@ -64,7 +64,7 @@ pub fn expand_macros(program: Node, env: &Env) -> Node {
                 .iter()
                 .map(|arg| {
                     Value::Quote(Box::new(Quote {
-                        node: Node::Expr(arg.clone()),
+                        node: MaatAst::Expr(arg.clone()),
                     }))
                 })
                 .collect::<Vec<_>>();

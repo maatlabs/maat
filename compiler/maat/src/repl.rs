@@ -10,7 +10,7 @@
 
 use std::borrow::Cow;
 
-use maat_ast::{Node, Stmt, fold_constants};
+use maat_ast::{MaatAst, Stmt, fold_constants};
 use maat_codegen::{Compiler, SymbolsTable};
 use maat_errors::Error;
 use maat_eval::{expand_macros, extract_macros};
@@ -328,9 +328,9 @@ pub fn start_interactive() {
         }
 
         let program = extract_macros(program, &macro_env);
-        let expanded = expand_macros(Node::Program(program), &macro_env);
+        let expanded = expand_macros(MaatAst::Program(program), &macro_env);
         let mut program = match expanded {
-            Node::Program(p) => p,
+            MaatAst::Program(p) => p,
             _ => unreachable!("expand_macros preserves Program variant"),
         };
 
@@ -360,7 +360,7 @@ pub fn start_interactive() {
         let prev_constants = constants.clone();
 
         let mut compiler = Compiler::with_state(symbols_table, constants);
-        if let Err(e) = compiler.compile(&Node::Program(program)) {
+        if let Err(e) = compiler.compile(&MaatAst::Program(program)) {
             report_error(line, &e);
             println!();
             symbols_table = prev_symbols;
@@ -447,9 +447,9 @@ mod tests {
                 continue;
             }
             let program = extract_macros(program, &macro_env);
-            let expanded = expand_macros(Node::Program(program), &macro_env);
+            let expanded = expand_macros(MaatAst::Program(program), &macro_env);
             let mut program = match expanded {
-                Node::Program(p) => p,
+                MaatAst::Program(p) => p,
                 _ => unreachable!("expand_macros preserves Program variant"),
             };
             type_checker.check_program_mut(&mut program);
@@ -476,7 +476,7 @@ mod tests {
             let prev_constants = constants.clone();
 
             let mut compiler = Compiler::with_state(symbols_table, constants);
-            if let Err(e) = compiler.compile(&Node::Program(program)) {
+            if let Err(e) = compiler.compile(&MaatAst::Program(program)) {
                 report_error(line, &e);
                 writeln!(writer)?;
                 symbols_table = prev_symbols;

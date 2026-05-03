@@ -5,7 +5,7 @@ use core::fmt;
 use crate::format::*;
 use crate::*;
 
-impl fmt::Display for Node {
+impl fmt::Display for MaatAst {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Program(p) => p.fmt(f),

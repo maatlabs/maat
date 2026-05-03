@@ -1,6 +1,6 @@
 //! Shared utilities for integration tests.
 
-use maat_ast::{Node, Program, fold_constants};
+use maat_ast::{MaatAst, Program, fold_constants};
 use maat_bytecode::Bytecode;
 use maat_codegen::Compiler;
 use maat_lexer::MaatLexer;
@@ -33,7 +33,7 @@ pub fn compile(input: &str) -> Bytecode {
     );
     let mut compiler = Compiler::new();
     compiler
-        .compile(&Node::Program(program))
+        .compile(&MaatAst::Program(program))
         .expect("compilation failed");
     compiler.bytecode().expect("bytecode extraction failed")
 }
@@ -44,7 +44,7 @@ pub fn compile_raw(input: &str) -> Bytecode {
     let program = parse(input);
     let mut compiler = Compiler::new();
     compiler
-        .compile(&Node::Program(program))
+        .compile(&MaatAst::Program(program))
         .expect("compilation failed");
     compiler.bytecode().expect("bytecode extraction failed")
 }

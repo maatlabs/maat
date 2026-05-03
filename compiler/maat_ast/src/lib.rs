@@ -15,7 +15,7 @@ use maat_span::Span;
 pub use transform::{TransformFn, transform};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Node {
+pub enum MaatAst {
     Program(Program),
     Stmt(Stmt),
     Expr(Expr),

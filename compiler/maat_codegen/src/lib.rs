@@ -149,11 +149,11 @@ impl Compiler {
         &self.symbols_table
     }
 
-    pub fn compile(&mut self, node: &Node) -> Result<()> {
+    pub fn compile(&mut self, node: &MaatAst) -> Result<()> {
         match node {
-            Node::Program(program) => self.compile_program(program),
-            Node::Stmt(stmt) => self.compile_statement(stmt),
-            Node::Expr(expr) => self.compile_expression(expr),
+            MaatAst::Program(program) => self.compile_program(program),
+            MaatAst::Stmt(stmt) => self.compile_statement(stmt),
+            MaatAst::Expr(expr) => self.compile_expression(expr),
         }
     }
 
@@ -2885,7 +2885,7 @@ mod tests {
             })],
         };
         let mut compiler = Compiler::new();
-        let result = compiler.compile(&Node::Program(program));
+        let result = compiler.compile(&MaatAst::Program(program));
         assert!(
             result.is_err(),
             "should fail on unsupported prefix operator"
