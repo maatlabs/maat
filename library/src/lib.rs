@@ -4,6 +4,7 @@
 //! The compiler embeds these strings at build time and injects them into the
 //! module graph when a `use std::X` import is encountered, without touching
 //! the file system at runtime.
+
 #![forbid(unsafe_code)]
 
 /// Source for `std::math`: comparison and numeric utility functions (`cmp::min`, `cmp::max`, `cmp::clamp`).

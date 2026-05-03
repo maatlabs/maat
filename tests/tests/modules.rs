@@ -5,7 +5,6 @@ use maat_module::{ModuleId, ModuleResult, check_and_compile, check_exports, reso
 use maat_runtime::{Integer, Value};
 use maat_vm::VM;
 
-/// Creates a temporary directory tree from a list of `(relative_path, content)` pairs.
 fn setup_temp_project(pairs: &[(&str, &str)]) -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("failed to create temp dir");
     for (path, content) in pairs {
@@ -18,14 +17,12 @@ fn setup_temp_project(pairs: &[(&str, &str)]) -> tempfile::TempDir {
     dir
 }
 
-/// Resolves and compiles a multi-file project, returning linked bytecode.
 fn compile_project(pairs: &[(&str, &str)]) -> ModuleResult<Bytecode> {
     let dir = setup_temp_project(pairs);
     let mut graph = resolve_module_graph(&dir.path().join("main.maat"))?;
     check_and_compile(&mut graph)
 }
 
-/// Compiles and runs a multi-file project, returning the VM's last result.
 fn run_project(pairs: &[(&str, &str)]) -> Value {
     let bytecode = compile_project(pairs).expect("compilation failed");
     let mut vm = VM::new(bytecode);

@@ -7,11 +7,6 @@ use maat_lexer::MaatLexer;
 use maat_parser::MaatParser;
 use maat_types::TypeChecker;
 
-/// Parses the given source string into an AST [`Program`].
-///
-/// # Panics
-///
-/// Panics if the parser encounters any errors.
 pub fn parse(input: &str) -> Program {
     let lexer = MaatLexer::new(input);
     let mut parser = MaatParser::new(lexer);
@@ -24,13 +19,6 @@ pub fn parse(input: &str) -> Program {
     program
 }
 
-/// Compiles the given source string into [`Bytecode`].
-///
-/// Runs the full pipeline: parse -> type check -> constant fold -> compile.
-///
-/// # Panics
-///
-/// Panics if parsing, type checking, or compilation fails.
 pub fn compile(input: &str) -> Bytecode {
     let mut program = parse(input);
 
@@ -52,13 +40,6 @@ pub fn compile(input: &str) -> Bytecode {
 
 /// Compiles the given source string into [`Bytecode`] without type checking
 /// or constant folding.
-///
-/// This is used by compiler tests that assert on exact bytecode layout,
-/// where constant folding would alter the expected instruction sequences.
-///
-/// # Panics
-///
-/// Panics if parsing or compilation fails.
 pub fn compile_raw(input: &str) -> Bytecode {
     let program = parse(input);
     let mut compiler = Compiler::new();
@@ -69,8 +50,6 @@ pub fn compile_raw(input: &str) -> Bytecode {
 }
 
 /// Parses the given source string, expecting parse errors.
-///
-/// Returns the error messages for assertion.
 pub fn parse_errors(input: &str) -> Vec<String> {
     let lexer = MaatLexer::new(input);
     let mut parser = MaatParser::new(lexer);
@@ -79,12 +58,6 @@ pub fn parse_errors(input: &str) -> Vec<String> {
 }
 
 /// Compiles the given source string, expecting type errors.
-///
-/// Returns the type error messages for assertion.
-///
-/// # Panics
-///
-/// Panics if parsing fails.
 pub fn compile_type_errors(input: &str) -> Vec<String> {
     let mut program = parse(input);
     let type_errors = TypeChecker::new().check_program(&mut program);
@@ -93,14 +66,6 @@ pub fn compile_type_errors(input: &str) -> Vec<String> {
 
 /// Compiles the given source string, serializes the bytecode, deserializes
 /// it, and returns the restored [`Bytecode`].
-///
-/// This exercises the full round-trip through the binary format, ensuring
-/// that execution from deserialized bytecode produces the same results as
-/// direct compilation.
-///
-/// # Panics
-///
-/// Panics if parsing, compilation, serialization, or deserialization fails.
 pub fn roundtrip(input: &str) -> Bytecode {
     let bytecode = compile(input);
     let bytes = bytecode.serialize().expect("serialization failed");
