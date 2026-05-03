@@ -49,9 +49,11 @@ let big: i64 = 42;
 let truncated = big as i8;
 println!("{}", truncated);
 
-// Bitwise operators
-let mask: i64 = 0xFF;
-let value: i64 = 0xABCD;
+// Bitwise operators (unsigned operands only: bitwise semantics in Maat operate
+// on raw bit patterns, and the ZK backend only encodes those soundly for
+// unsigned integer types).
+let mask: u64 = 0xFF;
+let value: u64 = 0xABCD;
 println!("{}", value & mask);
 println!("{}", value | 0xFF00);
 println!("{}", value ^ 0xFFFF);

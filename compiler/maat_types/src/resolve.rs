@@ -6,16 +6,6 @@ use maat_ast::TypeExpr;
 
 use crate::{FnType, Type};
 
-/// Resolves a parsed type expression into an internal type.
-///
-/// Maps named types to their corresponding [`Type`] variants:
-/// - Numeric types (`i8`, `i64`, `u32`, etc.)
-/// - `bool` -> [`Type::Bool`]
-/// - `str` -> [`Type::Str`]
-/// - Unknown names are treated as generic type references.
-///
-/// Compound types ([`TypeExpr::Vector`], [`TypeExpr::Set`], [`TypeExpr::Map`],
-/// [`TypeExpr::Fn`], [`TypeExpr::Generic`]) are resolved recursively.
 pub fn resolve_type_expr(expr: &TypeExpr) -> Type {
     match expr {
         TypeExpr::Named(named) => resolve_named(&named.name),
@@ -38,7 +28,6 @@ pub fn resolve_type_expr(expr: &TypeExpr) -> Type {
     }
 }
 
-/// Maps a type name string to its internal type representation.
 fn resolve_named(name: &str) -> Type {
     match name {
         "i8" => Type::I8,

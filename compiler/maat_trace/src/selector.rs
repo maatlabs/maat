@@ -1,59 +1,130 @@
-//! Opcode-to-selector-class mapping for the execution trace.
+//! Per-opcode metadata used by the trace recorder and the AIR.
 //!
-//! Each row in the trace has exactly one selector flag set (one-hot encoding).
-//! The 17 selector classes partition all opcodes into groups that share
-//! algebraic constraint structure in the AIR. The division/modulo operations
-//! are separated from general arithmetic to enable per-row non-zero divisor
-//! verification in the range-check sub-AIR.
+//! Each [`Opcode`] maps to exactly one *selector class*: a coarse grouping that
+//! partitions opcodes by the algebraic shape of the constraints they satisfy.
+//! A subset of opcodes additionally maps to a *sub-selector*: a fine-grained
+//! flag distinguishing same-class operations whose output formulas differ
+//! (e.g. `Add` vs. `Sub`).
+//!
+//! The [`OpcodeMeta`] struct exposes both lookups together with the opcode's
+//! operand widths so that the trace recorder, the VM, and the AIR
+//! constraint system all read from a single source.
 
 use maat_bytecode::Opcode;
 
-/// Number of selector columns in the trace.
-pub const NUM_SELECTORS: usize = 17;
+/// Number of selector columns reserved by the trace.
+pub const NUM_SELECTORS: usize = 20;
 
 /// Padding / no-operation rows.
-pub const SEL_NOP: u8 = 0;
+pub const SEL_NOP: usize = 0;
 /// Stack push operations: `Constant`, `True`, `False`, `Unit`, `GetBuiltin`,
 /// `GetFree`, `CurrentClosure`. These push values without memory access.
-pub const SEL_PUSH: u8 = 1;
+pub const SEL_PUSH: usize = 1;
 /// Integer arithmetic (non-dividing): `Add`, `Sub`, `Mul`.
-pub const SEL_ARITH: u8 = 2;
+pub const SEL_ARITH: usize = 2;
 /// Bitwise operations: `BitAnd`, `BitOr`, `BitXor`, `Shl`, `Shr`.
-pub const SEL_BITWISE: u8 = 3;
+pub const SEL_BITWISE: usize = 3;
 /// Comparison operations: `Equal`, `NotEqual`, `LessThan`, `GreaterThan`.
-pub const SEL_CMP: u8 = 4;
+pub const SEL_CMP: usize = 4;
 /// Unary operations: `Minus`, `Bang`.
-pub const SEL_UNARY: u8 = 5;
-/// Memory load operations: `GetLocal`, `GetGlobal`. These read from provable memory.
-pub const SEL_LOAD: u8 = 6;
+pub const SEL_UNARY: usize = 5;
+/// Memory load operations: `GetLocal`, `GetGlobal`.
+pub const SEL_LOAD: usize = 6;
 /// Store operations: `SetLocal`, `SetGlobal`.
-pub const SEL_STORE: u8 = 7;
+pub const SEL_STORE: usize = 7;
 /// Unconditional jump: `Jump`.
-pub const SEL_JUMP: u8 = 8;
+pub const SEL_JUMP: usize = 8;
 /// Conditional jump: `CondJump`.
-pub const SEL_COND_JUMP: u8 = 9;
+pub const SEL_COND_JUMP: usize = 9;
 /// Function call: `Call`.
-pub const SEL_CALL: u8 = 10;
+pub const SEL_CALL: usize = 10;
 /// Function return: `ReturnValue`, `Return`.
-pub const SEL_RETURN: u8 = 11;
+pub const SEL_RETURN: usize = 11;
 /// Struct/enum construction: `Construct`, `GetField`, `MatchTag`, `Closure`.
-pub const SEL_CONSTRUCT: u8 = 12;
+pub const SEL_CONSTRUCT: usize = 12;
 /// Type conversion: `Convert`.
-pub const SEL_CONVERT: u8 = 13;
-/// Collection construction: `Vector`, `Map`, `Tuple`, `Array`, `MakeRange`, `MakeRangeInclusive`, `Index`, `Pop`.
-pub const SEL_COLLECTION: u8 = 14;
+pub const SEL_CONVERT: usize = 13;
+/// Collection construction: `Vector`, `Map`, `Tuple`, `Array`, `MakeRange`,
+/// `MakeRangeInclusive`, `Index`, `Pop`.
+pub const SEL_COLLECTION: usize = 14;
 /// Field-element arithmetic: `FeltAdd`, `FeltSub`, `FeltMul`, `FeltInv`, `FeltPow`.
-pub const SEL_FELT: u8 = 15;
+pub const SEL_FELT: usize = 15;
 /// Division and modulo: `Div`, `Mod`. Separated from [`SEL_ARITH`] so the
 /// AIR can enforce a non-zero divisor constraint on exactly these rows.
-pub const SEL_DIV_MOD: u8 = 16;
+pub const SEL_DIV_MOD: usize = 16;
+/// Heap allocation: `HeapAlloc`.
+pub const SEL_HEAP_ALLOC: usize = 17;
+/// Heap read: `HeapRead`.
+pub const SEL_HEAP_READ: usize = 18;
+/// Heap write: `HeapWrite`.
+pub const SEL_HEAP_WRITE: usize = 19;
 
-/// Returns the selector class index (0..16) for the given opcode.
-///
-/// Every executed opcode maps to exactly one selector. Padding rows
-/// use [`SEL_NOP`], which is never returned by this function since
-/// NOP is not a real opcode.
-pub const fn class_index(op: Opcode) -> u8 {
+/// Number of per-opcode sub-selector flags.
+pub const NUM_SUB_SELECTORS: usize = 16;
+
+/// Sub-selector index: `Add` (parent [`SEL_ARITH`]).
+pub const SUB_SEL_ADD: usize = 0;
+/// Sub-selector index: `Sub` (parent [`SEL_ARITH`]).
+pub const SUB_SEL_SUB: usize = 1;
+/// Sub-selector index: `Div` (parent [`SEL_DIV_MOD`]).
+pub const SUB_SEL_DIV: usize = 2;
+/// Sub-selector index: `Minus` (parent [`SEL_UNARY`]).
+pub const SUB_SEL_NEG: usize = 3;
+/// Sub-selector index: `FeltAdd` (parent [`SEL_FELT`]).
+pub const SUB_SEL_FELT_ADD: usize = 4;
+/// Sub-selector index: `FeltSub` (parent [`SEL_FELT`]).
+pub const SUB_SEL_FELT_SUB: usize = 5;
+/// Sub-selector index: `FeltMul` (parent [`SEL_FELT`]).
+pub const SUB_SEL_FELT_MUL: usize = 6;
+/// Sub-selector index: `Equal` (parent [`SEL_CMP`]).
+pub const SUB_SEL_EQ: usize = 7;
+/// Sub-selector index: `NotEqual` (parent [`SEL_CMP`]).
+pub const SUB_SEL_NEQ: usize = 8;
+/// Sub-selector index: `BitAnd` (parent [`SEL_BITWISE`]).
+pub const SUB_SEL_AND: usize = 9;
+/// Sub-selector index: `BitOr` (parent [`SEL_BITWISE`]).
+pub const SUB_SEL_OR: usize = 10;
+/// Sub-selector index: `BitXor` (parent [`SEL_BITWISE`]).
+pub const SUB_SEL_XOR: usize = 11;
+/// Sub-selector index: `Shl` (parent [`SEL_BITWISE`]).
+pub const SUB_SEL_SHL: usize = 12;
+/// Sub-selector index: `Shr` (parent [`SEL_BITWISE`]).
+pub const SUB_SEL_SHR: usize = 13;
+/// Sub-selector index: `LessThan` (parent [`SEL_CMP`]).
+pub const SUB_SEL_LT: usize = 14;
+/// Sub-selector index: `GreaterThan` (parent [`SEL_CMP`]).
+pub const SUB_SEL_GT: usize = 15;
+
+#[derive(Debug, Clone, Copy)]
+pub struct OpcodeMeta {
+    pub selector: usize,
+    pub sub_selector: Option<usize>,
+    pub operand_widths: &'static [usize],
+}
+
+impl OpcodeMeta {
+    #[inline]
+    pub const fn new(op: Opcode) -> OpcodeMeta {
+        OpcodeMeta {
+            selector: selector_index(op),
+            sub_selector: sub_selector_index(op),
+            operand_widths: op.operand_widths(),
+        }
+    }
+
+    #[inline]
+    pub const fn instruction_width(&self) -> usize {
+        let mut total = 1;
+        let mut i = 0;
+        while i < self.operand_widths.len() {
+            total += self.operand_widths[i];
+            i += 1;
+        }
+        total
+    }
+}
+
+pub const fn selector_index(op: Opcode) -> usize {
     match op {
         Opcode::Constant
         | Opcode::True
@@ -101,6 +172,32 @@ pub const fn class_index(op: Opcode) -> u8 {
         Opcode::FeltAdd | Opcode::FeltSub | Opcode::FeltMul | Opcode::FeltInv | Opcode::FeltPow => {
             SEL_FELT
         }
+
+        Opcode::HeapAlloc => SEL_HEAP_ALLOC,
+        Opcode::HeapRead => SEL_HEAP_READ,
+        Opcode::HeapWrite => SEL_HEAP_WRITE,
+    }
+}
+
+pub const fn sub_selector_index(op: Opcode) -> Option<usize> {
+    match op {
+        Opcode::Add => Some(SUB_SEL_ADD),
+        Opcode::Sub => Some(SUB_SEL_SUB),
+        Opcode::Div => Some(SUB_SEL_DIV),
+        Opcode::Minus => Some(SUB_SEL_NEG),
+        Opcode::FeltAdd => Some(SUB_SEL_FELT_ADD),
+        Opcode::FeltSub => Some(SUB_SEL_FELT_SUB),
+        Opcode::FeltMul => Some(SUB_SEL_FELT_MUL),
+        Opcode::Equal => Some(SUB_SEL_EQ),
+        Opcode::NotEqual => Some(SUB_SEL_NEQ),
+        Opcode::BitAnd => Some(SUB_SEL_AND),
+        Opcode::BitOr => Some(SUB_SEL_OR),
+        Opcode::BitXor => Some(SUB_SEL_XOR),
+        Opcode::Shl => Some(SUB_SEL_SHL),
+        Opcode::Shr => Some(SUB_SEL_SHR),
+        Opcode::LessThan => Some(SUB_SEL_LT),
+        Opcode::GreaterThan => Some(SUB_SEL_GT),
+        _ => None,
     }
 }
 
@@ -110,34 +207,66 @@ mod tests {
 
     #[test]
     fn every_opcode_maps_to_valid_selector() {
-        for byte in 0..=49u8 {
+        for byte in 0..=52u8 {
             let op = Opcode::from_byte(byte).unwrap();
-            let sel = class_index(op);
+            let class = selector_index(op);
             assert!(
-                sel < NUM_SELECTORS as u8,
-                "opcode {:?} mapped to out-of-range selector {sel}",
-                op,
+                class < NUM_SELECTORS,
+                "opcode {op:?} mapped to out-of-range selector {class}"
             );
             assert_ne!(
-                sel, SEL_NOP,
-                "opcode {:?} must not map to SEL_NOP (reserved for padding)",
-                op,
+                class, SEL_NOP,
+                "opcode {op:?} must not map to SEL_NOP (reserved for padding)"
             );
         }
     }
 
     #[test]
+    fn heap_opcodes_map_to_heap_selectors() {
+        assert_eq!(selector_index(Opcode::HeapAlloc), SEL_HEAP_ALLOC);
+        assert_eq!(selector_index(Opcode::HeapRead), SEL_HEAP_READ);
+        assert_eq!(selector_index(Opcode::HeapWrite), SEL_HEAP_WRITE);
+    }
+
+    #[test]
     fn div_mod_use_dedicated_selector() {
-        assert_eq!(class_index(Opcode::Div), SEL_DIV_MOD);
-        assert_eq!(class_index(Opcode::Mod), SEL_DIV_MOD);
+        assert_eq!(selector_index(Opcode::Div), SEL_DIV_MOD);
+        assert_eq!(selector_index(Opcode::Mod), SEL_DIV_MOD);
     }
 
     #[test]
     fn arith_excludes_div_mod() {
-        assert_eq!(class_index(Opcode::Add), SEL_ARITH);
-        assert_eq!(class_index(Opcode::Sub), SEL_ARITH);
-        assert_eq!(class_index(Opcode::Mul), SEL_ARITH);
-        assert_ne!(class_index(Opcode::Div), SEL_ARITH);
-        assert_ne!(class_index(Opcode::Mod), SEL_ARITH);
+        assert_eq!(selector_index(Opcode::Add), SEL_ARITH);
+        assert_eq!(selector_index(Opcode::Sub), SEL_ARITH);
+        assert_eq!(selector_index(Opcode::Mul), SEL_ARITH);
+        assert_ne!(selector_index(Opcode::Div), SEL_ARITH);
+        assert_ne!(selector_index(Opcode::Mod), SEL_ARITH);
+    }
+
+    #[test]
+    fn sub_selectors_are_in_range() {
+        for byte in 0..=52u8 {
+            let op = Opcode::from_byte(byte).unwrap();
+            if let Some(sub) = sub_selector_index(op) {
+                assert!(
+                    sub < NUM_SUB_SELECTORS,
+                    "opcode {op:?} sub-selector {sub} out of range"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn opcode_meta_matches_helpers() {
+        let meta = OpcodeMeta::new(Opcode::Add);
+        assert_eq!(meta.selector, SEL_ARITH);
+        assert_eq!(meta.sub_selector, Some(SUB_SEL_ADD));
+        assert_eq!(meta.operand_widths, Opcode::Add.operand_widths());
+        assert_eq!(meta.instruction_width(), 1);
+
+        let meta = OpcodeMeta::new(Opcode::Closure);
+        assert_eq!(meta.selector, SEL_CONSTRUCT);
+        assert_eq!(meta.sub_selector, None);
+        assert_eq!(meta.instruction_width(), 1 + 2 + 1);
     }
 }

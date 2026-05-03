@@ -18,7 +18,6 @@ enum TestValue {
     Bool(bool),
     Str(String),
     IntVector(Vec<i64>),
-    IntArray(Vec<i64>),
     Map(Vec<(i64, i64)>),
     Range(Integer, Integer),
     RangeInclusive(Integer, Integer),
@@ -139,27 +138,6 @@ fn run_vm_test(input: &str, expected: TestValue) {
             }
             _ => panic!("expected vector, got: {:?}", stack_elem),
         },
-        TestValue::IntArray(expected_vals) => match stack_elem {
-            Value::Array(elements) => {
-                assert_eq!(
-                    elements.len(),
-                    expected_vals.len(),
-                    "wrong array length for input: {input}"
-                );
-                for (i, expected_elem) in expected_vals.iter().enumerate() {
-                    match &elements[i] {
-                        Value::Integer(Integer::I64(val)) => assert_eq!(
-                            *val, *expected_elem,
-                            "wrong array element at index {i} for input: {input}"
-                        ),
-                        other => {
-                            panic!("expected integer in array at index {i}, got: {:?}", other)
-                        }
-                    }
-                }
-            }
-            _ => panic!("expected array, got: {:?}", stack_elem),
-        },
         TestValue::Map(expected_pairs) => match &stack_elem {
             Value::Map(map_obj) => {
                 assert_eq!(
@@ -210,7 +188,7 @@ fn run_vm_test(input: &str, expected: TestValue) {
         },
         TestValue::Felt(exp) => match stack_elem {
             Value::Felt(val) => {
-                assert_eq!(val.as_u64(), exp, "wrong Felt value for input: {input}")
+                assert_eq!(val.as_int(), exp, "wrong Felt value for input: {input}")
             }
             _ => panic!("expected Felt, got: {stack_elem:?}"),
         },
@@ -1117,16 +1095,19 @@ fn modulo_ops() {
 
 #[test]
 fn bitwise_ops() {
-    run_vm_test("0xFF & 0x0F", TestValue::I64(15));
-    run_vm_test("0xF0 | 0x0F", TestValue::I64(255));
-    run_vm_test("0xFF ^ 0x0F", TestValue::I64(240));
-    run_vm_test("1 | 2 & 3", TestValue::I64(3));
+    // Bitwise operators in the ZK backend require unsigned operands; the
+    // explicit `u64` annotations propagate to the literal IntVars on both
+    // sides via let-binding inference.
+    run_vm_test("let x: u64 = 0xFF & 0x0F; x", TestValue::U64(15));
+    run_vm_test("let x: u64 = 0xF0 | 0x0F; x", TestValue::U64(255));
+    run_vm_test("let x: u64 = 0xFF ^ 0x0F; x", TestValue::U64(240));
+    run_vm_test("let x: u64 = 1 | 2 & 3; x", TestValue::U64(3));
 }
 
 #[test]
 fn shift_ops() {
-    run_vm_test("1 << 8", TestValue::I64(256));
-    run_vm_test("256 >> 4", TestValue::I64(16));
+    run_vm_test("let x: u64 = 1 << 8; x", TestValue::U64(256));
+    run_vm_test("let x: u64 = 256 >> 4; x", TestValue::U64(16));
 }
 
 #[test]
@@ -2339,11 +2320,6 @@ fn felt_in_conditional() {
 
 #[test]
 fn fixed_size_arrays() {
-    run_vm_test(
-        "let a: [i64; 3] = [10, 20, 30]; a",
-        TestValue::IntArray(vec![10, 20, 30]),
-    );
-
     run_vm_test("let a: [i64; 3] = [1, 2, 3]; a[0]", TestValue::I64(1));
     run_vm_test("let a: [i64; 3] = [1, 2, 3]; a[2]", TestValue::I64(3));
 

@@ -33,7 +33,7 @@ pub use token::{KEYWORDS, Token, TokenKind};
 /// assert_eq!(lexer.next_token().kind, TokenKind::Let);
 /// assert_eq!(lexer.next_token().kind, TokenKind::Ident);
 /// assert_eq!(lexer.next_token().kind, TokenKind::Assign);
-/// assert_eq!(lexer.next_token().kind, TokenKind::I64);
+/// assert_eq!(lexer.next_token().kind, TokenKind::Int);
 /// assert_eq!(lexer.next_token().kind, TokenKind::Semicolon);
 /// assert_eq!(lexer.next_token().kind, TokenKind::Eof);
 /// ```

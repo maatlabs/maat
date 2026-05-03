@@ -19,6 +19,7 @@ use maat_ast::*;
 use maat_errors::{
     MissingTraitMethodError, TraitMethodSignatureMismatchError, TypeError, TypeErrorKind,
 };
+use maat_field::MODULUS as GOLDILOCKS_MODULUS;
 use maat_span::Span;
 pub use resolve::resolve_type_expr;
 pub use ty::{
@@ -27,15 +28,19 @@ pub use ty::{
 };
 use unify::{Substitution, UnifyError};
 
-/// Compile-time type checker for the AST.
-///
-/// Performs Hindley-Milner-style type inference with explicit annotations,
-/// numeric promotion rules, compile-time overflow checking, and full
-/// validation of user-defined types (structs, enums, traits, impls).
 pub struct TypeChecker {
     env: TypeEnv,
     subst: Substitution,
     errors: Vec<TypeError>,
+    bitwise_ops: Vec<BitwiseOp>,
+}
+
+struct BitwiseOp {
+    operator: String,
+    lhs_ty: Type,
+    rhs_ty: Type,
+    lhs_span: Span,
+    rhs_span: Span,
 }
 
 impl Default for TypeChecker {
@@ -45,7 +50,6 @@ impl Default for TypeChecker {
 }
 
 impl TypeChecker {
-    /// Creates a new type checker with builtins pre-registered.
     pub fn new() -> Self {
         let mut env = TypeEnv::new();
         env.register_builtins();
@@ -53,36 +57,23 @@ impl TypeChecker {
             env,
             subst: Substitution::new(),
             errors: Vec::new(),
+            bitwise_ops: Vec::new(),
         }
     }
 
-    /// Returns a reference to the type environment.
     pub fn env(&self) -> &TypeEnv {
         &self.env
     }
 
-    /// Returns a mutable reference to the type environment.
     pub fn env_mut(&mut self) -> &mut TypeEnv {
         &mut self.env
     }
 
-    /// Type-checks a program, mutating the AST to insert promotion casts.
-    ///
-    /// Performs two passes: the first registers all type declarations (structs,
-    /// enums, traits) so that forward references resolve correctly; the second
-    /// checks all statements including impl blocks and expressions.
-    ///
-    /// Returns accumulated type errors (empty if the program is well-typed).
     pub fn check_program(mut self, program: &mut Program) -> Vec<TypeError> {
         self.check_program_mut(program);
         self.errors
     }
 
-    /// Type-checks a program without consuming the checker.
-    ///
-    /// Behaves identically to [`check_program`](Self::check_program) but
-    /// borrows `self` mutably, allowing the caller to inspect the type
-    /// environment afterwards (e.g., to extract module exports).
     pub fn check_program_mut(&mut self, program: &mut Program) {
         for stmt in &program.statements {
             match stmt {
@@ -96,18 +87,14 @@ impl TypeChecker {
             self.check_statement(stmt);
         }
         self.subst.resolve_inferred_literals(program);
+        self.validate_bitwise_ops();
+        self.validate_u64_literals(program);
     }
 
-    /// Returns the accumulated type errors.
     pub fn errors(&self) -> &[TypeError] {
         &self.errors
     }
 
-    /// Drains and returns all accumulated type errors, leaving the
-    /// error buffer empty for the next check cycle.
-    ///
-    /// This is used by the REPL to persist a single `TypeChecker` across
-    /// iterations while collecting errors per-iteration.
     pub fn drain_errors(&mut self) -> Vec<TypeError> {
         std::mem::take(&mut self.errors)
     }
@@ -232,8 +219,6 @@ impl TypeChecker {
         });
     }
 
-    /// Resolves a type expression for a struct/enum field, treating names
-    /// that match a generic parameter as `Type::Generic`.
     fn resolve_field_type(&mut self, ty: &TypeExpr, generic_params: &[String]) -> Type {
         match ty {
             TypeExpr::Named(named) if generic_params.contains(&named.name) => {
@@ -343,7 +328,6 @@ impl TypeChecker {
         self.env.pop_scope();
     }
 
-    /// Type-checks a named function declaration and binds it in the environment.
     fn check_fn_item(&mut self, fn_item: &mut FuncDef) {
         let fn_ty = self.infer_fn_body(
             &fn_item.generic_params,
@@ -356,7 +340,6 @@ impl TypeChecker {
         self.env.define_scheme(&fn_item.name, scheme);
     }
 
-    /// Shared inference logic for function bodies (used by both `FuncDef` and `Lambda`).
     fn infer_fn_body(
         &mut self,
         generic_params: &[GenericParam],
@@ -451,8 +434,6 @@ impl TypeChecker {
         });
     }
 
-    /// Verifies that an impl block provides all required trait methods with
-    /// compatible signatures.
     fn verify_trait_satisfaction(
         &mut self,
         trait_name: &str,
@@ -502,8 +483,6 @@ impl TypeChecker {
         }
     }
 
-    /// Infers the type of an expression, potentially mutating it
-    /// (e.g., inserting promotion casts on infix operands).
     fn infer_expression(&mut self, expr: &mut Expr) -> Type {
         match expr {
             Expr::Number(lit) => match lit.kind {
@@ -582,7 +561,6 @@ impl TypeChecker {
         }
     }
 
-    /// Infers the element type of a vector.
     fn infer_vector(&mut self, vector: &mut Vector) -> Type {
         if vector.elements.is_empty() {
             let elem = self.env.fresh_var();
@@ -599,7 +577,6 @@ impl TypeChecker {
         }
     }
 
-    /// Infers the key and value types of a map literal.
     fn infer_map(&mut self, map: &mut MapLit) -> Type {
         if map.pairs.is_empty() {
             let k = self.env.fresh_var();
@@ -628,19 +605,21 @@ impl TypeChecker {
         }
     }
 
-    /// Infers the result type of an index expression (`expr[index]`).
     fn infer_index(&mut self, idx: &mut IndexExpr) -> Type {
         let collection = self.infer_expression(&mut idx.expr);
         let _index_ty = self.infer_expression(&mut idx.index);
         let resolved = self.subst.apply(&collection);
         match resolved {
-            Type::Vector(elem) | Type::Array(elem, _) => *elem,
+            Type::Array(elem, n) => {
+                idx.array_len = Some(n);
+                *elem
+            }
+            Type::Vector(elem) => *elem,
             Type::Map(_, v) => *v,
             _ => self.env.fresh_var(),
         }
     }
 
-    /// Infers the result type of a prefix (unary) expression.
     fn infer_prefix(&mut self, prefix: &mut PrefixExpr) -> Type {
         let operand_ty = self.infer_expression(&mut prefix.operand);
         let resolved = self.subst.apply(&operand_ty);
@@ -665,7 +644,6 @@ impl TypeChecker {
         }
     }
 
-    /// Infers the result type of an `if`/`else` conditional expression.
     fn infer_conditional(&mut self, cond: &mut CondExpr) -> Type {
         let cond_ty = self.infer_expression(&mut cond.condition);
         let cond_resolved = self.subst.apply(&cond_ty);
@@ -688,7 +666,6 @@ impl TypeChecker {
         }
     }
 
-    /// Infers the type of a range expression (`start..end` or `start..=end`).
     fn infer_range(&mut self, range: &mut RangeExpr) -> Type {
         let start_ty = self.infer_expression(&mut range.start);
         let end_ty = self.infer_expression(&mut range.end);
@@ -711,10 +688,6 @@ impl TypeChecker {
         Type::Range(Box::new(elem_ty))
     }
 
-    /// Infers the element type and length of a fixed-size array literal.
-    ///
-    /// All elements must unify to a single type. The resulting type carries the
-    /// static length `N`, making `[T; 3]` and `[T; 4]` distinct types.
     fn infer_array(&mut self, arr: &mut ArrayLit) -> Type {
         if arr.elements.is_empty() {
             let elem = self.env.fresh_var();
@@ -730,12 +703,6 @@ impl TypeChecker {
         Type::Array(Box::new(self.subst.apply(&first)), arr.elements.len())
     }
 
-    /// Attempts to coerce a `Vector` literal to a fixed-size `Array` type.
-    ///
-    /// Returns `true` if the coercion was applied (i.e., the expected type is
-    /// `[T; N]`, the inferred type is `[T]`, and the literal has exactly `N`
-    /// elements). Element types are unified; a length mismatch is reported as
-    /// a type error.
     fn try_coerce_vector_to_array(
         &mut self,
         expected: &Type,
@@ -781,7 +748,6 @@ impl TypeChecker {
         true
     }
 
-    /// Type-checks a function call expression.
     fn check_call_expr(&mut self, call: &mut CallExpr) -> Type {
         let func_ty = self.infer_expression(&mut call.function);
         let resolved = self.subst.apply(&func_ty);
@@ -832,7 +798,6 @@ impl TypeChecker {
         }
     }
 
-    /// Validates that a `Type::from(value)` call is a lossless conversion.
     fn validate_from_conversion(&mut self, call: &CallExpr, arg_types: &[Type], ret: &Type) {
         let is_from_path = matches!(
             call.function.as_ref(),
@@ -857,7 +822,6 @@ impl TypeChecker {
         }
     }
 
-    /// Type-checks a builtin macro invocation.
     fn check_macro_call(&mut self, mc: &mut MacroCallExpr) -> Type {
         for arg in &mut mc.arguments {
             self.infer_expression(arg);
@@ -869,8 +833,6 @@ impl TypeChecker {
         }
     }
 
-    /// Type-checks a struct literal expression (e.g., `Point { x: 1, y: 2 }`)
-    /// or with functional update syntax (e.g., `Point { x: 10, ..other }`).
     fn check_struct_literal(&mut self, lit: &mut StructLitExpr) -> Type {
         let struct_def = self.env.lookup_struct(&lit.name).cloned();
         let Some(def) = struct_def else {
@@ -926,7 +888,6 @@ impl TypeChecker {
         expected_struct_ty
     }
 
-    /// Type-checks a path expression (e.g., `Option::Some`, `Color::Red`).
     fn check_path_expr(&mut self, path: &PathExpr) -> Type {
         if path.segments.len() == 2 {
             let type_name = &path.segments[0];
@@ -1062,6 +1023,21 @@ impl TypeChecker {
         let obj_ty = self.infer_expression(&mut mc.object);
         let resolved = self.subst.apply(&obj_ty);
         mc.receiver = resolved.receiver_name();
+        if let Type::Array(_, n) = &resolved {
+            mc.array_len = Some(*n);
+            if mc.method == "len" || mc.method == "length" {
+                if !mc.arguments.is_empty() {
+                    self.errors.push(
+                        TypeErrorKind::WrongArity {
+                            expected: 0,
+                            found: mc.arguments.len(),
+                        }
+                        .at(mc.span),
+                    );
+                }
+                return Type::Usize;
+            }
+        }
 
         let arg_types = mc
             .arguments
@@ -1127,10 +1103,6 @@ impl TypeChecker {
         }
     }
 
-    /// Type-checks the try operator (`expr?`).
-    ///
-    /// Validates that the operand is `Option<T>` or `Result<T, E>` and
-    /// returns the inner success type `T`.
     fn check_try_expr(&mut self, expr: &mut TryExpr) -> Type {
         let inner_ty = self.infer_expression(&mut expr.expr);
         let resolved = self.subst.apply(&inner_ty);
@@ -1188,8 +1160,6 @@ impl TypeChecker {
             .unwrap_or(Type::Never)
     }
 
-    /// Checks a pattern against the scrutinee type, introducing bindings
-    /// into the current scope.
     fn check_pattern(&mut self, p: &Pattern, scrutinee_ty: &Type) {
         match p {
             Pattern::Wildcard(_) => {}
@@ -1251,7 +1221,6 @@ impl TypeChecker {
         }
     }
 
-    /// Checks a tuple-struct pattern (e.g., `Some(x)`) against the scrutinee.
     fn check_tuple_struct_pattern(
         &mut self,
         variant_name: &str,
@@ -1331,7 +1300,6 @@ impl TypeChecker {
         }
     }
 
-    /// Checks a struct pattern (e.g., `Point { x, y }`) against the scrutinee.
     fn check_struct_pattern(
         &mut self,
         type_name: &str,
@@ -1392,10 +1360,6 @@ impl TypeChecker {
         }
     }
 
-    /// Resolves a bare identifier as an enum variant constructor.
-    ///
-    /// Enables prelude-style usage: `Some(x)`, `None`, `Ok(v)`, `Err(e)`
-    /// without requiring qualified paths like `Option::Some(x)`.
     fn resolve_bare_variant(&mut self, name: &str) -> Option<Type> {
         let (enum_def, type_args) = self.find_enum_for_variant(name)?;
         let variant = enum_def.variants.iter().find(|v| v.name == name)?;
@@ -1426,7 +1390,6 @@ impl TypeChecker {
         }
     }
 
-    /// Searches all registered enums for a variant with the given name.
     fn find_enum_for_variant(&mut self, variant_name: &str) -> Option<(EnumDef, Vec<Type>)> {
         let def = self
             .env
@@ -1441,7 +1404,6 @@ impl TypeChecker {
         Some((def, type_args))
     }
 
-    /// Substitutes generic type parameters with concrete type arguments.
     fn instantiate_generic_type(
         &self,
         ty: &Type,
@@ -1493,11 +1455,6 @@ impl TypeChecker {
         }
     }
 
-    /// Checks that a `match` expression is exhaustive.
-    ///
-    /// For enum types, verifies that all variants are covered (or a wildcard/
-    /// catch-all pattern is present). For non-enum types, requires a wildcard
-    /// or ident catch-all.
     fn check_exhaustiveness(&mut self, scrutinee_ty: &Type, match_expr: &MatchExpr) {
         let enum_def = match scrutinee_ty {
             Type::Enum(name, _) => self.env.lookup_enum(name).cloned(),
@@ -1562,10 +1519,6 @@ impl TypeChecker {
         }
     }
 
-    /// Returns `true` if the pattern catches all values unconditionally.
-    ///
-    /// An ident pattern is a catch-all unless it matches a known enum variant
-    /// name in the scrutinee's enum type.
     fn pattern_is_catch_all(&self, p: &Pattern, enum_def: &Option<EnumDef>) -> bool {
         match p {
             Pattern::Wildcard(_) => true,
@@ -1576,7 +1529,6 @@ impl TypeChecker {
         }
     }
 
-    /// Extracts the variant name from a pattern if it is a constructor pattern.
     fn extract_variant_name<'a>(&self, p: &'a Pattern, enum_def: &EnumDef) -> Option<&'a str> {
         match p {
             Pattern::TupleStruct { path, .. } => Some(path.as_str()),
@@ -1596,7 +1548,6 @@ impl TypeChecker {
         }
     }
 
-    /// Checks an infix expression, inserting promotion casts if needed.
     fn check_infix(&mut self, infix: &mut InfixExpr) -> Type {
         if infix.operator == "&&" || infix.operator == "||" {
             let lhs_ty = self.infer_expression(&mut infix.lhs);
@@ -1619,7 +1570,24 @@ impl TypeChecker {
             infix.operator.as_str(),
             "<" | ">" | "<=" | ">=" | "==" | "!="
         );
-        // String concatenation and comparison
+
+        if matches!(infix.operator.as_str(), "&" | "|" | "^" | "<<" | ">>") {
+            self.bitwise_ops.push(BitwiseOp {
+                operator: infix.operator.clone(),
+                lhs_ty: lhs_resolved.clone(),
+                rhs_ty: rhs_resolved.clone(),
+                lhs_span: infix.lhs.span(),
+                rhs_span: infix.rhs.span(),
+            });
+        }
+
+        if matches!(infix.operator.as_str(), "==" | "!=")
+            && let (Type::Array(_, n_lhs), Type::Array(_, n_rhs)) = (&lhs_resolved, &rhs_resolved)
+            && n_lhs == n_rhs
+        {
+            infix.array_eq_len = Some(*n_lhs);
+        }
+
         if lhs_resolved == Type::Str && rhs_resolved == Type::Str {
             if infix.operator == "+" {
                 return Type::Str;
@@ -1628,18 +1596,18 @@ impl TypeChecker {
                 return Type::Bool;
             }
         }
-        // Boolean equality
+
         if (infix.operator == "==" || infix.operator == "!=")
             && lhs_resolved == Type::Bool
             && rhs_resolved == Type::Bool
         {
             return Type::Bool;
         }
-        // Char equality and comparison
+
         if lhs_resolved == Type::Char && rhs_resolved == Type::Char && is_comparison {
             return Type::Bool;
         }
-        // Field-element arithmetic
+
         if lhs_resolved == Type::Felt && rhs_resolved == Type::Felt {
             match infix.operator.as_str() {
                 "+" | "-" | "*" | "/" => {
@@ -1664,7 +1632,7 @@ impl TypeChecker {
                 _ => {}
             }
         }
-        // Numeric operations: both operands must be the same integer type.
+
         if lhs_resolved.is_integer() && rhs_resolved.is_integer() {
             if lhs_resolved != rhs_resolved {
                 if matches!(lhs_resolved, Type::IntVar(_))
@@ -1710,7 +1678,251 @@ impl TypeChecker {
         }
     }
 
-    /// Infers the type of a block (the type of its last expression statement).
+    fn validate_bitwise_ops(&mut self) {
+        let ops = std::mem::take(&mut self.bitwise_ops);
+        for op in ops {
+            let lhs = self.subst.resolve_int_vars(&op.lhs_ty);
+            let rhs = self.subst.resolve_int_vars(&op.rhs_ty);
+            self.check_bitwise_operand(&op.operator, &lhs, op.lhs_span);
+            self.check_bitwise_operand(&op.operator, &rhs, op.rhs_span);
+        }
+    }
+
+    fn check_bitwise_operand(&mut self, operator: &str, ty: &Type, span: Span) {
+        let is_shift = matches!(operator, "<<" | ">>");
+        if is_shift {
+            if ty.is_shift_safe_unsigned() {
+                return;
+            }
+            self.errors.push(
+                TypeErrorKind::Unsupported(format!(
+                    "bitwise operator `{operator}` requires an unsigned integer operand \
+                     in the range `u64`/`usize`, found `{ty}`; cast the operand via `as u64`."
+                ))
+                .at(span),
+            );
+            return;
+        }
+        if ty.is_bitwise_safe_unsigned() {
+            return;
+        }
+        self.errors.push(
+            TypeErrorKind::Unsupported(format!(
+                "bitwise operator `{operator}` requires an unsigned integer operand \
+                 in the range `u8`/`u16`/`u32`/`u64`/`usize`, found `{ty}`; \
+                 cast the operand via `as u64` before applying `{operator}`."
+            ))
+            .at(span),
+        );
+    }
+
+    fn validate_u64_literals(&mut self, program: &mut Program) {
+        for stmt in &program.statements {
+            self.validate_u64_literals_in_stmt(stmt);
+        }
+    }
+
+    fn validate_u64_literals_in_stmt(&mut self, stmt: &Stmt) {
+        match stmt {
+            Stmt::Let(let_stmt) => self.validate_u64_literals_in_expr(&let_stmt.value),
+            Stmt::ReAssign(assign) => self.validate_u64_literals_in_expr(&assign.value),
+            Stmt::Return(ret) => self.validate_u64_literals_in_expr(&ret.value),
+            Stmt::Expr(expr_stmt) => self.validate_u64_literals_in_expr(&expr_stmt.value),
+            Stmt::Block(block) => {
+                for s in &block.statements {
+                    self.validate_u64_literals_in_stmt(s);
+                }
+            }
+            Stmt::FuncDef(fn_item) => {
+                for s in &fn_item.body.statements {
+                    self.validate_u64_literals_in_stmt(s);
+                }
+            }
+            Stmt::Loop(loop_stmt) => {
+                for s in &loop_stmt.body.statements {
+                    self.validate_u64_literals_in_stmt(s);
+                }
+            }
+            Stmt::While(while_stmt) => {
+                self.validate_u64_literals_in_expr(&while_stmt.condition);
+                for s in &while_stmt.body.statements {
+                    self.validate_u64_literals_in_stmt(s);
+                }
+            }
+            Stmt::For(for_stmt) => {
+                self.validate_u64_literals_in_expr(&for_stmt.iterable);
+                for s in &for_stmt.body.statements {
+                    self.validate_u64_literals_in_stmt(s);
+                }
+            }
+            Stmt::Mod(mod_stmt) => {
+                if let Some(body) = &mod_stmt.body {
+                    for s in body {
+                        self.validate_u64_literals_in_stmt(s);
+                    }
+                }
+            }
+            Stmt::ImplBlock(impl_block) => {
+                for method in &impl_block.methods {
+                    for s in &method.body.statements {
+                        self.validate_u64_literals_in_stmt(s);
+                    }
+                }
+            }
+            Stmt::StructDecl(_) | Stmt::EnumDecl(_) | Stmt::TraitDecl(_) | Stmt::Use(_) => {}
+        }
+    }
+
+    fn validate_u64_literals_in_expr(&mut self, expr: &Expr) {
+        match expr {
+            Expr::Number(lit) => self.validate_u64_literal_value(lit),
+            Expr::Prefix(prefix) => self.validate_u64_literals_in_expr(&prefix.operand),
+            Expr::Infix(infix) => {
+                self.validate_u64_literals_in_expr(&infix.lhs);
+                self.validate_u64_literals_in_expr(&infix.rhs);
+            }
+            Expr::Call(call) => {
+                self.validate_u64_literals_in_expr(&call.function);
+                for arg in &call.arguments {
+                    self.validate_u64_literals_in_expr(arg);
+                }
+            }
+            Expr::MacroCall(mc) => {
+                for arg in &mc.arguments {
+                    self.validate_u64_literals_in_expr(arg);
+                }
+            }
+            Expr::MethodCall(mc) => {
+                self.validate_u64_literals_in_expr(&mc.object);
+                for arg in &mc.arguments {
+                    self.validate_u64_literals_in_expr(arg);
+                }
+            }
+            Expr::Index(idx) => {
+                self.validate_u64_literals_in_expr(&idx.expr);
+                self.validate_u64_literals_in_expr(&idx.index);
+            }
+            Expr::FieldAccess(fa) => self.validate_u64_literals_in_expr(&fa.object),
+            Expr::Cast(cast) => self.validate_u64_literals_in_expr(&cast.expr),
+            Expr::Try(try_expr) => self.validate_u64_literals_in_expr(&try_expr.expr),
+            Expr::Vector(vec) => {
+                for elem in &vec.elements {
+                    self.validate_u64_literals_in_expr(elem);
+                }
+            }
+            Expr::Map(map) => {
+                for (k, v) in &map.pairs {
+                    self.validate_u64_literals_in_expr(k);
+                    self.validate_u64_literals_in_expr(v);
+                }
+            }
+            Expr::Tuple(tuple) => {
+                for elem in &tuple.elements {
+                    self.validate_u64_literals_in_expr(elem);
+                }
+            }
+            Expr::Range(range) => {
+                self.validate_u64_literals_in_expr(&range.start);
+                self.validate_u64_literals_in_expr(&range.end);
+            }
+            Expr::Array(arr) => {
+                for elem in &arr.elements {
+                    self.validate_u64_literals_in_expr(elem);
+                }
+            }
+            Expr::Cond(cond) => {
+                self.validate_u64_literals_in_expr(&cond.condition);
+                for s in &cond.consequence.statements {
+                    self.validate_u64_literals_in_stmt(s);
+                }
+                if let Some(alt) = &cond.alternative {
+                    for s in &alt.statements {
+                        self.validate_u64_literals_in_stmt(s);
+                    }
+                }
+            }
+            Expr::Lambda(lambda) => {
+                for s in &lambda.body.statements {
+                    self.validate_u64_literals_in_stmt(s);
+                }
+            }
+            Expr::Match(match_expr) => {
+                self.validate_u64_literals_in_expr(&match_expr.scrutinee);
+                for arm in &match_expr.arms {
+                    self.validate_u64_literals_in_pattern(&arm.pattern);
+                    if let Some(guard) = &arm.guard {
+                        self.validate_u64_literals_in_expr(guard);
+                    }
+                    self.validate_u64_literals_in_expr(&arm.body);
+                }
+            }
+            Expr::Break(brk) => {
+                if let Some(value) = &brk.value {
+                    self.validate_u64_literals_in_expr(value);
+                }
+            }
+            Expr::StructLit(struct_lit) => {
+                for (_, value) in &struct_lit.fields {
+                    self.validate_u64_literals_in_expr(value);
+                }
+                if let Some(base) = &struct_lit.base {
+                    self.validate_u64_literals_in_expr(base);
+                }
+            }
+            Expr::Bool(_)
+            | Expr::Str(_)
+            | Expr::Char(_)
+            | Expr::Ident(_)
+            | Expr::Continue(_)
+            | Expr::PathExpr(_)
+            | Expr::MacroLit(_) => {}
+        }
+    }
+
+    fn validate_u64_literals_in_pattern(&mut self, pat: &Pattern) {
+        match pat {
+            Pattern::Literal(expr) => self.validate_u64_literals_in_expr(expr),
+            Pattern::TupleStruct { fields, .. } => {
+                for sub in fields {
+                    self.validate_u64_literals_in_pattern(sub);
+                }
+            }
+            Pattern::Struct { fields, .. } => {
+                for f in fields {
+                    if let Some(sub) = &f.pattern {
+                        self.validate_u64_literals_in_pattern(sub);
+                    }
+                }
+            }
+            Pattern::Tuple(items, _) | Pattern::Or(items, _) => {
+                for sub in items {
+                    self.validate_u64_literals_in_pattern(sub);
+                }
+            }
+            Pattern::Wildcard(_) | Pattern::Ident { .. } => {}
+        }
+    }
+
+    fn validate_u64_literal_value(&mut self, lit: &Number) {
+        if !matches!(lit.kind, NumKind::U64 | NumKind::Usize) {
+            return;
+        }
+        let Ok(value) = u64::try_from(lit.value) else {
+            return;
+        };
+        if value >= GOLDILOCKS_MODULUS {
+            self.errors.push(
+                TypeErrorKind::Unsupported(format!(
+                    "u64 literal `{value}` lies in the Goldilocks off-canonical range \
+                     `[p, 2^64)` (where `p = 2^64 - 2^32 + 1`); use a value less than \
+                     `0xFFFF_FFFF_0000_0001`, or construct the field element \
+                     directly via `Felt::new(...)`."
+                ))
+                .at(lit.span),
+            );
+        }
+    }
+
     fn infer_block(&mut self, block: &mut BlockStmt) -> Type {
         let mut last = Type::Unit;
         for stmt in &mut block.statements {
@@ -1731,7 +1943,6 @@ impl TypeChecker {
         last
     }
 
-    /// Checks that a literal value fits within the declared type's range.
     fn check_literal_range(&mut self, expr: &Expr, expected: &Type, span: Span) {
         let Some(val) = expr.extract_integer_value() else {
             return;
@@ -1768,7 +1979,6 @@ impl TypeChecker {
         }
     }
 
-    /// Ensures a resolved type is `Bool`, reporting a mismatch if not.
     fn require_bool(&mut self, resolved: &Type, span: Span) {
         if !matches!(resolved, Type::Bool | Type::Var(_)) {
             self.errors.push(

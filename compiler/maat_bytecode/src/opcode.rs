@@ -227,10 +227,33 @@ pub enum Opcode {
     /// Build a fixed-size array from the top N stack elements.
     /// Operands: [u16] - number of elements
     Array = 49,
+
+    /// Allocate a fresh heap cell, write the popped value as its initial
+    /// contents, and push the new heap address.
+    ///
+    /// Internal-only opcode; not emitted by the surface language. Composite
+    /// types (`Vector<T>`, `[T; N]`, `Map<K, V>`, `Set<T>`, `str`, `struct`,
+    /// `enum`, closures) lower to sequences of `HeapAlloc`/`HeapRead`/`HeapWrite`.
+    /// Operands: none
+    HeapAlloc = 50,
+
+    /// Read the value at the heap address on top of the stack and push it.
+    ///
+    /// Internal-only opcode; not emitted by the surface language.
+    /// Operands: none
+    HeapRead = 51,
+
+    /// Write the value at the second stack slot to the heap address on top
+    /// of the stack. Both operands are popped; nothing is pushed.
+    ///
+    /// Each `HeapWrite` allocates a fresh physical address mapped to the
+    /// caller-supplied logical heap address, preserving the write-once
+    /// invariant required by the heap permutation argument.
+    /// Operands: none
+    HeapWrite = 52,
 }
 
 impl Opcode {
-    /// Returns the name of this opcode for disassembly.
     pub const fn name(self) -> &'static str {
         match self {
             Self::Constant => "OpConstant",
@@ -283,13 +306,12 @@ impl Opcode {
             Self::FeltInv => "OpFeltInv",
             Self::FeltPow => "OpFeltPow",
             Self::Array => "OpArray",
+            Self::HeapAlloc => "OpHeapAlloc",
+            Self::HeapRead => "OpHeapRead",
+            Self::HeapWrite => "OpHeapWrite",
         }
     }
 
-    /// Returns the operand widths for this opcode.
-    ///
-    /// Each element in the returned slice represents the byte width
-    /// of an operand. For example, `&[2]` means one 2-byte operand.
     #[inline]
     pub const fn operand_widths(self) -> &'static [usize] {
         match self {
@@ -341,11 +363,13 @@ impl Opcode {
             | Self::FeltSub
             | Self::FeltMul
             | Self::FeltInv
-            | Self::FeltPow => &[],
+            | Self::FeltPow
+            | Self::HeapAlloc
+            | Self::HeapRead
+            | Self::HeapWrite => &[],
         }
     }
 
-    /// Attempts to convert a byte to an opcode.
     #[inline]
     pub const fn from_byte(byte: u8) -> Option<Self> {
         match byte {
@@ -399,11 +423,13 @@ impl Opcode {
             47 => Some(Self::FeltInv),
             48 => Some(Self::FeltPow),
             49 => Some(Self::Array),
+            50 => Some(Self::HeapAlloc),
+            51 => Some(Self::HeapRead),
+            52 => Some(Self::HeapWrite),
             _ => None,
         }
     }
 
-    /// Converts this opcode to its byte representation.
     #[inline]
     pub const fn to_byte(self) -> u8 {
         self as u8
@@ -434,7 +460,6 @@ pub enum TypeTag {
 }
 
 impl TypeTag {
-    /// Converts a byte to a type tag.
     #[inline]
     pub const fn from_byte(byte: u8) -> Option<Self> {
         match byte {
@@ -456,15 +481,11 @@ impl TypeTag {
         }
     }
 
-    /// Converts this type tag to its byte representation.
     #[inline]
     pub const fn to_byte(self) -> u8 {
         self as u8
     }
 
-    /// Maps a numeric bytecode type tag to a number type.
-    ///
-    /// Returns `None` for `Char`, which has no `NumKind` equivalent.
     pub fn to_num_kind(self) -> Option<NumKind> {
         match self {
             Self::I8 => Some(NumKind::I8),
@@ -484,7 +505,6 @@ impl TypeTag {
         }
     }
 
-    /// Maps a source-level numeric type annotation to a bytecode type tag.
     pub fn from_num_kind(t: NumKind) -> Self {
         match t {
             NumKind::I8 => Self::I8,
@@ -503,7 +523,6 @@ impl TypeTag {
         }
     }
 
-    /// Maps a source-level cast target to a bytecode type tag.
     pub fn from_cast_target(t: CastTarget) -> Self {
         match t {
             CastTarget::Num(k) => Self::from_num_kind(k),
@@ -518,10 +537,17 @@ mod tests {
 
     #[test]
     fn opcode_roundtrip() {
-        for byte in 0..=49 {
+        for byte in 0..=52 {
             let opcode = Opcode::from_byte(byte).unwrap();
             assert_eq!(opcode.to_byte(), byte);
         }
+    }
+
+    #[test]
+    fn heap_opcodes_are_operandless() {
+        assert_eq!(Opcode::HeapAlloc.operand_widths(), &[]);
+        assert_eq!(Opcode::HeapRead.operand_widths(), &[]);
+        assert_eq!(Opcode::HeapWrite.operand_widths(), &[]);
     }
 
     #[test]

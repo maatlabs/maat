@@ -111,7 +111,11 @@ println!("{}", match mod_inverse(3, 11) { Some(v) => v, None => -1 });
 println!("{}", match mod_inverse(6, 9) { Some(v) => v, None => -1 });
 
 /// Encrypts or decrypts data by XOR-ing each element with a key.
-fn xor_cipher(data, key: i64) {
+///
+/// Bitwise XOR in the ZK backend requires unsigned operands; both the cipher
+/// elements and the key are `u64` so that every felt encoding equals the raw
+/// bit pattern.
+fn xor_cipher(data, key: u64) {
     let go = fn(data, acc) {
         if data.len() == 0usize {
             acc
@@ -122,8 +126,8 @@ fn xor_cipher(data, key: i64) {
     go(data, []);
 }
 
-let plaintext = [72, 101, 108, 108, 111];
-let key: i64 = 42;
+let plaintext = [72u64, 101, 108, 108, 111];
+let key: u64 = 42;
 let ciphertext = xor_cipher(plaintext, key);
 println!("{}", ciphertext);
 // Decrypt: XOR again with same key recovers plaintext
@@ -131,8 +135,8 @@ let decrypted = xor_cipher(ciphertext, key);
 println!("{}", decrypted);
 
 /// Counts the number of set bits (population count) in `n`.
-fn popcount(n: i64) -> i64 {
-    let mut count: i64 = 0;
+fn popcount(n: u64) -> u64 {
+    let mut count: u64 = 0;
     let mut val = n;
 
     #[bounded(64)]
@@ -149,7 +153,7 @@ println!("{}", popcount(255));
 println!("{}", popcount(1023));
 
 /// Returns true if `n` is a power of two (exactly one bit set).
-fn is_power_of_two(n: i64) -> bool {
+fn is_power_of_two(n: u64) -> bool {
     n > 0 && (n & (n - 1)) == 0
 }
 
@@ -158,7 +162,7 @@ println!("{}", is_power_of_two(64));
 println!("{}", is_power_of_two(100));
 
 /// Left-rotates `value` by `shift` bits within a 64-bit word.
-fn rotate_left(value: i64, shift: i64) -> i64 {
+fn rotate_left(value: u64, shift: u64) -> u64 {
     (value << shift) | (value >> (64 - shift))
 }
 

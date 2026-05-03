@@ -533,6 +533,7 @@ fn parse_compound_assignment<'src>(
         operator: operator.to_string(),
         rhs: Box::new(rhs),
         op_class: BinOpClass::default(),
+        array_eq_len: None,
         span: start.merge(end),
     });
 
@@ -666,6 +667,7 @@ fn parse_expression_inner<'src>(
                     operator,
                     rhs,
                     op_class: BinOpClass::default(),
+                    array_eq_len: None,
                     span,
                 })
             }
@@ -1293,6 +1295,7 @@ fn parse_index_expression<'src>(
     Ok(Expr::Index(IndexExpr {
         expr: Box::new(expr),
         index,
+        array_len: None,
         span: start.merge(end),
     }))
 }
@@ -1353,6 +1356,7 @@ fn parse_field_or_method_call<'src>(
             method: member,
             arguments,
             receiver: None,
+            array_len: None,
             span: start.merge(end),
         }))
     } else {

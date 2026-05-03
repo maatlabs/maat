@@ -7,7 +7,7 @@
 use std::fmt;
 
 use maat_ast::NumKind;
-use maat_field::Felt;
+use maat_field::{Felt, FieldElement, from_i64};
 use serde::{Deserialize, Serialize};
 
 /// All supported runtime integer types.
@@ -102,11 +102,11 @@ impl Integer {
     /// Encodes this integer value as a field element.
     pub fn to_felt(&self) -> Felt {
         match self {
-            Self::I8(v) => Felt::from_i64(i64::from(*v)),
-            Self::I16(v) => Felt::from_i64(i64::from(*v)),
-            Self::I32(v) => Felt::from_i64(i64::from(*v)),
-            Self::I64(v) => Felt::from_i64(*v),
-            Self::Isize(v) => Felt::from_i64(*v as i64),
+            Self::I8(v) => from_i64(i64::from(*v)),
+            Self::I16(v) => from_i64(i64::from(*v)),
+            Self::I32(v) => from_i64(i64::from(*v)),
+            Self::I64(v) => from_i64(*v),
+            Self::Isize(v) => from_i64(*v as i64),
             Self::U8(v) => Felt::new(u64::from(*v)),
             Self::U16(v) => Felt::new(u64::from(*v)),
             Self::U32(v) => Felt::new(u64::from(*v)),

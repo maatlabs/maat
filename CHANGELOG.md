@@ -4,6 +4,75 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-05-03
+
+Proof system foundation. Implements a single instrumented VM for trace generation, static transition degrees, a unified memory permutation, and a builtin-segment ABI for expensive-to-arithmetize operations.
+
+### Added
+
+#### Heap Memory Segment Foundation
+
+- **Fixed-size array `[T; N]` tracing** (`maat_codegen`, `maat_types`, `maat_ast`). Codegen lowers array literals, indexing, and `len()` onto the heap segment. `examples/fixed_size_arrays.maat` proves and verifies end-to-end.
+- **Heap memory segment foundation** (`maat_trace`, `maat_air`, `maat_bytecode`). Three internal heap opcodes (`HeapAlloc`/`HeapRead`/`HeapWrite`), heap trace columns, and heap permutation argument in the aux segment.
+- **Calling-convention synthetic rows** (`maat_trace`). Synthetic `SEL_NOP` rows per parameter and saved frame-pointer write/read pair callee `GetLocal` reads with provable writes through the memory permutation argument. Frame-pointer formula corrected to `caller_fp + caller_num_locals + 1`.
+- **Output-correctness and execution-trace integrity constraints** (`maat_air`). Per-opcode sub-selectors, output-correctness constraints for arithmetic/division/unary/felt/equality, and the universal PC-advance constraint `pc_next = pc + COL_OP_WIDTH`.
+- **Bitwise / shift operand canonical-felt restriction** (`maat_types`). Signed-bitwise rejection and off-canonical `u64`/`usize` literal rejection (the Goldilocks sliver `[p, 2^64)`) as soundness prerequisites for the builtin-segment ABI.
+
+#### Builtin-segment ABI (`maat_air`)
+
+- **`Builtin` trait + `BuiltinSet` registry.** `maat_air::builtin` exposes a trait covering aux width, challenge count, constraint degrees, reserved address range, assertion count, and `evaluate_aux_transition`/`build_aux_columns`/`aux_assertions` methods. `BuiltinSet` dispatches in registration order with compile-time layout constants; the CPU AIR's main segment is sealed against new operation classes.
+- **`RangeCheckBuiltin`.** Sorted-pool aux columns, grand-product accumulator, continuity/permutation constraints, and boundary assertions moved out of `aux_segment.rs`. Reserved range `[2^33, 2^34)`. `AUX_WIDTH` 8-->9; `NUM_AUX_ASSERTIONS` 4-->6.
+- **`IdentityBuiltin`.** Width-1 column pinned to the multiplicative identity; structural regression test for the dispatcher. Reserved range `[2^34, 2^35)`.
+
+#### Bitwise output correctness via bitwise builtin (`maat_air`, `maat_trace`, `maat_types`, `tests`)
+
+- **`BitwiseBuiltin` mini-AIR.** Closes the soundness gap on `BitAnd`/`BitOr`/`BitXor`/`Shl`/`Shr`. 128 aux columns (`bit_a[0..64]`, `bit_b[0..64]` / one-hot shift amount). Eleven transition constraints (degrees `[2×6, 3×5]`); no verifier challenges; no boundary assertions. Reserved address range `[2^35, 2^36)`. SHL/SHR output `out = Σ_k bit_b[k] * partial_a_k` expresses u64 modular wrap without an overflow witness.
+- **Five bitwise sub-selectors:** `SUB_SEL_AND/OR/XOR/SHL/SHR`.
+- **`is_shift_safe_unsigned`.** Confines `<<`/`>>` to `u64`/`usize`; AND/OR/XOR remain unrestricted across unsigned integer widths.
+- **Tests.** `BitwiseBuiltin` unit tests; `prove_verify::*bitwise_*` integration tests; updated `BuiltinSet` registry tests (`three_builtins_active_compose`, `reserved_address_ranges_are_disjoint`).
+
+#### Ordering output correctness via range-check builtin (`maat_trace`, `maat_air`, `maat_types`, `tests`)
+
+- **`is_ordering_safe_unsigned` type-checker restriction.** `<`, `>`, `<=`, `>=` restricted to `u8`/`u16`/`u32`/`usize`/`char`. Full-width 64-bit ordering deferred: the Goldilocks high-limb sign witness only separates the wrapped-negative case at <=32-bit operands. `i64`-typed ordering rejected at compile time with a clear diagnostic.
+- **Two ordering sub-selectors:** `SUB_SEL_LT`/`SUB_SEL_GT` raise `NUM_SUB_SELECTORS`.
+- Seven new CPU AIR constraints (indices 74--80).
+- **Tests.** `prove_verify::ordering_*` covers `<`/`>`/`<=`/`>=` on `u32` with positive and tamper variants. Existing `i64`-ordered examples migrated to explicit `u32` types.
+
+### Changed
+
+#### Unified memory model and trace-shape cleanup (`maat_trace`, `maat_air`, `maat_vm`, `maat_prover`, `tests`)
+
+- **Unified memory permutation.** Heap traffic maps to logical addresses `[2^32, 2^33)` and merges into the single sorted L2 list. Dedicated heap trace columns and aux columns deleted.
+- **Dead columns dropped.** `COL_OPCODE` and `COL_OPERAND_1` removed.
+- **Address-contiguity validation deleted.** `validate_address_contiguity` and the `cfg(debug_assertions)` gap detector removed; `addr_delta * (addr_delta - 1) = 0` is the sole enforcement.
+- **Zero-copy aux build.** `build_aux_columns` takes `&[&[BaseElement]]`; the per-prove `extract_main_columns` clone is gone.
+
+#### Thin `maat_field` to encoding-only
+
+- **`Felt` -> type alias** for `winter_math::fields::f64::BaseElement`. Operator-forwarding newtype and all hand-written impls deleted; `from_i64`, `try_inv`, `try_div` remain as free functions. `maat_field` now re-exports all relevant `winter_math::*` functionality for downstream consumption.
+
+#### Static transition degrees (`maat_air`, `maat_prover`, `maat_trace`)
+
+- **`maat_air::degree` deleted** (three nested FFT passes per `prove`). `CONSTRAINT_DEGREES` and `AUX_CONSTRAINT_DEGREES` are `pub const` arrays; `TraceInfo::meta` is empty. `MIN_ROWS` lowered from 32 to 8. Debug profile drops Winterfell's strict equality degree check.
+
+#### Collapse `TraceVM` into instrumented `maat_vm` (`maat_vm`, `maat_trace`, `maat_bytecode`)
+
+- **`maat_trace::vm` deleted** `maat_vm::VM` gains `run_with_recorder<R: Tracer>`; `vm.rs` and `encode.rs` removed from `maat_trace`. A new `OpcodeMeta` table in `maat_trace/src/selector.rs` is the single authority for selector class index, sub-selector class index, and operand widths.
+
+- **Trace metadata format.** `MASK_BYTES`/`encode_mask`/`decode_mask` retired in favor of static `CONSTRAINT_DEGREES`/`AUX_CONSTRAINT_DEGREES` constant arrays.
+
+### Fixed
+
+- **AIR constraint 23.** `sel_return` incorrectly included in the single-byte PC-increment class; removed.
+- **Auxiliary degree predictor** (replaced wholesale by static constants): under-declared aux constraint 6 and over-declared aux constraint 7 on range-check-heavy traces.
+- **Tampered-output integration tests.** Updated to use `std::panic::catch_unwind` to accept both debug-build prover panics and release-build verifier rejections.
+
+### Internal
+
+- Re-enabled `prove_and_verify_nested_arithmetic`, `prove_and_verify_if_else_false_branch`, `prove_and_verify_integer_conversion`, and `prove_and_verify_integer_to_felt`. All `prove_verify` integration tests pass in both debug and release modes.
+
+---
+
 ## [0.12.3] - 2026-04-15
 
 STARK prover and verifier. This release delivers end-to-end zero-knowledge proof generation and verification for Maat programs. A new `maat_prover` crate wires the AIR constraint system to Winterfell's STARK infrastructure; `maat prove` and `maat verify` CLI subcommands expose proof generation and verification. All public inputs (program hash, inputs, output) are embedded in the proof file, making verification self-contained. Programs exercising pure arithmetic and field element operations can be proven and verified in both development and production security modes.
@@ -1076,6 +1145,7 @@ When adding entries to this changelog for future releases:
 3. **Audience**: Write for users, not developers (focus on impact, not implementation)
 4. **Links**: Add comparison links at the bottom: `[0.2.0]: https://github.com/maatlabs/maat/compare/v0.1.0...v0.2.0`
 
+[0.13.0]: https://github.com/maatlabs/maat/compare/v0.12.3...v0.13.0
 [0.12.3]: https://github.com/maatlabs/maat/compare/v0.12.2...v0.12.3
 [0.12.2]: https://github.com/maatlabs/maat/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/maatlabs/maat/compare/v0.12.0...v0.12.1

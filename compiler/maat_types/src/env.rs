@@ -12,7 +12,6 @@ use crate::{
     VariantDef, VariantKind, resolve_type_expr,
 };
 
-/// Lexically scoped type environment.
 pub struct TypeEnv {
     bindings: Vec<(String, TypeScheme)>,
     scope_starts: Vec<usize>,
@@ -24,14 +23,10 @@ pub struct TypeEnv {
     builtin_method_schemes: IndexMap<String, BuiltinMethodScheme>,
 }
 
-/// Polymorphic method signature for a built-in type.
 #[derive(Debug, Clone)]
 struct BuiltinMethodScheme {
-    /// Type variables universally quantified in this method.
     forall: Vec<TypeVarId>,
-    /// The self-type pattern (e.g., `[?T0]` for vector methods).
     self_type: Type,
-    /// The method's function type (parameters exclude `self`).
     fn_type: Type,
 }
 
@@ -42,7 +37,6 @@ impl Default for TypeEnv {
 }
 
 impl TypeEnv {
-    /// Creates a new type environment with a single empty scope.
     pub fn new() -> Self {
         Self {
             bindings: Vec::new(),
@@ -56,12 +50,6 @@ impl TypeEnv {
         }
     }
 
-    /// Registers builtin function signatures and inherent method impls
-    /// for built-in types in the type environment.
-    ///
-    /// `print` is variadic at runtime and is not registered here.
-    /// Unknown identifiers fall back to fresh type variables, which
-    /// allows any number of arguments without arity errors.
     pub fn register_builtins(&mut self) {
         self.register_builtin_methods();
         self.register_builtin_enums();
@@ -72,7 +60,6 @@ impl TypeEnv {
         self.register_cmp_builtins();
     }
 
-    /// Registers constructor functions and opaque types for built-in types.
     fn register_builtin_ctors(&mut self) {
         // Vector::new() -> Vector<T> (i.e., [T])
         let vec_t_id = self.next_var;
@@ -122,11 +109,6 @@ impl TypeEnv {
         );
     }
 
-    /// Registers lossless numeric widening conversions as associated functions.
-    ///
-    /// Each conversion is registered as `Target::from(Source) -> Target`,
-    /// following Rust's `From` trait pattern. Only safe (lossless) widenings
-    /// are provided; lossy narrowing conversions remain explicit `as` casts.
     fn register_numeric_conversions(&mut self) {
         let targets: &[(&str, Type)] = &[
             ("i16::from", Type::I16),
@@ -154,10 +136,6 @@ impl TypeEnv {
         }
     }
 
-    /// Registers `Type::default()` associated functions for primitive types.
-    ///
-    /// Returns the zero value for numeric types, `false` for `bool`,
-    /// and `""` for `str`.
     fn register_default_fns(&mut self) {
         let defaults: &[(&str, Type)] = &[
             ("i8::default", Type::I8),
@@ -189,10 +167,6 @@ impl TypeEnv {
         }
     }
 
-    /// Registers polymorphic comparison utility functions.
-    ///
-    /// `min` and `max` accept two values of the same integer type and return
-    /// the lesser or greater. `clamp` restricts a value to a `[min, max]` range.
     fn register_cmp_builtins(&mut self) {
         let t_id = self.next_var;
         self.next_var += 1;
@@ -231,7 +205,6 @@ impl TypeEnv {
         );
     }
 
-    /// Registers inherent methods on built-in types (`[T]` and `str`).
     fn register_builtin_methods(&mut self) {
         let elem_id = self.next_var;
         self.next_var += 1;
@@ -782,7 +755,6 @@ impl TypeEnv {
         }
     }
 
-    /// Registers inherent methods on `Option<T>` and `Result<T, E>`.
     fn register_option_result_methods(&mut self) {
         // impl Option<T>
         let t_id = self.next_var;
@@ -1053,8 +1025,6 @@ impl TypeEnv {
         }
     }
 
-    /// Registers `Option<T>`, `Result<T, E>`, and `ParseIntError` as
-    /// language-level enum types.
     fn register_builtin_enums(&mut self) {
         self.register_enum(EnumDef {
             name: "Option".to_string(),
@@ -1104,49 +1074,34 @@ impl TypeEnv {
         });
     }
 
-    /// Registers a struct definition.
     pub fn register_struct(&mut self, def: StructDef) {
         self.structs.insert(def.name.clone(), def);
     }
 
-    /// Registers an enum definition.
     pub fn register_enum(&mut self, def: EnumDef) {
         self.enums.insert(def.name.clone(), def);
     }
 
-    /// Registers a trait definition.
     pub fn register_trait(&mut self, def: TraitDef) {
         self.traits.insert(def.name.clone(), def);
     }
 
-    /// Registers an impl block.
     pub fn register_impl(&mut self, def: ImplDef) {
         self.impls.push(def);
     }
 
-    /// Looks up a registered struct definition by name.
     pub fn lookup_struct(&self, name: &str) -> Option<&StructDef> {
         self.structs.get(name)
     }
 
-    /// Looks up a registered enum definition by name.
     pub fn lookup_enum(&self, name: &str) -> Option<&EnumDef> {
         self.enums.get(name)
     }
 
-    /// Looks up a registered trait definition by name.
     pub fn lookup_trait(&self, name: &str) -> Option<&TraitDef> {
         self.traits.get(name)
     }
 
-    /// Looks up a method on a concrete type by searching inherent impl blocks first,
-    /// then trait impl blocks.
-    ///
-    /// This handles user-defined types only. For built-in types (`[T]`, `str`),
-    /// use [`instantiate_builtin_method`](Self::instantiate_builtin_method) which
-    /// provides proper polymorphic instantiation with fresh type variables at each call site.
-    ///
-    /// Returns the function type of the method if found.
     pub fn lookup_method(&self, self_type: &Type, method_name: &str) -> Option<&Type> {
         // Inherent impls first
         self.impls
@@ -1172,10 +1127,6 @@ impl TypeEnv {
             })
     }
 
-    /// Looks up a method on a type by name only (ignoring type arguments).
-    ///
-    /// Used for generic struct/enum types where the type arguments may not
-    /// exactly match the registered impl (e.g., `Point<i64>` vs `Point`).
     pub fn lookup_method_by_name(&self, type_name: &str, method_name: &str) -> Option<&Type> {
         self.impls
             .iter()
@@ -1191,21 +1142,6 @@ impl TypeEnv {
             })
     }
 
-    /// Instantiates a built-in method's type scheme with fresh type variables.
-    ///
-    /// For polymorphic methods (e.g., `[T].first() -> T`), each call site
-    /// receives fresh inference variables that are independent of all other
-    /// call sites. This prevents the type pollution that would occur if a
-    /// single shared type variable were reused across different vector element
-    /// types.
-    ///
-    /// Returns `(instantiated_self_type, instantiated_fn_type)` on success.
-    /// The caller must unify `instantiated_self_type` with the actual receiver
-    /// to bind the element type variables, then apply the substitution to
-    /// `instantiated_fn_type` to resolve the concrete return type.
-    ///
-    /// Returns `None` if the receiver is not a built-in type or no matching
-    /// method exists.
     pub fn instantiate_builtin_method(
         &mut self,
         receiver: &Type,
@@ -1238,17 +1174,14 @@ impl TypeEnv {
         ))
     }
 
-    /// Returns an iterator over all registered enum definitions.
     pub fn all_enums(&self) -> impl Iterator<Item = &EnumDef> {
         self.enums.values()
     }
 
-    /// Returns an iterator over all registered impl blocks.
     pub fn all_impls(&self) -> impl Iterator<Item = &ImplDef> {
         self.impls.iter()
     }
 
-    /// Returns all required method signatures for a trait.
     pub fn required_trait_methods(&self, trait_name: &str) -> Vec<&MethodSig> {
         self.traits
             .get(trait_name)
@@ -1256,10 +1189,6 @@ impl TypeEnv {
             .unwrap_or_default()
     }
 
-    /// Resolves a parsed type expression into an internal type, using the
-    /// type registry to recognize user-defined struct and enum names.
-    ///
-    /// Falls back to [`resolve_type_expr`] for primitive and compound types.
     pub fn resolve_type(&mut self, expr: &TypeExpr) -> Type {
         match expr {
             TypeExpr::Named(named) => self.resolve_named_type(&named.name),
@@ -1291,12 +1220,6 @@ impl TypeEnv {
         }
     }
 
-    /// Resolves a named type string, checking the registry before falling
-    /// back to primitives.
-    ///
-    /// When a registered struct or enum has generic type parameters and none
-    /// are explicitly provided, fresh inference variables are inserted so that
-    /// bare usage (e.g., `s: Set`) is equivalent to `s: Set<_>`.
     fn resolve_named_type(&mut self, name: &str) -> Type {
         if name == "Vector" {
             return Type::Vector(Box::new(self.fresh_var()));
@@ -1321,29 +1244,22 @@ impl TypeEnv {
         }
     }
 
-    /// Generates a fresh type variable.
     pub fn fresh_var(&mut self) -> Type {
         let id = self.next_var;
         self.next_var += 1;
         Type::Var(id)
     }
 
-    /// Generates a fresh integer-constrained type variable.
-    ///
-    /// Used for unsuffixed integer literals; unifies only with integer types
-    /// and defaults to `i64` when no constraint is found.
     pub fn fresh_int_var(&mut self) -> Type {
         let id = self.next_var;
         self.next_var += 1;
         Type::IntVar(id)
     }
 
-    /// Defines a variable with a monomorphic type in the current scope.
     pub fn define_var(&mut self, name: &str, ty: Type) {
         self.define_scheme(name, TypeScheme::monomorphic(ty));
     }
 
-    /// Defines a variable with a polymorphic type scheme in the current scope.
     pub fn define_scheme(&mut self, name: &str, scheme: TypeScheme) {
         let scope_start = self.scope_starts.last().copied().unwrap_or(0);
         if let Some(entry) = self.bindings[scope_start..]
@@ -1356,7 +1272,6 @@ impl TypeEnv {
         }
     }
 
-    /// Looks up a variable's type scheme, searching from innermost to outermost scope.
     pub fn lookup_scheme(&self, name: &str) -> Option<&TypeScheme> {
         self.bindings
             .iter()
@@ -1365,17 +1280,11 @@ impl TypeEnv {
             .map(|(_, scheme)| scheme)
     }
 
-    /// Looks up a variable and instantiates its scheme with fresh type variables.
-    ///
-    /// This is the standard lookup used during expression inference: each use
-    /// of a let-bound identifier gets a fresh copy of its polymorphic type.
     pub fn instantiate(&mut self, name: &str, subst: &Substitution) -> Option<Type> {
         let scheme = self.lookup_scheme(name)?.clone();
         Some(self.instantiate_scheme(&scheme, subst))
     }
 
-    /// Instantiates a type scheme by replacing each quantified variable with
-    /// a fresh type variable.
     pub fn instantiate_scheme(&mut self, scheme: &TypeScheme, subst: &Substitution) -> Type {
         if scheme.forall.is_empty() {
             return subst.apply(&scheme.ty);
@@ -1388,8 +1297,6 @@ impl TypeEnv {
         local_subst.apply(&scheme.ty)
     }
 
-    /// Generalizes a type into a `TypeScheme` by quantifying over free type
-    /// variables that do not appear free in the environment.
     pub fn generalize(&self, ty: &Type, subst: &Substitution) -> TypeScheme {
         let resolved = subst.apply(ty);
         let ty_vars = resolved.free_type_vars();
@@ -1404,7 +1311,6 @@ impl TypeEnv {
         }
     }
 
-    /// Collects all free type variables across all bindings in the environment.
     fn free_env_vars(&self, subst: &Substitution) -> HashSet<TypeVarId> {
         let mut vars = HashSet::new();
         for (_, scheme) in &self.bindings {
@@ -1420,13 +1326,10 @@ impl TypeEnv {
         vars
     }
 
-    /// Pushes a new empty scope.
     pub fn push_scope(&mut self) {
         self.scope_starts.push(self.bindings.len());
     }
 
-    /// Pops the innermost scope, discarding all bindings introduced since
-    /// the matching [`push_scope`](Self::push_scope).
     pub fn pop_scope(&mut self) {
         if self.scope_starts.len() > 1 {
             let start = self

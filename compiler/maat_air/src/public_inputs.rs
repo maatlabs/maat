@@ -1,46 +1,20 @@
 //! Public inputs for the STARK constraint system.
-//!
-//! [`MaatPublicInputs`] carries the values that both prover and verifier must
-//! agree on: the program identity (a Blake3 hash of the bytecode), any
-//! explicit public inputs, and the claimed program output. These values are
-//! absorbed into the Fiat-Shamir transcript via the [`ToElements`] impl.
 
-use winter_math::fields::f64::BaseElement;
-use winter_math::{FieldElement, ToElements};
+use maat_field::{BaseElement, FieldElement, ToElements};
 
 /// Number of field elements in the program hash.
 const PROGRAM_HASH_LEN: usize = 4;
 
 /// Public inputs shared between prover and verifier.
-///
-/// The verifier uses these to:
-/// 1. Bind the proof to a specific program via `program_hash`.
-/// 2. Verify the claimed output matches the boundary assertion.
-/// 3. Absorb all public values into the Fiat-Shamir transcript.
 #[derive(Debug, Clone)]
 pub struct MaatPublicInputs {
-    /// Blake3 hash of the compiled bytecode, split into four field elements.
-    ///
-    /// The 32-byte hash is partitioned into four 8-byte limbs, each reduced
-    /// modulo the Goldilocks prime. This binds the proof to a specific program.
     pub program_hash: [BaseElement; PROGRAM_HASH_LEN],
-
-    /// Explicit public input values provided by the caller.
-    ///
-    /// These are available to both prover and verifier and may be referenced
-    /// in boundary constraints.
     pub inputs: Vec<BaseElement>,
-
     /// The claimed program output (last value on the stack at termination).
-    ///
-    /// A boundary assertion at the final execution row checks that `out[last]`
-    /// equals this value.
     pub output: BaseElement,
 }
 
 impl MaatPublicInputs {
-    /// Constructs public inputs with the given program hash, input values,
-    /// and expected output.
     pub fn new(
         program_hash: [BaseElement; PROGRAM_HASH_LEN],
         inputs: Vec<BaseElement>,
@@ -53,9 +27,6 @@ impl MaatPublicInputs {
         }
     }
 
-    /// Constructs public inputs with a zero program hash and no explicit inputs.
-    ///
-    /// Useful for testing where only the output assertion matters.
     pub fn with_output(output: BaseElement) -> Self {
         Self {
             program_hash: [BaseElement::ZERO; PROGRAM_HASH_LEN],

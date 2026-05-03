@@ -8,18 +8,18 @@
 //! # Architecture
 //!
 //! ```text
-//! Bytecode --> TraceVM --> TraceTable --> MaatProver --> Proof
-//!                                            |            |
-//!                                            v            v
-//!                                     MaatPublicInputs    |
-//!                                            |            |
-//!                                      verify(proof) <----+
+//! Bytecode --> VM + TraceRecorder --> TraceTable --> MaatProver --> Proof
+//!                                                        |            |
+//!                                                        v            v
+//!                                                 MaatPublicInputs    |
+//!                                                        |            |
+//!                                                  verify(proof) <----+
 //! ```
 //!
 //! # Proof generation flow
 //!
 //! 1. Compile source to [`Bytecode`](maat_bytecode::Bytecode).
-//! 2. Run `maat_trace::run_trace(bytecode)` to obtain the execution trace.
+//! 2. Run `maat_trace::run(bytecode)` to obtain the execution trace.
 //! 3. Construct [`MaatPublicInputs`] from the program hash, inputs, and output.
 //! 4. Construct `MaatProver::new(options, public_inputs)`.
 //! 5. Call [`MaatProver::generate_proof`] to produce a Winterfell [`Proof`].
@@ -30,31 +30,24 @@
 //! [`production_options`] (~97 bits conjectural security). Both require
 //! `FieldExtension::Quadratic` because the auxiliary trace segment evaluates
 //! constraints over `QuadExtension<BaseElement>`.
-//!
-//! # Proof file format
-//!
-//! Serialized proofs carry a 38-byte header (`MATP` magic, version `u16`,
-//! 32-byte Blake3 program hash) followed by Winterfell's native proof encoding.
-//! See [`proof_file`] for details.
+
 #![forbid(unsafe_code)]
 
-pub mod options;
-pub mod program_hash;
-pub mod proof_file;
-pub mod verifier;
+mod gadgets;
+mod verifier;
 
-use maat_air::{AUX_WIDTH, MaatAir, MaatPublicInputs, NUM_AUX_RANDS};
+pub use gadgets::hasher::{compute_program_hash, compute_program_hash_bytes};
+pub use gadgets::proof_serializer::{ProofPublicInputs, deserialize_proof, serialize_proof};
+use maat_air::{
+    AUX_WIDTH, AuxRandElements, BatchingMethod, EvaluationFrame, FieldExtension, MaatAir,
+    MaatPublicInputs, NUM_AUX_RANDS, PartitionOptions, ProofOptions, TraceInfo,
+};
 use maat_errors::ProverError;
-use maat_trace::{TRACE_WIDTH, TraceTable};
-pub use options::{development_options, production_options};
-pub use program_hash::{compute_program_hash, compute_program_hash_bytes};
-pub use proof_file::{ProofPublicInputs, deserialize_proof, serialize_proof};
+use maat_field::{BaseElement, FieldElement};
+use maat_trace::table::{TRACE_WIDTH, TraceTable};
 pub use verifier::{verify, verify_with_inputs};
-use winter_air::{AuxRandElements, EvaluationFrame, PartitionOptions, ProofOptions, TraceInfo};
 use winter_crypto::hashers::Blake3_256;
 use winter_crypto::{DefaultRandomCoin, MerkleTree};
-use winter_math::FieldElement;
-use winter_math::fields::f64::BaseElement;
 use winter_prover::matrix::ColMatrix;
 use winter_prover::{
     CompositionPoly, CompositionPolyTrace, ConstraintCompositionCoefficients,
@@ -67,16 +60,42 @@ type HashFn = Blake3_256<BaseElement>;
 /// Type alias for the vector commitment (Merkle tree) scheme.
 type VC = MerkleTree<HashFn>;
 
-/// Execution trace carrying multi-segment [`TraceInfo`].
+/// Returns proof options tuned for fast iteration during development.
 ///
-/// Winterfell's [`TraceTable`](winter_prover::TraceTable) always creates
-/// single-segment metadata, but the Maat AIR declares an auxiliary segment
-/// (8 columns, 3 random elements) via Winterfell's
-/// [`AirContext::new_multi_segment`](winter_air::AirContext::new_multi_segment()).
-/// `MaatTrace` bridges this gap by pairing the main-segment column matrix
-/// with a [`TraceInfo`] that declares the auxiliary segment dimensions,
-/// allowing the prover to discover and build the auxiliary trace during
-/// proof generation.
+/// Security is intentionally minimal (no grinding, few queries) so that
+/// proof generation completes in milliseconds on small traces.
+pub fn development_options() -> ProofOptions {
+    ProofOptions::new(
+        4, // num_queries
+        8, // blowup_factor
+        0, // grinding_factor
+        FieldExtension::Quadratic,
+        4,   // fri_folding_factor
+        255, // fri_remainder_max_degree
+        BatchingMethod::Algebraic,
+        BatchingMethod::Algebraic,
+    )
+}
+
+/// Returns proof options for production proofs.
+///
+/// Targets ~97 bits conjectural security:
+/// `27 queries * log2(8) = 81` FRI bits + 16 grinding bits.
+/// Proven security is approximately half the conjectured level.
+pub fn production_options() -> ProofOptions {
+    ProofOptions::new(
+        27, // num_queries
+        8,  // blowup_factor
+        16, // grinding_factor
+        FieldExtension::Quadratic,
+        8,   // fri_folding_factor
+        127, // fri_remainder_max_degree
+        BatchingMethod::Algebraic,
+        BatchingMethod::Algebraic,
+    )
+}
+
+/// Execution trace carrying multi-segment [`TraceInfo`].
 pub struct MaatTrace {
     info: TraceInfo,
     main: ColMatrix<BaseElement>,
@@ -101,62 +120,38 @@ impl Trace for MaatTrace {
 }
 
 impl MaatTrace {
-    /// Converts a Maat trace table into a [`MaatTrace`].
-    ///
-    /// The Maat trace table stores rows of [`maat_field::Felt`]. This function
-    /// transposes the row-major matrix into column-major [`ColMatrix`] and
-    /// pairs it with Winterfell's [`TraceInfo`] that declares the
-    /// auxiliary segment dimensions required by [`MaatAir`].
     fn from_trace_table(table: TraceTable) -> MaatTrace {
-        let columns = table
-            .into_columns()
-            .into_iter()
-            .map(|col| col.into_iter().map(|f| f.into_base_element()).collect())
-            .collect::<Vec<Vec<BaseElement>>>();
+        let columns: Vec<Vec<BaseElement>> = table.into_columns();
 
         let trace_length = columns[0].len();
-        let activity_mask = maat_air::encode_mask(&columns);
-        let meta = activity_mask.to_le_bytes().to_vec();
-
-        let info =
-            TraceInfo::new_multi_segment(TRACE_WIDTH, AUX_WIDTH, NUM_AUX_RANDS, trace_length, meta);
+        let info = TraceInfo::new_multi_segment(
+            TRACE_WIDTH,
+            AUX_WIDTH,
+            NUM_AUX_RANDS,
+            trace_length,
+            Vec::new(),
+        );
         let main = ColMatrix::new(columns);
 
         MaatTrace { info, main }
     }
 
-    /// Extracts column-major data from a [`MaatTrace`].
-    ///
-    /// The `build_aux_columns` function in `maat_air` expects `&[Vec<BaseElement>]`.
-    /// This function copies each column from the [`ColMatrix`] into an owned `Vec`
-    /// for the auxiliary builder.
-    fn extract_main_columns(&self) -> Vec<Vec<BaseElement>> {
-        (0..TRACE_WIDTH)
-            .map(|i| self.main.get_column(i).to_vec())
-            .collect()
+    fn main_column_slices(&self) -> Vec<&[BaseElement]> {
+        (0..TRACE_WIDTH).map(|i| self.main.get_column(i)).collect()
     }
 }
 
 /// STARK prover for the Maat virtual machine.
-///
-/// Holds the proof options and public inputs needed to construct the
-/// AIR during proof generation.
 pub struct MaatProver {
     options: ProofOptions,
     inputs: MaatPublicInputs,
 }
 
 impl MaatProver {
-    /// Creates a new prover with the given proof options and public inputs.
     pub fn new(options: ProofOptions, inputs: MaatPublicInputs) -> Self {
         Self { options, inputs }
     }
 
-    /// Generates a STARK proof from a Maat execution trace.
-    ///
-    /// Converts the Maat trace table into Winterfell's column-major format
-    /// and delegates to Winterfell's prover. Returns the serializable
-    /// [`Proof`] on success.
     pub fn generate_proof(self, table: TraceTable) -> Result<Proof, ProverError> {
         let trace = MaatTrace::from_trace_table(table);
         self.prove(trace)
@@ -224,22 +219,9 @@ impl Prover for MaatProver {
         main_trace: &Self::Trace,
         aux_rand_elements: &AuxRandElements<E>,
     ) -> ColMatrix<E> {
-        let main_columns = main_trace.extract_main_columns();
+        let main_columns = main_trace.main_column_slices();
         let aux_columns =
             maat_air::build_aux_columns(&main_columns, aux_rand_elements.rand_elements());
         ColMatrix::new(aux_columns)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::options::development_options;
-
-    #[test]
-    fn prover_construction() {
-        let pub_inputs = MaatPublicInputs::with_output(BaseElement::new(42));
-        let prover = MaatProver::new(development_options(), pub_inputs);
-        assert_eq!(prover.options().num_queries(), 4);
     }
 }

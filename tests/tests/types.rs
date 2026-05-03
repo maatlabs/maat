@@ -41,6 +41,7 @@ fn infix(lhs: Expr, op: &str, rhs: Expr) -> Expr {
         operator: op.to_string(),
         rhs: Box::new(rhs),
         op_class: BinOpClass::default(),
+        array_eq_len: None,
         span: S,
     })
 }
@@ -102,6 +103,7 @@ fn method_call(obj: Expr, method: &str, args: Vec<Expr>) -> Expr {
         method: method.to_string(),
         arguments: args,
         receiver: None,
+        array_len: None,
         span: S,
     })
 }
@@ -1207,4 +1209,157 @@ fn generic_enum_option_instantiation() {
             None,
         ),
     ]);
+}
+
+mod bitwise_encoding_rules {
+    //! Type-checker rules: bitwise / shift operators require unsigned
+    //! integer operands whose canonical felt encoding equals their raw bit
+    //! pattern, and `u64`/`usize` literals must lie in `[0, p)` where
+    //! `p = 0xFFFFFFFF00000001` is the Goldilocks modulus.
+    use maat_tests::{compile, compile_type_errors};
+
+    fn assert_rejected(source: &str, needle: &str) {
+        let errs = compile_type_errors(source);
+        assert!(
+            errs.iter().any(|e| e.contains(needle)),
+            "expected error containing `{needle}`; got: {errs:?}"
+        );
+    }
+
+    fn assert_accepted(source: &str) {
+        // `compile` panics on any type errors.
+        let _ = compile(source);
+    }
+
+    #[test]
+    fn signed_bitwise_and_rejected_on_every_signed_type() {
+        for ty in ["i8", "i16", "i32", "i64", "isize", "i128"] {
+            let source = format!("let a: {ty} = 1; let b: {ty} = 1; let c = a & b; c");
+            assert_rejected(&source, "bitwise operator `&` requires an unsigned");
+        }
+    }
+
+    #[test]
+    fn signed_bitwise_or_rejected() {
+        assert_rejected(
+            "let a: i64 = 1; let b: i64 = 2; a | b",
+            "bitwise operator `|` requires an unsigned",
+        );
+    }
+
+    #[test]
+    fn signed_bitwise_xor_rejected() {
+        assert_rejected(
+            "let a: i64 = 5; let b: i64 = 3; a ^ b",
+            "bitwise operator `^` requires an unsigned",
+        );
+    }
+
+    #[test]
+    fn signed_shl_rejected() {
+        assert_rejected(
+            "let a: i64 = 1; let b: i64 = 4; a << b",
+            "bitwise operator `<<` requires an unsigned",
+        );
+    }
+
+    #[test]
+    fn signed_shr_rejected() {
+        assert_rejected(
+            "let a: i64 = 16; let b: i64 = 2; a >> b",
+            "bitwise operator `>>` requires an unsigned",
+        );
+    }
+
+    #[test]
+    fn u128_bitwise_rejected_for_lossy_encoding() {
+        assert_rejected(
+            "let a: u128 = 1; let b: u128 = 2; a & b",
+            "bitwise operator `&` requires an unsigned",
+        );
+    }
+
+    #[test]
+    fn unsuffixed_literal_bitwise_defaults_to_i64_and_is_rejected() {
+        // Without any unsigned constraint, the IntVar resolves to `i64` after
+        // inference, which the late validation pass must reject.
+        assert_rejected("0xFF & 0x0F", "bitwise operator `&` requires an unsigned");
+    }
+
+    #[test]
+    fn unsigned_bitwise_accepted_on_every_safe_type() {
+        for (ty, suffix) in [
+            ("u8", "u8"),
+            ("u16", "u16"),
+            ("u32", "u32"),
+            ("u64", "u64"),
+            ("usize", "usize"),
+        ] {
+            let source =
+                format!("let a: {ty} = 0xF{suffix}; let b: {ty} = 0x3{suffix}; let c = a & b; c");
+            assert_accepted(&source);
+        }
+    }
+
+    #[test]
+    fn unsigned_bitwise_with_unsuffixed_literal_via_annotation_accepted() {
+        // The `let` annotation drives the IntVar to `u64` via unification.
+        assert_accepted("let x: u64 = 0xFF & 0x0F; x");
+    }
+
+    #[test]
+    fn unsigned_shl_and_shr_accepted() {
+        assert_accepted("let a: u64 = 1; let b: u64 = 4; a << b");
+        assert_accepted("let a: u64 = 16; let b: u64 = 2; a >> b");
+    }
+
+    #[test]
+    fn u64_literal_at_modulus_minus_one_accepted() {
+        // p - 1 = 0xFFFFFFFF00000000 lies just below the off-canonical sliver.
+        assert_accepted("let x: u64 = 0xFFFFFFFF00000000; x");
+    }
+
+    #[test]
+    fn u64_literal_at_modulus_rejected() {
+        // p = 0xFFFFFFFF00000001 is the first off-canonical value.
+        assert_rejected("let x: u64 = 0xFFFFFFFF00000001; x", "off-canonical range");
+    }
+
+    #[test]
+    fn u64_literal_at_max_rejected() {
+        assert_rejected("let x: u64 = 0xFFFFFFFFFFFFFFFF; x", "off-canonical range");
+    }
+
+    #[test]
+    fn u64_literal_via_inference_at_modulus_rejected() {
+        // Unsuffixed literal resolved to `u64` through let annotation.
+        assert_rejected(
+            "let x: u64 = 18446744069414584321; x",
+            "off-canonical range",
+        );
+    }
+
+    #[test]
+    fn u64_suffixed_literal_in_off_canonical_sliver_rejected() {
+        assert_rejected("let x = 0xFFFFFFFFFFFFFFFFu64; x", "off-canonical range");
+    }
+
+    #[test]
+    fn usize_literal_in_off_canonical_sliver_rejected() {
+        assert_rejected(
+            "let x: usize = 18446744073709551615; x",
+            "off-canonical range",
+        );
+    }
+
+    #[test]
+    fn signed_literals_at_or_above_modulus_unaffected_by_u64_guard() {
+        // The literal guard targets `u64` / `usize` only; signed bounds are
+        // already enforced by `check_literal_range`.
+        let errs = compile_type_errors("let x: i64 = 0xFFFFFFFFFFFFFFFF; x");
+        assert!(
+            errs.iter().all(|e| !e.contains("off-canonical")),
+            "off-canonical guard must not fire on i64 literals; got: {errs:?}"
+        );
+    }
 }

@@ -92,6 +92,7 @@ fn transform_compound_expressions() {
             span: Span::ZERO,
         })),
         op_class: BinOpClass::default(),
+        array_eq_len: None,
         span: Span::ZERO,
     });
     let Node::Expr(Expr::Infix(infix)) = transform(Node::Expr(input), &mut turn_one_into_two)
@@ -174,6 +175,7 @@ fn transform_nested_structures() {
                     Expr::Index(IndexExpr {
                         expr: Box::new(one()),
                         index: Box::new(one()),
+                        array_len: None,
                         span: Span::ZERO,
                     }),
                 ],

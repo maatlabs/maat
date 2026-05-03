@@ -17,7 +17,8 @@ use indexmap::{IndexMap, IndexSet};
 use maat_ast::{BlockStmt, Node, Number};
 pub use maat_ast::{CastTarget, NumKind};
 use maat_errors::{Error, EvalError, Result};
-pub use maat_field::Felt;
+use maat_field::FieldElement;
+pub use maat_field::{Felt, StarkField, from_i64, try_div, try_inv};
 use maat_span::SourceMap;
 pub use num::{Integer, WideInt};
 use serde::{Deserialize, Serialize};
@@ -87,6 +88,22 @@ pub enum Value {
 }
 
 impl Value {
+    /// Encodes this runtime value as a single Goldilocks field element.
+    ///
+    /// Primitive types encode losslessly within the 64-bit field; composite types
+    /// (`Vector`, `Map`, `Struct`, closures, etc.) currently encode as
+    /// [`Felt::ZERO`].
+    pub fn to_felt(&self) -> Felt {
+        match self {
+            Self::Integer(int) => int.to_felt(),
+            Self::Felt(f) => *f,
+            Self::Bool(b) => Felt::new(*b as u64),
+            Self::Char(c) => Felt::new(*c as u32 as u64),
+            Self::Unit => Felt::ZERO,
+            _ => Felt::ZERO,
+        }
+    }
+
     /// Converts a [`Number`] AST node into its corresponding runtime `Value`.
     ///
     /// The type checker validates that `lit.value` fits within the target type
@@ -248,7 +265,7 @@ impl Serialize for Value {
         let val = match self {
             Self::Unit => SerVal::Unit,
             Self::Integer(v) => SerVal::Integer(*v),
-            Self::Felt(v) => SerVal::Felt(v.as_u64()),
+            Self::Felt(v) => SerVal::Felt(v.as_int()),
             Self::Bool(v) => SerVal::Bool(*v),
             Self::Char(v) => SerVal::Char(*v),
             Self::Str(v) => SerVal::Str(v.clone()),
@@ -473,7 +490,7 @@ impl TryFrom<Value> for Hashable {
     fn try_from(value: Value) -> Result<Self> {
         match value {
             Value::Integer(i) => Ok(Self::Integer(i)),
-            Value::Felt(f) => Ok(Self::Felt(f.as_u64())),
+            Value::Felt(f) => Ok(Self::Felt(f.as_int())),
             Value::Bool(b) => Ok(Self::Bool(b)),
             Value::Char(c) => Ok(Self::Char(c)),
             Value::Str(s) => Ok(Self::Str(s)),

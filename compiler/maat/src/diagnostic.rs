@@ -83,20 +83,12 @@ pub fn report_type_error(path: &str, source: &str, error: &TypeError) {
 }
 
 /// Renders a module-level error to stderr.
-///
-/// Module errors wrap type, compile, and parse errors from individual
-/// modules with file path context. The error's display format includes
-/// the originating file and a list of sub-errors.
 pub fn report_module_error(error: &ModuleError) {
     eprintln!("error: {error}");
 }
 
 /// Converts a byte-offset [`Span`] to a character-offset range suitable for
 /// `ariadne`.
-///
-/// Ariadne operates on character indices rather than byte offsets. This
-/// function walks the source string to translate byte positions into their
-/// corresponding character positions.
 fn byte_range_to_char_range(source: &str, span: Span) -> std::ops::Range<usize> {
     let start = source[..span.start.min(source.len())].chars().count();
     let end = source[..span.end.min(source.len())].chars().count();

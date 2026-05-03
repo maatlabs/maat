@@ -6,28 +6,18 @@ use std::time::Instant;
 
 use maat_air::MaatPublicInputs;
 use maat_bytecode::Bytecode;
-use maat_field::Felt;
+use maat_field::{BaseElement, FieldElement, from_i64};
 use maat_module::{check_and_compile, resolve_module_graph};
 use maat_prover::{
     MaatProver, compute_program_hash, compute_program_hash_bytes, deserialize_proof,
     development_options, production_options, serialize_proof,
 };
 use maat_runtime::Value;
-use maat_trace::encode::value_to_felt;
 use maat_vm::VM;
-use winter_math::FieldElement;
-use winter_math::fields::f64::BaseElement;
 
 use crate::diagnostic;
 
 /// Bytecode compilation for the `maat build` command.
-///
-/// Resolves module imports relative to the source file, builds the
-/// module dependency graph, type-checks and compiles all modules into
-/// linked bytecode, and writes the serialized result to disk.
-///
-/// If `output_path` is `None`, the output file is derived from the
-/// source path by replacing its extension with `.mtc`.
 pub fn build(source_path: &Path, output_path: Option<&Path>) {
     require_extension(source_path, "maat", "build");
 
@@ -52,12 +42,6 @@ pub fn build(source_path: &Path, output_path: Option<&Path>) {
 }
 
 /// Pre-compiled bytecode execution for the `maat exec` command.
-///
-/// Reads a `.mtc` bytecode file, deserializes into [`Bytecode`], and runs it
-/// on the VM. The result of the last expression is printed to stdout.
-///
-/// Since no original source is available, error diagnostics fall back to
-/// plain messages without source snippets.
 pub fn execute(path: &Path) {
     require_extension(path, "mtc", "exec");
 
@@ -87,12 +71,7 @@ pub fn execute(path: &Path) {
     }
 }
 
-/// File execution for the `maat run` command.
-///
-/// Resolves module imports relative to the source file, builds the
-/// module dependency graph, type-checks and compiles all modules into
-/// linked bytecode, then executes it on the VM. The result of the last
-/// expression (if non-unit) is printed to stdout.
+/// Source file execution for the `maat run` command.
 pub fn run(path: &Path) {
     require_extension(path, "maat", "run");
 
@@ -109,16 +88,12 @@ pub fn run(path: &Path) {
     }
 }
 
-/// Trace execution for the `maat trace` command.
-///
-/// Compiles the source file and runs it through the trace-generating VM,
-/// producing a CSV execution trace. If `output_path` is `None`, the trace
-/// is written to stdout; otherwise it is written to the specified file.
+/// Trace generation for the `maat trace` command.
 pub fn trace(path: &Path, output_path: Option<&Path>) {
     require_extension(path, "maat", "trace");
 
     let bytecode = compile_source(path);
-    let (trace, result) = match maat_trace::run_trace(bytecode) {
+    let (trace, result) = match maat_trace::run(bytecode) {
         Ok(pair) => pair,
         Err(e) => {
             eprintln!("error: {}: {e}", path.display());
@@ -158,13 +133,6 @@ pub fn trace(path: &Path, output_path: Option<&Path>) {
 }
 
 /// STARK proof generation for the `maat prove` command.
-///
-/// Compiles the source file, executes it on the trace-generating VM,
-/// generates a cryptographic proof of correct execution, and writes
-/// the serialized proof to disk.
-///
-/// The proof file embeds all public inputs (program hash, inputs, output)
-/// so verification requires only the proof file itself.
 pub fn prove(
     path: &Path,
     input: Option<&str>,
@@ -178,7 +146,7 @@ pub fn prove(
     let inputs = load_inputs(input, inputs_file);
     let bytecode = compile_source(path);
 
-    let (trace, result) = match maat_trace::run_trace(bytecode.clone()) {
+    let (trace, result) = match maat_trace::run(bytecode.clone()) {
         Ok(pair) => pair,
         Err(e) => {
             eprintln!("error: trace generation failed: {e}");
@@ -203,7 +171,7 @@ pub fn prove(
 
     let output = result
         .as_ref()
-        .map(|v| value_to_felt(v).into_base_element())
+        .map(|v| v.to_felt())
         .unwrap_or(BaseElement::ZERO);
 
     let program_hash = match compute_program_hash(&bytecode) {
@@ -269,10 +237,6 @@ pub fn prove(
 }
 
 /// STARK proof verification for the `maat verify` command.
-///
-/// Reads a proof file and verifies it using the embedded public inputs.
-/// No external arguments are required since the proof file contains
-/// all information needed for verification.
 pub fn verify(path: &Path) {
     require_extension(path, "bin", "verify");
 
@@ -324,13 +288,6 @@ fn require_extension(path: &Path, expected: &str, command: &str) {
 
 /// Compiles a `.maat` source file (and all its module dependencies) to
 /// linked [`Bytecode`].
-///
-/// Runs the full multi-module pipeline:
-/// 1. Resolve the module dependency graph starting from the entry file
-/// 2. Type-check each module independently with visibility enforcement
-/// 3. Compile all modules with a shared compiler (implicit linking)
-///
-/// Prints diagnostics and exits the process on any error.
 fn compile_source(path: &Path) -> Bytecode {
     let mut graph = match resolve_module_graph(path) {
         Ok(g) => g,
@@ -349,9 +306,6 @@ fn compile_source(path: &Path) -> Bytecode {
 }
 
 /// Loads public inputs from either command-line arguments or a JSON file.
-///
-/// If both `input` and `inputs_file` are provided, exits with an error.
-/// If neither is provided, returns an empty vector.
 fn load_inputs(input: Option<&str>, inputs_file: Option<&Path>) -> Vec<BaseElement> {
     match (input, inputs_file) {
         (Some(_), Some(_)) => {
@@ -365,8 +319,6 @@ fn load_inputs(input: Option<&str>, inputs_file: Option<&Path>) -> Vec<BaseEleme
 }
 
 /// Parses comma-separated input values into field elements.
-///
-/// Supports integer literals and field element literals (with `fe` or `_fe` suffix).
 fn parse_input_values(input: &str) -> Vec<BaseElement> {
     if input.trim().is_empty() {
         return vec![];
@@ -375,8 +327,6 @@ fn parse_input_values(input: &str) -> Vec<BaseElement> {
 }
 
 /// Parses a JSON file containing an array of public input values.
-///
-/// Expected format: `[1, 2, 3]` or `["42_fe", "-5", "100"]`
 fn parse_inputs_file(path: &Path) -> Vec<BaseElement> {
     let file = match File::open(path) {
         Ok(f) => f,
@@ -398,7 +348,7 @@ fn parse_inputs_file(path: &Path) -> Vec<BaseElement> {
         .map(|v| match v {
             serde_json::Value::Number(n) => {
                 if let Some(i) = n.as_i64() {
-                    Felt::from_i64(i).into_base_element()
+                    from_i64(i)
                 } else if let Some(u) = n.as_u64() {
                     BaseElement::new(u)
                 } else {
@@ -416,10 +366,6 @@ fn parse_inputs_file(path: &Path) -> Vec<BaseElement> {
 }
 
 /// Parses a single value string into a field element.
-///
-/// Accepts:
-/// - Plain integers: `42`, `-5`
-/// - Field element literals: `42fe`, `42_fe`
 fn parse_value(s: &str) -> BaseElement {
     let s = s.trim();
     if s.ends_with("fe") || s.ends_with("_fe") {
@@ -433,7 +379,7 @@ fn parse_value(s: &str) -> BaseElement {
         }
     } else if s.starts_with('-') {
         match s.parse::<i64>() {
-            Ok(n) => Felt::from_i64(n).into_base_element(),
+            Ok(n) => from_i64(n),
             Err(e) => {
                 eprintln!("error: invalid integer literal '{}': {e}", s);
                 process::exit(1);

@@ -40,6 +40,7 @@ maat verify program.proof.bin
 The proof file is self-contained: it embeds the program hash, public inputs, and expected output, so verification requires no additional arguments.
 
 > **Note:** `println!` is for debugging only and does not affect the proof. The provable output is the program's return value.
+> **Provability scope:** v0.13.0 produces verifiable proofs for programs that operate on primitive types (integers, `bool`, `Felt`) and user-defined functions over those types. Programs that use composite types (`Vector<T>`, `Map<K, V>`, `struct`, `enum`, fixed-size arrays `[T; N]`, closures) run correctly under `maat run` but `maat prove` will currently emit a proof that the verifier rejects. Composite-type tracing is planned for a future release. See [maat_prover/README.md](../maat_prover/README.md#provability-scope-v0130).
 
 ## Quick Start
 

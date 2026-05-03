@@ -120,6 +120,7 @@ fn expressions_display() {
             span: span(),
         })),
         op_class: BinOpClass::default(),
+        array_eq_len: None,
         span: span(),
     };
     assert_eq!(add.to_string(), "(1 + 2)");
@@ -147,6 +148,7 @@ fn expressions_display() {
             radix: Radix::Dec,
             span: span(),
         })),
+        array_len: None,
         span: span(),
     };
     assert_eq!(index.to_string(), "(arr[5])");

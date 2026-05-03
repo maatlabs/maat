@@ -30,11 +30,8 @@ use crate::diagnostic;
 
 const PROMPT: &str = ">> ";
 const REPL_SOURCE: &str = "<repl>";
-
-/// History file name, stored in the current working directory.
 const HISTORY_FILENAME: &str = ".maat_history";
 
-/// Builtin macro names available for tab completion.
 const MACRO_NAMES: &[&str] = &[
     "assert!",
     "assert_eq!",
@@ -46,7 +43,6 @@ const MACRO_NAMES: &[&str] = &[
     "unimplemented!",
 ];
 
-/// Macro-system identifiers (`quote`/`unquote`).
 const MACRO_IDENTS: &[&str] = &["quote", "unquote"];
 
 // ANSI escape sequences for syntax highlighting.
@@ -56,11 +52,10 @@ const YELLOW: &str = "\x1b[33m";
 const BOLD_GREEN: &str = "\x1b[1;32m";
 const ANSI_RESET: &str = "\x1b[0m";
 
-/// REPL helper providing tab completion, input validation, and syntax highlighting.
 #[derive(rustyline::Helper)]
-struct MaatHelper;
+struct MaatReplHelper;
 
-impl Completer for MaatHelper {
+impl Completer for MaatReplHelper {
     type Candidate = String;
 
     fn complete(
@@ -93,7 +88,7 @@ impl Completer for MaatHelper {
     }
 }
 
-impl Validator for MaatHelper {
+impl Validator for MaatReplHelper {
     fn validate(&self, ctx: &mut ValidationContext<'_>) -> rustyline::Result<ValidationResult> {
         let input = ctx.input();
         let mut depth: i32 = 0;
@@ -144,24 +139,21 @@ impl Validator for MaatHelper {
     }
 }
 
-impl Hinter for MaatHelper {
+impl Hinter for MaatReplHelper {
     type Hint = String;
 }
 
-/// Returns `true` if `word` is a Maat keyword (lexer keyword, reserved
-/// future keyword, or macro-system identifier).
 fn is_keyword(word: &str) -> bool {
     KEYWORDS.binary_search(&word).is_ok()
         || RESERVED_KEYWORDS.binary_search(&word).is_ok()
         || MACRO_IDENTS.contains(&word)
 }
 
-/// Returns `true` if `word` is a builtin type name.
 fn is_type_name(word: &str) -> bool {
     RESERVED_TYPE_NAMES.binary_search(&word).is_ok()
 }
 
-impl Highlighter for MaatHelper {
+impl Highlighter for MaatReplHelper {
     fn highlight<'l>(&self, line: &'l str, _pos: usize) -> Cow<'l, str> {
         let mut result = String::new();
         let mut chars = line.char_indices().peekable();
@@ -282,14 +274,6 @@ impl Highlighter for MaatHelper {
     }
 }
 
-/// Starts the interactive REPL.
-///
-/// Provides persistent command history, keyword tab-completion, syntax
-/// highlighting, and multi-line input (unclosed braces/parens/brackets
-/// trigger a continuation prompt). Session state--global variable bindings,
-/// the constants pool, and the macro environment--persists across iterations.
-///
-/// The session terminates on `exit`, `quit`, or EOF (Ctrl-D).
 pub fn start_interactive() {
     use rustyline::Config;
     use rustyline::error::ReadlineError;
@@ -297,7 +281,7 @@ pub fn start_interactive() {
     let config = Config::builder().auto_add_history(true).build();
 
     let mut editor = Editor::with_config(config).expect("failed to initialize REPL editor");
-    editor.set_helper(Some(MaatHelper));
+    editor.set_helper(Some(MaatReplHelper));
 
     // Bind Tab to complete.
     editor.bind_sequence(
@@ -418,7 +402,6 @@ pub fn start_interactive() {
     let _ = editor.save_history(history_file);
 }
 
-/// Routes a REPL error to the diagnostic module.
 fn report_error(source: &str, error: &Error) {
     match error {
         Error::Parse(e) => diagnostic::report_parse_error(REPL_SOURCE, source, e),
