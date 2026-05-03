@@ -10,7 +10,6 @@
 
 mod aux_segment;
 mod builtin;
-mod main_segment;
 mod public_inputs;
 
 pub use aux_segment::{AUX_WIDTH, NUM_AUX_RANDS, build_aux_columns};
@@ -19,8 +18,8 @@ use aux_segment::{
 };
 pub use builtin::{BitwiseBuiltin, Builtin, BuiltinSet, IdentityBuiltin, RangeCheckBuiltin};
 use maat_field::{BaseElement, ExtensionOf, FieldElement};
+use maat_trace::main_segment::{self, CONSTRAINT_DEGREES};
 use maat_trace::table::{COL_OUT, COL_PC, COL_SP};
-use main_segment::CONSTRAINT_DEGREES;
 pub use public_inputs::MaatPublicInputs;
 pub use winter_air::proof::Proof;
 use winter_air::{Air, AirContext, Assertion, TransitionConstraintDegree};
