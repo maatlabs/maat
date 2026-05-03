@@ -22,9 +22,9 @@ c.compile_program(&program)?;
 
 let bytecode = c.bytecode()?;
 
-// The bytecode can be passed directly to the VM or trace VM
+// The bytecode can be passed directly to the VM or trace-generating entry point
 // maat_vm::VM::new(bytecode).run()
-// maat_trace::run_trace(bytecode)
+// maat_trace::run(bytecode)
 ```
 
 ## API Docs

@@ -8,18 +8,18 @@
 //! # Architecture
 //!
 //! ```text
-//! Bytecode --> TraceVM --> TraceTable --> MaatProver --> Proof
-//!                                            |            |
-//!                                            v            v
-//!                                     MaatPublicInputs    |
-//!                                            |            |
-//!                                      verify(proof) <----+
+//! Bytecode --> VM + TraceRecorder --> TraceTable --> MaatProver --> Proof
+//!                                                        |            |
+//!                                                        v            v
+//!                                                 MaatPublicInputs    |
+//!                                                        |            |
+//!                                                  verify(proof) <----+
 //! ```
 //!
 //! # Proof generation flow
 //!
 //! 1. Compile source to [`Bytecode`](maat_bytecode::Bytecode).
-//! 2. Run `maat_trace::run_trace(bytecode)` to obtain the execution trace.
+//! 2. Run `maat_trace::run(bytecode)` to obtain the execution trace.
 //! 3. Construct [`MaatPublicInputs`] from the program hash, inputs, and output.
 //! 4. Construct `MaatProver::new(options, public_inputs)`.
 //! 5. Call [`MaatProver::generate_proof`] to produce a Winterfell [`Proof`].

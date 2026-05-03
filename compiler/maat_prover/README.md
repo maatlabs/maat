@@ -9,12 +9,12 @@ Zero knowledge STARK prover and verifier for the Maat programming language.
 ## Architecture
 
 ```text
-Bytecode --> TraceVM --> TraceTable --> MaatProver --> Proof
-                                           |            |
-                                           v            v
-                                    MaatPublicInputs    |
-                                           |            |
-                                     verify(proof) <----+
+Bytecode --> VM + TraceRecorder --> TraceTable --> MaatProver --> Proof
+                                                       |            |
+                                                       v            v
+                                                MaatPublicInputs    |
+                                                       |            |
+                                                 verify(proof) <----+
 ```
 
 ## Proof Options
@@ -34,7 +34,7 @@ End-to-end proving is supported for programs that operate on **primitive types o
 
 ```text
 PROOF_MAGIC:        b"MATP"    (4 bytes)
-PROOF_VERSION:      u16 BE     (2 bytes, currently 1)
+PROOF_VERSION:      u16 BE     (2 bytes, currently 2)
 PROGRAM_HASH:       [u8; 32]   (32 bytes, Blake3 digest of serialized bytecode)
 PAYLOAD:            Winterfell  (variable, native Proof encoding)
 ```
@@ -47,7 +47,7 @@ Total header: 38 bytes. The program hash binds each proof to the exact bytecode 
 use maat_prover::{MaatProver, development_options, verify, compute_program_hash};
 use maat_air::MaatPublicInputs;
 
-let (trace, result) = maat_trace::run_trace(bytecode.clone())?;
+let (trace, result) = maat_trace::run(bytecode.clone())?;
 let output = /* encode result as BaseElement */;
 let program_hash = compute_program_hash(&bytecode)?;
 let public_inputs = MaatPublicInputs::new(program_hash, vec![], output);
