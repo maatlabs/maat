@@ -10,20 +10,6 @@ use maat_runtime::{
 
 use crate::{QUOTE, UNQUOTE};
 
-/// Evaluates an AST node in the given environment.
-///
-/// This function performs pure tree-walking evaluation without macro processing.
-///
-/// # Examples
-///
-/// ```no_run
-/// # use maat_eval::eval;
-/// # use maat_runtime::Env;
-/// # use maat_ast::Node;
-/// # let program = maat_ast::Program { statements: vec![] };
-/// let env = Env::default();
-/// let result = eval(Node::Program(program), &env).unwrap();
-/// ```
 pub fn eval(node: Node, env: &Env) -> Result<Value> {
     match node {
         Node::Program(prog) => eval_program(prog, env),
@@ -352,10 +338,6 @@ fn eval_prefix_expression(expr: PrefixExpr, env: &Env) -> Result<Value> {
     }
 }
 
-/// Evaluates short-circuit logical operators `&&` and `||`.
-///
-/// `&&` returns the left operand if falsy, otherwise the right operand.
-/// `||` returns the left operand if truthy, otherwise the right operand.
 fn eval_logical_expression(expr: InfixExpr, env: &Env) -> Result<Value> {
     let lhs = eval(Node::Expr(*expr.lhs), env)?;
     let Value::Bool(left_val) = &lhs else {
@@ -496,7 +478,6 @@ fn eval_infix_expression(expr: InfixExpr, env: &Env) -> Result<Value> {
     }
 }
 
-/// Evaluates an infix operator on two Goldilocks field elements.
 fn eval_infix_felt(op: &str, lhs: Felt, rhs: Felt) -> Result<Value> {
     match op {
         "+" => Ok(Value::Felt(lhs + rhs)),
@@ -580,10 +561,6 @@ fn eval_function_call(expr: CallExpr, env: &Env) -> Result<Value> {
     }
 }
 
-/// Evaluates `unquote` calls within a quoted AST node.
-///
-/// Traverses the AST and replaces `unquote(expr)` calls with their evaluated
-/// results, enabling selective evaluation inside quoted expressions.
 fn eval_unquote_calls(quoted: Node, env: &Env) -> Node {
     transform(quoted, &mut |node| {
         if !is_unquote_call(&node) {
@@ -653,7 +630,6 @@ fn eval_cast_expression(expr: CastExpr, env: &Env) -> Result<Value> {
     }
 }
 
-/// Casts an integer-typed [`Value`] into a Goldilocks field element.
 fn cast_to_felt(value: Value) -> Result<Value> {
     use maat_runtime::Integer as I;
 

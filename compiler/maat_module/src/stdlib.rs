@@ -17,12 +17,17 @@ use maat_stdlib::{STD_MAP, STD_MATH, STD_SET, STD_STRING, STD_VEC};
 
 use crate::{ModuleGraph, ModuleId, ModuleResult};
 
-/// Scans all modules in the graph for `use std::X` imports and adds the
-/// corresponding standard library modules to the graph.
-///
-/// Stdlib modules are added with a synthetic path (`<std>/X.maat`) and
-/// qualified path `["std", "X"]`. They participate in the normal
-/// type-checking and compilation pipeline.
+fn lookup_stdlib_source(module_name: &str) -> Option<&'static str> {
+    match module_name {
+        "math" => Some(STD_MATH),
+        "string" => Some(STD_STRING),
+        "vec" => Some(STD_VEC),
+        "set" => Some(STD_SET),
+        "map" => Some(STD_MAP),
+        _ => None,
+    }
+}
+
 pub(crate) fn inject_stdlib_modules(graph: &mut ModuleGraph) -> ModuleResult<()> {
     let existing_count = graph.len();
     let mut needed: HashMap<String, Vec<ModuleId>> = HashMap::new();
@@ -55,7 +60,6 @@ pub(crate) fn inject_stdlib_modules(graph: &mut ModuleGraph) -> ModuleResult<()>
     Ok(())
 }
 
-/// Collects unique `std::X` module names from `use` statements in a program.
 fn collect_std_imports(program: &Program) -> Vec<String> {
     let mut names = Vec::new();
     for stmt in &program.statements {
@@ -70,18 +74,6 @@ fn collect_std_imports(program: &Program) -> Vec<String> {
         }
     }
     names
-}
-
-/// Returns the embedded source for a standard library module, if it exists.
-fn lookup_stdlib_source(module_name: &str) -> Option<&'static str> {
-    match module_name {
-        "math" => Some(STD_MATH),
-        "string" => Some(STD_STRING),
-        "vec" => Some(STD_VEC),
-        "set" => Some(STD_SET),
-        "map" => Some(STD_MAP),
-        _ => None,
-    }
 }
 
 /// Parses an embedded stdlib source string into a [`Program`].

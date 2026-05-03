@@ -2,16 +2,12 @@ use maat_codegen::Compiler;
 use maat_runtime::{TypeDef, VariantInfo};
 use maat_types::{EnumDef, ImplDef, StructDef, TraitDef, Type, TypeEnv, TypeScheme, VariantKind};
 
-/// A resolved import ready to be injected into a module's type environment.
 #[derive(Debug)]
 pub struct ResolvedImport {
-    /// The local name under which this item is available.
     pub local_name: String,
-    /// The exported item.
     pub kind: ImportKind,
 }
 
-/// The kind of item being imported.
 #[derive(Debug)]
 pub enum ImportKind {
     Binding(TypeScheme),
@@ -22,7 +18,6 @@ pub enum ImportKind {
 }
 
 impl ResolvedImport {
-    /// Injects this import into a module's type environment.
     pub fn inject_into_env(&self, env: &mut TypeEnv) {
         match &self.kind {
             ImportKind::Binding(scheme) => {
@@ -43,12 +38,6 @@ impl ResolvedImport {
         }
     }
 
-    /// Injects this import into the compiler's symbol table and type registry.
-    ///
-    /// For bindings, `define_symbol` reuses the existing global index if the
-    /// symbol was already defined by a prior module's compilation (this is the
-    /// mechanism by which the shared compiler avoids duplicate global slots for
-    /// cross-module references).
     pub fn inject_into_compiler(&self, compiler: &mut Compiler) {
         match &self.kind {
             ImportKind::Binding(_) => {
@@ -84,8 +73,6 @@ impl ResolvedImport {
                 // type checking.
             }
             ImportKind::Impl(def) => {
-                // Register each method as a global symbol so that method
-                // calls compile correctly.
                 let type_name = match &def.self_type {
                     Type::Struct(n, _) | Type::Enum(n, _) => n.to_string(),
                     _ => return,

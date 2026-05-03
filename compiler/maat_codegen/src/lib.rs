@@ -1,8 +1,9 @@
-//! Code generation for the compiler.
+//! Code generation for the Maat compiler.
 //!
 //! This crate translates AST nodes into bytecode instructions that can be
 //! executed by the virtual machine. The compiler performs a single-pass
 //! traversal of the AST, emitting stack-based bytecode operations.
+
 #![forbid(unsafe_code)]
 
 mod registry;
@@ -33,7 +34,6 @@ impl CompilationScope {
     }
 }
 
-/// Compiler state for generating bytecode from AST nodes.
 #[derive(Debug, Clone)]
 pub struct Compiler {
     constants: Vec<Value>,
@@ -46,7 +46,6 @@ pub struct Compiler {
     variant_index: HashMap<String, VariantEntry>,
 }
 
-/// Per-scope compilation state.
 #[derive(Debug, Clone)]
 struct CompilationScope {
     instructions: Instructions,
@@ -75,7 +74,6 @@ impl Compiler {
     /// Ultimately replaced by the actual index downstream.
     const JUMP: usize = 9999;
 
-    /// Creates a new compiler with empty instruction stream and constant pool.
     pub fn new() -> Self {
         let mut symbols_table = SymbolsTable::new();
         registry::register_builtins(&mut symbols_table);
@@ -94,10 +92,6 @@ impl Compiler {
         }
     }
 
-    /// Creates a compiler with existing symbols table and constants.
-    ///
-    /// This enables REPL sessions where variable definitions and constants
-    /// persist across multiple compilation passes.
     pub fn with_state(mut symbols_table: SymbolsTable, constants: Vec<Value>) -> Self {
         registry::register_builtins(&mut symbols_table);
         let type_registry = registry::builtin_type_registry();
@@ -115,19 +109,10 @@ impl Compiler {
         }
     }
 
-    /// Returns a mutable reference to the compiler's symbols table.
-    ///
-    /// Used by the module pipeline to define imported symbols before
-    /// compilation, so that cross-module references resolve correctly.
     pub fn symbols_table_mut(&mut self) -> &mut SymbolsTable {
         &mut self.symbols_table
     }
 
-    /// Registers a type definition (struct or enum) in the type registry.
-    ///
-    /// Used by the module pipeline to register imported type
-    /// definitions so that construction and field access work across module
-    /// boundaries.
     pub fn register_type(&mut self, typedef: TypeDef) {
         let registry_index = self.type_registry.len();
         if let TypeDef::Enum {
@@ -147,12 +132,6 @@ impl Compiler {
         self.type_registry.push(typedef);
     }
 
-    /// Extracts the compiled bytecode and constants.
-    ///
-    /// # Errors
-    ///
-    /// Returns `CompileError::ScopeUnderflow` if the scope stack is empty,
-    /// which indicates an internal compiler invariant violation.
     pub fn bytecode(mut self) -> Result<Bytecode> {
         let scope = self
             .scopes
@@ -166,18 +145,10 @@ impl Compiler {
         })
     }
 
-    /// Returns a reference to the compiler's symbols table.
-    ///
-    /// Used for state persistence in REPL sessions where symbol definitions
-    /// must carry over across compilation passes.
     pub fn symbols_table(&self) -> &SymbolsTable {
         &self.symbols_table
     }
 
-    /// Compiles an AST node into bytecode.
-    ///
-    /// This recursively traverses the AST, emitting instructions for each node.
-    /// Returns an error if an unsupported node type or operator is encountered.
     pub fn compile(&mut self, node: &Node) -> Result<()> {
         match node {
             Node::Program(program) => self.compile_program(program),
@@ -186,7 +157,6 @@ impl Compiler {
         }
     }
 
-    /// Compiles a program node (list of statements).
     pub fn compile_program(&mut self, program: &Program) -> Result<()> {
         for stmt in &program.statements {
             if let Stmt::FuncDef(fn_item) = stmt {
@@ -203,7 +173,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles a statement node.
     fn compile_statement(&mut self, stmt: &Stmt) -> Result<()> {
         match stmt {
             Stmt::Expr(expr_stmt) => {
@@ -322,7 +291,6 @@ impl Compiler {
         }
     }
 
-    /// Compiles a variable reassignment (`x = expr`).
     fn compile_reassign(&mut self, assign_stmt: &ReAssignStmt) -> Result<()> {
         let span = assign_stmt.span;
         let symbol = self.resolve_or_error(&assign_stmt.ident, span)?;
@@ -350,20 +318,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles a `#[bounded(N)] loop { body }`.
-    ///
-    /// Desugars to a counter-guarded loop:
-    ///
-    /// ```text
-    /// let __bound_counter = 0;
-    /// loop_start:
-    ///     if !(__bound_counter < N) goto loop_exit
-    ///     <body>
-    /// continue_target:
-    ///     __bound_counter += 1
-    ///     goto loop_start
-    /// loop_exit:
-    /// ```
     fn compile_loop(&mut self, loop_stmt: &LoopStmt) -> Result<()> {
         let span = loop_stmt.span;
         let bound = loop_stmt.bound;
@@ -418,21 +372,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles a `#[bounded(N)] while condition { body }`.
-    ///
-    /// Desugars to a counter-guarded conditional loop:
-    ///
-    /// ```text
-    /// let __bound_counter = 0;
-    /// loop_start:
-    ///     if !condition goto loop_exit
-    ///     if !(__bound_counter < N) goto loop_exit   // bound exceeded
-    ///     <body>
-    /// continue_target:
-    ///     __bound_counter += 1
-    ///     goto loop_start
-    /// loop_exit:
-    /// ```
     fn compile_while(&mut self, while_stmt: &WhileStmt) -> Result<()> {
         let span = while_stmt.span;
         let bound = while_stmt.bound;
@@ -492,22 +431,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles a `for x in start..end` or `for x in start..=end` loop.
-    ///
-    /// Desugars to a counter-based loop without allocating a vector:
-    ///
-    /// ```text
-    /// let __end = <end>;
-    /// let __i   = <start>;
-    /// loop_start:
-    ///     if !(__i < __end) goto loop_exit   // or __i <= __end for inclusive
-    ///     let <ident> = __i;
-    ///     <body>
-    /// continue_target:
-    ///     __i = __i + 1
-    ///     goto loop_start
-    /// loop_exit:
-    /// ```
     fn compile_for_range(&mut self, for_stmt: &ForStmt) -> Result<()> {
         let span = for_stmt.span;
         let Expr::Range(ref range) = *for_stmt.iterable else {
@@ -552,21 +475,6 @@ impl Compiler {
         self.finalize_counting_loop(&i_sym, loop_start, exit_jump, elem_kind, span)
     }
 
-    /// Compiles a `for x in array_expr` loop via index-based desugaring.
-    ///
-    /// ```text
-    /// let __iter = <iterable>;
-    /// let __len  = Vector::len(__iter);
-    /// let __i    = 0;
-    /// loop_start:
-    ///     if !(__i < __len) goto loop_exit
-    ///     let <ident> = __iter[__i];
-    ///     <body>
-    /// continue_target:
-    ///     __i = __i + 1
-    ///     goto loop_start
-    /// loop_exit:
-    /// ```
     fn compile_for_array(&mut self, for_stmt: &ForStmt) -> Result<()> {
         let span = for_stmt.span;
         let id = self.for_loop_counter;
@@ -614,23 +522,6 @@ impl Compiler {
         self.finalize_counting_loop(&i_sym, loop_start, exit_jump, None, span)
     }
 
-    /// Compiles `for (k, v) in map { body }` by iterating over the map's
-    /// insertion-ordered keys and indexing each value.
-    ///
-    /// Desugars to:
-    /// ```text
-    /// let __iter = map;
-    /// let __keys = Map::keys(__iter);
-    /// let __len  = Vector::len(__keys);
-    /// let __i    = 0;
-    /// loop:
-    ///   if __i >= __len: exit
-    ///   let __key = __keys[__i];
-    ///   let __val = __iter[__key];
-    ///   let (k, v) = (__key, __val);  // destructure
-    ///   <body>
-    ///   __i += 1
-    /// ```
     fn compile_for_map(&mut self, for_stmt: &ForStmt) -> Result<()> {
         let span = for_stmt.span;
         let id = self.for_loop_counter;
@@ -698,8 +589,6 @@ impl Compiler {
         self.finalize_counting_loop(&i_sym, loop_start, exit_jump, None, span)
     }
 
-    /// Emits the shared tail of a counting for-loop: increment, jump back,
-    /// and patch break/continue targets.
     fn finalize_counting_loop(
         &mut self,
         i_sym: &Symbol,
@@ -734,7 +623,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles a sequence of statements within a lexical block scope.
     fn compile_block_statement(&mut self, block: &BlockStmt) -> Result<()> {
         self.symbols_table.push_block_scope();
         for stmt in &block.statements {
@@ -744,14 +632,12 @@ impl Compiler {
         Ok(())
     }
 
-    /// Emits a constant-load instruction for a numeric literal.
     fn compile_numeric_constant(&mut self, val: Value, span: Span) -> Result<()> {
         let index = self.add_constant(val)?;
         self.emit(Opcode::Constant, &[index], span);
         Ok(())
     }
 
-    /// Compiles an expression node into bytecode.
     fn compile_expression(&mut self, expr: &Expr) -> Result<()> {
         let span = expr.span();
         match expr {
@@ -887,7 +773,6 @@ impl Compiler {
         }
     }
 
-    /// Compiles a `break` expression inside a loop.
     fn compile_break(&mut self, expr: &BreakExpr) -> Result<()> {
         if self.loop_contexts.is_empty() {
             return Err(CompileErrorKind::BreakOutsideLoop.at(expr.span).into());
@@ -904,7 +789,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles a `continue` expression inside a loop.
     fn compile_continue(&mut self, expr: &ContinueExpr) -> Result<()> {
         if self.loop_contexts.is_empty() {
             return Err(CompileErrorKind::ContinueOutsideLoop.at(expr.span).into());
@@ -922,10 +806,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Resolves a loop label to the index into `self.loop_contexts`.
-    ///
-    /// Returns the innermost loop's index when no label is specified.
-    /// When a label is given, searches outward for a matching loop context.
     fn resolve_loop_label(&self, label: &Option<String>, span: Span) -> Result<usize> {
         match label {
             None => Ok(self.loop_contexts.len() - 1),
@@ -943,7 +823,6 @@ impl Compiler {
         }
     }
 
-    /// Compiles an infix (binary) expression, including short-circuit `&&`/`||`.
     fn compile_infix(&mut self, infix_expr: &InfixExpr, span: Span) -> Result<()> {
         match infix_expr.operator.as_str() {
             "&&" => {
@@ -1027,8 +906,6 @@ impl Compiler {
         }
     }
 
-    /// Emits the opcode sequence for a `Felt`-typed infix operator. The operands
-    /// have already been pushed onto the stack by the caller.
     fn emit_felt_infix(&mut self, op: &str, span: Span) -> Result<()> {
         match op {
             "+" => {
@@ -1062,7 +939,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles an `if`/`else` conditional expression.
     fn compile_conditional(&mut self, cond: &CondExpr) -> Result<()> {
         self.compile_expression(&cond.condition)?;
 
@@ -1095,8 +971,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles a struct literal expression (e.g., `Point { x: 1, y: 2 }`)
-    /// or with functional update syntax (e.g., `Point { x: 10, ..other }`).
     fn compile_struct_literal(&mut self, lit: &StructLitExpr) -> Result<()> {
         let span = lit.span;
         let (registry_index, field_names) = self
@@ -1149,7 +1023,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles a path expression (e.g., `Option::None`, `Color::Red`).
     fn compile_path_expression(&mut self, path: &PathExpr) -> Result<()> {
         let span = path.span;
         if path.segments.len() == 2 {
@@ -1177,7 +1050,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Emits bytecode to construct an enum variant.
     fn emit_variant_constructor(
         &mut self,
         registry_index: usize,
@@ -1219,9 +1091,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Resolves an enum variant by type name and variant name.
-    ///
-    /// Returns `(registry_index, variant_tag, field_count)` if found.
     fn resolve_enum_variant(
         &self,
         type_name: &str,
@@ -1240,8 +1109,6 @@ impl Compiler {
             })
     }
 
-    /// Compiles a `match` expression as a chain of `MatchTag` / conditional
-    /// jump instructions.
     fn compile_match(&mut self, match_expr: &MatchExpr) -> Result<()> {
         let span = match_expr.span;
         self.compile_expression(&match_expr.scrutinee)?;
@@ -1322,9 +1189,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles a match arm body and emits the end-jump.
-    ///
-    /// Returns the jump position for later back-patching.
     fn compile_match_arm_body(&mut self, body: &Expr, span: Span) -> Result<usize> {
         self.compile_expression(body)?;
         if self.last_instruction_is(Opcode::Pop) {
@@ -1333,20 +1197,12 @@ impl Compiler {
         Ok(self.emit(Opcode::Jump, &[Self::JUMP], span))
     }
 
-    /// Looks up an enum variant by name in the pre-built variant index.
     fn find_variant_in_registry(&self, variant: &str) -> Option<(usize, usize, usize)> {
         self.variant_index
             .get(variant)
             .map(|entry| (entry.registry_index, entry.tag, entry.field_count))
     }
 
-    /// Binds variant payload fields to local variables via `GetField`.
-    ///
-    /// Returns `(nested_match_positions, scrutinee_var)` where:
-    /// - `nested_match_positions` are bytecode offsets of inner `MatchTag`
-    ///   instructions whose jump targets must be patched to cleanup code
-    /// - `scrutinee_var` is the hidden variable name storing the outer
-    ///   scrutinee, needed to restore the stack on inner match failure
     fn bind_variant_fields(
         &mut self,
         fields: &[Pattern],
@@ -1384,10 +1240,6 @@ impl Compiler {
         Ok((nested_match_positions, scrutinee_var))
     }
 
-    /// Replaces the jump-on-mismatch target of a `MatchTag` instruction.
-    ///
-    /// `MatchTag` has operands `[u16 variant_tag, u16 jump_target]`. The jump
-    /// target is at offset `op_pos + 3` (1 opcode + 2 tag bytes).
     fn replace_match_tag_target(&mut self, op_pos: usize, target: usize) -> Result<()> {
         let scope = &mut self.scopes[self.scope_index];
         let target_bytes = (target as u16).to_be_bytes();
@@ -1395,7 +1247,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles a field access expression (e.g., `point.x`).
     fn compile_field_access(&mut self, fa: &FieldAccessExpr) -> Result<()> {
         let span = fa.span;
         self.compile_expression(&fa.object)?;
@@ -1421,7 +1272,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles a destructuring `let` binding (e.g., `let (x, y) = expr;`).
     fn compile_let_destructure(&mut self, pattern: &Pattern, span: Span) -> Result<()> {
         match pattern {
             Pattern::Tuple(fields, _) => {
@@ -1458,7 +1308,6 @@ impl Compiler {
         }
     }
 
-    /// Defines an anonymous variable and sets it from the stack top.
     fn define_anonymous_local(&mut self, span: Span) -> Result<Symbol> {
         use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -1468,7 +1317,6 @@ impl Compiler {
         self.define_and_set(&name, false, span)
     }
 
-    /// Compiles a method call expression (e.g., `point.distance(other)`).
     fn compile_method_call(&mut self, mc: &MethodCallExpr) -> Result<()> {
         let span = mc.span;
         if self.is_desugared_higher_order(mc) {
@@ -1497,8 +1345,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Lowers a fixed-size array literal `[e0, e1, ..., eN-1]` onto the heap
-    /// segment.
     fn compile_array_literal(&mut self, arr: &ArrayLit, span: Span) -> Result<()> {
         if arr.elements.is_empty() {
             let zero_idx = self.add_constant(Value::Integer(Integer::I64(0)))?;
@@ -1516,10 +1362,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles an index expression. When the type checker has tagged the
-    /// indexed collection as a fixed-size array, the access lowers onto the
-    /// heap segment (`base + i` followed by `HeapRead`). Other collection
-    /// types fall through to the existing `OpIndex` dispatch.
     fn compile_index_expression(&mut self, index_expr: &IndexExpr, span: Span) -> Result<()> {
         if index_expr.array_len.is_some() {
             self.compile_expression(&index_expr.expr)?;
@@ -1536,8 +1378,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Lowers `a == b` (or `a != b`) on fixed-size arrays of length `N` into
-    /// a short-circuit chain of element-wise comparisons.
     fn compile_array_equality(
         &mut self,
         infix_expr: &InfixExpr,
@@ -1580,7 +1420,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Emits the bytecode that pushes `lhs[i] == rhs[i]` onto the stack.
     fn emit_array_element_equal(
         &mut self,
         lhs_sym: &Symbol,
@@ -1601,8 +1440,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Emits a constant `Usize(N)` for `array.len()` calls on fixed-size
-    /// arrays whose length is statically known.
     fn compile_array_len_constant(
         &mut self,
         mc: &MethodCallExpr,
@@ -1616,12 +1453,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Returns `true` if this method call should be desugared into inline
-    /// bytecode rather than dispatched as a builtin call.
-    ///
-    /// Higher-order methods on `Option`, `Result`, and `Vector` accept closures
-    /// that require VM-level invocation. These are compiled as inline match +
-    /// call sequences instead of builtin function calls.
     fn is_desugared_higher_order(&self, mc: &MethodCallExpr) -> bool {
         matches!(
             (mc.receiver.as_deref(), mc.method.as_str()),
@@ -1645,8 +1476,6 @@ impl Compiler {
         )
     }
 
-    /// Dispatches a higher-order method call to the appropriate inline
-    /// desugaring (Option/Result or Vector iterators).
     fn compile_desugared_higher_order(&mut self, mc: &MethodCallExpr) -> Result<()> {
         match mc.receiver.as_deref() {
             Some("Option" | "Result") => self.compile_option_result_higher_order(mc),
@@ -1655,9 +1484,6 @@ impl Compiler {
         }
     }
 
-    /// Compiles higher-order `Option`/`Result` methods as inline bytecode
-    /// equivalent to match expressions. Dispatches by method name to the
-    /// appropriate pattern.
     fn compile_option_result_higher_order(&mut self, mc: &MethodCallExpr) -> Result<()> {
         match mc.method.as_str() {
             "map" | "and_then" => self.compile_option_result_map_like(mc),
@@ -1668,14 +1494,6 @@ impl Compiler {
         }
     }
 
-    /// Compiles `Option::map`, `Option::and_then`, `Result::map`, or
-    /// `Result::and_then` as inline bytecode.
-    ///
-    /// Pattern: apply `f` to the success payload, pass through the failure arm.
-    /// ```text
-    /// opt.map(f)      => match opt { Some(x) => Some(f(x)), None => None }
-    /// opt.and_then(f) => match opt { Some(x) => f(x),       None => None }
-    /// ```
     fn compile_option_result_map_like(&mut self, mc: &MethodCallExpr) -> Result<()> {
         let span = mc.span;
         let is_option = mc.receiver.as_deref() == Some("Option");
@@ -1724,12 +1542,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles `Option::unwrap_or_else(f)` and `Result::unwrap_or_else(f)`.
-    ///
-    /// ```text
-    /// opt.unwrap_or_else(f) => match opt { Some(x) => x, None => f() }
-    /// res.unwrap_or_else(f) => match res { Ok(x) => x,   Err(e) => f(e) }
-    /// ```
     fn compile_option_result_unwrap_or_else(&mut self, mc: &MethodCallExpr) -> Result<()> {
         let span = mc.span;
         let is_option = mc.receiver.as_deref() == Some("Option");
@@ -1769,11 +1581,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles `Result::map_err(f)`.
-    ///
-    /// ```text
-    /// res.map_err(f) => match res { Ok(x) => Ok(x), Err(e) => Err(f(e)) }
-    /// ```
     fn compile_result_map_err(&mut self, mc: &MethodCallExpr) -> Result<()> {
         let span = mc.span;
         let ok_tag: usize = 0;
@@ -1808,11 +1615,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles `Result::or_else(f)`.
-    ///
-    /// ```text
-    /// res.or_else(f) => match res { Ok(x) => Ok(x), Err(e) => f(e) }
-    /// ```
     fn compile_result_or_else(&mut self, mc: &MethodCallExpr) -> Result<()> {
         let span = mc.span;
         let ok_tag: usize = 0;
@@ -1845,16 +1647,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles `Vector::map`, `Vector::filter`, `Vector::fold`, `Vector::any`,
-    /// and `Vector::all` as inline loop desugaring.
-    ///
-    /// Each method desugars to a counting loop over the source vector:
-    ///
-    /// - `map(f)`:   builds a new vector by applying `f` to each element
-    /// - `filter(f)`: builds a new vector of elements where `f` returns true
-    /// - `fold(init, f)`: accumulates a single value via `f(acc, elem)`
-    /// - `any(f)`:   short-circuits to `true` when `f(elem)` is true
-    /// - `all(f)`:   short-circuits to `false` when `f(elem)` is false
     fn compile_vector_iterator(&mut self, mc: &MethodCallExpr) -> Result<()> {
         match mc.method.as_str() {
             "map" => self.compile_vector_map(mc),
@@ -1870,23 +1662,6 @@ impl Compiler {
         }
     }
 
-    /// Compiles `vec.map(f)` as a loop that builds a new vector.
-    ///
-    /// ```text
-    /// let __fn = f;
-    /// let __iter = vec;
-    /// let __len = Vector::len(__iter);
-    /// let __result = [];
-    /// let __i = 0;
-    /// loop_start:
-    ///   if __i >= __len: jump exit
-    ///   let __elem = __iter[__i]
-    ///   __result = Vector::push(__result, __fn(__elem))
-    ///   __i += 1
-    ///   jump loop_start
-    /// exit:
-    ///   __result
-    /// ```
     fn compile_vector_map(&mut self, mc: &MethodCallExpr) -> Result<()> {
         let span = mc.span;
         let id = self.for_loop_counter;
@@ -1952,25 +1727,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles `vec.filter(f)` as a loop that conditionally appends elements.
-    ///
-    /// ```text
-    /// let __fn = f;
-    /// let __iter = vec;
-    /// let __len = Vector::len(__iter);
-    /// let __result = [];
-    /// let __i = 0;
-    /// loop_start:
-    ///   if __i >= __len: jump exit
-    ///   let __elem = __iter[__i]
-    ///   if !__fn(__elem): jump skip
-    ///   __result = Vector::push(__result, __elem)
-    /// skip:
-    ///   __i += 1
-    ///   jump loop_start
-    /// exit:
-    ///   __result
-    /// ```
     fn compile_vector_filter(&mut self, mc: &MethodCallExpr) -> Result<()> {
         let span = mc.span;
         let id = self.for_loop_counter;
@@ -2042,23 +1798,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles `vec.fold(init, f)` as a loop that accumulates a value.
-    ///
-    /// ```text
-    /// let __fn = f;
-    /// let __acc = init;
-    /// let __iter = vec;
-    /// let __len = Vector::len(__iter);
-    /// let __i = 0;
-    /// loop_start:
-    ///   if __i >= __len: jump exit
-    ///   let __elem = __iter[__i]
-    ///   __acc = __fn(__acc, __elem)
-    ///   __i += 1
-    ///   jump loop_start
-    /// exit:
-    ///   __acc
-    /// ```
     fn compile_vector_fold(&mut self, mc: &MethodCallExpr) -> Result<()> {
         let span = mc.span;
         let id = self.for_loop_counter;
@@ -2121,31 +1860,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles `vec.any(f)` and `vec.all(f)` as short-circuiting loops.
-    ///
-    /// For `any`: returns `true` as soon as `f(elem)` is `true`, else `false`.
-    /// For `all`: returns `false` as soon as `f(elem)` is `false`, else `true`.
-    ///
-    /// ```text
-    /// let __fn = f;
-    /// let __iter = vec;
-    /// let __len = Vector::len(__iter);
-    /// let __i = 0;
-    /// loop_start:
-    ///   if __i >= __len: jump default_result
-    ///   let __elem = __iter[__i]
-    ///   let __test = __fn(__elem)
-    ///   // any: if __test => jump early_result
-    ///   // all: if !__test => jump early_result
-    ///   __i += 1
-    ///   jump loop_start
-    /// early_result:
-    ///   push <early_value>  // any: true, all: false
-    ///   jump end
-    /// default_result:
-    ///   push <default_value>  // any: false, all: true
-    /// end:
-    /// ```
     fn compile_vector_any_all(&mut self, mc: &MethodCallExpr, is_any: bool) -> Result<()> {
         let span = mc.span;
         let id = self.for_loop_counter;
@@ -2241,8 +1955,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles `vec.find(f)`, returning `Some(elem)` for the first element
-    /// where `f(elem)` is true, or `None` if no match.
     fn compile_vector_find(&mut self, mc: &MethodCallExpr) -> Result<()> {
         let span = mc.span;
         let id = self.for_loop_counter;
@@ -2312,8 +2024,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles `vec.position(f)`, returning `Some(index)` for the first element
-    /// where `f(elem)` is true, or `None` if no match.
     fn compile_vector_position(&mut self, mc: &MethodCallExpr) -> Result<()> {
         let span = mc.span;
         let id = self.for_loop_counter;
@@ -2383,8 +2093,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles `vec.for_each(f)`, applying `f` to each element and discarding
-    /// results. Returns unit.
     fn compile_vector_for_each(&mut self, mc: &MethodCallExpr) -> Result<()> {
         let span = mc.span;
         let id = self.for_loop_counter;
@@ -2443,8 +2151,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles `vec.flat_map(f)`, applying `f` to each element (producing a
-    /// vector), then concatenating all results into a single vector.
     fn compile_vector_flat_map(&mut self, mc: &MethodCallExpr) -> Result<()> {
         let span = mc.span;
         let id = self.for_loop_counter;
@@ -2509,11 +2215,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles the try operator (`expr?`).
-    ///
-    /// Desugars to an inline match:
-    /// - `Option<T>`: `Some(val) => val`, `None => return None`
-    /// - `Result<T, E>`: `Ok(val) => val`, `Err(e) => return Err(e)`
     fn compile_try(&mut self, try_expr: &TryExpr) -> Result<()> {
         let span = try_expr.span;
         let is_option = try_expr.kind == TryKind::Option;
@@ -2544,7 +2245,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Resolves the fully-qualified builtin name for a method call.
     fn resolve_method_name(&mut self, mc: &MethodCallExpr) -> Option<String> {
         if let Some(ref receiver) = mc.receiver {
             let candidate = format!("{receiver}::{}", mc.method);
@@ -2566,7 +2266,6 @@ impl Compiler {
             })
     }
 
-    /// Resolves a symbol by name, returning an error if undefined.
     fn resolve_or_error(&mut self, name: &str, span: Span) -> Result<Symbol> {
         self.symbols_table.resolve_symbol(name).ok_or_else(|| {
             CompileErrorKind::UndefinedVariable {
@@ -2577,7 +2276,6 @@ impl Compiler {
         })
     }
 
-    /// Attaches a span to a compile error that lacks one.
     fn attach_span(&self, err: Error, span: Span) -> Error {
         match err {
             Error::Compile(ce) if ce.span.is_none() => CompileError {
@@ -2589,12 +2287,6 @@ impl Compiler {
         }
     }
 
-    /// Adds a constant value to the constant pool and returns its index.
-    ///
-    /// # Errors
-    ///
-    /// Returns `CompileError::ConstantPoolOverflow` if adding this constant
-    /// would exceed the maximum constant pool size.
     fn add_constant(&mut self, val: Value) -> Result<usize> {
         let index = self.constants.len();
         if index > MAX_CONSTANT_POOL_SIZE {
@@ -2608,12 +2300,10 @@ impl Compiler {
         Ok(index)
     }
 
-    /// Returns a reference to the current scope's instruction stream.
     fn current_instructions(&self) -> &Instructions {
         &self.scopes[self.scope_index].instructions
     }
 
-    /// Enters a new compilation scope for a function body.
     fn compile_fn_body<'a>(
         &mut self,
         name: Option<&str>,
@@ -2657,9 +2347,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles an `impl` block by emitting each method as a named function
-    /// binding. Methods with a `self` parameter have it compiled as the first
-    /// regular parameter.
     fn compile_impl_block(&mut self, impl_block: &ImplBlock) -> Result<()> {
         let type_name = match &impl_block.self_type {
             TypeExpr::Named(n) => &n.name,
@@ -2688,13 +2375,6 @@ impl Compiler {
         self.symbols_table = SymbolsTable::new_enclosed(outer);
     }
 
-    /// Leaves the current compilation scope, returning its instructions
-    /// and source map.
-    ///
-    /// # Errors
-    ///
-    /// Returns `CompileError::ScopeUnderflow` if the scope stack is empty
-    /// or the enclosed symbol table has no outer table to restore.
     fn leave_scope(&mut self) -> Result<(Instructions, SourceMap)> {
         if self.scope_index == 0 {
             return Err(CompileError::new(CompileErrorKind::ScopeUnderflow).into());
@@ -2711,7 +2391,6 @@ impl Compiler {
         Ok((scope.instructions, scope.source_map))
     }
 
-    /// Defines a symbol and emits the corresponding store instruction.
     fn define_and_set(&mut self, name: &str, mutable: bool, span: Span) -> Result<Symbol> {
         let symbol = match self.symbols_table.define_symbol(name, mutable) {
             Ok(s) => s.clone(),
@@ -2721,7 +2400,6 @@ impl Compiler {
         Ok(symbol)
     }
 
-    /// Emits the appropriate store instruction for a resolved symbol.
     fn emit_set_symbol(&mut self, symbol: &Symbol, span: Span) {
         match symbol.scope {
             SymbolScope::Global => self.emit(Opcode::SetGlobal, &[symbol.index], span),
@@ -2732,7 +2410,6 @@ impl Compiler {
         };
     }
 
-    /// Emits the appropriate load instruction for a resolved symbol.
     fn load_symbol(&mut self, symbol: &Symbol, span: Span) {
         match symbol.scope {
             SymbolScope::Global => self.emit(Opcode::GetGlobal, &[symbol.index], span),
@@ -2743,7 +2420,6 @@ impl Compiler {
         };
     }
 
-    /// Emits a bytecode instruction with the given opcode and operands.
     fn emit(&mut self, opcode: Opcode, operands: &[usize], span: Span) -> usize {
         let instruction = encode(opcode, operands);
         let pos = self.add_instruction(&instruction);
@@ -2752,9 +2428,6 @@ impl Compiler {
         pos
     }
 
-    /// Appends instruction bytes to the current scope's instruction stream.
-    ///
-    /// Returns the position where the instruction was inserted.
     fn add_instruction(&mut self, instruction: &[u8]) -> usize {
         let scope = &mut self.scopes[self.scope_index];
         let pos = scope.instructions.len();
@@ -2762,25 +2435,18 @@ impl Compiler {
         pos
     }
 
-    /// Updates the last/previous instruction tracking in the current scope.
     fn set_last_instruction(&mut self, opcode: Opcode, position: usize) {
         let scope = &mut self.scopes[self.scope_index];
         scope.previous_instruction = scope.last_instruction;
         scope.last_instruction = Some(Instruction { opcode, position });
     }
 
-    /// Returns `true` if the last emitted instruction matches the given opcode.
     fn last_instruction_is(&self, opcode: Opcode) -> bool {
         self.scopes[self.scope_index]
             .last_instruction
             .is_some_and(|last| last.opcode == opcode)
     }
 
-    /// Removes the last `OpPop` instruction from the stream.
-    ///
-    /// This is used when compiling block expressions within conditionals:
-    /// the block's expression statements emit `OpPop`, but conditionals
-    /// need the value to remain on the stack.
     fn remove_last_pop(&mut self) {
         let scope = &mut self.scopes[self.scope_index];
         if let Some(last) = scope.last_instruction {
@@ -2789,10 +2455,6 @@ impl Compiler {
         }
     }
 
-    /// Replaces the last `OpPop` with `OpReturnValue`.
-    ///
-    /// Used at the end of function bodies to convert the final expression
-    /// statement's implicit pop into an explicit return.
     fn replace_last_pop_with_return_value(&mut self) {
         let scope = &mut self.scopes[self.scope_index];
         if let Some(last) = scope.last_instruction {
@@ -2805,7 +2467,6 @@ impl Compiler {
         }
     }
 
-    /// Replaces the operand of an instruction at the given position.
     fn replace_operand(&mut self, op_pos: usize, operand: usize) -> Result<()> {
         let scope = &mut self.scopes[self.scope_index];
         let byte = scope.instructions.as_bytes()[op_pos];
@@ -2819,7 +2480,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Dispatches a builtin macro call to the appropriate expansion routine.
     fn compile_macro_call(&mut self, mc: &MacroCallExpr) -> Result<()> {
         let span = mc.span;
         match mc.name.as_str() {
@@ -2847,7 +2507,6 @@ impl Compiler {
         }
     }
 
-    /// Compiles `format!(fmt, args...)` into a string concatenation sequence.
     fn compile_format_macro(&mut self, args: &[Expr], span: Span) -> Result<()> {
         if args.is_empty() {
             let idx = self.add_constant(Value::Str(String::new()))?;
@@ -2918,7 +2577,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles `print!(fmt, args...)` or `println!(fmt, args...)`.
     fn compile_print_macro(&mut self, args: &[Expr], newline: bool, span: Span) -> Result<()> {
         let macro_name = if newline { "println" } else { "print" };
 
@@ -2997,7 +2655,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles `assert!(condition)` or `assert!(condition, message)`.
     fn compile_assert_macro(&mut self, args: &[Expr], span: Span) -> Result<()> {
         if args.is_empty() || args.len() > 2 {
             return Err(CompileErrorKind::FormatArgCountMismatch {
@@ -3033,7 +2690,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles `assert_eq!(left, right)`.
     fn compile_assert_eq_macro(&mut self, args: &[Expr], span: Span) -> Result<()> {
         if args.len() != 2 {
             return Err(CompileErrorKind::FormatArgCountMismatch {
@@ -3066,12 +2722,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Compiles `panic!()`, `panic!("message")`, or `panic!("fmt {}", args...)`.
-    ///
-    /// With no arguments, emits `__panic("explicit panic")`. With a plain
-    /// string literal, emits `__panic(literal)`. With a format string and
-    /// interpolation arguments, builds the message by concatenating segments
-    /// via `__to_string` and `__str_concat`, then emits `__panic(result)`.
     fn compile_panic_macro(&mut self, args: &[Expr], span: Span) -> Result<()> {
         if args.is_empty() {
             return self.emit_builtin_call(
@@ -3156,7 +2806,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Emits a call to a builtin function with constant arguments.
     fn emit_builtin_call(&mut self, name: &str, const_args: &[Value], span: Span) -> Result<()> {
         let builtin_idx = registry::resolve_builtin_index(name);
         self.emit(Opcode::GetBuiltin, &[builtin_idx], span);
@@ -3168,8 +2817,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Emits a call to a builtin function where the single argument is an
-    /// expression to be compiled (pushed onto the stack).
     fn emit_builtin_call_expr(&mut self, name: &str, arg: &Expr, span: Span) -> Result<()> {
         let builtin_idx = registry::resolve_builtin_index(name);
         self.emit(Opcode::GetBuiltin, &[builtin_idx], span);
@@ -3178,8 +2825,6 @@ impl Compiler {
         Ok(())
     }
 
-    /// Emits a call to a builtin function where the single argument is
-    /// already on the stack (from a prior call's return value).
     fn emit_builtin_call_stack(&mut self, name: &str, span: Span) -> Result<()> {
         let temp_name = format!("__macro_tmp_{}", self.current_instructions().len());
         let symbol = self.define_and_set(&temp_name, false, span)?;

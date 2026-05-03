@@ -1,7 +1,8 @@
 //! Implements AST transformation via the visitor pattern.
 //!
-//! Provides the `transform` function for traversing and modifying
-//! AST nodes. It's essential for macro expansion and other AST modifications.
+//! Provides the `transform` function for traversing and
+//! modifying AST nodes for macro expansion and other AST modifications.
+
 use crate::*;
 
 /// A function that takes a node and returns a potentially modified one.
@@ -12,52 +13,6 @@ pub type TransformFn<'a> = &'a mut dyn FnMut(Node) -> Node;
 /// The traversal follows a post-order pattern: first, all child nodes are recursively
 /// transformed, then the transformer function is applied to the current node. This ensures
 /// that changes are applied from the leaves up to the root.
-///
-/// # Examples
-///
-/// ```
-/// use maat_ast::*;
-/// use maat_span::Span;
-///
-/// // Double all i64 integer values
-/// let program = Program {
-///     statements: vec![Stmt::Expr(ExprStmt {
-///         value: Expr::Number(Number {
-///             kind: NumKind::I64,
-///             value: 5,
-///             radix: Radix::Dec,
-///             span: Span::ZERO,
-///         }),
-///         span: Span::ZERO,
-///     })],
-/// };
-///
-/// let result = transform(Node::Program(program), &mut |node| {
-///     match node {
-///         Node::Expr(Expr::Number(mut n)) if n.kind == NumKind::I64 => {
-///             n.value *= 2;
-///             Node::Expr(Expr::Number(n))
-///         }
-///         n => n,
-///     }
-/// });
-/// ```
-///
-/// # Macro Expansion
-///
-/// This function is crucial for macro expansion, where macro calls need to be
-/// identified and replaced with their expanded AST nodes:
-///
-/// ```ignore
-/// transform(program, &mut |node| {
-///     if let Node::Expr(Expr::Call(call)) = &node {
-///         if is_macro_call(call) {
-///             return expand_macro(call);
-///         }
-///     }
-///     node
-/// });
-/// ```
 pub fn transform(node: Node, transformer: TransformFn) -> Node {
     let node = match node {
         Node::Program(mut program) => {

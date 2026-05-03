@@ -2,6 +2,7 @@
 //!
 //! This crate defines the core values and built-in functions shared
 //! by both the tree-walking interpreter and the bytecode compiler/VM.
+
 #![forbid(unsafe_code)]
 
 mod builtins;
@@ -31,10 +32,6 @@ pub const FALSE: Value = Value::Bool(false);
 /// no meaningful value (e.g., statements, void function returns, `print!`).
 pub const UNIT: Value = Value::Unit;
 
-/// Runtime value representation.
-///
-/// Values are the evaluated results of expressions and can be integers,
-/// booleans, functions, or special values like [`UNIT`] and return wrappers.
 #[derive(Debug, Clone)]
 pub enum Value {
     /// The unit type `()`, representing the absence of a meaningful value.
@@ -104,12 +101,6 @@ impl Value {
         }
     }
 
-    /// Converts a [`Number`] AST node into its corresponding runtime `Value`.
-    ///
-    /// The type checker validates that `lit.value` fits within the target type
-    /// before this function is called. The `TryFrom` conversions enforce this
-    /// invariant at runtime as a defense-in-depth measure, returning an error
-    /// rather than silently truncating if the value is out of range.
     pub fn from_number_literal(lit: &Number) -> std::result::Result<Self, String> {
         macro_rules! narrow {
             ($variant:ident, $ty:ty) => {
@@ -137,9 +128,6 @@ impl Value {
         }
     }
 
-    /// Converts a runtime value back to an AST node.
-    ///
-    /// Used to splice evaluated values back into quoted code.
     pub fn to_ast_node(val: &Self) -> Option<Node> {
         use maat_ast::*;
         use maat_span::Span;
@@ -163,20 +151,11 @@ impl Value {
         }
     }
 
-    /// Determines whether this value is truthy.
-    ///
-    /// Only booleans have a meaningful truth value. All other types
-    /// (including unit) are truthy. The type checker ensures that only
-    /// booleans appear in conditional positions.
     #[inline]
     pub fn is_truthy(&self) -> bool {
         !matches!(self, Value::Bool(false))
     }
 
-    /// Attempts to convert this value to a `usize` vector index.
-    ///
-    /// Returns `Some(index)` for any integer type whose value fits in `usize`.
-    /// Returns `None` for negative values, out-of-range values, or non-integer types.
     pub fn to_vector_index(&self) -> Option<usize> {
         match self {
             Self::Integer(n) => n.to_usize(),
@@ -184,9 +163,6 @@ impl Value {
         }
     }
 
-    /// Converts any integer variant to `i128` for cross-type comparison.
-    ///
-    /// Returns `None` for non-integer types or `U128` values exceeding `i128::MAX`.
     pub fn to_i128(&self) -> Option<i128> {
         match self {
             Self::Integer(n) => n.to_i128(),
@@ -194,12 +170,10 @@ impl Value {
         }
     }
 
-    /// Returns `true` if this value is an integer type.
     pub fn is_integer(&self) -> bool {
         matches!(self, Self::Integer(_))
     }
 
-    /// Returns the Maat type name for use in user-facing diagnostics.
     pub fn type_name(&self) -> &'static str {
         match self {
             Self::Unit => "()",
@@ -232,10 +206,6 @@ impl Value {
 
 /// Serialization proxy containing only the [`Value`] variants that can be
 /// represented in the bytecode binary format.
-///
-/// Non-serializable variants (`Function`, `Macro`, `Quote`, `ReturnValue`,
-/// `Builtin`) exist only at runtime and cannot appear in compiled bytecode.
-/// Attempting to serialize them produces an error.
 #[derive(Serialize, Deserialize)]
 enum SerVal {
     Unit,
@@ -350,7 +320,6 @@ impl PartialEq for Value {
     }
 }
 
-/// Represents a runtime function.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Function {
     pub params: Vec<String>,
@@ -358,7 +327,6 @@ pub struct Function {
     pub env: Env,
 }
 
-/// Represents a runtime macro.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Macro {
     pub params: Vec<String>,
@@ -366,92 +334,44 @@ pub struct Macro {
     pub env: Env,
 }
 
-/// Represents a quoted AST node.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Quote {
     pub node: Node,
 }
 
-/// A compiled function containing bytecode instructions.
-///
-/// Functions are compiled into bytecode and stored in the constant pool.
-/// The VM creates a new call frame for each invocation, using the
-/// `num_locals` field to reserve stack space for local bindings.
-///
-/// Instructions are stored behind `Rc<[u8]>` so that closures created
-/// from the same function literal share instruction memory rather than
-/// cloning the entire byte vector on every call.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CompiledFn {
-    /// The bytecode instructions for this function's body.
-    ///
-    /// Reference-counted to allow zero-copy sharing across closures
-    /// instantiated from the same compiled function.
     pub instructions: Rc<[u8]>,
-    /// The number of local bindings (parameters + let bindings) in this function.
     pub num_locals: usize,
-    /// The number of parameters this function expects.
     pub num_parameters: usize,
-    /// Maps instruction byte offsets to source spans within this function.
     pub source_map: SourceMap,
 }
 
-/// A closure binding a compiled function with its captured free variables.
-///
-/// At runtime, every function is wrapped in a closure, even those with zero
-/// free variables. This uniform representation simplifies the VM's call
-/// dispatch: there is a single code path for invoking user-defined functions.
-///
-/// Free variables are resolved at closure-creation time (`OpClosure`) and
-/// stored by value. Nested closures capture through the chain: an inner
-/// closure's free variable may itself be a free variable of its enclosing
-/// closure.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Closure {
-    /// The underlying compiled function.
     pub func: CompiledFn,
-    /// Captured free variables from enclosing scopes.
     pub free_vars: Vec<Value>,
 }
 
-/// A user-defined struct instance at runtime.
-///
-/// Stores the type registry index and field values in declaration order.
-/// Field names are resolved at compile time; the VM accesses fields by index.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StructVal {
-    /// Index into the shared type registry.
     pub type_index: u16,
-    /// Field values in declaration order.
     pub fields: Vec<Value>,
 }
 
-/// A user-defined enum variant instance at runtime.
-///
-/// Stores the type registry index, variant tag (discriminant), and
-/// any associated data fields.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EnumVariantVal {
-    /// Index into the shared type registry.
     pub type_index: u16,
-    /// Variant discriminant (positional index within the enum definition).
     pub tag: u16,
-    /// Associated data fields (empty for unit variants).
     pub fields: Vec<Value>,
 }
 
-/// A type definition in the shared type registry.
-///
-/// Shared between the compiler (which registers types during compilation)
-/// and the VM (which reads type metadata for field access and pattern matching).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TypeDef {
-    /// A struct type with ordered named fields.
     Struct {
         name: String,
         field_names: Vec<String>,
     },
-    /// An enum type with ordered variants.
     Enum {
         name: String,
         variants: Vec<VariantInfo>,
@@ -461,9 +381,7 @@ pub enum TypeDef {
 /// Metadata for a single enum variant.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VariantInfo {
-    /// Variant name (e.g., `Some`, `None`).
     pub name: String,
-    /// Number of data fields this variant carries.
     pub field_count: u8,
 }
 
@@ -499,7 +417,6 @@ impl TryFrom<Value> for Hashable {
     }
 }
 
-/// Writes a comma-separated list of displayable items to the formatter.
 fn write_comma_separated<I, T>(f: &mut fmt::Formatter<'_>, iter: I) -> fmt::Result
 where
     I: IntoIterator<Item = T>,

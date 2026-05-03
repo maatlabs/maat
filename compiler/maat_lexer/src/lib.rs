@@ -43,17 +43,6 @@ pub struct MaatLexer<'src> {
 
 impl<'src> MaatLexer<'src> {
     /// Creates a new lexer for the given source code.
-    ///
-    /// The lexer is initialized at the beginning of the source string and is ready
-    /// to produce tokens via [`next_token`](MaatLexer::next_token).
-    ///
-    /// # Parameters
-    ///
-    /// * `s` - The source code to tokenize.
-    ///
-    /// # Returns
-    ///
-    /// A new [`MaatLexer`] instance positioned at the start of the source.
     #[inline]
     pub fn new(s: &'src str) -> Self {
         Self {
@@ -62,22 +51,6 @@ impl<'src> MaatLexer<'src> {
     }
 
     /// Advances the lexer and returns the next token from the source.
-    ///
-    /// This method consumes characters from the source stream and produces a single
-    /// token. Whitespace and comments are automatically skipped. The method handles:
-    ///
-    /// - Single-character operators and delimiters
-    /// - Multi-character operators (`==`, `!=`, `<=`, `>=`)
-    /// - Keywords and identifiers (with Unicode support)
-    /// - Integer literals with optional type suffixes
-    /// - Invalid characters
-    ///
-    /// When the end of the source is reached, this method returns a token with
-    /// kind [`TokenKind::Eof`].
-    ///
-    /// # Returns
-    ///
-    /// The next [`Token`] in the source stream.
     pub fn next_token(&mut self) -> Token<'src> {
         match self.inner.next() {
             Some(Ok(raw)) => self.emit_token(raw),
@@ -97,10 +70,6 @@ impl<'src> MaatLexer<'src> {
     }
 
     /// Converts a successfully matched [`RawToken`] into a [`Token`].
-    ///
-    /// String literals have their surrounding quotes stripped from the `literal`
-    /// field. Numeric literals have their type suffix excluded from `literal`
-    /// while the full span (including suffix) is preserved.
     fn emit_token(&self, raw: RawToken) -> Token<'src> {
         let span = self.inner.span();
         let maat_span = Span::new(span.start, span.end);
@@ -302,7 +271,6 @@ enum RawToken {
 }
 
 impl RawToken {
-    /// Maps this internal token variant to the corresponding [`TokenKind`].
     #[inline]
     const fn to_token_kind(self) -> TokenKind {
         match self {
@@ -423,11 +391,7 @@ fn skip_block_comment(src: &mut Lexer<'_, RawToken>) -> Skip {
     Skip
 }
 
-/// Tries to read and consume a type suffix from the remaining source.
-///
-/// Recognizes integer suffixes (`i8`..`i128`, `isize`, `u8`..`u128`, `usize`) and
-/// the field-element suffix `fe`, each with an optional leading underscore
-/// (`_i64`, `_fe`). Advances the lexer past the suffix if one is found.
+/// Tries to read and consume a number type suffix from the remaining source.
 fn try_read_suffix(src: &mut Lexer<'_, RawToken>) -> Option<NumSuffix> {
     let remainder = src.remainder().as_bytes();
     let underscore = usize::from(remainder.first() == Some(&b'_'));
@@ -446,10 +410,6 @@ fn lex_radix_number(src: &mut Lexer<'_, RawToken>) -> NumToken {
 }
 
 /// Lexes a decimal number, detecting invalid float literals and optional type suffixes.
-///
-/// Floating-point literals are illegal in Maat. If a fractional part (`.digits`)
-/// or exponent (`e`/`E`) is detected, the entire float is consumed and emitted
-/// as [`TokenKind::Invalid`].
 fn lex_decimal_number(src: &mut Lexer<'_, RawToken>) -> NumToken {
     let value_len = src.slice().len() as u32;
 

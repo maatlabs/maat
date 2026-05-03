@@ -54,16 +54,9 @@ use winter_prover::{
     DefaultConstraintEvaluator, DefaultTraceLde, Proof, Prover, StarkDomain, Trace, TracePolyTable,
 };
 
-/// Type alias for the hash function used throughout proof generation.
 type HashFn = Blake3_256<BaseElement>;
-
-/// Type alias for the vector commitment (Merkle tree) scheme.
 type VC = MerkleTree<HashFn>;
 
-/// Returns proof options tuned for fast iteration during development.
-///
-/// Security is intentionally minimal (no grinding, few queries) so that
-/// proof generation completes in milliseconds on small traces.
 pub fn development_options() -> ProofOptions {
     ProofOptions::new(
         4, // num_queries
@@ -77,11 +70,6 @@ pub fn development_options() -> ProofOptions {
     )
 }
 
-/// Returns proof options for production proofs.
-///
-/// Targets ~97 bits conjectural security:
-/// `27 queries * log2(8) = 81` FRI bits + 16 grinding bits.
-/// Proven security is approximately half the conjectured level.
 pub fn production_options() -> ProofOptions {
     ProofOptions::new(
         27, // num_queries

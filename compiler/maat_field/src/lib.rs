@@ -44,35 +44,24 @@
 //! case; [`try_div`] and [`try_inv`] are the wrappers used by the VM and the
 //! trace recorder to preserve the [`FieldError::InverseOfZero`] distinction.
 
-#![deny(missing_docs)]
 #![forbid(unsafe_code)]
 
 pub use winter_math::fields::f64::BaseElement;
 pub use winter_math::{ExtensionOf, FieldElement, StarkField, ToElements};
 
 /// A canonical element of the Maat base field.
-///
-/// Transparent alias for Winterfell's Goldilocks `BaseElement`. All arithmetic
-/// is total except [`try_inv`] applied to zero, which returns
-/// [`FieldError::InverseOfZero`].
 pub type Felt = BaseElement;
 
 /// The Goldilocks prime `p = 2^64 - 2^32 + 1`.
 pub const MODULUS: u64 = <Felt as StarkField>::MODULUS;
 
-/// Errors raised by fallible field operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum FieldError {
-    /// Attempted to invert the zero element of the field.
     #[error("cannot invert the zero element of the field")]
     InverseOfZero,
 }
 
 /// Lifts an `i64` into the field, encoding negatives as `p + value`.
-///
-/// The computation is performed in `u64` wrapping arithmetic; because
-/// `|value| < p` for every `i64`, the canonical result lies in `[0, p)` after
-/// a single addition.
 #[inline]
 pub fn from_i64(value: i64) -> Felt {
     if value >= 0 {
@@ -83,10 +72,6 @@ pub fn from_i64(value: i64) -> Felt {
 }
 
 /// Multiplicative inverse, surfacing the zero-element case as a typed error.
-///
-/// Winterfell's `BaseElement::inv` returns zero for `Felt::ZERO`; this wrapper
-/// lifts that case into [`FieldError::InverseOfZero`] so callers cannot
-/// silently miscompute.
 #[inline]
 pub fn try_inv(value: Felt) -> Result<Felt, FieldError> {
     if value == Felt::ZERO {
@@ -103,35 +88,20 @@ pub fn try_div(lhs: Felt, rhs: Felt) -> Result<Felt, FieldError> {
 }
 
 /// Encoding of a runtime value as one or more base-field elements.
-///
-/// Most scalar types fit in a single field element. The 128-bit integer types
-/// are the only values that require a two-element `(hi, lo)` split because the
-/// Goldilocks modulus is itself 64 bits wide.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FeltEncode {
-    /// A single-element encoding.
     Single(Felt),
-    /// A two-element encoding, high limb first.
     Pair(Felt, Felt),
 }
 
-/// Errors raised when a runtime value cannot be encoded into the field.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum EncodingError {
-    /// The value kind is not encodable. The payload identifies the kind for
-    /// diagnostic purposes.
     #[error("value of kind `{0}` is not encodable as a field element")]
     UnsupportedValueKind(&'static str),
 }
 
 /// A value that can be lifted into the base field.
-///
-/// This trait is the single source of truth for the value-to-field encoding
-/// contract. Implementations must be total for their supported input space;
-/// values that fall outside that space must return
-/// [`EncodingError::UnsupportedValueKind`].
 pub trait Encodable {
-    /// Lifts `self` into its canonical field encoding, or fails with a diagnostic error.
     fn encode(&self) -> Result<FeltEncode, EncodingError>;
 }
 

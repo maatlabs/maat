@@ -3,35 +3,20 @@ use maat_errors::{Error, EvalError, Result};
 
 use crate::{BuiltinFn, EnumVariantVal, Felt, Hashable, Integer, Map, Set, UNIT, Value};
 
-/// Type registry index for `Option`.
 const OPTION_TYPE_INDEX: u16 = 0;
-/// Variant tag for `Some` within `Option`.
 const SOME_TAG: u16 = 0;
-/// Variant tag for `None` within `Option`.
 const NONE_TAG: u16 = 1;
 
-/// Type registry index for `Result`.
 const RESULT_TYPE_INDEX: u16 = 1;
-/// Variant tag for `Ok` within `Result`.
 const OK_TAG: u16 = 0;
-/// Variant tag for `Err` within `Result`.
 const ERR_TAG: u16 = 1;
 
-/// Type registry index for `ParseIntError`.
 const PARSE_INT_ERROR_TYPE_INDEX: u16 = 2;
 
-/// Describes why a string-to-integer parse operation failed.
-///
-/// This is a language-level type, registered as a builtin enum in the
-/// type system so that user code can pattern-match on `Result<T, ParseIntError>`
-/// values returned by the `str::parse_*` family of methods.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ParseIntError {
-    /// The input string was empty (or contained only whitespace).
     Empty,
-    /// The input contained a character that is not a valid digit.
     InvalidDigit,
-    /// The parsed value exceeds the representable range of the target type.
     Overflow,
 }
 
@@ -48,9 +33,6 @@ impl ParseIntError {
         }
     }
 
-    /// Returns the variant tag used in the runtime type registry.
-    ///
-    /// Must match the order in `builtin_type_registry` in `maat_codegen`.
     pub const fn tag(self) -> u16 {
         match self {
             Self::Empty => 0,
@@ -60,33 +42,14 @@ impl ParseIntError {
     }
 }
 
-/// Declares the builtin function registry.
-///
-/// Generates three items:
-/// - `BUILTINS`: ordered `&[(&str, BuiltinFn)]` array (one entry per name, preserving
-///   index order for the compiler/VM pipeline)
-/// - `BUILTIN_COUNT`: `usize` constant equal to `BUILTINS.len()`
-/// - `get_builtin()`: name-to-function lookup
-///
-/// Each aliased name occupies its own index in `BUILTINS`, preserving the stable
-/// index-based semantics that the compiler and VM depend on.
 macro_rules! define_builtins {
     ( $( $( $name:literal )|+ => $func:ident ),* $(,)? ) => {
-        /// Ordered registry of built-in functions for the compiler/VM pipeline.
-        ///
-        /// Each entry maps a fixed index to a `(name, function)` pair. The compiler
-        /// resolves builtin identifiers by name and emits `OpGetBuiltin` with the
-        /// corresponding index. The VM retrieves the function by index at runtime.
-        ///
-        /// The ordering must remain stable across compiler and VM sessions.
         pub const BUILTINS: &[(&str, BuiltinFn)] = &[
             $( $( ($name, $func), )+ )*
         ];
 
-        /// The total number of registered builtin entries.
         pub const BUILTIN_COUNT: usize = BUILTINS.len();
 
-        /// Attempts to retrieve a builtin by name. Returns `Some(fn)` or `None`.
         #[inline]
         pub fn get_builtin(name: &str) -> Option<BuiltinFn> {
             match name {
@@ -210,37 +173,23 @@ define_builtins! {
     "cmp::clamp" => cmp_clamp,
 }
 
-/// Prints a single value to stdout without a trailing newline.
-///
-/// Internal builtin emitted by `print!` and `println!` macro expansion.
 fn __print_str(args: &[Value]) -> Result<Value> {
     expect_arg_count("__print_str", args, 1)?;
     print!("{}", args[0]);
     Ok(UNIT)
 }
 
-/// Prints a single value to stdout followed by a newline.
-///
-/// Internal builtin emitted by `println!()`.
 fn __print_str_ln(args: &[Value]) -> Result<Value> {
     expect_arg_count("__print_str_ln", args, 1)?;
     println!("{}", args[0]);
     Ok(UNIT)
 }
 
-/// Converts any value to its string representation.
-///
-/// Internal builtin emitted by `print!` / `println!` format string expansion
-/// for `{}` placeholder interpolation.
 fn __to_string(args: &[Value]) -> Result<Value> {
     expect_arg_count("__to_string", args, 1)?;
     Ok(Value::Str(format!("{}", args[0])))
 }
 
-/// Concatenates two string values into a single string.
-///
-/// Internal builtin emitted by `panic!` format string expansion and
-/// string concatenation via the `+` operator.
 fn __str_concat(args: &[Value]) -> Result<Value> {
     expect_arg_count("__str_concat", args, 2)?;
     match (&args[0], &args[1]) {
@@ -249,16 +198,11 @@ fn __str_concat(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Terminates execution with a runtime error.
-///
-/// Internal builtin emitted by `assert!`, `assert_eq!`, `panic!`, `todo!`,
-/// and `unimplemented!` macro expansion.
 fn __panic(args: &[Value]) -> Result<Value> {
     expect_arg_count("__panic", args, 1)?;
     Err(EvalError::Builtin(format!("{}", args[0])).into())
 }
 
-/// Returns the number of elements in a vec. Receiver: `self` at `args[0]`.
 fn vector_len(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::len", args, 1)?;
     match &args[0] {
@@ -267,7 +211,6 @@ fn vector_len(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns the first element of a vector, wrapped in `Some`, or `None` if empty.
 fn vector_first(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::first", args, 1)?;
     match &args[0] {
@@ -276,7 +219,6 @@ fn vector_first(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns the last element of a vector, wrapped in `Some`, or `None` if empty.
 fn vector_last(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::last", args, 1)?;
     match &args[0] {
@@ -285,7 +227,6 @@ fn vector_last(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns all elements of a vector after the first, or an empty vector if empty.
 fn vector_split_first(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::split_first", args, 1)?;
     match &args[0] {
@@ -297,7 +238,6 @@ fn vector_split_first(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns a new vec with `value` appended. Receiver at `args[0]`, value at `args[1]`.
 fn vector_push(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::push", args, 2)?;
     match &args[0] {
@@ -310,7 +250,6 @@ fn vector_push(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Joins vec elements into a string with a separator. Receiver at `args[0]`, separator at `args[1]`.
 fn vector_join(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::join", args, 2)?;
     match (&args[0], &args[1]) {
@@ -331,13 +270,11 @@ fn vector_join(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Creates a new empty vector.
 fn vector_new(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::new", args, 0)?;
     Ok(Value::Vector(Vec::new()))
 }
 
-/// Returns a reversed copy of the vector.
 fn vector_rev(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::rev", args, 1)?;
     match &args[0] {
@@ -350,12 +287,10 @@ fn vector_rev(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns the number of elements (alias for `len`).
 fn vector_count(args: &[Value]) -> Result<Value> {
     vector_len(args)
 }
 
-/// Returns the first `n` elements.
 fn vector_take(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::take", args, 2)?;
     match (&args[0], &args[1]) {
@@ -372,7 +307,6 @@ fn vector_take(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Skips the first `n` elements.
 fn vector_skip(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::skip", args, 2)?;
     match (&args[0], &args[1]) {
@@ -389,7 +323,6 @@ fn vector_skip(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Removes consecutive duplicate elements.
 fn vector_dedup(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::dedup", args, 1)?;
     match &args[0] {
@@ -406,7 +339,6 @@ fn vector_dedup(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Concatenates two vectors.
 fn vector_chain(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::chain", args, 2)?;
     match (&args[0], &args[1]) {
@@ -424,7 +356,6 @@ fn vector_chain(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns `true` if the vector contains the given element.
 fn vector_contains(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::contains", args, 2)?;
     match &args[0] {
@@ -433,7 +364,6 @@ fn vector_contains(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns a vector of `(index, element)` tuples.
 fn vector_enumerate(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::enumerate", args, 1)?;
     match &args[0] {
@@ -449,7 +379,6 @@ fn vector_enumerate(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Zips two vectors into a vector of tuples.
 fn vector_zip(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::zip", args, 2)?;
     match (&args[0], &args[1]) {
@@ -470,7 +399,6 @@ fn vector_zip(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns sliding windows of size `n`.
 fn vector_windows(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::windows", args, 2)?;
     match (&args[0], &args[1]) {
@@ -493,7 +421,6 @@ fn vector_windows(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns non-overlapping chunks of size `n`.
 fn vector_chunks(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::chunks", args, 2)?;
     match (&args[0], &args[1]) {
@@ -516,7 +443,6 @@ fn vector_chunks(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns the sum of all integer elements. Empty vector returns 0.
 fn vector_sum(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::sum", args, 1)?;
     match &args[0] {
@@ -556,7 +482,6 @@ fn vector_sum(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns the product of all integer elements. Empty vector returns 1.
 fn vector_product(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::product", args, 1)?;
     match &args[0] {
@@ -596,7 +521,6 @@ fn vector_product(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns the minimum element, or `None` if empty.
 fn vector_min(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::min", args, 1)?;
     match &args[0] {
@@ -621,7 +545,6 @@ fn vector_min(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns the maximum element, or `None` if empty.
 fn vector_max(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::max", args, 1)?;
     match &args[0] {
@@ -646,7 +569,6 @@ fn vector_max(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Creates a new empty map.
 fn map_new(args: &[Value]) -> Result<Value> {
     expect_arg_count("Map::new", args, 0)?;
     Ok(Value::Map(Map {
@@ -654,8 +576,6 @@ fn map_new(args: &[Value]) -> Result<Value> {
     }))
 }
 
-/// Returns a new map with the given key-value pair inserted.
-/// Receiver at `args[0]`, key at `args[1]`, value at `args[2]`.
 fn map_insert(args: &[Value]) -> Result<Value> {
     expect_arg_count("Map::insert", args, 3)?;
     match &args[0] {
@@ -669,8 +589,6 @@ fn map_insert(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns the value associated with the given key wrapped in `Some`, or
-/// `None` if not present. Receiver at `args[0]`, key at `args[1]`.
 fn map_get(args: &[Value]) -> Result<Value> {
     expect_arg_count("Map::get", args, 2)?;
     match &args[0] {
@@ -682,8 +600,6 @@ fn map_get(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns `true` if the map contains the given key.
-/// Receiver at `args[0]`, key at `args[1]`.
 fn map_contains_key(args: &[Value]) -> Result<Value> {
     expect_arg_count("Map::contains_key", args, 2)?;
     match &args[0] {
@@ -695,8 +611,6 @@ fn map_contains_key(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns a new map with the given key removed.
-/// Receiver at `args[0]`, key at `args[1]`.
 fn map_remove(args: &[Value]) -> Result<Value> {
     expect_arg_count("Map::remove", args, 2)?;
     match &args[0] {
@@ -710,7 +624,6 @@ fn map_remove(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns the number of key-value pairs in the map.
 fn map_len(args: &[Value]) -> Result<Value> {
     expect_arg_count("Map::len", args, 1)?;
     match &args[0] {
@@ -719,7 +632,6 @@ fn map_len(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns a vector of all keys in the map, in insertion order.
 fn map_keys(args: &[Value]) -> Result<Value> {
     expect_arg_count("Map::keys", args, 1)?;
     match &args[0] {
@@ -731,7 +643,6 @@ fn map_keys(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns a vector of all values in the map, in insertion order.
 fn map_values(args: &[Value]) -> Result<Value> {
     expect_arg_count("Map::values", args, 1)?;
     match &args[0] {
@@ -743,13 +654,11 @@ fn map_values(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Creates a new empty set.
 fn set_new(args: &[Value]) -> Result<Value> {
     expect_arg_count("Set::new", args, 0)?;
     Ok(Value::Set(Set(IndexSet::new())))
 }
 
-/// Returns a new set with the given value inserted. Receiver at `args[0]`, value at `args[1]`.
 fn set_insert(args: &[Value]) -> Result<Value> {
     expect_arg_count("Set::insert", args, 2)?;
     match &args[0] {
@@ -763,7 +672,6 @@ fn set_insert(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns `true` if the set contains the given value.
 fn set_contains(args: &[Value]) -> Result<Value> {
     expect_arg_count("Set::contains", args, 2)?;
     match &args[0] {
@@ -775,7 +683,6 @@ fn set_contains(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns a new set with the given value removed.
 fn set_remove(args: &[Value]) -> Result<Value> {
     expect_arg_count("Set::remove", args, 2)?;
     match &args[0] {
@@ -789,7 +696,6 @@ fn set_remove(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns the number of elements in the set.
 fn set_len(args: &[Value]) -> Result<Value> {
     expect_arg_count("Set::len", args, 1)?;
     match &args[0] {
@@ -798,7 +704,6 @@ fn set_len(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Converts a set to a vec of its elements.
 fn set_to_vector(args: &[Value]) -> Result<Value> {
     expect_arg_count("Set::to_vector", args, 1)?;
     match &args[0] {
@@ -820,7 +725,6 @@ fn set_to_vector(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns the byte length of a string. Receiver: `self` at `args[0]`.
 fn str_len(args: &[Value]) -> Result<Value> {
     expect_arg_count("str::len", args, 1)?;
     match &args[0] {
@@ -829,7 +733,6 @@ fn str_len(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns a new string with leading and trailing whitespace removed.
 fn str_trim(args: &[Value]) -> Result<Value> {
     expect_arg_count("str::trim", args, 1)?;
     match &args[0] {
@@ -838,7 +741,6 @@ fn str_trim(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns `true` if the string contains the given substring.
 fn str_contains(args: &[Value]) -> Result<Value> {
     expect_arg_count("str::contains", args, 2)?;
     match (&args[0], &args[1]) {
@@ -854,7 +756,6 @@ fn str_contains(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns `true` if the string starts with the given prefix.
 fn str_starts_with(args: &[Value]) -> Result<Value> {
     expect_arg_count("str::starts_with", args, 2)?;
     match (&args[0], &args[1]) {
@@ -868,7 +769,6 @@ fn str_starts_with(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns `true` if the string ends with the given suffix.
 fn str_ends_with(args: &[Value]) -> Result<Value> {
     expect_arg_count("str::ends_with", args, 2)?;
     match (&args[0], &args[1]) {
@@ -882,7 +782,6 @@ fn str_ends_with(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Splits a string by a delimiter, returning a vector of substrings.
 fn str_split(args: &[Value]) -> Result<Value> {
     expect_arg_count("str::split", args, 2)?;
     match (&args[0], &args[1]) {
@@ -902,7 +801,6 @@ fn str_split(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns `true` if the character is alphabetic (Unicode `Alphabetic` property).
 fn char_is_alphabetic(args: &[Value]) -> Result<Value> {
     expect_arg_count("char::is_alphabetic", args, 1)?;
     match &args[0] {
@@ -911,7 +809,6 @@ fn char_is_alphabetic(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns `true` if the character is numeric (Unicode `Numeric_Type` property).
 fn char_is_numeric(args: &[Value]) -> Result<Value> {
     expect_arg_count("char::is_numeric", args, 1)?;
     match &args[0] {
@@ -920,7 +817,6 @@ fn char_is_numeric(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Converts a character to a single-character string.
 fn char_to_string(args: &[Value]) -> Result<Value> {
     expect_arg_count("char::to_string", args, 1)?;
     match &args[0] {
@@ -929,7 +825,6 @@ fn char_to_string(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Wraps a Rust `std::option::Option<Value>` into a Maat `Option<T>` enum variant.
 fn option_wrap(opt: Option<Value>) -> Value {
     match opt {
         Some(val) => Value::EnumVariant(EnumVariantVal {
@@ -945,7 +840,6 @@ fn option_wrap(opt: Option<Value>) -> Value {
     }
 }
 
-/// Wraps a successfully parsed integer in `Ok(value)`.
 fn parse_ok(value: Value) -> Value {
     Value::EnumVariant(EnumVariantVal {
         type_index: RESULT_TYPE_INDEX,
@@ -954,7 +848,6 @@ fn parse_ok(value: Value) -> Value {
     })
 }
 
-/// Wraps a parse failure in `Err(ParseIntError::variant)`.
 fn parse_err(error: ParseIntError) -> Value {
     Value::EnumVariant(EnumVariantVal {
         type_index: RESULT_TYPE_INDEX,
@@ -967,11 +860,6 @@ fn parse_err(error: ParseIntError) -> Value {
     })
 }
 
-/// Generates a typed string-to-integer parse function.
-/// Each generated function trims the input string, attempts to parse it as the
-/// target integer type.
-///
-/// Returns `Ok(value)` on success or `Err(ParseIntError)` on failure.
 macro_rules! define_str_parse {
     ($fn_name:ident, $method:literal, $rust_ty:ty, $variant:ident) => {
         fn $fn_name(args: &[Value]) -> Result<Value> {
@@ -999,7 +887,6 @@ define_str_parse!(str_parse_u64, "parse_u64", u64, U64);
 define_str_parse!(str_parse_u128, "parse_u128", u128, U128);
 define_str_parse!(str_parse_usize, "parse_usize", usize, Usize);
 
-/// Extracts the inner value from `Some(x)`, or produces a runtime error on `None`.
 fn option_unwrap(args: &[Value]) -> Result<Value> {
     expect_arg_count("Option::unwrap", args, 1)?;
     match &args[0] {
@@ -1013,7 +900,6 @@ fn option_unwrap(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Extracts the inner value from `Some(x)`, or returns the provided default on `None`.
 fn option_unwrap_or(args: &[Value]) -> Result<Value> {
     expect_arg_count("Option::unwrap_or", args, 2)?;
     match &args[0] {
@@ -1027,7 +913,6 @@ fn option_unwrap_or(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns `true` if the `Option` is `Some`.
 fn option_is_some(args: &[Value]) -> Result<Value> {
     expect_arg_count("Option::is_some", args, 1)?;
     match &args[0] {
@@ -1038,7 +923,6 @@ fn option_is_some(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns `true` if the `Option` is `None`.
 fn option_is_none(args: &[Value]) -> Result<Value> {
     expect_arg_count("Option::is_none", args, 1)?;
     match &args[0] {
@@ -1049,7 +933,6 @@ fn option_is_none(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Extracts the `Ok` value, or produces a runtime error on `Err`.
 fn result_unwrap(args: &[Value]) -> Result<Value> {
     expect_arg_count("Result::unwrap", args, 1)?;
     match &args[0] {
@@ -1070,7 +953,6 @@ fn result_unwrap(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Extracts the `Ok` value, or returns the provided default on `Err`.
 fn result_unwrap_or(args: &[Value]) -> Result<Value> {
     expect_arg_count("Result::unwrap_or", args, 2)?;
     match &args[0] {
@@ -1084,7 +966,6 @@ fn result_unwrap_or(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns `true` if the `Result` is `Ok`.
 fn result_is_ok(args: &[Value]) -> Result<Value> {
     expect_arg_count("Result::is_ok", args, 1)?;
     match &args[0] {
@@ -1095,7 +976,6 @@ fn result_is_ok(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Returns `true` if the `Result` is `Err`.
 fn result_is_err(args: &[Value]) -> Result<Value> {
     expect_arg_count("Result::is_err", args, 1)?;
     match &args[0] {
@@ -1106,7 +986,6 @@ fn result_is_err(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Converts `Some(x)` to `Ok(x)`, or `None` to `Err(())`.
 fn option_ok(args: &[Value]) -> Result<Value> {
     expect_arg_count("Option::ok", args, 1)?;
     match &args[0] {
@@ -1128,7 +1007,6 @@ fn option_ok(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Collapses `Some(Some(x))` to `Some(x)`, or `Some(None)` / `None` to `None`.
 fn option_flatten(args: &[Value]) -> Result<Value> {
     expect_arg_count("Option::flatten", args, 1)?;
     match &args[0] {
@@ -1150,7 +1028,6 @@ fn option_flatten(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Combines two `Option`s into `Some((a, b))` if both are `Some`, otherwise `None`.
 fn option_zip(args: &[Value]) -> Result<Value> {
     expect_arg_count("Option::zip", args, 2)?;
     match (&args[0], &args[1]) {
@@ -1179,7 +1056,6 @@ fn option_zip(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Extracts the `Err` value, or produces a runtime error on `Ok`.
 fn result_unwrap_err(args: &[Value]) -> Result<Value> {
     expect_arg_count("Result::unwrap_err", args, 1)?;
     match &args[0] {
@@ -1200,7 +1076,6 @@ fn result_unwrap_err(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Converts `Ok(x)` to `Some(x)`, or `Err(_)` to `None`.
 fn result_ok(args: &[Value]) -> Result<Value> {
     expect_arg_count("Result::ok", args, 1)?;
     match &args[0] {
@@ -1222,7 +1097,6 @@ fn result_ok(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Converts `Err(e)` to `Some(e)`, or `Ok(_)` to `None`.
 fn result_err(args: &[Value]) -> Result<Value> {
     expect_arg_count("Result::err", args, 1)?;
     match &args[0] {
@@ -1244,7 +1118,6 @@ fn result_err(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Converts a `Hashable` back to an `Value`.
 fn hashable_to_object(h: &Hashable) -> Value {
     match h {
         Hashable::Integer(v) => Value::Integer(*v),
@@ -1273,10 +1146,6 @@ fn method_type_error(val: &Value, method: &str, expected_type: &str) -> Result<V
     .into())
 }
 
-/// Generates a lossless numeric widening conversion builtin.
-///
-/// Each generated function extracts the source integer, widens it via
-/// `to_i128()`, range-checks against the target, and wraps the result.
 macro_rules! define_from_signed {
     ($fn_name:ident, $target_name:expr, $target_ty:ty, $variant:ident) => {
         fn $fn_name(args: &[Value]) -> Result<Value> {
@@ -1338,7 +1207,6 @@ fn conversion_error(n: &Integer, target: &str) -> Error {
     EvalError::Builtin(format!("{target}: value {n} out of range")).into()
 }
 
-/// Generates a zero-arg `Type::default()` builtin returning the zero value.
 macro_rules! define_default {
     ($fn_name:ident, $name:expr, $value:expr) => {
         fn $fn_name(args: &[Value]) -> Result<Value> {
@@ -1379,7 +1247,6 @@ define_default!(
 define_default!(bool_default, "bool::default", Value::Bool(false));
 define_default!(str_default, "str::default", Value::Str(String::new()));
 
-/// Compares two integers of the same type, returning the smaller.
 fn cmp_min(args: &[Value]) -> Result<Value> {
     expect_arg_count("cmp::min", args, 2)?;
     match (&args[0], &args[1]) {
@@ -1398,7 +1265,6 @@ fn cmp_min(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Compares two integers of the same type, returning the larger.
 fn cmp_max(args: &[Value]) -> Result<Value> {
     expect_arg_count("cmp::max", args, 2)?;
     match (&args[0], &args[1]) {
@@ -1417,7 +1283,6 @@ fn cmp_max(args: &[Value]) -> Result<Value> {
     }
 }
 
-/// Restricts a value to the range `[min, max]`.
 fn cmp_clamp(args: &[Value]) -> Result<Value> {
     expect_arg_count("cmp::clamp", args, 3)?;
     match (&args[0], &args[1], &args[2]) {

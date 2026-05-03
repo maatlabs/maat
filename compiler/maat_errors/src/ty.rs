@@ -1,9 +1,6 @@
 use maat_span::Span;
 use thiserror::Error;
 
-/// A type-checking error with a source span.
-///
-/// Wraps [`TypeErrorKind`] with location information for rich diagnostics.
 #[derive(Debug, Error)]
 #[error("{kind}")]
 pub struct TypeError {
@@ -11,7 +8,6 @@ pub struct TypeError {
     pub span: Span,
 }
 
-/// The underlying variant of a type-checking error.
 #[derive(Debug, Error)]
 pub enum TypeErrorKind {
     #[error("type mismatch: expected `{expected}`, found `{found}`")]
@@ -68,7 +64,6 @@ pub enum TypeErrorKind {
     PrivateAccess { item: String, module: String },
 }
 
-/// Detail for a missing trait method error.
 #[derive(Debug, Error)]
 #[error("missing trait method `{method}` in impl of `{trait_name}` for `{self_type}`")]
 pub struct MissingTraitMethodError {
@@ -77,7 +72,6 @@ pub struct MissingTraitMethodError {
     pub method: String,
 }
 
-/// Detail for a trait method signature mismatch error.
 #[derive(Debug, Error)]
 #[error(
     "method `{method}` has wrong signature in impl of `{trait_name}` for `{self_type}`: expected `{expected}`, found `{found}`"

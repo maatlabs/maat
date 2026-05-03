@@ -1,38 +1,18 @@
-//! Public exports collected from a type-checked module.
-//!
-//! After type checking a module, its public items are captured in a
-//! [`ModuleExports`] so that downstream modules can import them via
-//! `use` statements.
-
 use maat_ast::{Program, Stmt, TypeExpr};
 use maat_types::{EnumDef, ImplDef, StructDef, TraitDef, Type, TypeEnv, TypeScheme};
 
 use crate::{ImportKind, ResolvedImport};
 
-/// The set of publicly visible items exported by a module.
-///
-/// Collected after type checking and used to populate the type environments
-/// of downstream modules that import from this module.
 #[derive(Debug, Clone, Default)]
 pub struct ModuleExports {
-    /// Public function and variable bindings: `(name, type_scheme)`.
     pub bindings: Vec<(String, TypeScheme)>,
-    /// Public struct definitions.
     pub structs: Vec<StructDef>,
-    /// Public enum definitions.
     pub enums: Vec<EnumDef>,
-    /// Public trait definitions.
     pub traits: Vec<TraitDef>,
-    /// All impl blocks (visibility is per-method, not per-block).
     pub impls: Vec<ImplDef>,
 }
 
 impl ModuleExports {
-    /// Extracts public exports from a type-checked module.
-    ///
-    /// Scans the AST for `pub` items and collects their type information
-    /// from the type environment. Must be called after type checking so
-    /// that the environment contains resolved types for all declarations.
     pub fn from_checked(program: &Program, env: &TypeEnv) -> Self {
         let mut exports = Self::default();
         for stmt in &program.statements {
@@ -123,11 +103,6 @@ impl ModuleExports {
         exports
     }
 
-    /// Resolves all exports matching `name` and appends them to `result`.
-    ///
-    /// When a struct or enum is found, any associated `impl` blocks from the
-    /// same module are also included so that method resolution works across
-    /// module boundaries.
     pub fn resolve_item(&self, name: &str, result: &mut Vec<ResolvedImport>) {
         if let Some((_, scheme)) = self.bindings.iter().find(|(n, _)| n == name) {
             result.push(ResolvedImport {

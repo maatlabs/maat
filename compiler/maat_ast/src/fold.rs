@@ -1,17 +1,13 @@
 //! Constant folding pass over the AST.
 //!
-//! Replaces `Infix(lhs, op, rhs)` nodes with a single literal
-//! when both operands are compile-time constants. Uses checked arithmetic;
+//! Replaces `Infix(lhs, op, rhs)` nodes with a single literal when both
+//! operands are compile-time constants. Uses checked arithmetic;
 //! overflow is reported as a compile error.
 
 use maat_errors::{TypeError, TypeErrorKind};
 
 use crate::*;
 
-/// Folds constant expressions in a program.
-///
-/// Walks the AST in post-order and replaces binary operations on two
-/// literal operands with the computed result. Returns any overflow errors.
 pub fn fold_constants(program: &mut Program) -> Vec<TypeError> {
     let mut errors = Vec::new();
     for stmt in &mut program.statements {

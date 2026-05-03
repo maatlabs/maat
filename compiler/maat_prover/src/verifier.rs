@@ -13,10 +13,8 @@ use winter_verifier::AcceptableOptions;
 use crate::gadgets::hasher::hash_bytes_to_field_elements;
 use crate::gadgets::proof_serializer::deserialize_proof;
 
-/// Minimum conjectural security level accepted during verification.
 const MIN_SECURITY_BITS: u32 = 0;
 
-/// Verifies a serialized proof using its embedded public inputs.
 pub fn verify(proof_bytes: &[u8]) -> Result<(), VerificationError> {
     let (proof, embedded) = deserialize_proof(proof_bytes)?;
     let program_hash = hash_bytes_to_field_elements(&embedded.program_hash);
@@ -24,7 +22,6 @@ pub fn verify(proof_bytes: &[u8]) -> Result<(), VerificationError> {
     verify_with_inputs(proof, public_inputs)
 }
 
-/// Verifies a STARK proof against explicitly provided public inputs.
 pub fn verify_with_inputs(proof: Proof, inputs: MaatPublicInputs) -> Result<(), VerificationError> {
     let acceptable = AcceptableOptions::MinConjecturedSecurity(MIN_SECURITY_BITS);
     winter_verifier::verify::<

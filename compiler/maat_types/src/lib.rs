@@ -5,6 +5,7 @@
 //! Sits between macro expansion and codegen in the compilation pipeline.
 //!
 //! [`Hindley-Milner`]: https://en.wikipedia.org/wiki/Hindley%E2%80%93Milner_type_system
+
 #![forbid(unsafe_code)]
 
 mod env;

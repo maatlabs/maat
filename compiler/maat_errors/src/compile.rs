@@ -1,9 +1,6 @@
 use maat_span::Span;
 use thiserror::Error;
 
-/// A compile-time error with an optional source span.
-///
-/// Wraps [`CompileErrorKind`] with location information for rich diagnostics.
 #[derive(Debug, Error)]
 #[error("{kind}")]
 pub struct CompileError {
@@ -12,13 +9,11 @@ pub struct CompileError {
 }
 
 impl CompileError {
-    /// Creates a compile error from a kind with no associated span.
     pub fn new(kind: CompileErrorKind) -> Self {
         Self { kind, span: None }
     }
 }
 
-/// The underlying variant of a compile-time error.
 #[derive(Debug, Error)]
 pub enum CompileErrorKind {
     #[error(
