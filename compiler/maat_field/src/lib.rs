@@ -1,14 +1,14 @@
-//! Goldilocks-field type alias and runtime-value-to-field encoding for the Maat STARK prover/verifier.
+//! Goldilocks-field type alias and runtime-value-to-field encoding for Maat STARK prover/verifier.
 //!
 //! This crate exposes [`Felt`] as a transparent alias for Winterfell's
 //! `f64::BaseElement` (the Goldilocks prime field `p = 2^64 - 2^32 + 1`), so the
 //! algebraic operators (`Add`, `Sub`, `Mul`, `Neg`, `Div`, `inv`, `exp`,
 //! `as_int`, ...) carry through directly from the upstream implementation
 //! without a forwarding wrapper. The crate's own contribution is the
-//! [`Encodable`] trait that lifts every primitive Maat runtime type into the
-//! field, the [`from_i64`] helper that bakes in two's-complement sign
-//! extension, and the [`try_inv`]/[`try_div`] wrappers that surface the
-//! division-by-zero distinction Winterfell silently absorbs.
+//! [`ToElements`] implementations that lift every primitive runtime type into a
+//! flat sequence of base‑field elements, the [`from_i64`] helper that bakes in
+//! two's‑complement sign extension, and the [`try_inv`]/[`try_div`] wrappers
+//! that surface the division-by-zero distinction Winterfell silently absorbs.
 //!
 //! # Field choice
 //!
@@ -19,18 +19,19 @@
 //!
 //! # Value-to-field encoding contract
 //!
-//! The [`Encodable`] trait defines how each primitive runtime value is lifted
-//! into the field.
+//! Types implement Winterfell's [`ToElements`] trait to define how each runtime
+//! value is represented as a sequence of [`Felt`] elements. All encodings are
+//! deterministic and infallible.
 //!
-//! | Maat type        | Felt encoding                                              |
-//! | ---------------- | ---------------------------------------------------------- |
-//! | `i8`..`i64`      | Sign-extended `i64`, reduced mod `p` via two's-complement  |
-//! | `u8`..`u64`      | Direct reduction mod `p`                                   |
-//! | `i128`, `u128`   | Two elements `(hi, lo)` split at 64 bits                   |
-//! | `bool`           | `0` or `1`                                                 |
-//! | `char`           | Unicode scalar as `u32`                                    |
-//! | `Felt`           | Direct (native element)                                    |
-//! | `Unit`           | `0`                                                        |
+//! | Maat type          | Encoding (`Vec<Felt>`)                                     |
+//! |--------------------|------------------------------------------------------------|
+//! | `i8`..`i64`        | `[from_i64(value)]`                                        |
+//! | `u8`..`u64`        | `[Felt::new(value)]`                                       |
+//! | `i128`, `u128`     | `[Felt::new(hi), Felt::new(lo)]` (split at 64 bits)        |
+//! | `bool`             | `[0]` or `[1]`                                             |
+//! | `char`             | `[Felt::new(scalar)]`                                      |
+//! | `Felt`             | `[value]` (identity)                                       |
+//! | `()` (unit)        | `[Felt::ZERO]`                                             |
 //!
 //! Composite runtime values (`str`, `Vector<T>`, `Map`, `Set`, `Struct`,
 //! `EnumVariant`) are not encodable here and are lowered onto the unified
@@ -40,7 +41,7 @@
 //!
 //! The `Div` operator on [`Felt`] (inherited from Winterfell) returns the field
 //! product `lhs * rhs.inv()` and silently yields zero when `rhs` is zero.
-//! Maat's compiler emits divisions that must surface a runtime error in that
+//! The compiler emits divisions that must surface a runtime error in that
 //! case; [`try_div`] and [`try_inv`] are the wrappers used by the VM and the
 //! trace recorder to preserve the [`FieldError::InverseOfZero`] distinction.
 
@@ -55,13 +56,18 @@ pub type Felt = BaseElement;
 /// The Goldilocks prime `p = 2^64 - 2^32 + 1`.
 pub const MODULUS: u64 = <Felt as StarkField>::MODULUS;
 
+pub type Result<T> = std::result::Result<T, FieldError>;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum FieldError {
     #[error("cannot invert the zero element of the field")]
     InverseOfZero,
 }
 
-/// Lifts an `i64` into the field, encoding negatives as `p + value`.
+/// Lifts an `i64` into the field.
+///
+/// Negative values are turned into their canonical positive representation
+/// (`p - |value|`) without a full Montgomery/modular reduction.
 #[inline]
 pub fn from_i64(value: i64) -> Felt {
     if value >= 0 {
@@ -73,7 +79,7 @@ pub fn from_i64(value: i64) -> Felt {
 
 /// Multiplicative inverse, surfacing the zero-element case as a typed error.
 #[inline]
-pub fn try_inv(value: Felt) -> Result<Felt, FieldError> {
+pub fn try_inv(value: Felt) -> Result<Felt> {
     if value == Felt::ZERO {
         Err(FieldError::InverseOfZero)
     } else {
@@ -83,53 +89,36 @@ pub fn try_inv(value: Felt) -> Result<Felt, FieldError> {
 
 /// Field division `lhs * try_inv(rhs)`. Fails only when `rhs` is zero.
 #[inline]
-pub fn try_div(lhs: Felt, rhs: Felt) -> Result<Felt, FieldError> {
+pub fn try_div(lhs: Felt, rhs: Felt) -> Result<Felt> {
     try_inv(rhs).map(|inv| lhs * inv)
 }
 
-/// Encoding of a runtime value as one or more base-field elements.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FeltEncode {
-    Single(Felt),
-    Pair(Felt, Felt),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum EncodingError {
-    #[error("value of kind `{0}` is not encodable as a field element")]
-    UnsupportedValueKind(&'static str),
-}
-
-/// A value that can be lifted into the base field.
+/// A value that can be encoded into a sequence of base‑field elements.
 pub trait Encodable {
-    fn encode(&self) -> Result<FeltEncode, EncodingError>;
+    fn encode(&self) -> Vec<Felt>;
 }
 
 impl Encodable for Felt {
-    #[inline]
-    fn encode(&self) -> Result<FeltEncode, EncodingError> {
-        Ok(FeltEncode::Single(*self))
+    fn encode(&self) -> Vec<Felt> {
+        vec![*self]
     }
 }
 
 impl Encodable for bool {
-    #[inline]
-    fn encode(&self) -> Result<FeltEncode, EncodingError> {
-        Ok(FeltEncode::Single(Felt::new(u64::from(*self))))
+    fn encode(&self) -> Vec<Felt> {
+        vec![Felt::new(u64::from(*self))]
     }
 }
 
 impl Encodable for char {
-    #[inline]
-    fn encode(&self) -> Result<FeltEncode, EncodingError> {
-        Ok(FeltEncode::Single(Felt::new(u64::from(*self as u32))))
+    fn encode(&self) -> Vec<Felt> {
+        vec![Felt::new(u64::from(*self as u32))]
     }
 }
 
 impl Encodable for () {
-    #[inline]
-    fn encode(&self) -> Result<FeltEncode, EncodingError> {
-        Ok(FeltEncode::Single(Felt::ZERO))
+    fn encode(&self) -> Vec<Felt> {
+        vec![Felt::ZERO]
     }
 }
 
@@ -137,9 +126,8 @@ macro_rules! impl_encodable_unsigned {
     ($($ty:ty),* $(,)?) => {
         $(
             impl Encodable for $ty {
-                #[inline]
-                fn encode(&self) -> Result<FeltEncode, EncodingError> {
-                    Ok(FeltEncode::Single(Felt::new(u64::from(*self))))
+                fn encode(&self) -> Vec<Felt> {
+                    vec![Felt::new(u64::from(*self))]
                 }
             }
         )*
@@ -150,9 +138,8 @@ macro_rules! impl_encodable_signed {
     ($($ty:ty),* $(,)?) => {
         $(
             impl Encodable for $ty {
-                #[inline]
-                fn encode(&self) -> Result<FeltEncode, EncodingError> {
-                    Ok(FeltEncode::Single(from_i64(i64::from(*self))))
+                fn encode(&self) -> Vec<Felt> {
+                    vec![from_i64(i64::from(*self))]
                 }
             }
         )*
@@ -163,21 +150,19 @@ impl_encodable_unsigned!(u8, u16, u32, u64);
 impl_encodable_signed!(i8, i16, i32, i64);
 
 impl Encodable for u128 {
-    #[inline]
-    fn encode(&self) -> Result<FeltEncode, EncodingError> {
+    fn encode(&self) -> Vec<Felt> {
         let hi = (*self >> 64) as u64;
         let lo = *self as u64;
-        Ok(FeltEncode::Pair(Felt::new(hi), Felt::new(lo)))
+        vec![Felt::new(hi), Felt::new(lo)]
     }
 }
 
 impl Encodable for i128 {
-    #[inline]
-    fn encode(&self) -> Result<FeltEncode, EncodingError> {
+    fn encode(&self) -> Vec<Felt> {
         let bits = *self as u128;
         let hi = (bits >> 64) as u64;
         let lo = bits as u64;
-        Ok(FeltEncode::Pair(Felt::new(hi), Felt::new(lo)))
+        vec![Felt::new(hi), Felt::new(lo)]
     }
 }
 
@@ -186,7 +171,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn from_i64_handles_negatives_via_twos_complement() {
+    fn from_i64_handles_negatives() {
         let neg = from_i64(-1);
         let one = Felt::new(1);
         assert_eq!(neg + one, Felt::ZERO);
@@ -219,59 +204,45 @@ mod tests {
     }
 
     #[test]
-    fn encode_unsigned_integers_direct() {
-        assert_eq!(5u8.encode().unwrap(), FeltEncode::Single(Felt::new(5)));
-        assert_eq!(
-            u64::MAX.encode().unwrap(),
-            FeltEncode::Single(Felt::new(u64::MAX))
-        );
+    fn encode_unsigned_integers() {
+        assert_eq!(5u8.encode(), vec![Felt::new(5)]);
+        assert_eq!(u64::MAX.encode(), vec![Felt::new(u64::MAX)]);
     }
 
     #[test]
-    fn encode_signed_negatives_via_twos_complement() {
-        let encoded = (-1i32).encode().unwrap();
-        match encoded {
-            FeltEncode::Single(felt) => assert_eq!(felt + Felt::ONE, Felt::ZERO),
-            FeltEncode::Pair(_, _) => panic!("expected single-element encoding"),
-        }
+    fn encode_signed_negatives() {
+        let encoded = (-1i32).encode();
+        assert_eq!(encoded.len(), 1);
+        assert_eq!(encoded[0] + Felt::ONE, Felt::ZERO);
     }
 
     #[test]
-    fn encode_bool_zero_and_one() {
-        assert_eq!(false.encode().unwrap(), FeltEncode::Single(Felt::ZERO));
-        assert_eq!(true.encode().unwrap(), FeltEncode::Single(Felt::ONE));
+    fn encode_bool() {
+        assert_eq!(false.encode(), vec![Felt::ZERO]);
+        assert_eq!(true.encode(), vec![Felt::ONE]);
     }
 
     #[test]
-    fn encode_char_as_scalar() {
-        let c = 'A';
-        assert_eq!(c.encode().unwrap(), FeltEncode::Single(Felt::new(65)));
+    fn encode_char() {
+        assert_eq!('A'.encode(), vec![Felt::new(65)]);
     }
 
     #[test]
-    fn encode_unit_is_zero() {
-        assert_eq!(().encode().unwrap(), FeltEncode::Single(Felt::ZERO));
+    fn encode_unit() {
+        assert_eq!(().encode(), vec![Felt::ZERO]);
     }
 
     #[test]
-    fn encode_u128_splits_into_hi_lo() {
+    fn encode_u128_splits_hi_lo() {
         let value: u128 = (0xdead_beefu128 << 64) | 0xcafe_babe;
-        let encoded = value.encode().unwrap();
-        assert_eq!(
-            encoded,
-            FeltEncode::Pair(Felt::new(0xdead_beef), Felt::new(0xcafe_babe))
-        );
+        let expected = vec![Felt::new(0xdead_beef), Felt::new(0xcafe_babe)];
+        assert_eq!(value.encode(), expected);
     }
 
     #[test]
-    fn encode_i128_negative_preserves_round_trip() {
+    fn encode_i128_negative() {
         let value: i128 = -1;
-        match value.encode().unwrap() {
-            FeltEncode::Pair(hi, lo) => {
-                assert_eq!(hi, Felt::new(u64::MAX));
-                assert_eq!(lo, Felt::new(u64::MAX));
-            }
-            FeltEncode::Single(_) => panic!("expected pair encoding"),
-        }
+        let encoded = value.encode();
+        assert_eq!(encoded, vec![Felt::new(u64::MAX), Felt::new(u64::MAX)]);
     }
 }

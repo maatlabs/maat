@@ -3,7 +3,7 @@
 use std::fmt;
 
 use maat_ast::NumKind;
-use maat_field::{Felt, FieldElement, from_i64};
+use maat_field::{Encodable, Felt};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -20,6 +20,25 @@ pub enum Integer {
     U64(u64),
     U128(u128),
     Usize(usize),
+}
+
+impl Encodable for Integer {
+    fn encode(&self) -> Vec<Felt> {
+        match *self {
+            Self::I8(v) => v.encode(),
+            Self::I16(v) => v.encode(),
+            Self::I32(v) => v.encode(),
+            Self::I64(v) => v.encode(),
+            Self::I128(v) => v.encode(),
+            Self::Isize(v) => (v as i64).encode(),
+            Self::U8(v) => v.encode(),
+            Self::U16(v) => v.encode(),
+            Self::U32(v) => v.encode(),
+            Self::U64(v) => v.encode(),
+            Self::U128(v) => v.encode(),
+            Self::Usize(v) => (v as u64).encode(),
+        }
+    }
 }
 
 pub enum WideInt {
@@ -87,20 +106,14 @@ macro_rules! checked_unary {
 }
 
 impl Integer {
-    /// Encodes this integer value as a field element.
-    pub fn to_felt(&self) -> Felt {
-        match self {
-            Self::I8(v) => from_i64(i64::from(*v)),
-            Self::I16(v) => from_i64(i64::from(*v)),
-            Self::I32(v) => from_i64(i64::from(*v)),
-            Self::I64(v) => from_i64(*v),
-            Self::Isize(v) => from_i64(*v as i64),
-            Self::U8(v) => Felt::new(u64::from(*v)),
-            Self::U16(v) => Felt::new(u64::from(*v)),
-            Self::U32(v) => Felt::new(u64::from(*v)),
-            Self::U64(v) => Felt::new(*v),
-            Self::Usize(v) => Felt::new(*v as u64),
-            Self::I128(_) | Self::U128(_) => Felt::ZERO,
+    /// Returns `Some(felt)` if this integer fits in a single field element,
+    /// otherwise `None` (e.g. for 128‑bit types).
+    pub fn to_felt(&self) -> Option<Felt> {
+        let elements = self.encode();
+        if elements.len() == 1 {
+            Some(elements[0])
+        } else {
+            None
         }
     }
 

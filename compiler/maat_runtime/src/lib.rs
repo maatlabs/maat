@@ -18,7 +18,7 @@ use indexmap::{IndexMap, IndexSet};
 use maat_ast::{BlockStmt, MaatAst, Number};
 pub use maat_ast::{CastTarget, NumKind};
 use maat_errors::{Error, EvalError, Result};
-use maat_field::FieldElement;
+use maat_field::{Encodable as _, FieldElement};
 pub use maat_field::{Felt, StarkField, from_i64, try_div, try_inv};
 use maat_span::SourceMap;
 pub use num::{Integer, WideInt};
@@ -87,16 +87,20 @@ pub enum Value {
 impl Value {
     /// Encodes this runtime value as a single Goldilocks field element.
     ///
-    /// Primitive types encode losslessly within the 64-bit field; composite types
-    /// (`Vector`, `Map`, `Struct`, closures, etc.) currently encode as
-    /// [`Felt::ZERO`].
+    /// Primitive types encode losslessly within the 64‑bit field. 128‑bit
+    /// integers (`I128`, `U128`) cannot fit into one element; they are encoded
+    /// as [`Felt::ZERO`] through this method (use [`Encodable::encode`](maat_field))
+    /// if you need the full two‑element representation.
+    ///
+    /// Composite types (`Vector`, `Map`, `Struct`, closures, etc.) also encode
+    /// as [`Felt::ZERO`].
     pub fn to_felt(&self) -> Felt {
         match self {
-            Self::Integer(int) => int.to_felt(),
             Self::Felt(f) => *f,
-            Self::Bool(b) => Felt::new(*b as u64),
-            Self::Char(c) => Felt::new(*c as u32 as u64),
-            Self::Unit => Felt::ZERO,
+            Self::Integer(int) => int.to_felt().unwrap_or(Felt::ZERO),
+            Self::Bool(b) => b.encode()[0],
+            Self::Char(c) => c.encode()[0],
+            Self::Unit => ().encode()[0],
             _ => Felt::ZERO,
         }
     }
