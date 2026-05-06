@@ -295,7 +295,7 @@ HTML reports are generated at `target/criterion/report/index.html`.
 
 ### Fuzz Testing
 
-Maat includes [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz) targets for each compiler pipeline stage. Fuzz testing requires the nightly Rust toolchain.
+Maat includes [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz) targets covering both the compiler pipeline and the proof system. Fuzz testing requires the nightly Rust toolchain.
 
 ```bash
 # Install cargo-fuzz (one-time)
@@ -303,14 +303,36 @@ cargo install cargo-fuzz
 
 # List available fuzz targets
 cargo +nightly fuzz list
+```
 
-# Run a specific target (e.g., 60-second bounded run)
-cargo +nightly fuzz run fuzz_lexer -- -max_total_time=60
-cargo +nightly fuzz run fuzz_parser -- -max_total_time=60
-cargo +nightly fuzz run fuzz_typechecker -- -max_total_time=60
-cargo +nightly fuzz run fuzz_compiler -- -max_total_time=60
+#### Compiler pipeline targets
+
+libfuzzer starts from a single null byte and builds coverage-guided from there. Text and binary parsers are naturally explorable from minimal input, so no pre-generated seeds are required.
+
+```bash
+cargo +nightly fuzz run fuzz_lexer        -- -max_total_time=60
+cargo +nightly fuzz run fuzz_parser       -- -max_total_time=60
+cargo +nightly fuzz run fuzz_typechecker  -- -max_total_time=60
+cargo +nightly fuzz run fuzz_compiler     -- -max_total_time=60
 cargo +nightly fuzz run fuzz_deserializer -- -max_total_time=60
 ```
+
+#### Proof-system targets
+
+`fuzz_trace_recorder` and `fuzz_air_constraints` ship with small authored seed files found in `fuzz/corpus/`. `fuzz_proof_deserializer` and `fuzz_verifier` additionally need real STARK proof bytes, so run `corpus_gen` once after a fresh clone (or after any proof-system change) to populate those corpora:
+
+```bash
+# Required after a fresh clone, or after any proof-system change.
+cargo run --release -p maat_tests --bin corpus_gen
+
+# Run proof-system fuzz targets
+cargo +nightly fuzz run fuzz_proof_deserializer -- -max_total_time=60
+cargo +nightly fuzz run fuzz_verifier           -- -max_total_time=60
+cargo +nightly fuzz run fuzz_trace_recorder     -- -max_total_time=60
+cargo +nightly fuzz run fuzz_air_constraints    -- -max_total_time=60
+```
+
+`fuzz_proof_deserializer` and `fuzz_verifier` verify that malformed byte streams are always rejected with a structured error and never cause a panic. `fuzz_trace_recorder` verifies that arbitrarily mutated source text never panics the compiler or prover pipeline. `fuzz_air_constraints` verifies the soundness property: any tampered execution trace must be rejected by the verifier.
 
 Crash artifacts (if any) are saved to `fuzz/artifacts/<target>/`. Seed corpora live in `fuzz/corpus/`.
 
