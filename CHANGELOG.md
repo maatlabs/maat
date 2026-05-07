@@ -4,6 +4,52 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.1] - 2026-05-07
+
+Adds fuzz targets, property tests, and benchmarks to the STARK proof system; closes a proof option-downgrade malleability gap; patches two internal naming issues.
+
+### Security
+
+- **Verifier pinned to known-good proof options** (`maat_prover::verify_with_inputs`). The verifier previously accepted any proof whose conjectured security was at least zero bits (`AcceptableOptions::MinConjecturedSecurity(0)`), which allowed a captured legitimate proof to be tampered with weakened parameters (fewer queries, smaller grinding) and still verify if the resulting transcript happened to remain coherent. This is not a soundness gap on a true statement, but it is a malleability concern: the verifier accepted a proof claiming weaker security than was actually computed. The verifier is now pinned to `AcceptableOptions::OptionSet(vec![development_options(), production_options()])`, enforcing bit-for-bit equality with one of the two preset option configurations the prover is allowed to emit. Any proof advertising tampered options is rejected before any cryptographic check runs. The `single_byte_tamper_rejected` proptest now covers the full proof byte range rather than only the 48-byte Maat header.
+
+### Added
+
+#### Proof-system fuzz targets
+
+- **`fuzz_proof_deserializer`** -- arbitrary bytes through `deserialize_proof` + the underlying STARK-proof decoder. Hook-swap + `catch_unwind` intercepts panics from the proof-decoding path.
+- **`fuzz_verifier`** -- arbitrary bytes through the full `verify` path.
+- **`fuzz_trace_recorder`** -- arbitrary UTF-8 through the full compile -> trace -> prove -> verify pipeline. Hook-swap intercepts the Winterfell `evaluation_table` assertion on degenerate traces. Five seed programs committed under `fuzz/corpus/fuzz_trace_recorder/`.
+- **`fuzz_air_constraints`** -- structured `(row_idx: u32 LE, col_idx: u8, delta: u64 LE)` inputs that tamper individual trace cells before proving; six representative seeds committed under `fuzz/corpus/fuzz_air_constraints/`.
+- **`corpus_gen` binary** (`tests/src/bin/corpus_gen.rs`). Generates serialized STARK proof seeds for `fuzz_proof_deserializer` and `fuzz_verifier` from the five seed programs; run `cargo run --release -p maat_tests --bin corpus_gen` after a fresh clone.
+- **`fuzz.yml` CI** (`.github/workflows/fuzz.yml`). Four jobs: `fuzz-pipeline-{pr,nightly}` for the five compiler-pipeline targets; `fuzz-proof-{pr,nightly}` for the four proof-system targets. PR jobs run 60 s per target; nightly jobs run 300 s.
+
+#### Proof-system property tests
+
+Four `proptest` invariants added to the existing compiler-pipeline suite:
+
+1. **Round-trip** (20 cases) -- every provable `fn main() -> i64` program verifies after proving.
+2. **Single-byte tamper rejection** (500 cases, full proof bytes) -- mutating any byte of a serialized proof causes verification to fail. Coverage spans the 48-byte Maat header (magic, version, program hash, claimed output, input count) and the entire Winterfell payload (options, context, commitments, queries, FRI). Made possible by the option-pinning Security change above; the original narrowing to the header was a workaround for the option-downgrade malleability the pin now closes.
+3. **Relaxed address continuity** (20 cases) -- multi-variable programs with non-monotonic memory access prove and verify under the unified memory permutation argument.
+4. **Program-hash collision resistance** (500 cases) -- distinct compiled bytecodes never share a Blake3 program hash.
+
+#### Proof-system benchmarks
+
+Three Criterion benchmark functions added to a new `proof_system_benches` group:
+
+- **`bench_prove`** -- times `maat_trace::run` + `MaatProver::generate_proof`. Development options: all four nominal trace sizes (≈32 / ≈256 / ≈1024 / ≈4096 rows). Production options: ≈32 and ≈256 rows only (larger sizes exceed practical CI time budgets).
+- **`bench_verify`** -- proof bytes pre-generated outside the timed section; times `verify` for all six prove combinations.
+- **`bench_aux_columns`** -- pre-generated main-trace columns; times `build_aux_columns` in isolation for all four trace sizes.
+
+Representative timings (release, development options): `prove/dev/32` ≈ 1.2 ms, `verify/dev/32` ≈ 115 µs, `aux_columns/32` ≈ 6.4 µs.
+
+### Changed
+
+- **`maat_ast::Node` renamed to `MaatAst`** (`maat_ast`). Aligns the top-level AST node name with the crate's public branding; all downstream crates and integration tests updated.
+- **Runtime-value-to-field encoding refactored** (`maat_field`, `maat_trace`). The `Encodable` trait and `ToElements` impls consolidated under `maat_field`; `maat_trace` now consumes the encoding contract rather than re-implementing it. No behavioral change.
+- **`maat_codegen` modularized**. The monolithic `lib.rs` is split into focused submodules under `compile/`: `statement`, `control_flow`, `expression`, `composite`, `method`, `array`, and `macro_call`. The `Compiler` struct, lifecycle methods, shared submodule declarations, etc. live in a new `compile.rs` API root; `lib.rs` retains the crate-level re-exports and existing `mod tests`. Pure refactor; no signature changes and no public-API breaks.
+
+---
+
 ## [0.13.0] - 2026-05-03
 
 Proof system foundation. Implements a single instrumented VM for trace generation, static transition degrees, a unified memory permutation, and a builtin-segment ABI for expensive-to-arithmetize operations.
@@ -1145,6 +1191,7 @@ When adding entries to this changelog for future releases:
 3. **Audience**: Write for users, not developers (focus on impact, not implementation)
 4. **Links**: Add comparison links at the bottom: `[0.2.0]: https://github.com/maatlabs/maat/compare/v0.1.0...v0.2.0`
 
+[0.13.1]: https://github.com/maatlabs/maat/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/maatlabs/maat/compare/v0.12.3...v0.13.0
 [0.12.3]: https://github.com/maatlabs/maat/compare/v0.12.2...v0.12.3
 [0.12.2]: https://github.com/maatlabs/maat/compare/v0.12.1...v0.12.2
