@@ -1,47 +1,19 @@
-//! Implements [`Token`] and [`TokenKind`].
-
 use maat_span::Span;
 
-/// Language keywords recognized by the lexer.
-///
-/// This is the canonical list of keywords that the lexer produces as
-/// dedicated [`TokenKind`] variants (rather than [`TokenKind::Ident`]).
-/// Sorted lexicographically for binary search in completion engines.
 pub const KEYWORDS: &[&str] = &[
     "Self", "as", "break", "continue", "else", "enum", "false", "fn", "for", "if", "impl", "in",
     "let", "loop", "macro", "match", "mod", "mut", "pub", "return", "self", "struct", "trait",
     "true", "use", "where", "while",
 ];
 
-/// A lexical token in Maat.
-///
-/// Tokens represent the smallest meaningful units of source code, such as
-/// keywords, operators, identifiers, and literals. Each token carries both its
-/// syntactic classification ([`TokenKind`]), the exact source text it represents,
-/// and its position in the source for error reporting.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Token<'src> {
-    /// The syntactic classification of this token.
     pub kind: TokenKind,
-    /// The raw source text that produced this token.
     pub literal: &'src str,
-    /// The source position of this token.
     pub span: Span,
 }
 
 impl<'src> Token<'src> {
-    /// Constructs a new token with the given token kind, the raw text
-    /// from the source code, and its span.
-    ///
-    /// # Parameters
-    ///
-    /// * `kind` - The syntactic classification of the token.
-    /// * `literal` - The raw source text that produced this token.
-    /// * `span` - The source position of this token.
-    ///
-    /// # Returns
-    ///
-    /// A new [`Token`] instance.
     #[inline]
     pub const fn new(kind: TokenKind, literal: &'src str, span: Span) -> Self {
         Self {
@@ -61,10 +33,6 @@ impl<'src> core::fmt::Display for Token<'src> {
     }
 }
 
-/// The syntactic classification of a lexical token.
-///
-/// This enum defines all possible token types in Maat, including
-/// keywords, operators, delimiters, identifiers, and literals.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TokenKind {
     /// The `let` keyword for variable bindings.

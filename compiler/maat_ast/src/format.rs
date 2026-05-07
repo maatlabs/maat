@@ -6,25 +6,12 @@ use crate::{GenericParam, TypeExpr, TypedParam};
 
 /// A segment of a parsed format string.
 pub enum FmtSegment {
-    /// A literal text segment (between `{}` placeholders).
     Literal(String),
-    /// A `{}` placeholder to be replaced by a positional argument.
     Arg,
-    /// A `{name}` placeholder resolved as a variable capture.
     Capture(String),
 }
 
 /// Unescapes a string literal by processing escape sequences.
-///
-/// Supports standard escape sequences:
-/// - `\\` -> backslash
-/// - `\"` -> double quote
-/// - `\n` -> newline
-/// - `\r` -> carriage return
-/// - `\t` -> tab
-/// - `\0` -> null character
-///
-/// Invalid escape sequences are preserved as-is.
 pub fn unescape_string(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     let mut chars = s.chars();
@@ -61,9 +48,6 @@ pub fn unescape_string(s: &str) -> String {
 
 /// Converts a character literal's inner text (without surrounding quotes)
 /// into the represented character.
-///
-/// Handles simple characters (`a`), standard escape sequences (`\n`, `\t`,
-/// `\\`, `\'`, `\0`), and Unicode escapes (`\u{XXXX}`).
 pub fn unescape_char(s: &str) -> Option<char> {
     let mut chars = s.chars();
     let result = match chars.next()? {
@@ -87,10 +71,6 @@ pub fn unescape_char(s: &str) -> Option<char> {
 }
 
 /// Parses the `{XXXX}` portion of a `\u{XXXX}` Unicode escape sequence.
-///
-/// The leading `\u` has already been consumed. Expects `{` followed by
-/// 1-6 hex digits followed by `}`. Returns the decoded character, or
-/// `None` if the sequence is malformed or the code point is invalid.
 fn parse_unicode_escape(chars: &mut std::str::Chars<'_>) -> Option<char> {
     if chars.next() != Some('{') {
         return None;
@@ -172,9 +152,6 @@ pub fn visibility_modifier(vis: bool) -> &'static str {
 }
 
 /// Renders documentation comment lines (`///`) above the item.
-///
-/// Each line of the stored doc string is emitted as a separate `///` line,
-/// reconstructing the original source form.
 pub fn fmt_doc_comment(f: &mut fmt::Formatter<'_>, doc: &Option<String>) -> fmt::Result {
     if let Some(text) = doc {
         for line in text.lines() {
@@ -185,9 +162,6 @@ pub fn fmt_doc_comment(f: &mut fmt::Formatter<'_>, doc: &Option<String>) -> fmt:
 }
 
 /// Parses a format string into a sequence of literal, positional, and capture segments.
-///
-/// Handles `{{` and `}}` as escaped braces. `{}` is a positional placeholder,
-/// `{name}` is a variable capture (where `name` matches `[a-zA-Z_][a-zA-Z0-9_]*`).
 pub fn parse_format_string(fmt: &str) -> Vec<FmtSegment> {
     let mut segments = Vec::new();
     let mut buf = String::new();

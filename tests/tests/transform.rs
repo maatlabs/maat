@@ -19,10 +19,10 @@ fn two() -> Expr {
     })
 }
 
-fn turn_one_into_two(node: Node) -> Node {
+fn turn_one_into_two(node: MaatAst) -> MaatAst {
     match node {
-        Node::Expr(Expr::Number(n)) if n.kind == NumKind::I64 && n.value == 1 => {
-            Node::Expr(Expr::Number(Number {
+        MaatAst::Expr(Expr::Number(n)) if n.kind == NumKind::I64 && n.value == 1 => {
+            MaatAst::Expr(Expr::Number(Number {
                 kind: n.kind,
                 value: 2,
                 radix: n.radix,
@@ -35,9 +35,9 @@ fn turn_one_into_two(node: Node) -> Node {
 
 #[test]
 fn transform_leaf_nodes() {
-    let modified = transform(Node::Expr(one()), &mut turn_one_into_two);
+    let modified = transform(MaatAst::Expr(one()), &mut turn_one_into_two);
     match modified {
-        Node::Expr(Expr::Number(n)) => assert_eq!(n.value, 2),
+        MaatAst::Expr(Expr::Number(n)) => assert_eq!(n.value, 2),
         _ => panic!("expected Number expression"),
     }
 }
@@ -64,7 +64,8 @@ fn transform_statements() {
             }),
         ],
     };
-    let Node::Program(prog) = transform(Node::Program(program), &mut turn_one_into_two) else {
+    let MaatAst::Program(prog) = transform(MaatAst::Program(program), &mut turn_one_into_two)
+    else {
         panic!("expected Program");
     };
     let Stmt::Let(ref ls) = prog.statements[0] else {
@@ -95,7 +96,7 @@ fn transform_compound_expressions() {
         array_eq_len: None,
         span: Span::ZERO,
     });
-    let Node::Expr(Expr::Infix(infix)) = transform(Node::Expr(input), &mut turn_one_into_two)
+    let MaatAst::Expr(Expr::Infix(infix)) = transform(MaatAst::Expr(input), &mut turn_one_into_two)
     else {
         panic!("expected Infix");
     };
@@ -112,7 +113,8 @@ fn transform_collections() {
         elements: vec![one(), one()],
         span: Span::ZERO,
     });
-    let Node::Expr(Expr::Vector(arr)) = transform(Node::Expr(array), &mut turn_one_into_two) else {
+    let MaatAst::Expr(Expr::Vector(arr)) = transform(MaatAst::Expr(array), &mut turn_one_into_two)
+    else {
         panic!("expected Vector");
     };
     assert!(
@@ -124,7 +126,7 @@ fn transform_collections() {
         pairs: vec![(one(), one())],
         span: Span::ZERO,
     });
-    let Node::Expr(Expr::Map(h)) = transform(Node::Expr(map), &mut turn_one_into_two) else {
+    let MaatAst::Expr(Expr::Map(h)) = transform(MaatAst::Expr(map), &mut turn_one_into_two) else {
         panic!("expected Map");
     };
     let (ref k, ref v) = h.pairs[0];
@@ -186,7 +188,8 @@ fn transform_nested_structures() {
         })],
     };
 
-    let Node::Program(prog) = transform(Node::Program(program), &mut turn_one_into_two) else {
+    let MaatAst::Program(prog) = transform(MaatAst::Program(program), &mut turn_one_into_two)
+    else {
         panic!("expected Program");
     };
 

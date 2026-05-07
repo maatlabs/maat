@@ -9,7 +9,7 @@ Abstract syntax tree (AST) the Maat programming language.
 ## Usage
 
 ```rust
-use maat_ast::{Program, Stmt, Expr, Node, fold_constants};
+use maat_ast::{Program, Stmt, Expr, MaatAst, fold_constants};
 
 // Traverse all statements in a program
 fn count_fns(program: &Program) -> usize {

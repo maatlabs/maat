@@ -16,6 +16,10 @@ maat_ast = { path = "../compiler/maat_ast" }
 maat_types = { path = "../compiler/maat_types" }
 maat_codegen = { path = "../compiler/maat_codegen" }
 maat_bytecode = { path = "../compiler/maat_bytecode" }
+maat_field = { path = "../compiler/maat_field" }
+maat_trace = { path = "../compiler/maat_trace" }
+maat_air = { path = "../compiler/maat_air" }
+maat_prover = { path = "../compiler/maat_prover" }
 
 [[bin]]
 name = "fuzz_lexer"
@@ -48,6 +52,34 @@ bench = false
 [[bin]]
 name = "fuzz_deserializer"
 path = "fuzz_targets/fuzz_deserializer.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_proof_deserializer"
+path = "fuzz_targets/fuzz_proof_deserializer.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_verifier"
+path = "fuzz_targets/fuzz_verifier.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_trace_recorder"
+path = "fuzz_targets/fuzz_trace_recorder.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_air_constraints"
+path = "fuzz_targets/fuzz_air_constraints.rs"
 test = false
 doc = false
 bench = false

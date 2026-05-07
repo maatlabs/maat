@@ -1136,7 +1136,7 @@ fn immutable_assignment_error() {
     let mut program = parser.parse();
     maat_ast::fold_constants(&mut program);
     let mut compiler = maat_codegen::Compiler::new();
-    let result = compiler.compile(&maat_ast::Node::Program(program));
+    let result = compiler.compile(&maat_ast::MaatAst::Program(program));
     assert!(
         result.is_err(),
         "expected compile error for immutable assignment"

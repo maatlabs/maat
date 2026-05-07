@@ -1,17 +1,12 @@
 //! Shared utilities for integration tests.
 
-use maat_ast::{Node, Program, fold_constants};
+use maat_ast::{MaatAst, Program, fold_constants};
 use maat_bytecode::Bytecode;
 use maat_codegen::Compiler;
 use maat_lexer::MaatLexer;
 use maat_parser::MaatParser;
 use maat_types::TypeChecker;
 
-/// Parses the given source string into an AST [`Program`].
-///
-/// # Panics
-///
-/// Panics if the parser encounters any errors.
 pub fn parse(input: &str) -> Program {
     let lexer = MaatLexer::new(input);
     let mut parser = MaatParser::new(lexer);
@@ -24,13 +19,6 @@ pub fn parse(input: &str) -> Program {
     program
 }
 
-/// Compiles the given source string into [`Bytecode`].
-///
-/// Runs the full pipeline: parse -> type check -> constant fold -> compile.
-///
-/// # Panics
-///
-/// Panics if parsing, type checking, or compilation fails.
 pub fn compile(input: &str) -> Bytecode {
     let mut program = parse(input);
 
@@ -45,32 +33,23 @@ pub fn compile(input: &str) -> Bytecode {
     );
     let mut compiler = Compiler::new();
     compiler
-        .compile(&Node::Program(program))
+        .compile(&MaatAst::Program(program))
         .expect("compilation failed");
     compiler.bytecode().expect("bytecode extraction failed")
 }
 
 /// Compiles the given source string into [`Bytecode`] without type checking
 /// or constant folding.
-///
-/// This is used by compiler tests that assert on exact bytecode layout,
-/// where constant folding would alter the expected instruction sequences.
-///
-/// # Panics
-///
-/// Panics if parsing or compilation fails.
 pub fn compile_raw(input: &str) -> Bytecode {
     let program = parse(input);
     let mut compiler = Compiler::new();
     compiler
-        .compile(&Node::Program(program))
+        .compile(&MaatAst::Program(program))
         .expect("compilation failed");
     compiler.bytecode().expect("bytecode extraction failed")
 }
 
 /// Parses the given source string, expecting parse errors.
-///
-/// Returns the error messages for assertion.
 pub fn parse_errors(input: &str) -> Vec<String> {
     let lexer = MaatLexer::new(input);
     let mut parser = MaatParser::new(lexer);
@@ -79,12 +58,6 @@ pub fn parse_errors(input: &str) -> Vec<String> {
 }
 
 /// Compiles the given source string, expecting type errors.
-///
-/// Returns the type error messages for assertion.
-///
-/// # Panics
-///
-/// Panics if parsing fails.
 pub fn compile_type_errors(input: &str) -> Vec<String> {
     let mut program = parse(input);
     let type_errors = TypeChecker::new().check_program(&mut program);
@@ -93,14 +66,6 @@ pub fn compile_type_errors(input: &str) -> Vec<String> {
 
 /// Compiles the given source string, serializes the bytecode, deserializes
 /// it, and returns the restored [`Bytecode`].
-///
-/// This exercises the full round-trip through the binary format, ensuring
-/// that execution from deserialized bytecode produces the same results as
-/// direct compilation.
-///
-/// # Panics
-///
-/// Panics if parsing, compilation, serialization, or deserialization fails.
 pub fn roundtrip(input: &str) -> Bytecode {
     let bytecode = compile(input);
     let bytes = bytecode.serialize().expect("serialization failed");
@@ -235,4 +200,36 @@ let c: i64 = b - a;
 let d: i64 = c / 2;
 d
 ";
+
+    /// Targets a padded trace length of ≈32 rows.
+    pub const PROVE_32: &str = "\
+fn main() -> i64 {
+    let mut s: i64 = 0;
+    for i in 0..2 { s = s + i; }
+    s
+}";
+
+    /// Targets a padded trace length of ≈256 rows.
+    pub const PROVE_256: &str = "\
+fn main() -> i64 {
+    let mut s: i64 = 0;
+    for i in 0..29 { s = s + i; }
+    s
+}";
+
+    /// Targets a padded trace length of ≈1024 rows.
+    pub const PROVE_1024: &str = "\
+fn main() -> i64 {
+    let mut s: i64 = 0;
+    for i in 0..125 { s = s + i; }
+    s
+}";
+
+    /// Targets a padded trace length of ≈4096 rows.
+    pub const PROVE_4096: &str = "\
+fn main() -> i64 {
+    let mut s: i64 = 0;
+    for i in 0..500 { s = s + i; }
+    s
+}";
 }

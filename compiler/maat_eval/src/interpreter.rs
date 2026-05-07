@@ -10,39 +10,25 @@ use maat_runtime::{
 
 use crate::{QUOTE, UNQUOTE};
 
-/// Evaluates an AST node in the given environment.
-///
-/// This function performs pure tree-walking evaluation without macro processing.
-///
-/// # Examples
-///
-/// ```no_run
-/// # use maat_eval::eval;
-/// # use maat_runtime::Env;
-/// # use maat_ast::Node;
-/// # let program = maat_ast::Program { statements: vec![] };
-/// let env = Env::default();
-/// let result = eval(Node::Program(program), &env).unwrap();
-/// ```
-pub fn eval(node: Node, env: &Env) -> Result<Value> {
+pub fn eval(node: MaatAst, env: &Env) -> Result<Value> {
     match node {
-        Node::Program(prog) => eval_program(prog, env),
-        Node::Stmt(stmt) => match stmt {
+        MaatAst::Program(prog) => eval_program(prog, env),
+        MaatAst::Stmt(stmt) => match stmt {
             Stmt::Let(ls) => {
-                let val = eval(Node::Expr(ls.value), env)?;
+                let val = eval(MaatAst::Expr(ls.value), env)?;
                 env.set(ls.ident, &val);
                 Ok(val)
             }
             Stmt::ReAssign(assign) => {
-                let val = eval(Node::Expr(assign.value), env)?;
+                let val = eval(MaatAst::Expr(assign.value), env)?;
                 env.update(assign.ident, &val);
                 Ok(val)
             }
             Stmt::Return(rs) => {
-                let val = eval(Node::Expr(rs.value), env)?;
+                let val = eval(MaatAst::Expr(rs.value), env)?;
                 Ok(Value::ReturnValue(Box::new(val)))
             }
-            Stmt::Expr(es) => eval(Node::Expr(es.value), env),
+            Stmt::Expr(es) => eval(MaatAst::Expr(es.value), env),
             Stmt::Block(bs) => eval_block_statement(&bs, env),
             Stmt::FuncDef(fn_item) => {
                 let val = Value::Function(Function {
@@ -63,7 +49,7 @@ pub fn eval(node: Node, env: &Env) -> Result<Value> {
             | Stmt::Use(_)
             | Stmt::Mod(_) => Ok(UNIT),
         },
-        Node::Expr(expr) => match expr {
+        MaatAst::Expr(expr) => match expr {
             Expr::Number(v) => Ok(Value::from_number_literal(&v).map_err(EvalError::Number)?),
             Expr::Bool(b) => Ok(Value::Bool(b.value)),
             Expr::Str(s) => Ok(Value::Str(maat_ast::unescape_string(&s.value))),
@@ -72,7 +58,7 @@ pub fn eval(node: Node, env: &Env) -> Result<Value> {
                 let elements = tuple
                     .elements
                     .iter()
-                    .map(|e| eval(Node::Expr(e.clone()), env))
+                    .map(|e| eval(MaatAst::Expr(e.clone()), env))
                     .collect::<Result<Vec<_>>>()?;
                 Ok(Value::Tuple(elements))
             }
@@ -108,7 +94,7 @@ pub fn eval(node: Node, env: &Env) -> Result<Value> {
             Expr::Break(break_expr) => {
                 let value = break_expr
                     .value
-                    .map(|v| eval(Node::Expr(*v), env))
+                    .map(|v| eval(MaatAst::Expr(*v), env))
                     .transpose()?
                     .unwrap_or(UNIT);
                 Ok(Value::Break(Box::new(value)))
@@ -116,8 +102,8 @@ pub fn eval(node: Node, env: &Env) -> Result<Value> {
             Expr::Continue(_) => Ok(Value::Continue),
             Expr::Cast(cast_expr) => eval_cast_expression(cast_expr, env),
             Expr::Range(range) => {
-                let start = eval(Node::Expr(*range.start), env)?;
-                let end = eval(Node::Expr(*range.end), env)?;
+                let start = eval(MaatAst::Expr(*range.start), env)?;
+                let end = eval(MaatAst::Expr(*range.end), env)?;
                 match (start, end) {
                     (Value::Integer(s), Value::Integer(e)) => {
                         if range.inclusive {
@@ -153,7 +139,7 @@ pub fn eval(node: Node, env: &Env) -> Result<Value> {
                         ))
                         .into());
                     }
-                    let node = Node::Expr(call_expr.arguments[0].clone());
+                    let node = MaatAst::Expr(call_expr.arguments[0].clone());
                     let node = eval_unquote_calls(node, env);
                     return Ok(Value::Quote(Box::new(Quote { node })));
                 }
@@ -166,7 +152,7 @@ pub fn eval(node: Node, env: &Env) -> Result<Value> {
 fn eval_program(prog: Program, env: &Env) -> Result<Value> {
     let mut result = UNIT;
     for stmt in &prog.statements {
-        result = eval(Node::Stmt(stmt.clone()), env)?;
+        result = eval(MaatAst::Stmt(stmt.clone()), env)?;
         match result {
             // Unwrap early returns at program level.
             Value::ReturnValue(val) => return Ok(*val),
@@ -186,7 +172,7 @@ pub fn eval_block_statement(block: &BlockStmt, env: &Env) -> Result<Value> {
     let block_env = Env::new_enclosed(env);
     let mut result = UNIT;
     for stmt in &block.statements {
-        result = eval(Node::Stmt(stmt.clone()), &block_env)?;
+        result = eval(MaatAst::Stmt(stmt.clone()), &block_env)?;
         // Propagate control flow signals up to the enclosing loop or function.
         if matches!(
             result,
@@ -223,7 +209,7 @@ fn eval_while_statement(stmt: WhileStmt, env: &Env) -> Result<Value> {
     let bound = stmt.bound;
     let mut counter = 0u64;
     loop {
-        let condition = eval(Node::Expr(*stmt.condition.clone()), env)?;
+        let condition = eval(MaatAst::Expr(*stmt.condition.clone()), env)?;
         if !condition.is_truthy() {
             break;
         }
@@ -246,7 +232,7 @@ fn eval_while_statement(stmt: WhileStmt, env: &Env) -> Result<Value> {
 }
 
 fn eval_for_statement(stmt: ForStmt, env: &Env) -> Result<Value> {
-    let iterable = eval(Node::Expr(*stmt.iterable), env)?;
+    let iterable = eval(MaatAst::Expr(*stmt.iterable), env)?;
     let elements = match iterable {
         Value::Vector(elems) | Value::Array(elems) => elems,
         other => {
@@ -275,22 +261,22 @@ fn eval_for_statement(stmt: ForStmt, env: &Env) -> Result<Value> {
 ///
 /// This is a convenience wrapper around `eval` for macro system use.
 fn eval_expression(expr: &Expr, env: &Env) -> Result<Value> {
-    eval(Node::Expr(expr.clone()), env)
+    eval(MaatAst::Expr(expr.clone()), env)
 }
 
 fn eval_expressions(exprs: &[Expr], env: &Env) -> Result<Vec<Value>> {
     let mut result = Vec::new();
     for expr in exprs {
-        let evaluated = eval(Node::Expr(expr.to_owned()), env)?;
+        let evaluated = eval(MaatAst::Expr(expr.to_owned()), env)?;
         result.push(evaluated);
     }
     Ok(result)
 }
 
 fn eval_index_expression(idx_expr: IndexExpr, env: &Env) -> Result<Value> {
-    let expr = eval(Node::Expr(*idx_expr.expr), env)?;
+    let expr = eval(MaatAst::Expr(*idx_expr.expr), env)?;
     let expr_type = expr.type_name();
-    let index = eval(Node::Expr(*idx_expr.index), env)?;
+    let index = eval(MaatAst::Expr(*idx_expr.index), env)?;
 
     match expr {
         Value::Vector(arr) | Value::Array(arr) => {
@@ -320,16 +306,16 @@ fn eval_index_expression(idx_expr: IndexExpr, env: &Env) -> Result<Value> {
 fn eval_map_literal(expr: MapLit, env: &Env) -> Result<Value> {
     let mut pairs = IndexMap::new();
     for (key_expr, val_expr) in &expr.pairs {
-        let key = eval(Node::Expr(key_expr.clone()), env)?;
+        let key = eval(MaatAst::Expr(key_expr.clone()), env)?;
         let key = Hashable::try_from(key)?;
-        let value = eval(Node::Expr(val_expr.clone()), env)?;
+        let value = eval(MaatAst::Expr(val_expr.clone()), env)?;
         pairs.insert(key, value);
     }
     Ok(Value::Map(Map { pairs }))
 }
 
 fn eval_prefix_expression(expr: PrefixExpr, env: &Env) -> Result<Value> {
-    let operand = eval(Node::Expr(*expr.operand), env)?;
+    let operand = eval(MaatAst::Expr(*expr.operand), env)?;
     let op = &expr.operator;
 
     match op.as_str() {
@@ -352,12 +338,8 @@ fn eval_prefix_expression(expr: PrefixExpr, env: &Env) -> Result<Value> {
     }
 }
 
-/// Evaluates short-circuit logical operators `&&` and `||`.
-///
-/// `&&` returns the left operand if falsy, otherwise the right operand.
-/// `||` returns the left operand if truthy, otherwise the right operand.
 fn eval_logical_expression(expr: InfixExpr, env: &Env) -> Result<Value> {
-    let lhs = eval(Node::Expr(*expr.lhs), env)?;
+    let lhs = eval(MaatAst::Expr(*expr.lhs), env)?;
     let Value::Bool(left_val) = &lhs else {
         return Err(EvalError::InfixExpr(format!(
             "expected bool in `{}` expression, got `{lhs}`",
@@ -370,21 +352,21 @@ fn eval_logical_expression(expr: InfixExpr, env: &Env) -> Result<Value> {
             if !left_val {
                 return Ok(Value::Bool(false));
             }
-            eval(Node::Expr(*expr.rhs), env)
+            eval(MaatAst::Expr(*expr.rhs), env)
         }
         "||" => {
             if *left_val {
                 return Ok(Value::Bool(true));
             }
-            eval(Node::Expr(*expr.rhs), env)
+            eval(MaatAst::Expr(*expr.rhs), env)
         }
         _ => unreachable!(),
     }
 }
 
 fn eval_infix_expression(expr: InfixExpr, env: &Env) -> Result<Value> {
-    let lhs = eval(Node::Expr(*expr.lhs), env)?;
-    let rhs = eval(Node::Expr(*expr.rhs), env)?;
+    let lhs = eval(MaatAst::Expr(*expr.lhs), env)?;
+    let rhs = eval(MaatAst::Expr(*expr.rhs), env)?;
     let op = &expr.operator;
 
     match (&lhs, &rhs) {
@@ -496,7 +478,6 @@ fn eval_infix_expression(expr: InfixExpr, env: &Env) -> Result<Value> {
     }
 }
 
-/// Evaluates an infix operator on two Goldilocks field elements.
 fn eval_infix_felt(op: &str, lhs: Felt, rhs: Felt) -> Result<Value> {
     match op {
         "+" => Ok(Value::Felt(lhs + rhs)),
@@ -536,11 +517,11 @@ fn eval_infix_string(op: &str, lhs: &str, rhs: &str) -> Result<Value> {
 }
 
 fn eval_conditional_expression(expr: CondExpr, env: &Env) -> Result<Value> {
-    let condition = eval(Node::Expr(*expr.condition), env)?;
+    let condition = eval(MaatAst::Expr(*expr.condition), env)?;
     if condition.is_truthy() {
-        eval(Node::Stmt(Stmt::Block(expr.consequence)), env)
+        eval(MaatAst::Stmt(Stmt::Block(expr.consequence)), env)
     } else if let Some(alt) = expr.alternative {
-        eval(Node::Stmt(Stmt::Block(alt)), env)
+        eval(MaatAst::Stmt(Stmt::Block(alt)), env)
     } else {
         Ok(UNIT)
     }
@@ -557,7 +538,7 @@ fn eval_identifier(ident: String, env: &Env) -> Result<Value> {
 }
 
 fn eval_function_call(expr: CallExpr, env: &Env) -> Result<Value> {
-    let value = eval(Node::Expr(*expr.function), env)?;
+    let value = eval(MaatAst::Expr(*expr.function), env)?;
     let expressions = eval_expressions(&expr.arguments, env)?;
 
     match value {
@@ -566,7 +547,7 @@ fn eval_function_call(expr: CallExpr, env: &Env) -> Result<Value> {
             func.params.iter().enumerate().for_each(|(i, param)| {
                 env.set(param.to_owned(), &expressions[i]);
             });
-            let evaluated = eval(Node::Stmt(Stmt::Block(func.body)), &env)?;
+            let evaluated = eval(MaatAst::Stmt(Stmt::Block(func.body)), &env)?;
             match evaluated {
                 Value::ReturnValue(val) => Ok(*val),
                 Value::Break(_) | Value::Continue => {
@@ -580,16 +561,12 @@ fn eval_function_call(expr: CallExpr, env: &Env) -> Result<Value> {
     }
 }
 
-/// Evaluates `unquote` calls within a quoted AST node.
-///
-/// Traverses the AST and replaces `unquote(expr)` calls with their evaluated
-/// results, enabling selective evaluation inside quoted expressions.
-fn eval_unquote_calls(quoted: Node, env: &Env) -> Node {
+fn eval_unquote_calls(quoted: MaatAst, env: &Env) -> MaatAst {
     transform(quoted, &mut |node| {
         if !is_unquote_call(&node) {
             return node;
         }
-        if let Node::Expr(Expr::Call(call)) = &node {
+        if let MaatAst::Expr(Expr::Call(call)) = &node {
             if call.arguments.len() != 1 {
                 return node;
             }
@@ -608,7 +585,7 @@ fn eval_unquote_calls(quoted: Node, env: &Env) -> Node {
 }
 
 fn eval_cast_expression(expr: CastExpr, env: &Env) -> Result<Value> {
-    let value = eval(Node::Expr(*expr.expr), env)?;
+    let value = eval(MaatAst::Expr(*expr.expr), env)?;
     let target = expr.target;
 
     match target {
@@ -653,7 +630,6 @@ fn eval_cast_expression(expr: CastExpr, env: &Env) -> Result<Value> {
     }
 }
 
-/// Casts an integer-typed [`Value`] into a Goldilocks field element.
 fn cast_to_felt(value: Value) -> Result<Value> {
     use maat_runtime::Integer as I;
 
@@ -685,8 +661,8 @@ fn cast_to_felt(value: Value) -> Result<Value> {
 }
 
 /// Checks if a node is a call to the `unquote` builtin.
-fn is_unquote_call(node: &Node) -> bool {
-    if let Node::Expr(Expr::Call(call)) = node
+fn is_unquote_call(node: &MaatAst) -> bool {
+    if let MaatAst::Expr(Expr::Call(call)) = node
         && let Expr::Ident(ident) = &*call.function
     {
         return ident.value == UNQUOTE;

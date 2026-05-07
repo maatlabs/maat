@@ -9,7 +9,6 @@ use maat_ast::*;
 /// Unique identifier for type variables during inference.
 pub type TypeVarId = u32;
 
-/// A concrete or polymorphic type in the type system.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     I8,

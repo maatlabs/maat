@@ -15,7 +15,7 @@
 mod interpreter;
 
 pub use interpreter::{eval, eval_block_statement};
-use maat_ast::{Expr, Node, Program, Stmt, transform};
+use maat_ast::{Expr, MaatAst, Program, Stmt, transform};
 use maat_runtime::{Env, Macro, Quote, Value};
 
 /// The name of the `quote` special form for AST quoting.
@@ -30,20 +30,6 @@ pub const QUOTE: &str = "quote";
 /// This is a special form handled during quote evaluation, not a regular builtin.
 pub const UNQUOTE: &str = "unquote";
 
-/// Extracts macro definitions from a program and stores them in the environment.
-///
-/// This function traverses the program's statements, identifies `let` bindings that
-/// define macros, stores them in the environment, and returns a modified program
-/// with the macro definitions removed.
-///
-/// # Parameters
-///
-/// * `program` - The AST program to extract macros from
-/// * `env` - The environment to store macro definitions in
-///
-/// # Returns
-///
-/// A new program with macro definitions removed
 pub fn extract_macros(mut program: Program, env: &Env) -> Program {
     let mut defs = Vec::new();
 
@@ -67,22 +53,9 @@ pub fn extract_macros(mut program: Program, env: &Env) -> Program {
     program
 }
 
-/// Expands macro calls in the AST using the macro definitions in the environment.
-///
-/// This function traverses the entire AST and replaces macro calls with their
-/// expanded forms. Macro expansion happens before evaluation.
-///
-/// # Parameters
-///
-/// * `program` - The AST node to expand macros in
-/// * `env` - The environment containing macro definitions
-///
-/// # Returns
-///
-/// A new AST node with all macro calls expanded
-pub fn expand_macros(program: Node, env: &Env) -> Node {
+pub fn expand_macros(program: MaatAst, env: &Env) -> MaatAst {
     transform(program, &mut |node| {
-        if let Node::Expr(Expr::Call(call_expr)) = &node
+        if let MaatAst::Expr(Expr::Call(call_expr)) = &node
             && let Expr::Ident(ident) = &*call_expr.function
             && let Some(Value::Macro(val)) = env.get(&ident.value)
         {
@@ -91,7 +64,7 @@ pub fn expand_macros(program: Node, env: &Env) -> Node {
                 .iter()
                 .map(|arg| {
                     Value::Quote(Box::new(Quote {
-                        node: Node::Expr(arg.clone()),
+                        node: MaatAst::Expr(arg.clone()),
                     }))
                 })
                 .collect::<Vec<_>>();

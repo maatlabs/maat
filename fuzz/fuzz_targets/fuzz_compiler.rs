@@ -1,7 +1,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use maat_ast::Node;
+use maat_ast::MaatAst;
 use maat_codegen::Compiler;
 use maat_lexer::MaatLexer;
 use maat_parser::MaatParser;
@@ -22,5 +22,5 @@ fuzz_target!(|data: &[u8]| {
         return;
     }
     let mut compiler = Compiler::new();
-    let _ = compiler.compile(&Node::Program(program));
+    let _ = compiler.compile(&MaatAst::Program(program));
 });

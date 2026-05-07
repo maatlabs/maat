@@ -16,7 +16,6 @@ use maat_span::SourceMap;
 use maat_trace::selector::*;
 use maat_trace::table::{COL_MEM_ADDR, COL_MEM_VAL, COL_OUT, COL_SUB_SEL_BASE, TraceTable};
 
-/// Compiles source, runs the trace, and returns everything needed for proving.
 fn compile_and_trace(source: &str) -> (Bytecode, TraceTable, BaseElement) {
     let bytecode = maat_tests::compile(source);
     let (trace, result) = maat_trace::run(bytecode.clone()).expect("trace execution failed");
@@ -24,7 +23,6 @@ fn compile_and_trace(source: &str) -> (Bytecode, TraceTable, BaseElement) {
     (bytecode, trace, output)
 }
 
-/// Builds public inputs and proves, returning the proof and public inputs.
 fn prove(bytecode: &Bytecode, trace: TraceTable, output: BaseElement) -> (Proof, MaatPublicInputs) {
     let program_hash = compute_program_hash(bytecode).expect("program hash failed");
     let public_inputs = MaatPublicInputs::new(program_hash, vec![], output);
@@ -35,19 +33,12 @@ fn prove(bytecode: &Bytecode, trace: TraceTable, output: BaseElement) -> (Proof,
     (proof, public_inputs)
 }
 
-/// Proves and verifies in one step.
 fn prove_and_verify(source: &str) {
     let (bytecode, trace, output) = compile_and_trace(source);
     let (proof, public_inputs) = prove(&bytecode, trace, output);
     verify_with_inputs(proof, public_inputs).expect("verification failed");
 }
 
-/// Tampers with the `out` column on the first row where `sub_selector` fires.
-///
-/// Returns the original (correct) output field element so the caller can
-/// build public inputs with the true output while submitting a fraudulent
-/// trace. If no row with the given sub-selector is found the test panics,
-/// ensuring the source program actually exercises the targeted operation.
 fn tamper_output_on_sub_sel(trace: &mut TraceTable, sub_selector: usize) {
     let n = trace.num_rows();
     for i in 0..n {
@@ -60,9 +51,6 @@ fn tamper_output_on_sub_sel(trace: &mut TraceTable, sub_selector: usize) {
     panic!("no row with sub_selector offset {sub_selector} found in trace");
 }
 
-/// Asserts that proving (in release mode) followed by verifying a tampered trace
-/// rejects the proof, accepting that debug builds may panic earlier inside
-/// Winterfell's per-row constraint validation.
 fn assert_tampered_trace_rejected(
     bytecode: Bytecode,
     trace: TraceTable,
@@ -88,9 +76,6 @@ fn assert_tampered_trace_rejected(
     }
 }
 
-/// Builds bytecode that allocates a heap cell, reads it back, and produces the
-/// stored value as the program output. Used by synthetic tests; the
-/// heap opcodes are internal-only and not yet emitted by the surface compiler.
 fn synthetic_heap_alloc_read_bytecode(initial_value: i64) -> Bytecode {
     let mut instructions = Instructions::new();
     instructions.extend_from_bytes(&encode(Opcode::Constant, &[0]));
@@ -105,12 +90,6 @@ fn synthetic_heap_alloc_read_bytecode(initial_value: i64) -> Bytecode {
     }
 }
 
-/// Builds bytecode that allocates a heap cell, overwrites it with a new value,
-/// reads the updated value, and produces it as the program output.
-///
-/// The trace VM keys its logical-->physical heap map by allocation address, so
-/// the literal `1` in the constant pool matches the first physical heap
-/// address (`heap_alloc_ptr` starts at 1).
 fn synthetic_heap_write_then_read_bytecode(initial: i64, updated: i64) -> Bytecode {
     let mut instructions = Instructions::new();
     // Constants: 0 = initial, 1 = updated, 2 = logical heap address (1).

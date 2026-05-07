@@ -1,8 +1,16 @@
-use maat_ast::{Node, Program};
+use std::sync::OnceLock;
+
+use maat_air::MaatPublicInputs;
+use maat_ast::{MaatAst, Program, fold_constants};
 use maat_bytecode::Bytecode;
 use maat_codegen::Compiler;
 use maat_lexer::{MaatLexer, TokenKind};
 use maat_parser::MaatParser;
+use maat_prover::{
+    MaatProver, compute_program_hash, compute_program_hash_bytes, development_options,
+    serialize_proof, verify,
+};
+use maat_trace::table::COL_OUT;
 use maat_types::TypeChecker;
 use maat_vm::VM;
 use proptest::prelude::*;
@@ -102,8 +110,41 @@ fn type_check_and_compile(source: &str) -> Option<Bytecode> {
         return None;
     }
     let mut compiler = Compiler::new();
-    compiler.compile(&Node::Program(program)).ok()?;
+    compiler.compile(&MaatAst::Program(program)).ok()?;
     compiler.bytecode().ok()
+}
+
+fn compile_and_prove(source: &str) -> Option<Vec<u8>> {
+    let mut parser = MaatParser::new(MaatLexer::new(source));
+    let mut program = parser.parse();
+    if !parser.errors().is_empty() {
+        return None;
+    }
+    if !TypeChecker::new().check_program(&mut program).is_empty() {
+        return None;
+    }
+    if !fold_constants(&mut program).is_empty() {
+        return None;
+    }
+    let mut compiler = Compiler::new();
+    compiler.compile(&MaatAst::Program(program)).ok()?;
+    let bytecode = compiler.bytecode().ok()?;
+
+    let (trace, _) = maat_trace::run(bytecode.clone()).ok()?;
+    let output = trace.row(trace.num_rows() - 1)[COL_OUT];
+
+    let program_hash = compute_program_hash(&bytecode).ok()?;
+    let program_hash_bytes = compute_program_hash_bytes(&bytecode).ok()?;
+    let public_inputs = MaatPublicInputs::new(program_hash, vec![], output);
+    let prover = MaatProver::new(development_options(), public_inputs);
+
+    // Winterfell fires debug-mode `assert!` on degenerate traces; catch it.
+    let prove_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        prover.generate_proof(trace)
+    }));
+    let proof = prove_result.ok()?.ok()?;
+
+    Some(serialize_proof(&proof, &program_hash_bytes, output, &[]))
 }
 
 // Property: Lexer never panics on arbitrary UTF-8
@@ -266,5 +307,126 @@ proptest! {
                 "well-typed program produced runtime type error: {msg}"
             );
         }
+    }
+}
+
+static BASELINE_PROOF: OnceLock<Vec<u8>> = OnceLock::new();
+
+fn baseline_proof_bytes() -> &'static [u8] {
+    BASELINE_PROOF.get_or_init(|| {
+        compile_and_prove("fn main() -> i64 { let x: i64 = 7; let y: i64 = 3; x + y }")
+            .expect("baseline proof must succeed")
+    })
+}
+
+fn arb_i64_lit() -> impl Strategy<Value = i64> {
+    -100i64..=100
+}
+
+fn arb_provable_main() -> impl Strategy<Value = String> {
+    prop_oneof![
+        arb_i64_lit().prop_map(|n| format!("fn main() -> i64 {{ {n} }}")),
+        (arb_i64_lit(), arb_i64_lit(), 0..3usize).prop_map(|(a, b, op)| {
+            let operator = ["+", "-", "*"][op];
+            format!("fn main() -> i64 {{ {a} {operator} {b} }}")
+        }),
+    ]
+}
+
+fn arb_multi_var_main() -> impl Strategy<Value = String> {
+    prop::collection::vec(arb_i64_lit(), 2..5usize).prop_map(|vals| {
+        let decls: String = vals
+            .iter()
+            .enumerate()
+            .map(|(i, v)| format!("    let v{i}: i64 = {v};\n"))
+            .collect();
+        let last = vals.len() - 1;
+        format!("fn main() -> i64 {{\n{decls}    v0 + v{last}\n}}")
+    })
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(20))]
+
+    #[test]
+    fn proof_system_roundtrip(source in arb_provable_main()) {
+        let Some(proof_bytes) = compile_and_prove(&source) else {
+            return Ok(());
+        };
+        prop_assert!(
+            verify(&proof_bytes).is_ok(),
+            "completeness failure: verifier rejected proof for '{source}'"
+        );
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(500))]
+
+    #[test]
+    fn single_byte_tamper_rejected(
+        raw_idx in any::<usize>(),
+        replacement in any::<u8>(),
+    ) {
+        let proof = baseline_proof_bytes();
+        if proof.is_empty() {
+            return Ok(());
+        }
+        let idx = raw_idx % proof.len();
+        if proof[idx] == replacement {
+            return Ok(());
+        }
+        let mut tampered = proof.to_vec();
+        tampered[idx] = replacement;
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            verify(&tampered)
+        }));
+        match result {
+            Err(_) | Ok(Err(_)) => {}
+            Ok(Ok(())) => prop_assert!(
+                false,
+                "soundness gap: tampered proof accepted (byte index {idx})"
+            ),
+        }
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(20))]
+
+    #[test]
+    fn relaxed_continuity_accepted(source in arb_multi_var_main()) {
+        let Some(proof_bytes) = compile_and_prove(&source) else {
+            return Ok(());
+        };
+        prop_assert!(
+            verify(&proof_bytes).is_ok(),
+            "completeness failure: relaxed-continuity proof rejected for '{source}'"
+        );
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(500))]
+
+    #[test]
+    fn program_hash_no_collisions(
+        s1 in arb_provable_main(),
+        s2 in arb_provable_main(),
+    ) {
+        let Some(b1) = type_check_and_compile(&s1) else { return Ok(()); };
+        let Some(b2) = type_check_and_compile(&s2) else { return Ok(()); };
+        if b1 == b2 {
+            return Ok(());
+        }
+        let h1 = compute_program_hash(&b1).expect("hashing must not fail");
+        let h2 = compute_program_hash(&b2).expect("hashing must not fail");
+        prop_assert_ne!(
+            h1, h2,
+            "program hash collision: '{}' and '{}' produced identical hashes",
+            s1,
+            s2
+        );
     }
 }

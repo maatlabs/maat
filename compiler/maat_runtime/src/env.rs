@@ -5,7 +5,6 @@ use indexmap::IndexMap;
 
 use crate::Value;
 
-/// Represents the execution environment of the interpreter.
 #[derive(Debug, Clone, Default)]
 pub struct Env {
     inner: Rc<RefCell<EnvInner>>,
@@ -18,10 +17,6 @@ struct EnvInner {
 }
 
 impl Env {
-    /// Creates an enclosed environment for use within function calls and macros.
-    ///
-    /// The enclosed environment can access bindings from the outer environment
-    /// while maintaining its own local bindings.
     pub fn new_enclosed(outer: &Self) -> Self {
         Self {
             inner: Rc::new(RefCell::new(EnvInner {
@@ -31,7 +26,6 @@ impl Env {
         }
     }
 
-    /// Returns a clone of the value associated with a `name` if found.
     pub fn get(&self, name: &str) -> Option<Value> {
         let inner = self.inner.borrow();
         match inner.store.get(name) {
@@ -40,16 +34,10 @@ impl Env {
         }
     }
 
-    /// Binds the `value` in the environment with the `name`.
     pub fn set(&self, name: String, value: &Value) {
         self.inner.borrow_mut().store.insert(name, value.clone());
     }
 
-    /// Updates an existing binding in the nearest enclosing scope that contains it.
-    ///
-    /// Walks the scope chain from the current environment outward. If the binding
-    /// is found, it is updated in-place. If no enclosing scope contains the name,
-    /// the binding is created in the current scope as a fallback.
     pub fn update(&self, name: String, value: &Value) {
         if self.inner.borrow().store.contains_key(&name) {
             self.inner.borrow_mut().store.insert(name, value.clone());
@@ -64,7 +52,6 @@ impl Env {
         self.inner.borrow_mut().store.insert(name, value.clone());
     }
 
-    /// Returns `true` if `name` is defined in this scope or any enclosing scope.
     fn contains(&self, name: &str) -> bool {
         let inner = self.inner.borrow();
         inner.store.contains_key(name)

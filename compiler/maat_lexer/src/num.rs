@@ -1,12 +1,6 @@
-//! Implements utilities for handling the lexing of number types.
-
 use crate::TokenKind;
 
 /// Metadata produced by number-lexing callbacks.
-///
-/// Carries the resolved [`TokenKind`] and the byte length of the value portion
-/// (digits and radix prefix, excluding any type suffix) so the wrapper can
-/// split the current token into the correct `literal` and `span`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct NumToken {
     pub kind: TokenKind,
@@ -32,7 +26,6 @@ pub enum NumSuffix {
 }
 
 impl NumSuffix {
-    /// Converts this suffix to the appropriate token kind.
     #[inline]
     pub const fn to_token_kind(self) -> TokenKind {
         match self {
@@ -55,10 +48,6 @@ impl NumSuffix {
 
 /// Matches numeric type suffixes. Returns the specific suffix type and its length.
 /// Supports: i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize, fe.
-///
-/// Boundary rule: Only match if suffix is followed by non-alphanumeric character.
-/// This prevents matching partial suffixes like "i64" in "42i641", such as in Rust
-/// where invalid suffixes like "i641" cause errors.
 #[inline]
 pub fn match_num_suffix(bytes: &[u8]) -> Option<(NumSuffix, usize)> {
     let first_byte = *bytes.first()?;
@@ -116,8 +105,6 @@ pub fn match_num_suffix(bytes: &[u8]) -> Option<(NumSuffix, usize)> {
     None
 }
 
-/// Returns true if this `byte` is an ASCII alphanumeric character or
-/// an underscore (`_`).
 #[inline]
 fn is_ident_continue(byte: &u8) -> bool {
     byte.is_ascii_alphanumeric() || *byte == b'_'

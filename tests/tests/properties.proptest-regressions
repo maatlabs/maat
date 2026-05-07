@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 19123fcaf1683e2b7b2e507e175d0571683623197bb5613a760e681f32014334 # shrinks to source = "(0 + 0);\n(0 + 0);"
+cc 5aa213772e679e2d109afdb8b05064a6151986b96df05c2c3dc3bae524f283eb # shrinks to raw_idx = 9056676700919223368, replacement = 2

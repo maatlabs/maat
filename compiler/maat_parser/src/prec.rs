@@ -52,8 +52,6 @@ pub enum Precedence {
 }
 
 impl Precedence {
-    /// Returns the precedence for a [`TokenKind`], or None if
-    /// it has no special binding power (caller typically falls back to [`MIN_BP`]).
     #[inline]
     pub fn get(kind: &TokenKind) -> Option<Self> {
         match *kind {

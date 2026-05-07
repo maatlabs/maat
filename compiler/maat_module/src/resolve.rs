@@ -1,9 +1,3 @@
-//! Module graph resolution from an entry-point source file.
-//!
-//! Walks `mod` declarations recursively, parsing each discovered file,
-//! building the dependency DAG, detecting cycles, and producing a
-//! topological ordering.
-
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -15,19 +9,6 @@ use maat_span::Span;
 
 use crate::{ModuleGraph, ModuleId, ModuleResult};
 
-/// Resolves the complete module dependency graph starting from `entry`.
-///
-/// Parses all reachable source files, builds the DAG, detects cycles,
-/// and returns a [`ModuleGraph`] with modules in topological order
-/// (leaves first, root last).
-///
-/// # Errors
-///
-/// Returns a [`ModuleError`](maat_errors::ModuleError) if:
-/// - A `mod` declaration cannot be resolved to a file
-/// - A cycle is detected in the dependency graph
-/// - A source file contains parse errors
-/// - A source file cannot be read
 pub fn resolve_module_graph(entry: &Path) -> ModuleResult<ModuleGraph> {
     let canonical = entry.canonicalize().map_err(|e| {
         ModuleErrorKind::Io {
@@ -54,11 +35,8 @@ enum Color {
     Black,
 }
 
-/// Internal state for the recursive module resolution pass.
 struct Resolver {
     graph: ModuleGraph,
-    /// Maps canonical file paths to their assigned `ModuleId` to avoid
-    /// parsing the same file twice.
     file_to_id: HashMap<PathBuf, ModuleId>,
 }
 
@@ -70,7 +48,6 @@ impl Resolver {
         }
     }
 
-    /// Parses a source file and recursively resolves its `mod` declarations.
     fn resolve_file(&mut self, path: &Path, qualified_path: Vec<String>) -> ModuleResult<ModuleId> {
         if let Some(&id) = self.file_to_id.get(path) {
             return Ok(id);
@@ -94,7 +71,6 @@ impl Resolver {
         Ok(id)
     }
 
-    /// Computes and stores the topological order, detecting cycles via DFS.
     fn compute_topo_order(&mut self) -> ModuleResult<()> {
         let n = self.graph.len();
         let mut colors = vec![Color::White; n];
@@ -111,7 +87,6 @@ impl Resolver {
         Ok(())
     }
 
-    /// Depth-first traversal with gray/black coloring for cycle detection.
     fn dfs(
         &self,
         id: ModuleId,
@@ -145,11 +120,6 @@ impl Resolver {
         Ok(())
     }
 
-    /// Extracts a human-readable cycle from the DFS path stack.
-    ///
-    /// Returns `None` if the back-edge target is not found on the stack,
-    /// which should never happen in a correct DFS but we handle gracefully
-    /// rather than panicking.
     fn extract_cycle(
         &self,
         path_stack: &[ModuleId],
@@ -165,7 +135,6 @@ impl Resolver {
         Some(cycle)
     }
 
-    /// Returns the display name for a module (its qualified path or filename).
     fn module_display_name(&self, id: ModuleId) -> String {
         let node = self.graph.node(id);
         if node.qualified_path.is_empty() {
@@ -179,7 +148,6 @@ impl Resolver {
     }
 }
 
-/// Reads a source file as UTF-8 with BOM rejection.
 fn read_source(path: &Path) -> ModuleResult<String> {
     let bytes = std::fs::read(path).map_err(|e| {
         ModuleErrorKind::Io {
@@ -188,6 +156,7 @@ fn read_source(path: &Path) -> ModuleResult<String> {
         }
         .at(Span::ZERO, path.to_path_buf())
     })?;
+    // byte-order mark (BOM) rejection
     if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
         return Err(ModuleErrorKind::Io {
             path: path.to_path_buf(),
@@ -206,7 +175,6 @@ fn read_source(path: &Path) -> ModuleResult<String> {
     })
 }
 
-/// Parses a source file into an AST, collecting all parse errors.
 fn parse_source(path: &Path, source: &str) -> ModuleResult<Program> {
     let mut parser = MaatParser::new(MaatLexer::new(source));
     let program = parser.parse();
@@ -221,11 +189,6 @@ fn parse_source(path: &Path, source: &str) -> ModuleResult<Program> {
     }
 }
 
-/// Scans a parsed program for `mod` declarations and resolves their file paths.
-///
-/// Only external `mod foo;` declarations (without an inline body) trigger
-/// file resolution. Inline modules (`mod foo { ... }`) remain in the parent's
-/// AST and do not create separate graph nodes.
 fn collect_mod_declarations(
     program: &Program,
     parent_path: &Path,
@@ -238,9 +201,7 @@ fn collect_mod_declarations(
         }
         .at(Span::ZERO, parent_path.to_path_buf())
     })?;
-    // Root files and `mod.maat` files resolve submodules in their own directory.
-    // Other files resolve submodules in a subdirectory named after the file stem
-    // (e.g., `foo.maat` with `mod bar;` looks for `foo/bar.maat`).
+
     let is_mod_file = parent_path.file_stem().is_some_and(|s| s == "mod");
     let base_dir = if is_root || is_mod_file {
         parent_dir.to_path_buf()
@@ -254,13 +215,13 @@ fn collect_mod_declarations(
         })?;
         parent_dir.join(stem)
     };
+
     let mut seen = HashMap::new();
     let mut result = Vec::new();
     for stmt in &program.statements {
         let Stmt::Mod(mod_stmt) = stmt else {
             continue;
         };
-        // Inline modules stay in the parent AST.
         if mod_stmt.body.is_some() {
             continue;
         }
@@ -277,10 +238,6 @@ fn collect_mod_declarations(
     Ok(result)
 }
 
-/// Resolves a `mod foo;` declaration to a canonical file path.
-///
-/// Tries `<base_dir>/foo.maat` first, then `<base_dir>/foo/mod.maat`.
-/// If both exist, the resolution is ambiguous and an error is returned.
 fn resolve_mod_path(
     base_dir: &Path,
     module_name: &str,
@@ -326,7 +283,7 @@ mod tests {
 
     use super::*;
 
-    /// Creates a temporary directory tree from a list of `(relative_path, content)` pairs.
+    // Create a temporary directory tree from a list of `(relative_path, content)` pairs.
     fn setup_temp_project(pairs: &[(&str, &str)]) -> tempfile::TempDir {
         let dir = tempfile::tempdir().expect("failed to create temp dir");
         for (path, content) in pairs {

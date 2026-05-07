@@ -1,16 +1,11 @@
 //! Runtime integer handling for Maat.
-//!
-//! This module defines the [`Integer`] enum representing all supported integer types
-//! at runtime, along with fundamental operations (arithmetic, comparison, bitwise,
-//! conversion) that are shared between the interpreter and the VM.
 
 use std::fmt;
 
 use maat_ast::NumKind;
-use maat_field::{Felt, FieldElement, from_i64};
+use maat_field::{Encodable, Felt};
 use serde::{Deserialize, Serialize};
 
-/// All supported runtime integer types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Integer {
     I8(i8),
@@ -27,16 +22,30 @@ pub enum Integer {
     Usize(usize),
 }
 
-/// Widened integer representation for casting operations.
+impl Encodable for Integer {
+    fn encode(&self) -> Vec<Felt> {
+        match *self {
+            Self::I8(v) => v.encode(),
+            Self::I16(v) => v.encode(),
+            Self::I32(v) => v.encode(),
+            Self::I64(v) => v.encode(),
+            Self::I128(v) => v.encode(),
+            Self::Isize(v) => (v as i64).encode(),
+            Self::U8(v) => v.encode(),
+            Self::U16(v) => v.encode(),
+            Self::U32(v) => v.encode(),
+            Self::U64(v) => v.encode(),
+            Self::U128(v) => v.encode(),
+            Self::Usize(v) => (v as u64).encode(),
+        }
+    }
+}
+
 pub enum WideInt {
     Signed(i128),
     Unsigned(u128),
 }
 
-/// Dispatches a checked binary method over same-variant pairs.
-///
-/// Both operands must be the same `Integer` variant; mismatched pairs
-/// return `None`.
 macro_rules! checked_binop {
     ($lhs:expr, $rhs:expr, $method:ident) => {
         match ($lhs, $rhs) {
@@ -57,7 +66,6 @@ macro_rules! checked_binop {
     };
 }
 
-/// Dispatches an infallible binary operator over same-variant pairs.
 macro_rules! bitwise_binop {
     ($lhs:expr, $rhs:expr, $op:tt) => {
         match ($lhs, $rhs) {
@@ -78,7 +86,6 @@ macro_rules! bitwise_binop {
     };
 }
 
-/// Dispatches a checked method taking one fixed argument over all variants.
 macro_rules! checked_unary {
     ($self:expr, $arg:expr, $method:ident) => {
         match $self {
@@ -99,24 +106,17 @@ macro_rules! checked_unary {
 }
 
 impl Integer {
-    /// Encodes this integer value as a field element.
-    pub fn to_felt(&self) -> Felt {
-        match self {
-            Self::I8(v) => from_i64(i64::from(*v)),
-            Self::I16(v) => from_i64(i64::from(*v)),
-            Self::I32(v) => from_i64(i64::from(*v)),
-            Self::I64(v) => from_i64(*v),
-            Self::Isize(v) => from_i64(*v as i64),
-            Self::U8(v) => Felt::new(u64::from(*v)),
-            Self::U16(v) => Felt::new(u64::from(*v)),
-            Self::U32(v) => Felt::new(u64::from(*v)),
-            Self::U64(v) => Felt::new(*v),
-            Self::Usize(v) => Felt::new(*v as u64),
-            Self::I128(_) | Self::U128(_) => Felt::ZERO,
+    /// Returns `Some(felt)` if this integer fits in a single field element,
+    /// otherwise `None` (e.g. for 128‑bit types).
+    pub fn to_felt(&self) -> Option<Felt> {
+        let elements = self.encode();
+        if elements.len() == 1 {
+            Some(elements[0])
+        } else {
+            None
         }
     }
 
-    /// Returns zero in the same numeric type as `self`.
     pub fn zero(&self) -> Self {
         match self {
             Self::I8(_) => Self::I8(0),
@@ -134,7 +134,6 @@ impl Integer {
         }
     }
 
-    /// Returns one in the same numeric type as `self`.
     pub fn one(&self) -> Self {
         match self {
             Self::I8(_) => Self::I8(1),
@@ -156,9 +155,6 @@ impl Integer {
         Self::from_wide(self.to_wide(), target)
     }
 
-    /// Converts a widened value to a specific target integer type.
-    ///
-    /// Returns an error if the value is out of range for the target type.
     pub fn from_wide(wide: WideInt, target: NumKind) -> Result<Self, String> {
         macro_rules! narrow {
             ($ty:ty, $variant:ident, $name:expr) => {
@@ -193,7 +189,6 @@ impl Integer {
         }
     }
 
-    /// Widens the integer to a unified signed/unsigned representation.
     pub fn to_wide(self) -> WideInt {
         match self {
             Self::I8(v) => WideInt::Signed(v as i128),
@@ -211,7 +206,6 @@ impl Integer {
         }
     }
 
-    /// Convert to `i128` for cross-type comparison (fails for `U128` > `i128::MAX`).
     pub fn to_i128(&self) -> Option<i128> {
         match *self {
             Self::I8(v) => Some(v as i128),
@@ -229,7 +223,6 @@ impl Integer {
         }
     }
 
-    /// Convert to `usize` for indexing (fails for negative values or overflow).
     pub fn to_usize(&self) -> Option<usize> {
         match *self {
             Self::I8(v) => usize::try_from(v).ok(),
@@ -266,7 +259,6 @@ impl Integer {
         }
     }
 
-    /// Returns the type name (e.g., `"i8"`, `"u64"`).
     pub fn type_name(&self) -> &'static str {
         match self {
             Self::I8(_) => "i8",
@@ -284,8 +276,6 @@ impl Integer {
         }
     }
 
-    /// Converts to an AST `NumKind` + `i128` for splicing into quoted code.
-    /// Returns `None` if the value is a `U128` that does not fit in `i128`.
     pub fn to_ast_literal(&self) -> Option<(NumKind, i128)> {
         match *self {
             Self::I8(v) => Some((NumKind::I8, v as i128)),
@@ -303,33 +293,26 @@ impl Integer {
         }
     }
 
-    /// Checked addition.
     pub fn checked_add(self, rhs: Self) -> Option<Self> {
         checked_binop!(self, rhs, checked_add)
     }
 
-    /// Checked subtraction.
     pub fn checked_sub(self, rhs: Self) -> Option<Self> {
         checked_binop!(self, rhs, checked_sub)
     }
 
-    /// Checked multiplication.
     pub fn checked_mul(self, rhs: Self) -> Option<Self> {
         checked_binop!(self, rhs, checked_mul)
     }
 
-    /// Checked division.
     pub fn checked_div(self, rhs: Self) -> Option<Self> {
         checked_binop!(self, rhs, checked_div)
     }
 
-    /// Checked Euclidean remainder.
     pub fn checked_rem_euclid(self, rhs: Self) -> Option<Self> {
         checked_binop!(self, rhs, checked_rem_euclid)
     }
 
-    /// Compares two integers of the same variant.
-    /// Returns `Some(Ordering)` if they are the same variant, otherwise `None`.
     pub fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         match (self, other) {
             (Self::I8(l), Self::I8(r)) => l.partial_cmp(r),
@@ -348,32 +331,26 @@ impl Integer {
         }
     }
 
-    /// Bitwise AND.
     pub fn bitwise_and(self, rhs: Self) -> Option<Self> {
         bitwise_binop!(self, rhs, &)
     }
 
-    /// Bitwise OR.
     pub fn bitwise_or(self, rhs: Self) -> Option<Self> {
         bitwise_binop!(self, rhs, |)
     }
 
-    /// Bitwise XOR.
     pub fn bitwise_xor(self, rhs: Self) -> Option<Self> {
         bitwise_binop!(self, rhs, ^)
     }
 
-    /// Checked left shift.
     pub fn checked_shl(self, rhs: u32) -> Option<Self> {
         checked_unary!(self, rhs, checked_shl)
     }
 
-    /// Checked right shift.
     pub fn checked_shr(self, rhs: u32) -> Option<Self> {
         checked_unary!(self, rhs, checked_shr)
     }
 
-    /// Checked negation (only for signed types).
     pub fn checked_neg(self) -> Option<Self> {
         match self {
             Self::I8(v) => v.checked_neg().map(Self::I8),

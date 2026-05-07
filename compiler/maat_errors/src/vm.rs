@@ -1,7 +1,6 @@
 use maat_span::Span;
 use thiserror::Error;
 
-/// A runtime VM error with an optional source span.
 #[derive(Debug, Error)]
 #[error("{message}")]
 pub struct VmError {
@@ -17,7 +16,6 @@ impl VmError {
         }
     }
 
-    /// Creates a VM error with an associated source span.
     pub fn with_span(message: impl Into<String>, span: Span) -> Self {
         Self {
             message: message.into(),
@@ -25,7 +23,6 @@ impl VmError {
         }
     }
 
-    /// Creates a bound-exceeded error for a bounded loop.
     pub fn bound_exceeded(bound: u64) -> Self {
         Self::new(format!(
             "loop exceeded its declared bound of {bound} iterations"

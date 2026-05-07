@@ -20,6 +20,7 @@
 //! If both `foo.maat` and `foo/mod.maat` exist, the resolution is ambiguous
 //! and an error is produced. If neither exists, a resolution error is
 //! produced.
+
 #![forbid(unsafe_code)]
 
 mod exports;
@@ -41,47 +42,20 @@ use maat_span::Span;
 use maat_types::TypeChecker;
 pub use resolve::resolve_module_graph;
 
-/// A specialized [`Result`] type for module resolution operations.
 pub type ModuleResult<T> = std::result::Result<T, ModuleError>;
 
-/// Per-module type-checking outputs: public exports and cached resolved imports.
 type TypeCheckResult = (
     HashMap<ModuleId, ModuleExports>,
     HashMap<ModuleId, Vec<ResolvedImport>>,
 );
 
 /// Type-checks, compiles, and links all modules in the given graph.
-///
-/// The pipeline operates in two phases:
-///
-/// 1. **Type checking** — Each module is type-checked independently with
-///    its own [`TypeEnv`](maat_types::TypeEnv), after injecting public exports from dependencies.
-///    This enforces module-level visibility while allowing cross-module
-///    type resolution.
-///
-/// 2. **Compilation** — All modules are compiled in topological order
-///    (leaves first, root last) using a single shared [`Compiler`]. This
-///    ensures that:
-///    - `define_symbol` reuses existing global indices for imported names
-///      rather than allocating duplicates
-///    - Constants and type definitions share a single pool
-///    - The resulting instruction stream naturally executes dependency
-///      initialization code before the root module
-///
-/// The output is a single [`Bytecode`] ready for VM execution or
-/// serialization to `.mtc`.
-///
-/// # Errors
-///
-/// Returns a [`ModuleError`] if type checking or
-/// compilation fails for any module.
 pub fn check_and_compile(graph: &mut ModuleGraph) -> ModuleResult<Bytecode> {
     let topo_order = graph.topo_order().to_vec();
     let (exports, cached_imports) = type_check_modules(graph, &topo_order)?;
     compile_modules(graph, &topo_order, &exports, &cached_imports)
 }
 
-/// Type-checks each module independently and extracts public exports.
 fn type_check_modules(
     graph: &mut ModuleGraph,
     topo_order: &[ModuleId],
@@ -127,7 +101,6 @@ fn type_check_modules(
     Ok((exports, cached_imports))
 }
 
-/// Compiles all modules with a shared compiler and produces final bytecode.
 fn compile_modules(
     graph: &ModuleGraph,
     topo_order: &[ModuleId],
@@ -165,13 +138,6 @@ fn compile_modules(
     })
 }
 
-/// Masks newly-defined globals after compiling a non-root module.
-///
-/// Masking hides symbols from resolution without removing their storage
-/// indices, so that `inject_import_into_compiler` in subsequent iterations
-/// can unmask and reuse the same global slot. This prevents both private
-/// and public symbols from leaking into modules that have not explicitly
-/// imported them.
 fn apply_module_visibility(compiler: &mut Compiler, module_id: ModuleId, before: &[String]) {
     if module_id != ModuleId::ROOT {
         let after = compiler.symbols_table_mut().global_symbol_names();
@@ -183,7 +149,6 @@ fn apply_module_visibility(compiler: &mut Compiler, module_id: ModuleId, before:
     }
 }
 
-/// Returns the per-module public exports extracted during type checking.
 pub fn check_exports(graph: &mut ModuleGraph) -> ModuleResult<HashMap<ModuleId, ModuleExports>> {
     let mut exports: HashMap<ModuleId, ModuleExports> = HashMap::new();
     let topo_order = graph.topo_order().to_vec();
@@ -213,7 +178,6 @@ pub fn check_exports(graph: &mut ModuleGraph) -> ModuleResult<HashMap<ModuleId, 
     Ok(exports)
 }
 
-/// Resolves all `use` statements in a module's program against the available exports.
 fn resolve_imports(
     program: &Program,
     exports: &HashMap<ModuleId, ModuleExports>,
@@ -224,31 +188,16 @@ fn resolve_imports(
         let Stmt::Use(use_stmt) = stmt else {
             continue;
         };
-        // Determine the module path and items to import.
-        //
-        // For group imports (`use foo::{bar, baz};`), the full path
-        // identifies the module and `items` lists the imported names.
-        //
-        // For non-group imports (`use foo::bar;` or `use std::math::abs;`),
-        // everything except the last segment identifies the module, and
-        // the last segment is the imported item.
         let (module_path, items_to_import) = if let Some(items) = &use_stmt.items {
             (use_stmt.path.as_slice(), items.clone())
         } else if use_stmt.path.len() >= 2 {
             let split = use_stmt.path.len() - 1;
             (&use_stmt.path[..split], vec![use_stmt.path[split].clone()])
         } else {
-            // `use foo;` (bare module import) is intentionally a no-op.
-            // Maat requires explicit item imports (`use foo::bar;` or
-            // `use foo::{bar, baz};`) for ZK auditability. The bare
-            // form is silently skipped; any attempt to use unimported
-            // items will fail with an undefined variable error.
             continue;
         };
         let target_id = find_module_by_path(graph, module_path);
         let Some(target_id) = target_id else {
-            // Module not in the graph; use of its items will fail
-            // with an undefined variable error during compilation.
             continue;
         };
         let Some(target_exports) = exports.get(&target_id) else {
@@ -262,12 +211,6 @@ fn resolve_imports(
     Ok(result)
 }
 
-/// Finds a module in the graph by matching a use-path against qualified paths.
-///
-/// For a single-segment path like `["math"]`, matches modules whose
-/// qualified path ends with `"math"`. For multi-segment paths like
-/// `["std", "math"]`, requires an exact match against the full
-/// qualified path.
 fn find_module_by_path(graph: &ModuleGraph, module_path: &[String]) -> Option<ModuleId> {
     graph
         .nodes()
@@ -289,7 +232,7 @@ mod tests {
 
     use super::*;
 
-    /// Creates a temporary directory tree from `(relative_path, content)` pairs.
+    // Create a temporary directory tree from `(relative_path, content)` pairs.
     fn setup_temp_project(pairs: &[(&str, &str)]) -> tempfile::TempDir {
         let dir = tempfile::tempdir().expect("failed to create temp dir");
         for (path, content) in pairs {
@@ -302,7 +245,7 @@ mod tests {
         dir
     }
 
-    /// Resolves and compiles a project, returning the bytecode.
+    // Resolve and compile a project, returning the bytecode.
     fn compile_project(
         dir: &std::path::Path,
         entry: &str,

@@ -176,7 +176,15 @@ pub mod proof_serializer {
             inputs.push(BaseElement::new(u64::from_le_bytes(input_bytes)));
         }
 
-        let proof = Proof::from_bytes(&bytes[payload_offset..])
+        let payload = &bytes[payload_offset..];
+        let proof = std::panic::catch_unwind(|| Proof::from_bytes(payload))
+            .map_err(|_| {
+                SerializationError::WinterfellDecode(
+                    "proof payload triggered a panic during deserialization \
+                     (likely malformed arithmetic parameters)"
+                        .into(),
+                )
+            })?
             .map_err(|e| SerializationError::WinterfellDecode(e.to_string()))?;
 
         let public_inputs = ProofPublicInputs {

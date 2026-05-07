@@ -4,15 +4,9 @@ use maat_runtime::{BUILTINS, TypeDef, VariantInfo};
 
 use crate::SymbolsTable;
 
-/// Built-in type prefixes for method dispatch fallback.
 pub const BUILTIN_METHOD_PREFIXES: &[&str] =
     &["Vector", "str", "char", "Set", "Map", "Option", "Result"];
 
-/// Enum types whose variants are available as bare names in patterns.
-///
-/// Mirrors Rust's prelude: `Option` (`Some`, `None`) and `Result`
-/// (`Ok`, `Err`) are directly accessible. All other enum variants
-/// require a qualified path (e.g., `ParseIntError::InvalidDigit`).
 const PRELUDE_ENUMS: &[&str] = &["Option", "Result"];
 
 /// Pre-computed enum variant lookup entry, indexed by variant name.
@@ -23,17 +17,12 @@ pub struct VariantEntry {
     pub field_count: usize,
 }
 
-/// Registers all built-in functions in the given symbols table.
 pub fn register_builtins(table: &mut SymbolsTable) {
     for (i, (name, _)) in BUILTINS.iter().enumerate() {
         table.define_builtin(i, name);
     }
 }
 
-/// Resolves a builtin function name to its index in the [`BUILTINS`] registry.
-///
-/// Panics if the name is not found. Internal builtins are guaranteed
-/// to be present at compile time.
 pub fn resolve_builtin_index(name: &str) -> usize {
     BUILTINS
         .iter()
@@ -41,7 +30,6 @@ pub fn resolve_builtin_index(name: &str) -> usize {
         .unwrap_or_else(|| panic!("internal builtin `{name}` not found in registry"))
 }
 
-/// Returns the type registry pre-populated with built-in enum types.
 pub fn builtin_type_registry() -> Vec<TypeDef> {
     vec![
         TypeDef::Enum {
@@ -90,7 +78,6 @@ pub fn builtin_type_registry() -> Vec<TypeDef> {
     ]
 }
 
-/// Builds the enum variant index from an existing type registry.
 pub fn build_variant_index(registry: &[TypeDef]) -> HashMap<String, VariantEntry> {
     let mut index = HashMap::new();
     for (registry_index, td) in registry.iter().enumerate() {
@@ -103,10 +90,6 @@ pub fn build_variant_index(registry: &[TypeDef]) -> HashMap<String, VariantEntry
 }
 
 /// Inserts entries for each variant of an enum at the given registry index.
-///
-/// Qualified keys (`EnumName::VariantName`) are always registered. Bare
-/// keys (`VariantName`) are only registered when `include_bare` is true,
-/// which is the case for prelude enums like `Option` and `Result`.
 pub fn index_variants(
     index: &mut HashMap<String, VariantEntry>,
     registry_index: usize,
