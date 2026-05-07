@@ -21,7 +21,7 @@ Adds fuzz targets, property tests, and benchmarks to the STARK proof system; clo
 - **`fuzz_trace_recorder`** -- arbitrary UTF-8 through the full compile -> trace -> prove -> verify pipeline. Hook-swap intercepts the Winterfell `evaluation_table` assertion on degenerate traces. Five seed programs committed under `fuzz/corpus/fuzz_trace_recorder/`.
 - **`fuzz_air_constraints`** -- structured `(row_idx: u32 LE, col_idx: u8, delta: u64 LE)` inputs that tamper individual trace cells before proving; six representative seeds committed under `fuzz/corpus/fuzz_air_constraints/`.
 - **`corpus_gen` binary** (`tests/src/bin/corpus_gen.rs`). Generates serialized STARK proof seeds for `fuzz_proof_deserializer` and `fuzz_verifier` from the five seed programs; run `cargo run --release -p maat_tests --bin corpus_gen` after a fresh clone.
-- **`fuzz.yml` CI** (`.github/workflows/fuzz.yml`). Four jobs: `fuzz-pipeline-{pr,nightly}` for the five compiler-pipeline targets; `fuzz-proof-{pr,nightly}` for the four proof-system targets. PR jobs run 60 s per target; nightly jobs run 300 s.
+- **`fuzz.yml` CI** (`.github/workflows/fuzz.yml`). Two jobs (`fuzz-pipeline-{pr,nightly}`) cover the five compiler-pipeline targets. PR jobs run 60 s per target; nightly jobs run 300 s.
 
 #### Proof-system property tests
 
