@@ -1,13 +1,21 @@
+use core::time::Duration;
 use std::hint::black_box;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use maat_air::{MaatPublicInputs, NUM_AUX_RANDS, ProofOptions, build_aux_columns};
 use maat_ast::{MaatAst, fold_constants};
 use maat_bytecode::Bytecode;
 use maat_codegen::Compiler;
+use maat_field::BaseElement;
 use maat_lexer::{MaatLexer, TokenKind};
 use maat_parser::MaatParser;
+use maat_prover::{
+    MaatProver, compute_program_hash, compute_program_hash_bytes, development_options,
+    production_options, serialize_proof, verify,
+};
 use maat_tests::benchmark_programs::*;
 use maat_tests::compile;
+use maat_trace::table::COL_OUT;
 use maat_types::TypeChecker;
 use maat_vm::VM;
 
@@ -262,9 +270,124 @@ fn bench_baseline(c: &mut Criterion) {
     group.finish();
 }
 
+fn prove_bytecode(bytecode: &Bytecode, options: ProofOptions) -> Vec<u8> {
+    let (trace, _) = maat_trace::run(bytecode.clone()).expect("trace failed");
+    let output = trace.row(trace.num_rows() - 1)[COL_OUT];
+    let program_hash = compute_program_hash(bytecode).expect("hash failed");
+    let hash_bytes = compute_program_hash_bytes(bytecode).expect("hash bytes failed");
+    let public_inputs = MaatPublicInputs::new(program_hash, vec![], output);
+    let prover = MaatProver::new(options, public_inputs);
+    let proof = prover.generate_proof(trace).expect("prove failed");
+    serialize_proof(&proof, &hash_bytes, output, &[])
+}
+
+fn bench_prove(c: &mut Criterion) {
+    let bc32 = compile(PROVE_32);
+    let bc256 = compile(PROVE_256);
+    let bc1024 = compile(PROVE_1024);
+    let bc4096 = compile(PROVE_4096);
+
+    let mut group = c.benchmark_group("prove");
+    group.measurement_time(Duration::from_secs(30));
+    group.sample_size(10);
+
+    for (label, bc) in [
+        ("dev/32", &bc32),
+        ("dev/256", &bc256),
+        ("dev/1024", &bc1024),
+        ("dev/4096", &bc4096),
+    ] {
+        group.bench_function(label, |b| {
+            b.iter(|| {
+                let bytes = prove_bytecode(black_box(bc), development_options());
+                black_box(bytes);
+            });
+        });
+    }
+
+    for (label, bc) in [("prod/32", &bc32), ("prod/256", &bc256)] {
+        group.bench_function(label, |b| {
+            b.iter(|| {
+                let bytes = prove_bytecode(black_box(bc), production_options());
+                black_box(bytes);
+            });
+        });
+    }
+
+    group.finish();
+}
+
+fn bench_verify(c: &mut Criterion) {
+    let bc32 = compile(PROVE_32);
+    let bc256 = compile(PROVE_256);
+    let bc1024 = compile(PROVE_1024);
+    let bc4096 = compile(PROVE_4096);
+
+    let dev32 = prove_bytecode(&bc32, development_options());
+    let dev256 = prove_bytecode(&bc256, development_options());
+    let dev1024 = prove_bytecode(&bc1024, development_options());
+    let dev4096 = prove_bytecode(&bc4096, development_options());
+    let prod32 = prove_bytecode(&bc32, production_options());
+    let prod256 = prove_bytecode(&bc256, production_options());
+
+    let mut group = c.benchmark_group("verify");
+    group.measurement_time(Duration::from_secs(15));
+
+    for (label, proof_bytes) in [
+        ("dev/32", &dev32),
+        ("dev/256", &dev256),
+        ("dev/1024", &dev1024),
+        ("dev/4096", &dev4096),
+        ("prod/32", &prod32),
+        ("prod/256", &prod256),
+    ] {
+        group.bench_function(label, |b| {
+            b.iter(|| {
+                let result = verify(black_box(proof_bytes));
+                black_box(result)
+            });
+        });
+    }
+
+    group.finish();
+}
+
+fn bench_aux_columns(c: &mut Criterion) {
+    let rands = (0..NUM_AUX_RANDS)
+        .map(|i| BaseElement::new((i as u64).wrapping_add(1)))
+        .collect::<Vec<BaseElement>>();
+
+    let mut group = c.benchmark_group("aux_columns");
+    group.measurement_time(Duration::from_secs(10));
+
+    for (label, source) in [
+        ("32", PROVE_32),
+        ("256", PROVE_256),
+        ("1024", PROVE_1024),
+        ("4096", PROVE_4096),
+    ] {
+        let bytecode = compile(source);
+        let (trace, _) = maat_trace::run(bytecode).expect("trace failed");
+        let columns: Vec<Vec<BaseElement>> = trace.into_columns();
+
+        group.bench_with_input(BenchmarkId::from_parameter(label), &columns, |b, cols| {
+            b.iter(|| {
+                let slices = cols
+                    .iter()
+                    .map(Vec::as_slice)
+                    .collect::<Vec<&[BaseElement]>>();
+                let result = build_aux_columns(black_box(&slices), black_box(&rands));
+                black_box(result);
+            });
+        });
+    }
+
+    group.finish();
+}
+
 criterion_group! {
     name = fibonacci_benches;
-    config = Criterion::default().measurement_time(std::time::Duration::from_secs(10));
+    config = Criterion::default().measurement_time(Duration::from_secs(10));
     targets = bench_fibonacci_vm, bench_compile_fibonacci, bench_vm_exec_only
 }
 criterion_group!(
@@ -285,4 +408,15 @@ criterion_group!(
     bench_serialization,
     bench_baseline,
 );
-criterion_main!(fibonacci_benches, feature_benches, pipeline_benches);
+criterion_group!(
+    proof_system_benches,
+    bench_prove,
+    bench_verify,
+    bench_aux_columns,
+);
+criterion_main!(
+    fibonacci_benches,
+    feature_benches,
+    pipeline_benches,
+    proof_system_benches,
+);

@@ -200,4 +200,36 @@ let c: i64 = b - a;
 let d: i64 = c / 2;
 d
 ";
+
+    /// Targets a padded trace length of ≈32 rows.
+    pub const PROVE_32: &str = "\
+fn main() -> i64 {
+    let mut s: i64 = 0;
+    for i in 0..2 { s = s + i; }
+    s
+}";
+
+    /// Targets a padded trace length of ≈256 rows.
+    pub const PROVE_256: &str = "\
+fn main() -> i64 {
+    let mut s: i64 = 0;
+    for i in 0..29 { s = s + i; }
+    s
+}";
+
+    /// Targets a padded trace length of ≈1024 rows.
+    pub const PROVE_1024: &str = "\
+fn main() -> i64 {
+    let mut s: i64 = 0;
+    for i in 0..125 { s = s + i; }
+    s
+}";
+
+    /// Targets a padded trace length of ≈4096 rows.
+    pub const PROVE_4096: &str = "\
+fn main() -> i64 {
+    let mut s: i64 = 0;
+    for i in 0..500 { s = s + i; }
+    s
+}";
 }
