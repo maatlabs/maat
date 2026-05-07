@@ -150,7 +150,7 @@ fn main() {
     for target in ["fuzz_proof_deserializer", "fuzz_verifier"] {
         let dir = corpus_root.join(target);
         ensure_dir(&dir);
-        for (i, (source, _)) in SEED_PROGRAMS.iter().enumerate() {
+        for (i, (_, source)) in SEED_PROGRAMS.iter().enumerate() {
             print!("[{target}] proving seed {i}...");
             let _ = std::io::Write::flush(&mut std::io::stdout());
             let proof_bytes = compile_and_prove(source);

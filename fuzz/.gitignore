@@ -1,4 +1,22 @@
 target
-corpus
 artifacts
 coverage
+
+corpus/**
+
+# fuzz_trace_recorder; Maat source programs used as text seeds.
+!corpus/fuzz_trace_recorder/
+!corpus/fuzz_trace_recorder/arithmetic
+!corpus/fuzz_trace_recorder/comparison
+!corpus/fuzz_trace_recorder/function_call
+!corpus/fuzz_trace_recorder/loop_accumulator
+!corpus/fuzz_trace_recorder/nested_arith
+
+# fuzz_air_constraints; structured 13-byte (row, col, delta) binary seeds.
+!corpus/fuzz_air_constraints/
+!corpus/fuzz_air_constraints/row0_col_mem_addr_delta1
+!corpus/fuzz_air_constraints/row0_col_out_delta1
+!corpus/fuzz_air_constraints/row0_col_s0_delta1
+!corpus/fuzz_air_constraints/row0_col_sel0_delta1
+!corpus/fuzz_air_constraints/row1_col_s1_delta2
+!corpus/fuzz_air_constraints/row2_col_rc_val_delta1

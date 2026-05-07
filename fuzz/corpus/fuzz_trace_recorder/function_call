@@ -1,0 +1,2 @@
+fn square(n: i64) -> i64 { n * n }
+fn main() -> i64 { square(7) }
