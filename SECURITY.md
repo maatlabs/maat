@@ -1,6 +1,6 @@
 # Security Policy & Threat Model
 
-This document describes the trust boundaries, attacker model, and mitigations for the Maat compiler toolchain. It covers the current state as of v0.13.0 and will be updated as subsequent versions introduce new attack surfaces.
+This document describes the trust boundaries, attacker model, and mitigations for the Maat compiler toolchain. It covers the current state as of v0.13.1 and will be updated as subsequent versions introduce new attack surfaces.
 
 ## Trust Boundaries
 
@@ -134,21 +134,28 @@ These are acceptable for the current architecture. `Felt` (field element) arithm
 
 ## Fuzz Testing
 
-All five compiler pipeline stages have been fuzz-tested with `cargo-fuzz` (libFuzzer):
+Nine fuzz targets cover the full compiler and proof-system pipeline via `cargo-fuzz` (libFuzzer). All are exercised in CI on every pull request (60 s) and nightly (300 s).
 
-- `fuzz_lexer` —- arbitrary bytes --> tokenization
-- `fuzz_parser` —- arbitrary UTF-8 --> parsing
-- `fuzz_typechecker` —- syntactically valid programs --> type checking
-- `fuzz_compiler` —- well-typed programs --> compilation
-- `fuzz_deserializer` —- arbitrary bytes --> bytecode deserialization
+**Compiler pipeline** (no seed corpus required; libFuzzer builds coverage from a single null byte):
 
-Results: zero crashes across ~10.7M total fuzz runs (60s per target). See `fuzz/` for targets, corpus, and instructions.
+- `fuzz_lexer` -- arbitrary bytes -> tokenization
+- `fuzz_parser` -- arbitrary UTF-8 -> parsing
+- `fuzz_typechecker` -- syntactically valid programs -> type checking
+- `fuzz_compiler` -- well-typed programs -> compilation
+- `fuzz_deserializer` -- arbitrary bytes -> bytecode deserialization
 
-The proof-system surface introduced in v0.12.x and extended in v0.13.0 is **not yet covered by fuzzing.** Planned targets include `fuzz_proof_deserializer` (arbitrary bytes through `deserialize_proof`), `fuzz_verifier` (well-formed bytecode + adversarial proof bytes through `verify`), and `fuzz_trace_vm` (well-typed primitive-only programs through `run_trace` then `prove` + `verify`).
+**Proof system** (requires `cargo run --release -p maat_tests --bin corpus_gen` after a fresh clone to seed `fuzz_proof_deserializer` and `fuzz_verifier`; the other two use committed text/binary seeds):
+
+- `fuzz_proof_deserializer` -- arbitrary bytes -> `deserialize_proof` + the underlying STARK-proof decoder. Hook-swap + `catch_unwind` intercepts panics from the proof-decoding path.
+- `fuzz_verifier` -- arbitrary bytes -> the full `verify` path.
+- `fuzz_trace_recorder` -- arbitrary UTF-8 -> compile -> trace -> prove -> verify. Hook-swap intercepts the Winterfell `evaluation_table` assertion on degenerate traces.
+- `fuzz_air_constraints` -- structured `(row_idx: u32, col_idx: u8, delta: u64)` inputs that tamper with individual trace cells before proving; confirms the AIR rejects tampered traces.
 
 ## Property-Based Testing
 
-Property tests (`proptest`) verify invariants across thousands of randomly generated programs:
+Property tests (`proptest`) verify invariants across hundreds to thousands of randomly generated programs and proof objects. See `tests/tests/properties.rs` for the full suite.
+
+**Compiler pipeline:**
 
 - Lexer, parser, type checker, compiler, and deserializer never panic on arbitrary input
 - AST Display round-trip is idempotent
@@ -156,8 +163,24 @@ Property tests (`proptest`) verify invariants across thousands of randomly gener
 - Execution is deterministic (same program --> same result)
 - Well-typed programs never produce runtime type errors
 
-See `tests/tests/properties.rs` for the full test suite.
+**Proof system:**
+
+- *Round-trip* (20 cases): every provable `fn main() -> i64` program verifies after proving
+- *Single-byte tamper rejection* (500 cases): mutating any byte of a serialized proof causes verification to fail. Coverage spans the 48-byte Maat header (magic, version, program hash, claimed output, input count) and the entire Winterfell payload (options, context, commitments, queries, FRI). The verifier is pinned to `AcceptableOptions::OptionSet(vec![development_options(), production_options()])`, so a tampered proof advertising weakened options is rejected before any cryptographic check; cryptographic checks then catch every other mutation
+- *Relaxed address continuity* (20 cases): multi-variable programs with non-monotonic memory access prove and verify under the unified memory permutation argument
+- *Program-hash collision resistance* (500 cases): distinct compiled bytecodes never share a Blake3 program hash
 
 ## Reporting Vulnerabilities
 
-If you discover a security vulnerability, please report it via [GitHub Security Advisories](https://github.com/maatlabs/maat/security/advisories/new). For non-critical issues, you may also open a [GitHub Issue](https://github.com/maatlabs/maat/issues) with the `security` label.
+**Please do not open a GitHub issue or pull request to report a security vulnerability.** This makes the problem immediately visible to everyone, including malicious actors.
+
+Report privately via [GitHub Security Advisories](https://github.com/maatlabs/maat/security/advisories/new).
+
+### Coordinated disclosure
+
+We commit to:
+
+- **Acknowledging your report within 7 days** of receipt.
+- **Releasing a fix within 90 days**, or coordinating an extension with you in writing if the issue is unusually involved.
+
+If 90 days pass without a fix and without a written extension, you are free to disclose publicly. We ask only that you give us a final 7-day notice before doing so, so we can prepare downstream users.
