@@ -207,9 +207,9 @@ dependencies = [
 
 [[package]]
 name = "hashbrown"
-version = "0.16.1"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100"
+checksum = "4f467dd6dccf739c208452f8014c75c18bb8301b050ad1cfb27153803edb0f51"
 
 [[package]]
 name = "heapless"
@@ -227,9 +227,9 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
-version = "2.13.0"
+version = "2.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7714e70437a7dc3ac8eb7e6f8df75fd8eb422675fc7678aff7364301092b1017"
+checksum = "d466e9454f08e4a911e14806c24e16fba1b4c121d1ea474396f396069cf949d9"
 dependencies = [
  "equivalent",
  "hashbrown",
@@ -338,7 +338,7 @@ dependencies = [
 
 [[package]]
 name = "maat_air"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "maat_bytecode",
  "maat_field",
@@ -348,7 +348,7 @@ dependencies = [
 
 [[package]]
 name = "maat_ast"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "maat_errors",
  "maat_span",
@@ -356,7 +356,7 @@ dependencies = [
 
 [[package]]
 name = "maat_bytecode"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "maat_errors",
  "maat_runtime",
@@ -367,7 +367,7 @@ dependencies = [
 
 [[package]]
 name = "maat_codegen"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "indexmap",
  "maat_ast",
@@ -379,7 +379,7 @@ dependencies = [
 
 [[package]]
 name = "maat_errors"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "maat_span",
  "thiserror",
@@ -387,7 +387,7 @@ dependencies = [
 
 [[package]]
 name = "maat_field"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "thiserror",
  "winter-math",
@@ -395,7 +395,7 @@ dependencies = [
 
 [[package]]
 name = "maat_lexer"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "logos",
  "maat_span",
@@ -403,7 +403,7 @@ dependencies = [
 
 [[package]]
 name = "maat_parser"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "maat_ast",
  "maat_errors",
@@ -414,7 +414,7 @@ dependencies = [
 
 [[package]]
 name = "maat_prover"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "blake3",
  "maat_air",
@@ -429,7 +429,7 @@ dependencies = [
 
 [[package]]
 name = "maat_runtime"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "indexmap",
  "maat_ast",
@@ -441,14 +441,14 @@ dependencies = [
 
 [[package]]
 name = "maat_span"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "maat_trace"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "maat_bytecode",
  "maat_errors",
@@ -459,7 +459,7 @@ dependencies = [
 
 [[package]]
 name = "maat_types"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "indexmap",
  "maat_ast",
@@ -470,7 +470,7 @@ dependencies = [
 
 [[package]]
 name = "maat_vm"
-version = "0.13.0"
+version = "0.13.1"
 dependencies = [
  "indexmap",
  "maat_bytecode",

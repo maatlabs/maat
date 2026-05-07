@@ -12,7 +12,7 @@
 //!   fuzz/corpus/fuzz_trace_recorder/      -- well-typed Maat source programs
 //!   fuzz/corpus/fuzz_air_constraints/     -- structured (row, col, delta) seeds
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use maat_air::MaatPublicInputs;
 use maat_ast::{MaatAst, fold_constants};
@@ -143,8 +143,19 @@ fn write_file(path: &Path, data: &[u8]) {
     println!("  wrote {} ({} bytes)", path.display(), data.len());
 }
 
+fn corpus_root() -> PathBuf {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    manifest_dir
+        .parent()
+        .expect("maat_tests manifest must have a parent (workspace root)")
+        .join("fuzz")
+        .join("corpus")
+}
+
 fn main() {
-    let corpus_root = Path::new("fuzz/corpus");
+    let corpus_root_buf = corpus_root();
+    let corpus_root = corpus_root_buf.as_path();
+    println!("corpus root: {}", corpus_root.display());
 
     // fuzz_proof_deserializer and fuzz_verifier: seed with genuine proof bytes.
     for target in ["fuzz_proof_deserializer", "fuzz_verifier"] {
