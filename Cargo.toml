@@ -25,7 +25,7 @@ default-members = ["compiler/maat"]
 exclude = ["fuzz"]
 
 [workspace.package]
-version = "0.13.0"
+version = "0.13.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/maatlabs/maat"
@@ -33,7 +33,7 @@ homepage = "https://github.com/maatlabs/maat"
 readme = "README.md"
 
 [workspace.dependencies]
-indexmap = { version = "2", features = ["serde"] }
+indexmap = { version = "2.14", features = ["serde"] }
 serde = { version = "1", features = ["derive", "rc"] }
 
 # Winterfell's prover ships an over-strict `debug_assert_eq!` that requires the
