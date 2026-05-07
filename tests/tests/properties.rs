@@ -368,19 +368,17 @@ proptest! {
         raw_idx in any::<usize>(),
         replacement in any::<u8>(),
     ) {
-        // 48 = MIN_HEADER_SIZE: magic(4) + version(2) + hash(32) + output(8) + input_count(2).
-        const HEADER_SIZE: usize = 48;
         let proof = baseline_proof_bytes();
-        let safe_len = proof.len().min(HEADER_SIZE);
-        if safe_len == 0 {
+        if proof.is_empty() {
             return Ok(());
         }
-        let idx = raw_idx % safe_len;
+        let idx = raw_idx % proof.len();
         if proof[idx] == replacement {
             return Ok(());
         }
         let mut tampered = proof.to_vec();
         tampered[idx] = replacement;
+
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             verify(&tampered)
         }));
