@@ -11,5 +11,5 @@ homepage.workspace = true
 readme = "README.md"
 
 [dependencies]
-thiserror = "2"
+thiserror.workspace = true
 winter-math = "0.13"

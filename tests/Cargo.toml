@@ -7,22 +7,22 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-maat_ast = { path = "../compiler/maat_ast" }
-maat_bytecode = { path = "../compiler/maat_bytecode" }
-maat_codegen = { path = "../compiler/maat_codegen" }
-maat_errors = { path = "../compiler/maat_errors" }
-maat_eval = { path = "../compiler/maat_eval" }
-maat_lexer = { path = "../compiler/maat_lexer" }
-maat_parser = { path = "../compiler/maat_parser" }
-maat_runtime = { path = "../compiler/maat_runtime" }
-maat_types = { path = "../compiler/maat_types" }
-maat_span = { path = "../compiler/maat_span" }
-maat_module = { path = "../compiler/maat_module" }
-maat_vm = { path = "../compiler/maat_vm" }
-maat_field = { path = "../compiler/maat_field" }
-maat_trace = { path = "../compiler/maat_trace" }
-maat_air = { path = "../compiler/maat_air" }
-maat_prover = { path = "../compiler/maat_prover" }
+maat_span.workspace = true
+maat_errors.workspace = true
+maat_field.workspace = true
+maat_lexer.workspace = true
+maat_ast.workspace = true
+maat_parser.workspace = true
+maat_runtime.workspace = true
+maat_types.workspace = true
+maat_eval.workspace = true
+maat_bytecode.workspace = true
+maat_codegen.workspace = true
+maat_vm.workspace = true
+maat_trace.workspace = true
+maat_air.workspace = true
+maat_prover.workspace = true
+maat_module.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

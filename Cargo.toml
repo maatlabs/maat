@@ -33,8 +33,27 @@ homepage = "https://github.com/maatlabs/maat"
 readme = "README.md"
 
 [workspace.dependencies]
+maat_span = { path = "compiler/maat_span", version = "0.13.1" }
+maat_stdlib = { path = "library", version = "0.13.1" }
+maat_errors = { path = "compiler/maat_errors", version = "0.13.1" }
+maat_field = { path = "compiler/maat_field", version = "0.13.1" }
+maat_lexer = { path = "compiler/maat_lexer", version = "0.13.1" }
+maat_ast = { path = "compiler/maat_ast", version = "0.13.1" }
+maat_parser = { path = "compiler/maat_parser", version = "0.13.1" }
+maat_runtime = { path = "compiler/maat_runtime", version = "0.13.1" }
+maat_types = { path = "compiler/maat_types", version = "0.13.1" }
+maat_eval = { path = "compiler/maat_eval", version = "0.13.1" }
+maat_bytecode = { path = "compiler/maat_bytecode", version = "0.13.1" }
+maat_codegen = { path = "compiler/maat_codegen", version = "0.13.1" }
+maat_vm = { path = "compiler/maat_vm", version = "0.13.1" }
+maat_trace = { path = "compiler/maat_trace", version = "0.13.1" }
+maat_air = { path = "compiler/maat_air", version = "0.13.1" }
+maat_prover = { path = "compiler/maat_prover", version = "0.13.1" }
+maat_module = { path = "compiler/maat_module", version = "0.13.1" }
+
 indexmap = { version = "2.14", features = ["serde"] }
 serde = { version = "1", features = ["derive", "rc"] }
+thiserror = "2"
 
 # Winterfell's prover ships an over-strict `debug_assert_eq!` that requires the
 # *exact* per-constraint quotient degree to equal the declared upper bound; on

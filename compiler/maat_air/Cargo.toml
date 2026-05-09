@@ -11,7 +11,8 @@ homepage.workspace = true
 readme = "README.md"
 
 [dependencies]
-maat_field = { path = "../maat_field", version = "0.13.1" }
-maat_bytecode = { path = "../maat_bytecode", version = "0.13.1" }
-maat_trace = { path = "../maat_trace", version = "0.13.1" }
+maat_field.workspace = true
+maat_bytecode.workspace = true
+maat_trace.workspace = true
+
 winter-air = "0.13"
