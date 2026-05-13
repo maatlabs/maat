@@ -112,6 +112,13 @@ impl Value {
         }
     }
 
+    pub fn to_maybe_relocatable(&self) -> MaybeRelocatable {
+        match self {
+            Self::Relocatable(r) => MaybeRelocatable::Relocatable(*r),
+            other => MaybeRelocatable::Felt(other.to_felt()),
+        }
+    }
+
     pub fn from_number_literal(lit: &Number) -> std::result::Result<Self, String> {
         macro_rules! narrow {
             ($variant:ident, $ty:ty) => {

@@ -94,33 +94,31 @@ fn synthetic_segment_alloc_read_bytecode(initial_value: i64) -> Bytecode {
 }
 
 /// Bytecode that allocates two independent segments, writes one cell into
-/// each, then reads back the value placed in the second segment.
-fn synthetic_two_segments_bytecode(first: i64, second: i64) -> Bytecode {
+/// each, then reads both back.
+fn synthetic_two_segments_bytecode(seg_a_value: i64, seg_b_value: i64) -> Bytecode {
     let mut instructions = Instructions::new();
-    // Segment A: SegmentNew, push first, HeapAlloc, SetLocal 0, Pop (drop seg base).
+    // Segment A: SegmentNew, push value, HeapAlloc; drop the cell address but
+    // keep the segment-base pointer live.
     instructions.extend_from_bytes(&encode(Opcode::SegmentNew, &[]));
     instructions.extend_from_bytes(&encode(Opcode::Constant, &[0]));
     instructions.extend_from_bytes(&encode(Opcode::HeapAlloc, &[]));
-    instructions.extend_from_bytes(&encode(Opcode::SetLocal, &[0]));
     instructions.extend_from_bytes(&encode(Opcode::Pop, &[]));
-    // Segment B: SegmentNew, push second, HeapAlloc, SetLocal 1, Pop.
+    // Segment B: SegmentNew, push value, HeapAlloc; drop the cell address.
     instructions.extend_from_bytes(&encode(Opcode::SegmentNew, &[]));
     instructions.extend_from_bytes(&encode(Opcode::Constant, &[1]));
     instructions.extend_from_bytes(&encode(Opcode::HeapAlloc, &[]));
-    instructions.extend_from_bytes(&encode(Opcode::SetLocal, &[1]));
     instructions.extend_from_bytes(&encode(Opcode::Pop, &[]));
-    // Read both back; final pop leaves the second value as last_popped.
-    instructions.extend_from_bytes(&encode(Opcode::GetLocal, &[0]));
+    // Stack now: `[Rel(A, 0), Rel(B, 0)]`. Read segment B, discard the value,
+    // then read segment A so the final `last_popped` is `seg_a_value`.
     instructions.extend_from_bytes(&encode(Opcode::HeapRead, &[]));
     instructions.extend_from_bytes(&encode(Opcode::Pop, &[]));
-    instructions.extend_from_bytes(&encode(Opcode::GetLocal, &[1]));
     instructions.extend_from_bytes(&encode(Opcode::HeapRead, &[]));
     instructions.extend_from_bytes(&encode(Opcode::Pop, &[]));
     Bytecode {
         instructions,
         constants: vec![
-            Value::Integer(Integer::I64(first)),
-            Value::Integer(Integer::I64(second)),
+            Value::Integer(Integer::I64(seg_a_value)),
+            Value::Integer(Integer::I64(seg_b_value)),
         ],
         source_map: SourceMap::new(),
         type_registry: vec![],
@@ -147,6 +145,36 @@ fn synthetic_write_once_violation_bytecode(initial: i64, conflict: i64) -> Bytec
             Value::Integer(Integer::I64(initial)),
             Value::Integer(Integer::I64(conflict)),
         ],
+        source_map: SourceMap::new(),
+        type_registry: vec![],
+    }
+}
+
+/// Bytecode that stores a `Relocatable` as a heap cell value, reads it back,
+/// dereferences it, and returns the dereferenced integer.
+fn synthetic_relocatable_cell_value_bytecode(payload: i64) -> Bytecode {
+    let mut instructions = Instructions::new();
+    // Build segment A and write `payload` at offset 0.
+    instructions.extend_from_bytes(&encode(Opcode::SegmentNew, &[]));
+    instructions.extend_from_bytes(&encode(Opcode::Constant, &[0]));
+    instructions.extend_from_bytes(&encode(Opcode::HeapAlloc, &[]));
+    // Drop the cell address; keep the segment-A base pointer.
+    instructions.extend_from_bytes(&encode(Opcode::Pop, &[]));
+    // Stash the segment-A base in global 0 (operand stack reuse-safe).
+    instructions.extend_from_bytes(&encode(Opcode::SetGlobal, &[0]));
+    // Build segment B and write `Rel(A, 0)` (the stashed pointer) into it.
+    instructions.extend_from_bytes(&encode(Opcode::SegmentNew, &[]));
+    instructions.extend_from_bytes(&encode(Opcode::GetGlobal, &[0]));
+    instructions.extend_from_bytes(&encode(Opcode::HeapAlloc, &[]));
+    // Stack: `[Rel(B, 0)]`. Read `Rel(B, 0)` -- the cell value is the stored
+    // pointer, which the relocator must rewrite to the flat address of seg A.
+    instructions.extend_from_bytes(&encode(Opcode::HeapRead, &[]));
+    // Stack: `[pointer-to-seg-A]`. Dereference it to read the payload.
+    instructions.extend_from_bytes(&encode(Opcode::HeapRead, &[]));
+    instructions.extend_from_bytes(&encode(Opcode::Pop, &[]));
+    Bytecode {
+        instructions,
+        constants: vec![Value::Integer(Integer::I64(payload))],
         source_map: SourceMap::new(),
         type_registry: vec![],
     }
@@ -274,7 +302,6 @@ fn prove_and_verify_nested_if() {
 }
 
 #[test]
-#[ignore = "restored later via default-segment relocation routing"]
 fn prove_and_verify_fixed_size_array_literal_and_index() {
     prove_and_verify(
         "
@@ -285,7 +312,6 @@ fn prove_and_verify_fixed_size_array_literal_and_index() {
 }
 
 #[test]
-#[ignore = "restored later via default-segment relocation routing"]
 fn prove_and_verify_fixed_size_array_sum_loop_unrolled() {
     prove_and_verify(
         "
@@ -296,7 +322,6 @@ fn prove_and_verify_fixed_size_array_sum_loop_unrolled() {
 }
 
 #[test]
-#[ignore = "restored later via default-segment relocation routing"]
 fn prove_and_verify_fixed_size_array_length_method() {
     prove_and_verify(
         "
@@ -307,7 +332,6 @@ fn prove_and_verify_fixed_size_array_length_method() {
 }
 
 #[test]
-#[ignore = "restored later via default-segment relocation routing"]
 fn prove_and_verify_fixed_size_array_equality_true() {
     prove_and_verify(
         "
@@ -319,7 +343,6 @@ fn prove_and_verify_fixed_size_array_equality_true() {
 }
 
 #[test]
-#[ignore = "restored later via default-segment relocation routing"]
 fn prove_and_verify_fixed_size_array_equality_false() {
     prove_and_verify(
         "
@@ -331,7 +354,6 @@ fn prove_and_verify_fixed_size_array_equality_false() {
 }
 
 #[test]
-#[ignore = "restored later via default-segment relocation routing"]
 fn prove_and_verify_fixed_size_array_inequality() {
     prove_and_verify(
         "
@@ -343,7 +365,6 @@ fn prove_and_verify_fixed_size_array_inequality() {
 }
 
 #[test]
-#[ignore = "restored later via default-segment relocation routing"]
 fn prove_and_verify_fixed_size_array_function_param_and_return() {
     prove_and_verify(
         "
@@ -358,7 +379,6 @@ fn prove_and_verify_fixed_size_array_function_param_and_return() {
 }
 
 #[test]
-#[ignore = "restored later via default-segment relocation routing"]
 fn fixed_size_array_element_tamper_rejected() {
     let source = "
         let a: [i64; 3] = [10, 20, 30];
@@ -826,7 +846,13 @@ fn heap_synthetic_alloc_read_write_production() {
 #[test]
 fn heap_synthetic_two_segments_cross_segment_read() {
     let bytecode = synthetic_two_segments_bytecode(7, 99);
-    prove_synthetic_heap(bytecode, BaseElement::new(99));
+    prove_synthetic_heap(bytecode, BaseElement::new(7));
+}
+
+#[test]
+fn heap_synthetic_relocatable_value_stored_and_relocated() {
+    let bytecode = synthetic_relocatable_cell_value_bytecode(1234);
+    prove_synthetic_heap(bytecode, BaseElement::new(1234));
 }
 
 #[test]
