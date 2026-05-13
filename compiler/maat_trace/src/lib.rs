@@ -2,12 +2,14 @@
 
 #![forbid(unsafe_code)]
 
+pub mod holes;
 pub mod main_segment;
 pub mod recorder;
 pub mod relocation;
 pub mod selector;
 pub mod table;
 
+pub use holes::fill_memory_holes;
 use maat_bytecode::Bytecode;
 use maat_errors::{Result, VmError};
 use maat_field::{Felt, FieldElement};
@@ -42,6 +44,7 @@ pub fn run(bytecode: Bytecode) -> Result<(TraceTable, Option<Value>)> {
         None => Felt::ZERO,
     };
     trace.stamp_output(output_felt);
+    fill_memory_holes(&mut trace, vm.segments(), &relocator)?;
     trace.pad_to_power_of_two();
     Ok((trace, result))
 }

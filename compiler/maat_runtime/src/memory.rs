@@ -225,6 +225,30 @@ impl MemorySegmentManager {
             .collect()
     }
 
+    /// Returns whether `segment_index` was registered with an explicit
+    /// declared size via [`Self::add_with_size`].
+    pub fn has_declared_size(&self, segment_index: u32) -> bool {
+        self.segment_sizes.contains_key(&segment_index)
+    }
+
+    /// Returns, for each segment in registration order, the sorted list of
+    /// offsets `< effective_size` whose cell was never written. These are the
+    /// memory holes the trace must dummy-read to keep the unified memory
+    /// permutation argument's continuity gate satisfied after relocation.
+    pub fn holes(&self) -> Result<Vec<Vec<u32>>> {
+        let sizes = self.compute_sizes()?;
+        Ok(sizes
+            .iter()
+            .enumerate()
+            .map(|(idx, &size)| {
+                let seg = &self.data[idx];
+                (0..size)
+                    .filter(|&off| seg.get(off as usize).is_none_or(Option::is_none))
+                    .collect()
+            })
+            .collect())
+    }
+
     /// Computes the relocation table mapping segment IDs to flat base addresses.
     pub fn relocate_segments(&self) -> Result<Vec<u32>> {
         let sizes = self.compute_sizes()?;
@@ -449,6 +473,69 @@ mod tests {
             format!("{}", MaybeRelocatable::Relocatable(Relocatable::new(4, 9))),
             "4:9"
         );
+    }
+
+    #[test]
+    fn holes_empty_for_unallocated_manager() {
+        let mgr = MemorySegmentManager::new();
+        assert!(mgr.holes().unwrap().is_empty());
+    }
+
+    #[test]
+    fn holes_empty_for_dense_segment() {
+        let mut mgr = MemorySegmentManager::new();
+        let base = mgr.add().unwrap();
+        mgr.write(base, Felt::new(1).into()).unwrap();
+        mgr.write(Relocatable::new(base.segment_index, 1), Felt::new(2).into())
+            .unwrap();
+        assert_eq!(mgr.holes().unwrap(), vec![Vec::<u32>::new()]);
+    }
+
+    #[test]
+    fn holes_collects_gaps_between_writes() {
+        let mut mgr = MemorySegmentManager::new();
+        let base = mgr.add().unwrap();
+        mgr.write(base, Felt::new(7).into()).unwrap();
+        mgr.write(Relocatable::new(base.segment_index, 5), Felt::new(9).into())
+            .unwrap();
+        // Effective size is 6; offsets 1..=4 are holes.
+        assert_eq!(mgr.holes().unwrap(), vec![vec![1, 2, 3, 4]]);
+    }
+
+    #[test]
+    fn holes_respect_per_segment_effective_size() {
+        let mut mgr = MemorySegmentManager::new();
+        let a = mgr.add().unwrap();
+        mgr.write(Relocatable::new(a.segment_index, 0), Felt::new(1).into())
+            .unwrap();
+        mgr.write(Relocatable::new(a.segment_index, 3), Felt::new(2).into())
+            .unwrap();
+        let b = mgr.add().unwrap();
+        mgr.write(Relocatable::new(b.segment_index, 1), Felt::new(3).into())
+            .unwrap();
+        mgr.write(Relocatable::new(b.segment_index, 2), Felt::new(4).into())
+            .unwrap();
+        // Seg A effective size = 4, holes at 1, 2.
+        // Seg B effective size = 3, hole at 0.
+        assert_eq!(mgr.holes().unwrap(), vec![vec![1, 2], vec![0]]);
+    }
+
+    #[test]
+    fn holes_extend_to_declared_size() {
+        let mut mgr = MemorySegmentManager::new();
+        let base = mgr.add_with_size(6).unwrap();
+        mgr.write(base, Felt::new(1).into()).unwrap();
+        // Declared size 6 > written high-water 1, so holes at 1..=5.
+        assert_eq!(mgr.holes().unwrap(), vec![vec![1, 2, 3, 4, 5]]);
+    }
+
+    #[test]
+    fn has_declared_size_reflects_registration() {
+        let mut mgr = MemorySegmentManager::new();
+        let plain = mgr.add().unwrap();
+        let sized = mgr.add_with_size(4).unwrap();
+        assert!(!mgr.has_declared_size(plain.segment_index));
+        assert!(mgr.has_declared_size(sized.segment_index));
     }
 
     #[test]

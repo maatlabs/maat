@@ -180,6 +180,97 @@ fn synthetic_relocatable_cell_value_bytecode(payload: i64) -> Bytecode {
     }
 }
 
+/// Bytecode that writes two values into the same segment at offsets `0` and
+/// `5`. The resulting effective segment size is `6`, with offsets `1..=4`
+/// left as memory holes that the trace runner must dummy-read.
+fn synthetic_sparse_segment_bytecode(low_value: i64, high_value: i64) -> Bytecode {
+    let mut instructions = Instructions::new();
+    // Allocate a fresh segment and stash its base in global 0.
+    instructions.extend_from_bytes(&encode(Opcode::SegmentNew, &[]));
+    instructions.extend_from_bytes(&encode(Opcode::SetGlobal, &[0]));
+    // Write `low_value` at `Rel(seg, 0)`.
+    instructions.extend_from_bytes(&encode(Opcode::GetGlobal, &[0]));
+    instructions.extend_from_bytes(&encode(Opcode::Constant, &[0]));
+    instructions.extend_from_bytes(&encode(Opcode::HeapWrite, &[]));
+    // Write `high_value` at `Rel(seg, 5)`, leaving offsets 1..=4 unwritten.
+    instructions.extend_from_bytes(&encode(Opcode::GetGlobal, &[0]));
+    instructions.extend_from_bytes(&encode(Opcode::Constant, &[1]));
+    instructions.extend_from_bytes(&encode(Opcode::Add, &[]));
+    instructions.extend_from_bytes(&encode(Opcode::Constant, &[2]));
+    instructions.extend_from_bytes(&encode(Opcode::HeapWrite, &[]));
+    // Read `Rel(seg, 5)` and discard, then read `Rel(seg, 0)` so the program
+    // output is `low_value`.
+    instructions.extend_from_bytes(&encode(Opcode::GetGlobal, &[0]));
+    instructions.extend_from_bytes(&encode(Opcode::Constant, &[1]));
+    instructions.extend_from_bytes(&encode(Opcode::Add, &[]));
+    instructions.extend_from_bytes(&encode(Opcode::HeapRead, &[]));
+    instructions.extend_from_bytes(&encode(Opcode::Pop, &[]));
+    instructions.extend_from_bytes(&encode(Opcode::GetGlobal, &[0]));
+    instructions.extend_from_bytes(&encode(Opcode::HeapRead, &[]));
+    instructions.extend_from_bytes(&encode(Opcode::Pop, &[]));
+    Bytecode {
+        instructions,
+        constants: vec![
+            Value::Integer(Integer::I64(low_value)),
+            Value::Integer(Integer::I64(5)),
+            Value::Integer(Integer::I64(high_value)),
+        ],
+        source_map: SourceMap::new(),
+        type_registry: vec![],
+    }
+}
+
+/// Bytecode that builds two segments, each with an internal hole, so the
+/// relocator lays both segments into flat space and the hole filler must
+/// cover offsets in *both* segments to keep flat continuity intact.
+fn synthetic_cross_segment_sparse_bytecode(seg_a_value: i64, seg_b_value: i64) -> Bytecode {
+    let mut instructions = Instructions::new();
+    // Segment A: write at offsets 0 and 3 (holes at 1, 2).
+    instructions.extend_from_bytes(&encode(Opcode::SegmentNew, &[]));
+    instructions.extend_from_bytes(&encode(Opcode::SetGlobal, &[0]));
+    instructions.extend_from_bytes(&encode(Opcode::GetGlobal, &[0]));
+    instructions.extend_from_bytes(&encode(Opcode::Constant, &[0]));
+    instructions.extend_from_bytes(&encode(Opcode::HeapWrite, &[]));
+    instructions.extend_from_bytes(&encode(Opcode::GetGlobal, &[0]));
+    instructions.extend_from_bytes(&encode(Opcode::Constant, &[1]));
+    instructions.extend_from_bytes(&encode(Opcode::Add, &[]));
+    instructions.extend_from_bytes(&encode(Opcode::Constant, &[2]));
+    instructions.extend_from_bytes(&encode(Opcode::HeapWrite, &[]));
+    // Segment B: write at offsets 0 and 2 (hole at 1).
+    instructions.extend_from_bytes(&encode(Opcode::SegmentNew, &[]));
+    instructions.extend_from_bytes(&encode(Opcode::SetGlobal, &[1]));
+    instructions.extend_from_bytes(&encode(Opcode::GetGlobal, &[1]));
+    instructions.extend_from_bytes(&encode(Opcode::Constant, &[3]));
+    instructions.extend_from_bytes(&encode(Opcode::HeapWrite, &[]));
+    instructions.extend_from_bytes(&encode(Opcode::GetGlobal, &[1]));
+    instructions.extend_from_bytes(&encode(Opcode::Constant, &[4]));
+    instructions.extend_from_bytes(&encode(Opcode::Add, &[]));
+    instructions.extend_from_bytes(&encode(Opcode::Constant, &[5]));
+    instructions.extend_from_bytes(&encode(Opcode::HeapWrite, &[]));
+    // Read segment B's high cell, discard, then read segment A's low cell.
+    instructions.extend_from_bytes(&encode(Opcode::GetGlobal, &[1]));
+    instructions.extend_from_bytes(&encode(Opcode::Constant, &[4]));
+    instructions.extend_from_bytes(&encode(Opcode::Add, &[]));
+    instructions.extend_from_bytes(&encode(Opcode::HeapRead, &[]));
+    instructions.extend_from_bytes(&encode(Opcode::Pop, &[]));
+    instructions.extend_from_bytes(&encode(Opcode::GetGlobal, &[0]));
+    instructions.extend_from_bytes(&encode(Opcode::HeapRead, &[]));
+    instructions.extend_from_bytes(&encode(Opcode::Pop, &[]));
+    Bytecode {
+        instructions,
+        constants: vec![
+            Value::Integer(Integer::I64(seg_a_value)),
+            Value::Integer(Integer::I64(3)),
+            Value::Integer(Integer::I64(seg_a_value.wrapping_add(100))),
+            Value::Integer(Integer::I64(seg_b_value)),
+            Value::Integer(Integer::I64(2)),
+            Value::Integer(Integer::I64(seg_b_value.wrapping_add(100))),
+        ],
+        source_map: SourceMap::new(),
+        type_registry: vec![],
+    }
+}
+
 fn prove_synthetic_heap(bytecode: Bytecode, expected_output: BaseElement) {
     let (trace, _) = maat_trace::run(bytecode.clone()).expect("heap trace failed");
     let program_hash = compute_program_hash(&bytecode).expect("program hash failed");
@@ -901,6 +992,94 @@ fn heap_synthetic_single_value_tampered_rejected() {
             assert!(
                 verify_with_inputs(proof, public_inputs).is_err(),
                 "heap single-value violation must be rejected by the verifier",
+            );
+        }
+    }
+}
+
+#[test]
+fn heap_synthetic_intra_segment_holes_filled() {
+    let bytecode = synthetic_sparse_segment_bytecode(17, 42);
+    let (trace_before, _) = maat_trace::run(bytecode.clone()).expect("sparse heap trace failed");
+    let n = trace_before.num_rows();
+
+    let mut unique_addrs = std::collections::HashSet::new();
+    for i in 0..n {
+        unique_addrs.insert(trace_before.row(i)[COL_MEM_ADDR].as_int());
+    }
+    let max = unique_addrs.iter().copied().max().unwrap_or(0);
+    for addr in 1..=max {
+        assert!(
+            unique_addrs.contains(&addr),
+            "flat address {addr} missing after hole filling (max = {max})",
+        );
+    }
+    prove_synthetic_heap(bytecode, BaseElement::new(17));
+}
+
+#[test]
+fn heap_synthetic_intra_segment_holes_filled_production() {
+    let bytecode = synthetic_sparse_segment_bytecode(17, 42);
+    prove_synthetic_heap_production(bytecode, BaseElement::new(17));
+}
+
+#[test]
+fn heap_synthetic_cross_segment_holes_filled() {
+    let bytecode = synthetic_cross_segment_sparse_bytecode(11, 23);
+    let (trace, _) = maat_trace::run(bytecode.clone()).expect("cross-segment trace failed");
+    let n = trace.num_rows();
+    let mut unique_addrs = std::collections::HashSet::new();
+    for i in 0..n {
+        unique_addrs.insert(trace.row(i)[COL_MEM_ADDR].as_int());
+    }
+    let max = unique_addrs.iter().copied().max().unwrap_or(0);
+    for addr in 1..=max {
+        assert!(
+            unique_addrs.contains(&addr),
+            "flat address {addr} missing across two sparse segments",
+        );
+    }
+    prove_synthetic_heap(bytecode, BaseElement::new(11));
+}
+
+#[test]
+fn heap_synthetic_hole_row_removed_rejected() {
+    let bytecode = synthetic_sparse_segment_bytecode(17, 42);
+    let (mut trace, _) = maat_trace::run(bytecode.clone()).expect("sparse heap trace failed");
+
+    let mut addrs: Vec<u64> = (0..trace.num_rows())
+        .map(|i| trace.row(i)[COL_MEM_ADDR].as_int())
+        .collect();
+    addrs.sort_unstable();
+    addrs.dedup();
+    let hole_addr = addrs
+        .iter()
+        .zip(addrs.iter().skip(1))
+        .find_map(|(&a, &b)| if b == a + 1 { Some(a + 1) } else { None })
+        .expect("expected at least one dummy hole row");
+
+    let mut rebuilt = TraceTable::new();
+    for i in 0..trace.num_rows() {
+        if trace.row(i)[COL_MEM_ADDR].as_int() != hole_addr {
+            rebuilt.push_row(*trace.row(i));
+        }
+    }
+    trace = rebuilt;
+
+    let program_hash = compute_program_hash(&bytecode).expect("hash failed");
+    let public_inputs = MaatPublicInputs::new(program_hash, vec![], BaseElement::new(17));
+    let prover = MaatProver::new(development_options(), public_inputs.clone());
+
+    let prove_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        prover.generate_proof(trace)
+    }));
+    match prove_result {
+        Err(_) => {}
+        Ok(proof) => {
+            let proof = proof.expect("proof generation failed");
+            assert!(
+                verify_with_inputs(proof, public_inputs).is_err(),
+                "removing a hole row must be rejected by the verifier",
             );
         }
     }
