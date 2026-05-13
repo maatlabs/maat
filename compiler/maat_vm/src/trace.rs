@@ -31,7 +31,7 @@ pub trait Tracer {
     /// Records a heap access (alloc, read, or write) against the unified
     /// memory permutation argument.
     #[inline(always)]
-    fn record_heap_access(&mut self, _heap_id: usize, _value: Felt, _is_read: bool) {}
+    fn record_heap_access(&mut self, _segment: u32, _offset: u32, _value: Felt, _is_read: bool) {}
 
     /// Records entry into a closure frame.
     #[inline(always)]

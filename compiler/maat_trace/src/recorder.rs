@@ -11,10 +11,6 @@ use maat_vm::trace::{CallCtx, DispatchCtx, Tracer};
 use crate::selector::{OpcodeMeta, SEL_NOP};
 use crate::table::*;
 
-/// Logical-address offset that lifts heap accesses out of the locals/globals
-/// region of the unified memory segment.
-const HEAP_LOGICAL_BASE: usize = 1usize << 32;
-
 /// Decomposes a 64-bit value into four 16-bit limbs `[l0, l1, l2, l3]` such
 /// that `val = l0 + 2^16 l1 + 2^32 l2 + 2^48 l3`.
 fn decompose_limbs(val: u64) -> [Felt; 4] {
@@ -31,6 +27,7 @@ pub struct TraceRecorder {
     current: TraceRow,
     alloc_ptr: usize,
     addr_map: HashMap<usize, usize>,
+    heap_addr_map: HashMap<(u32, u32), usize>,
     fp: usize,
     fp_stack: Vec<usize>,
     last_mem_addr: Felt,
@@ -44,6 +41,7 @@ impl TraceRecorder {
             current: [Felt::ZERO; TRACE_WIDTH],
             alloc_ptr: 1,
             addr_map: HashMap::new(),
+            heap_addr_map: HashMap::new(),
             fp: MAX_GLOBALS,
             fp_stack: Vec::new(),
             last_mem_addr: Felt::ZERO,
@@ -80,6 +78,34 @@ impl TraceRecorder {
         let physical = *self.addr_map.get(&logical).ok_or_else(|| {
             VmError::new(format!(
                 "memory read of unallocated logical address {logical}"
+            ))
+        })?;
+        let addr_felt = Felt::new(physical as u64);
+        self.current[COL_MEM_ADDR] = addr_felt;
+        self.current[COL_MEM_VAL] = value;
+        self.current[COL_IS_READ] = Felt::ONE;
+        self.last_mem_addr = addr_felt;
+        self.last_mem_val = value;
+        Ok(())
+    }
+
+    fn record_heap_write(&mut self, key: (u32, u32), value: Felt) -> Result<()> {
+        let physical = self.alloc_physical()?;
+        self.heap_addr_map.insert(key, physical);
+        let addr_felt = Felt::new(physical as u64);
+        self.current[COL_MEM_ADDR] = addr_felt;
+        self.current[COL_MEM_VAL] = value;
+        self.current[COL_IS_READ] = Felt::ZERO;
+        self.last_mem_addr = addr_felt;
+        self.last_mem_val = value;
+        Ok(())
+    }
+
+    fn record_heap_read(&mut self, key: (u32, u32), value: Felt) -> Result<()> {
+        let physical = *self.heap_addr_map.get(&key).ok_or_else(|| {
+            VmError::new(format!(
+                "memory read of unallocated heap cell {}:{}",
+                key.0, key.1
             ))
         })?;
         let addr_felt = Felt::new(physical as u64);
@@ -188,12 +214,12 @@ impl Tracer for TraceRecorder {
         }
     }
 
-    fn record_heap_access(&mut self, heap_id: usize, value: Felt, is_read: bool) {
-        let logical = HEAP_LOGICAL_BASE.wrapping_add(heap_id);
+    fn record_heap_access(&mut self, segment: u32, offset: u32, value: Felt, is_read: bool) {
+        let key = (segment, offset);
         let result = if is_read {
-            self.record_mem_read(logical, value)
+            self.record_heap_read(key, value)
         } else {
-            self.record_mem_write(logical, value)
+            self.record_heap_write(key, value)
         };
         if let Err(e) = result {
             panic!("trace recorder: heap access failed: {e}");

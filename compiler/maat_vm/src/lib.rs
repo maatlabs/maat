@@ -16,8 +16,8 @@ use maat_bytecode::{Bytecode, MAX_FRAMES, MAX_GLOBALS, MAX_STACK_SIZE, Opcode, T
 use maat_errors::{Result, VmError};
 use maat_field::{Felt, FieldElement, from_i64, try_inv};
 use maat_runtime::{
-    BUILTINS, Closure, CompiledFn, EnumVariantVal, FALSE, Hashable, Integer, Map, StructVal, TRUE,
-    TypeDef, UNIT, Value, WideInt,
+    BUILTINS, Closure, CompiledFn, EnumVariantVal, FALSE, Hashable, Integer, Map, MaybeRelocatable,
+    MemorySegmentManager, Relocatable, StructVal, TRUE, TypeDef, UNIT, Value, WideInt,
 };
 use maat_span::{SourceMap, Span};
 
@@ -57,9 +57,10 @@ pub struct VM {
     frames: Vec<Frame>,
     source_map: SourceMap,
     type_registry: Vec<TypeDef>,
-    heap_alloc_ptr: usize,
-    heap_addr_map: HashMap<usize, usize>,
-    heap_values: HashMap<usize, Value>,
+    segments: MemorySegmentManager,
+    heap_values: HashMap<Relocatable, Value>,
+    current_segment: Option<u32>,
+    default_segment: Option<u32>,
 }
 
 impl VM {
@@ -88,9 +89,10 @@ impl VM {
             frames: vec![main_frame],
             source_map,
             type_registry,
-            heap_alloc_ptr: 1,
-            heap_addr_map: HashMap::new(),
+            segments: MemorySegmentManager::new(),
             heap_values: HashMap::new(),
+            current_segment: None,
+            default_segment: None,
         }
     }
 
@@ -434,40 +436,75 @@ impl VM {
                 self.execute_felt_pow()?;
                 recorder.record_out(self.peek_top_felt());
             }
+            Opcode::SegmentNew => {
+                let base = self
+                    .segments
+                    .add()
+                    .map_err(|e| self.vm_error(format!("SegmentNew: {e}")))?;
+                self.current_segment = Some(base.segment_index);
+                self.push_stack(Value::Relocatable(base))?;
+                recorder.record_out(Felt::ZERO);
+            }
             Opcode::HeapAlloc => {
                 let initial = self.pop_stack()?;
                 let initial_felt = initial.to_felt();
-                let physical = self.alloc_heap_physical()?;
-                self.heap_addr_map.insert(physical, physical);
-                self.heap_values.insert(physical, initial);
-                self.push_stack(Value::Integer(Integer::U64(physical as u64)))?;
-                recorder.record_out(Felt::new(physical as u64));
-                recorder.record_heap_access(physical, initial_felt, false);
+                let segment = self.heap_target_segment()?;
+                let addr = self
+                    .segments
+                    .append(segment, MaybeRelocatable::Felt(initial_felt))
+                    .map_err(|e| self.vm_error(format!("HeapAlloc: {e}")))?;
+                self.heap_values.insert(addr, initial);
+                self.push_stack(Value::Relocatable(addr))?;
+                recorder.record_out(Felt::ZERO);
+                recorder.record_heap_access(addr.segment_index, addr.offset, initial_felt, false);
             }
             Opcode::HeapRead => {
-                let logical = self.pop_heap_addr("HeapRead")?;
-                let physical = *self.heap_addr_map.get(&logical).ok_or_else(|| {
-                    self.vm_error(format!("heap read of unallocated address {logical}"))
-                })?;
-                let value = self.heap_values.get(&physical).cloned().ok_or_else(|| {
-                    self.vm_error(format!("heap value missing at physical {physical}"))
+                let addr = self.pop_relocatable("HeapRead")?;
+                let value = self.heap_values.get(&addr).cloned().ok_or_else(|| {
+                    self.vm_error(format!("heap read of unallocated address {addr}"))
                 })?;
                 let value_felt = value.to_felt();
                 recorder.record_out(value_felt);
-                recorder.record_heap_access(physical, value_felt, true);
+                recorder.record_heap_access(addr.segment_index, addr.offset, value_felt, true);
                 self.push_stack(value)?;
             }
             Opcode::HeapWrite => {
                 let value = self.pop_stack()?;
                 let value_felt = value.to_felt();
-                let logical = self.pop_heap_addr("HeapWrite")?;
-                let physical = self.alloc_heap_physical()?;
-                self.heap_addr_map.insert(logical, physical);
-                self.heap_values.insert(physical, value);
-                recorder.record_heap_access(physical, value_felt, false);
+                let addr = self.pop_relocatable("HeapWrite")?;
+                self.segments
+                    .write(addr, MaybeRelocatable::Felt(value_felt))
+                    .map_err(|e| self.vm_error(format!("HeapWrite: {e}")))?;
+                self.heap_values.insert(addr, value);
+                recorder.record_heap_access(addr.segment_index, addr.offset, value_felt, false);
             }
         }
         Ok(())
+    }
+
+    fn heap_target_segment(&mut self) -> Result<u32> {
+        if let Some(seg) = self.current_segment.take() {
+            return Ok(seg);
+        }
+        if let Some(seg) = self.default_segment {
+            return Ok(seg);
+        }
+        let base = self
+            .segments
+            .add()
+            .map_err(|e| self.vm_error(format!("HeapAlloc default segment: {e}")))?;
+        self.default_segment = Some(base.segment_index);
+        Ok(base.segment_index)
+    }
+
+    fn pop_relocatable(&mut self, context: &str) -> Result<Relocatable> {
+        match self.pop_stack()? {
+            Value::Relocatable(r) => Ok(r),
+            other => Err(self.vm_error(format!(
+                "{context} expects relocatable heap address, got {}",
+                other.type_name()
+            ))),
+        }
     }
 
     fn execute_function_call<R: Tracer>(
@@ -552,27 +589,6 @@ impl VM {
         self.push_stack(result)?;
         recorder.record_call_builtin();
         Ok(())
-    }
-
-    fn pop_heap_addr(&mut self, context: &str) -> Result<usize> {
-        match self.pop_stack()? {
-            Value::Integer(int) => int.to_usize().ok_or_else(|| {
-                self.vm_error(format!("{context} expects non-negative heap address"))
-            }),
-            other => Err(self.vm_error(format!(
-                "{context} expects integer heap address, got {}",
-                other.type_name()
-            ))),
-        }
-    }
-
-    fn alloc_heap_physical(&mut self) -> Result<usize> {
-        let physical = self.heap_alloc_ptr;
-        self.heap_alloc_ptr = self
-            .heap_alloc_ptr
-            .checked_add(1)
-            .ok_or_else(|| self.vm_error("heap allocator overflow"))?;
-        Ok(physical)
     }
 
     fn current_span(&self) -> Option<Span> {
@@ -746,6 +762,18 @@ impl VM {
             && let (Value::Str(l), Value::Str(r)) = (&left, &right)
         {
             return self.push_stack(Value::Str(format!("{}{}", l, r)));
+        }
+
+        if op == Opcode::Add
+            && let (Value::Relocatable(addr), Value::Integer(idx)) = (&left, &right)
+        {
+            let addend = idx.to_felt().ok_or_else(|| {
+                self.vm_error("Relocatable offset addend does not fit in the base field")
+            })?;
+            let next = addr
+                .add_offset(addend)
+                .map_err(|e| self.vm_error(format!("Relocatable arithmetic: {e}")))?;
+            return self.push_stack(Value::Relocatable(next));
         }
 
         match (left, right) {

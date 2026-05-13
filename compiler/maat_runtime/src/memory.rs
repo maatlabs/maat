@@ -166,6 +166,19 @@ impl MemorySegmentManager {
             .flatten()
     }
 
+    /// Appends `value` at the next offset of `segment_index` and returns the
+    /// cell's relocatable address.
+    pub fn append(&mut self, segment_index: u32, value: MaybeRelocatable) -> Result<Relocatable> {
+        let segment = self
+            .data
+            .get_mut(segment_index as usize)
+            .ok_or(MemoryError::SegmentNotFound(segment_index))?;
+        let offset = u32::try_from(segment.len())
+            .map_err(|_| MemoryError::SegmentTooLarge(segment_index))?;
+        segment.push(Some(value));
+        Ok(Relocatable::new(segment_index, offset))
+    }
+
     pub fn add_with_size(&mut self, size: u32) -> Result<Relocatable> {
         let base = self.add()?;
         self.segment_sizes.insert(base.segment_index, size);

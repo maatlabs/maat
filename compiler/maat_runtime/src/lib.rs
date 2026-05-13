@@ -87,6 +87,8 @@ pub enum Value {
     Range(Integer, Integer),
     /// An inclusive range `start..=end`, generic over all integer types.
     RangeInclusive(Integer, Integer),
+    /// A logical address within a memory segment.
+    Relocatable(Relocatable),
 }
 
 impl Value {
@@ -209,6 +211,7 @@ impl Value {
             Self::Set(_) => "Set",
             Self::Range(..) => "Range",
             Self::RangeInclusive(..) => "RangeInclusive",
+            Self::Relocatable(_) => "Relocatable",
         }
     }
 }
@@ -324,6 +327,7 @@ impl PartialEq for Value {
             (Set(s1), Set(s2)) => s1 == s2,
             (Range(s1, e1), Range(s2, e2)) => s1 == s2 && e1 == e2,
             (RangeInclusive(s1, e1), RangeInclusive(s2, e2)) => s1 == s2 && e1 == e2,
+            (Relocatable(a), Relocatable(b)) => a == b,
             _ => false,
         }
     }
@@ -496,6 +500,7 @@ impl fmt::Display for Value {
             Self::Set(v) => v.fmt(f),
             Self::Range(start, end) => write!(f, "{start}..{end}"),
             Self::RangeInclusive(start, end) => write!(f, "{start}..={end}"),
+            Self::Relocatable(r) => r.fmt(f),
         }
     }
 }

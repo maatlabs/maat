@@ -251,6 +251,14 @@ pub enum Opcode {
     /// invariant required by the heap permutation argument.
     /// Operands: none
     HeapWrite = 52,
+
+    /// Allocate a fresh memory segment and push its base address as a
+    /// `Value::Relocatable`. Sets the VM's current segment so the next
+    /// `HeapAlloc` appends into this segment.
+    ///
+    /// Internal-only opcode; not emitted by the surface language.
+    /// Operands: none
+    SegmentNew = 53,
 }
 
 impl Opcode {
@@ -309,6 +317,7 @@ impl Opcode {
             Self::HeapAlloc => "OpHeapAlloc",
             Self::HeapRead => "OpHeapRead",
             Self::HeapWrite => "OpHeapWrite",
+            Self::SegmentNew => "OpSegmentNew",
         }
     }
 
@@ -366,7 +375,8 @@ impl Opcode {
             | Self::FeltPow
             | Self::HeapAlloc
             | Self::HeapRead
-            | Self::HeapWrite => &[],
+            | Self::HeapWrite
+            | Self::SegmentNew => &[],
         }
     }
 
@@ -426,6 +436,7 @@ impl Opcode {
             50 => Some(Self::HeapAlloc),
             51 => Some(Self::HeapRead),
             52 => Some(Self::HeapWrite),
+            53 => Some(Self::SegmentNew),
             _ => None,
         }
     }
@@ -537,7 +548,7 @@ mod tests {
 
     #[test]
     fn opcode_roundtrip() {
-        for byte in 0..=52 {
+        for byte in 0..=53 {
             let opcode = Opcode::from_byte(byte).unwrap();
             assert_eq!(opcode.to_byte(), byte);
         }

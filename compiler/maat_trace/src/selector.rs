@@ -132,7 +132,8 @@ pub const fn selector_index(op: Opcode) -> usize {
         | Opcode::Unit
         | Opcode::GetBuiltin
         | Opcode::GetFree
-        | Opcode::CurrentClosure => SEL_PUSH,
+        | Opcode::CurrentClosure
+        | Opcode::SegmentNew => SEL_PUSH,
 
         Opcode::Add | Opcode::Sub | Opcode::Mul => SEL_ARITH,
 
@@ -207,7 +208,7 @@ mod tests {
 
     #[test]
     fn every_opcode_maps_to_valid_selector() {
-        for byte in 0..=52u8 {
+        for byte in 0..=53u8 {
             let op = Opcode::from_byte(byte).unwrap();
             let class = selector_index(op);
             assert!(
@@ -245,7 +246,7 @@ mod tests {
 
     #[test]
     fn sub_selectors_are_in_range() {
-        for byte in 0..=52u8 {
+        for byte in 0..=53u8 {
             let op = Opcode::from_byte(byte).unwrap();
             if let Some(sub) = sub_selector_index(op) {
                 assert!(
