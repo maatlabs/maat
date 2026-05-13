@@ -7,6 +7,7 @@
 
 mod builtins;
 mod env;
+mod memory;
 mod num;
 
 use std::fmt;
@@ -21,6 +22,10 @@ use maat_errors::{Error, EvalError, Result};
 use maat_field::{Encodable as _, FieldElement};
 pub use maat_field::{Felt, StarkField, from_i64, try_div, try_inv};
 use maat_span::SourceMap;
+pub use memory::{
+    MaybeRelocatable, MemorySegmentManager, RELOCATION_BASE, Relocatable, SEG_EXECUTION,
+    SEG_PROGRAM,
+};
 pub use num::{Integer, WideInt};
 use serde::{Deserialize, Serialize};
 

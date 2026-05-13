@@ -16,7 +16,7 @@ pub use parse::ParseError;
 pub use ty::{
     MissingTraitMethodError, TraitMethodSignatureMismatchError, TypeError, TypeErrorKind,
 };
-pub use vm::VmError;
+pub use vm::{MemoryError, VmError};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
