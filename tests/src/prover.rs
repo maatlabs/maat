@@ -269,6 +269,65 @@ pub fn synthetic_cross_segment_sparse_bytecode(seg_a_value: i64, seg_b_value: i6
     }
 }
 
+/// Bytecode that writes `cells.len()` values to a freshly allocated user
+/// segment and leaves the segment base pointer as the program's
+/// last-popped value.
+pub fn synthetic_output_segment_bytecode(cells: &[i64]) -> Bytecode {
+    let mut instructions = Instructions::new();
+    // SegmentNew -> stash base in global 0.
+    instructions.extend_from_bytes(&encode(Opcode::SegmentNew, &[]));
+    instructions.extend_from_bytes(&encode(Opcode::SetGlobal, &[0]));
+
+    let mut constants: Vec<Value> = Vec::with_capacity(cells.len() * 2);
+    for (off, &val) in cells.iter().enumerate() {
+        // Push the cell address: `base` for offset 0, `base + off` otherwise.
+        instructions.extend_from_bytes(&encode(Opcode::GetGlobal, &[0]));
+        if off > 0 {
+            let off_const_idx = constants.len();
+            constants.push(Value::Integer(Integer::I64(off as i64)));
+            instructions.extend_from_bytes(&encode(Opcode::Constant, &[off_const_idx]));
+            instructions.extend_from_bytes(&encode(Opcode::Add, &[]));
+        }
+        // Push the cell value, then HeapWrite.
+        let val_const_idx = constants.len();
+        constants.push(Value::Integer(Integer::I64(val)));
+        instructions.extend_from_bytes(&encode(Opcode::Constant, &[val_const_idx]));
+        instructions.extend_from_bytes(&encode(Opcode::HeapWrite, &[]));
+    }
+
+    // Push the segment base as the program's return value.
+    instructions.extend_from_bytes(&encode(Opcode::GetGlobal, &[0]));
+    instructions.extend_from_bytes(&encode(Opcode::Pop, &[]));
+    Bytecode {
+        instructions,
+        constants,
+        source_map: SourceMap::new(),
+        type_registry: vec![],
+    }
+}
+
+/// Runs the bytecode against the public-output segment `seg_id`,
+/// builds `MaatPublicInputs::with_output_segment`, and
+/// verifies the proof end-to-end.
+pub fn prove_and_verify_pubmem(bytecode: Bytecode, seg_id: u32) {
+    let artifacts = maat_trace::run_with_output(bytecode.clone(), Some(seg_id))
+        .expect("trace with public output failed");
+    let output_felt = BaseElement::new(u64::from(artifacts.output_base));
+    let program_hash = compute_program_hash(&bytecode).expect("program hash failed");
+    let public_inputs = MaatPublicInputs::with_output_segment(
+        program_hash,
+        vec![],
+        output_felt,
+        artifacts.output_base,
+        artifacts.output_segment.clone(),
+    );
+    let prover = MaatProver::new(development_options(), public_inputs.clone());
+    let proof = prover
+        .generate_proof(artifacts.trace)
+        .expect("pubmem proof generation failed");
+    verify_with_inputs(proof, public_inputs).expect("pubmem verification failed");
+}
+
 pub fn prove_synthetic_heap(bytecode: Bytecode, expected_output: BaseElement) {
     let (trace, _) = maat_trace::run(bytecode.clone()).expect("heap trace failed");
     let program_hash = compute_program_hash(&bytecode).expect("program hash failed");
@@ -290,4 +349,35 @@ pub fn prove_synthetic_heap_production(bytecode: Bytecode, expected_output: Base
         .expect("heap synthetic proof generation (production) failed");
     verify_with_inputs(proof, public_inputs)
         .expect("heap synthetic verification (production) failed");
+}
+
+/// Prove honestly, then verify against a tampered public input.
+pub fn honest_prover_dishonest_verifier(
+    bytecode: Bytecode,
+    seg_id: u32,
+    tamper: impl FnOnce(&mut MaatPublicInputs),
+    label: &str,
+) {
+    let artifacts =
+        maat_trace::run_with_output(bytecode.clone(), Some(seg_id)).expect("trace failed");
+    let output_felt = BaseElement::new(u64::from(artifacts.output_base));
+    let program_hash = compute_program_hash(&bytecode).expect("hash");
+    let honest_inputs = MaatPublicInputs::with_output_segment(
+        program_hash,
+        vec![],
+        output_felt,
+        artifacts.output_base,
+        artifacts.output_segment.clone(),
+    );
+    let prover = MaatProver::new(development_options(), honest_inputs.clone());
+    let proof = prover
+        .generate_proof(artifacts.trace)
+        .expect("honest proof generation must succeed");
+
+    let mut lying_inputs = honest_inputs;
+    tamper(&mut lying_inputs);
+    assert!(
+        verify_with_inputs(proof, lying_inputs).is_err(),
+        "{label}: tampered public input must be rejected",
+    );
 }

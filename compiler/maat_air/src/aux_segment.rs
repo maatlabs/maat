@@ -86,30 +86,72 @@ pub fn aux_constraint_degrees() -> Vec<usize> {
 
 pub fn aux_assertions<E: FieldElement<BaseField = BaseElement>>(
     last_step: usize,
+    rand_elements: &[E],
+    output_base: u32,
+    output_segment: &[BaseElement],
 ) -> Vec<Assertion<E>> {
     let mut out = Vec::with_capacity(NUM_AUX_ASSERTIONS);
-    out.extend(memory_aux_assertions::<E>(last_step));
+    out.extend(memory_aux_assertions::<E>(
+        last_step,
+        rand_elements,
+        output_base,
+        output_segment,
+    ));
     out.extend(BuiltinSet::aux_assertions::<E>(last_step));
     out
 }
 
 fn memory_aux_assertions<E: FieldElement<BaseField = BaseElement>>(
     last_step: usize,
+    rand_elements: &[E],
+    output_base: u32,
+    output_segment: &[BaseElement],
 ) -> Vec<Assertion<E>> {
+    let memory_rands = &rand_elements[..MEMORY_NUM_AUX_RANDS];
+    let endpoint = public_memory_endpoint::<E>(memory_rands, output_base, output_segment);
     vec![
         Assertion::single(AUX_COL_MEM_ACC, 0, E::ONE),
-        Assertion::single(AUX_COL_MEM_ACC, last_step, E::ONE),
+        Assertion::single(AUX_COL_MEM_ACC, last_step, endpoint),
     ]
+}
+
+pub fn public_memory_endpoint<E: FieldElement<BaseField = BaseElement>>(
+    memory_rands: &[E],
+    output_base: u32,
+    output_segment: &[BaseElement],
+) -> E {
+    if output_segment.is_empty() {
+        return E::ONE;
+    }
+    let z = memory_rands[RAND_Z];
+    let alpha = memory_rands[RAND_ALPHA];
+    let mut prod = E::ONE;
+    for (off, &val) in output_segment.iter().enumerate() {
+        let off_u32 = u32::try_from(off).expect("output segment longer than u32::MAX");
+        let addr_u64 = u64::from(output_base) + u64::from(off_u32);
+        let addr = E::from(BaseElement::new(addr_u64));
+        let val_e = E::from(val);
+        prod *= z - (addr + alpha * val_e);
+    }
+    let z_pow_l = z.exp((output_segment.len() as u64).into());
+    z_pow_l * prod.inv()
 }
 
 pub fn build_aux_columns<E: FieldElement<BaseField = BaseElement>>(
     main_columns: &[&[BaseElement]],
     rand_elements: &[E],
+    output_base: u32,
+    output_segment: &[BaseElement],
 ) -> Vec<Vec<E>> {
     let memory_rands = &rand_elements[..MEMORY_NUM_AUX_RANDS];
 
     let mut columns = Vec::with_capacity(AUX_WIDTH);
-    columns.extend(build_memory_columns(main_columns, memory_rands));
+    columns.extend(build_memory_columns(
+        main_columns,
+        memory_rands,
+        output_base,
+        output_segment,
+    ));
     columns.extend(BuiltinSet::build_aux_columns(main_columns, rand_elements));
     columns
 }
@@ -153,14 +195,37 @@ fn evaluate_memory<F, E>(
 fn build_memory_columns<E: FieldElement<BaseField = BaseElement>>(
     main_columns: &[&[BaseElement]],
     rand_elements: &[E],
+    output_base: u32,
+    output_segment: &[BaseElement],
 ) -> Vec<Vec<E>> {
     let n = main_columns[COL_MEM_ADDR].len();
     let z = rand_elements[RAND_Z];
     let alpha = rand_elements[RAND_ALPHA];
 
-    let mut pairs = (0..n)
-        .map(|i| (main_columns[COL_MEM_ADDR][i], main_columns[COL_MEM_VAL][i]))
-        .collect::<Vec<(BaseElement, BaseElement)>>();
+    let l = output_segment.len();
+    let mut pairs: Vec<(BaseElement, BaseElement)> = Vec::with_capacity(n);
+    let mut zeros_to_remove = l;
+    for (&addr, &val) in main_columns[COL_MEM_ADDR]
+        .iter()
+        .zip(main_columns[COL_MEM_VAL].iter())
+    {
+        if zeros_to_remove > 0 && addr == BaseElement::ZERO && val == BaseElement::ZERO {
+            zeros_to_remove -= 1;
+            continue;
+        }
+        pairs.push((addr, val));
+    }
+    for (off, &val) in output_segment.iter().enumerate() {
+        let off_u32 = u32::try_from(off).expect("public-output segment longer than u32::MAX cells");
+        let addr_u64 = u64::from(output_base) + u64::from(off_u32);
+        pairs.push((BaseElement::new(addr_u64), val));
+    }
+    debug_assert_eq!(
+        pairs.len(),
+        n,
+        "L2 multiset must equal trace length after public-memory swap",
+    );
+
     pairs.sort_unstable_by(|a, b| {
         a.0.as_int()
             .cmp(&b.0.as_int())
@@ -385,7 +450,7 @@ mod tests {
     fn build_aux_columns_identity_permutation() {
         let main = mock_main_trace(&[(0, 0); 8]);
         let rand_elements = rands(F::new(9999), F::new(13), F::new(7777));
-        let aux = build_aux_columns(&column_slices(&main), &rand_elements);
+        let aux = build_aux_columns(&column_slices(&main), &rand_elements, 0, &[]);
 
         assert_eq!(aux.len(), AUX_WIDTH);
         assert_eq!(aux[AUX_COL_MEM_ACC][0], F::ONE);
@@ -423,7 +488,7 @@ mod tests {
         let main = mock_main_trace_with_limbs(&mem, &limbs);
         let rand_elements = rands(F::new(7777), F::new(31), F::new(5555));
         let slices = column_slices(&main);
-        let aux = build_aux_columns(&slices, &rand_elements);
+        let aux = build_aux_columns(&slices, &rand_elements, 0, &[]);
 
         let n = 8;
         for i in 0..n - 1 {

@@ -12,6 +12,8 @@ pub const SEG_PROGRAM: u32 = 0;
 /// Segment ID reserved for the execution segment (locals, globals, saved
 /// frame pointers).
 pub const SEG_EXECUTION: u32 = 1;
+/// Segment ID reserved for the public-output segment.
+pub const SEG_PUBLIC_OUTPUT: u32 = 2;
 
 /// First flat address used by [`MemorySegmentManager::relocate_segments`].
 pub const RELOCATION_BASE: u32 = 1;
@@ -540,8 +542,10 @@ mod tests {
 
     #[test]
     fn reserved_segment_constants_are_distinct() {
-        assert_ne!(SEG_PROGRAM, SEG_EXECUTION);
         assert_eq!(SEG_PROGRAM, 0);
         assert_eq!(SEG_EXECUTION, 1);
+        assert_eq!(SEG_PUBLIC_OUTPUT, 2);
+        assert_ne!(SEG_PROGRAM, SEG_EXECUTION);
+        assert_ne!(SEG_EXECUTION, SEG_PUBLIC_OUTPUT);
     }
 }
