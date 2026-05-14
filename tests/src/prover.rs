@@ -351,6 +351,58 @@ pub fn prove_synthetic_heap_production(bytecode: Bytecode, expected_output: Base
         .expect("heap synthetic verification (production) failed");
 }
 
+/// Bytecode that creates a `SegmentArena`, allocates `payloads.len()`
+/// segments through it, writes a single sentinel cell into each allocated
+/// segment, finalizes each one, then reads back the first segment's cell so
+/// the program's last-popped value is `payloads[0]`.
+///
+/// Globals layout: slot 0 is the arena base; slots `1..=payloads.len()`
+/// hold each allocated segment's base.
+pub fn synthetic_arena_alloc_finalize_bytecode(payloads: &[i64]) -> Bytecode {
+    assert!(
+        !payloads.is_empty(),
+        "arena test needs at least one payload"
+    );
+
+    let mut instructions = Instructions::new();
+
+    instructions.extend_from_bytes(&encode(Opcode::SegmentNew, &[]));
+    instructions.extend_from_bytes(&encode(Opcode::SetGlobal, &[0]));
+
+    let mut constants: Vec<Value> = Vec::with_capacity(payloads.len());
+
+    for (i, &payload) in payloads.iter().enumerate() {
+        let alloc_slot = i + 1;
+        instructions.extend_from_bytes(&encode(Opcode::GetGlobal, &[0]));
+        instructions.extend_from_bytes(&encode(Opcode::ArenaNew, &[]));
+        instructions.extend_from_bytes(&encode(Opcode::SetGlobal, &[alloc_slot]));
+
+        instructions.extend_from_bytes(&encode(Opcode::GetGlobal, &[alloc_slot]));
+        let const_idx = constants.len();
+        constants.push(Value::Integer(Integer::I64(payload)));
+        instructions.extend_from_bytes(&encode(Opcode::Constant, &[const_idx]));
+        instructions.extend_from_bytes(&encode(Opcode::HeapWrite, &[]));
+    }
+
+    for i in 0..payloads.len() {
+        let alloc_slot = i + 1;
+        instructions.extend_from_bytes(&encode(Opcode::GetGlobal, &[0]));
+        instructions.extend_from_bytes(&encode(Opcode::GetGlobal, &[alloc_slot]));
+        instructions.extend_from_bytes(&encode(Opcode::ArenaFinalize, &[]));
+    }
+
+    instructions.extend_from_bytes(&encode(Opcode::GetGlobal, &[1]));
+    instructions.extend_from_bytes(&encode(Opcode::HeapRead, &[]));
+    instructions.extend_from_bytes(&encode(Opcode::Pop, &[]));
+
+    Bytecode {
+        instructions,
+        constants,
+        source_map: SourceMap::new(),
+        type_registry: vec![],
+    }
+}
+
 /// Prove honestly, then verify against a tampered public input.
 pub fn honest_prover_dishonest_verifier(
     bytecode: Bytecode,

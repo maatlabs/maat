@@ -227,10 +227,49 @@ impl MemorySegmentManager {
             .collect()
     }
 
-    /// Returns whether `segment_index` was registered with an explicit
-    /// declared size via [`Self::add_with_size`].
     pub fn has_declared_size(&self, segment_index: u32) -> bool {
         self.segment_sizes.contains_key(&segment_index)
+    }
+
+    pub fn arena_new(&mut self, arena_seg: u32) -> Result<(Relocatable, Relocatable)> {
+        let allocated_base = self.add()?;
+        let id = Felt::new(u64::from(allocated_base.segment_index));
+        let info_addr = self.append(arena_seg, MaybeRelocatable::Felt(id))?;
+        Ok((allocated_base, info_addr))
+    }
+
+    pub fn arena_finalize(
+        &mut self,
+        arena_seg: u32,
+        target_seg: u32,
+    ) -> Result<(u32, Relocatable)> {
+        let size = self.high_water_mark(target_seg)?;
+        if let Some(&previous) = self.segment_sizes.get(&target_seg)
+            && previous != size
+        {
+            return Err(MemoryError::ArenaRefinalize {
+                target: target_seg,
+                previous,
+                current: size,
+            });
+        }
+        self.segment_sizes.insert(target_seg, size);
+        let target = Felt::new(u64::from(target_seg));
+        let marker_addr = self.append(arena_seg, MaybeRelocatable::Felt(target))?;
+        Ok((size, marker_addr))
+    }
+
+    fn high_water_mark(&self, segment_index: u32) -> Result<u32> {
+        let segment = self
+            .data
+            .get(segment_index as usize)
+            .ok_or(MemoryError::SegmentNotFound(segment_index))?;
+        let highest = segment
+            .iter()
+            .rposition(Option::is_some)
+            .map(|p| p.saturating_add(1))
+            .unwrap_or(0);
+        u32::try_from(highest).map_err(|_| MemoryError::SegmentTooLarge(segment_index))
     }
 
     /// Returns, for each segment in registration order, the sorted list of
@@ -538,6 +577,144 @@ mod tests {
         let sized = mgr.add_with_size(4).unwrap();
         assert!(!mgr.has_declared_size(plain.segment_index));
         assert!(mgr.has_declared_size(sized.segment_index));
+    }
+
+    #[test]
+    fn arena_new_allocates_distinct_segments_and_records_each_in_arena() {
+        let mut mgr = MemorySegmentManager::new();
+        let arena = mgr.add().unwrap();
+
+        let (a, info_a) = mgr.arena_new(arena.segment_index).unwrap();
+        let (b, info_b) = mgr.arena_new(arena.segment_index).unwrap();
+        let (c, info_c) = mgr.arena_new(arena.segment_index).unwrap();
+
+        assert_eq!(a, Relocatable::new(1, 0));
+        assert_eq!(b, Relocatable::new(2, 0));
+        assert_eq!(c, Relocatable::new(3, 0));
+
+        assert_eq!(info_a, Relocatable::new(arena.segment_index, 0));
+        assert_eq!(info_b, Relocatable::new(arena.segment_index, 1));
+        assert_eq!(info_c, Relocatable::new(arena.segment_index, 2));
+
+        assert_eq!(mgr.read(info_a), Some(MaybeRelocatable::Felt(Felt::new(1))));
+        assert_eq!(mgr.read(info_b), Some(MaybeRelocatable::Felt(Felt::new(2))));
+        assert_eq!(mgr.read(info_c), Some(MaybeRelocatable::Felt(Felt::new(3))));
+    }
+
+    #[test]
+    fn arena_finalize_records_size_and_marker() {
+        let mut mgr = MemorySegmentManager::new();
+        let arena = mgr.add().unwrap();
+        let (target, _) = mgr.arena_new(arena.segment_index).unwrap();
+        mgr.write(target, Felt::new(11).into()).unwrap();
+        mgr.write(
+            Relocatable::new(target.segment_index, 1),
+            Felt::new(22).into(),
+        )
+        .unwrap();
+        mgr.write(
+            Relocatable::new(target.segment_index, 2),
+            Felt::new(33).into(),
+        )
+        .unwrap();
+
+        let (size, marker_addr) = mgr
+            .arena_finalize(arena.segment_index, target.segment_index)
+            .unwrap();
+        assert_eq!(size, 3);
+        assert!(mgr.has_declared_size(target.segment_index));
+        assert_eq!(
+            mgr.compute_sizes().unwrap()[target.segment_index as usize],
+            3
+        );
+        assert_eq!(
+            mgr.read(marker_addr),
+            Some(MaybeRelocatable::Felt(Felt::new(u64::from(
+                target.segment_index
+            ))))
+        );
+    }
+
+    #[test]
+    fn arena_finalize_idempotent_when_size_unchanged() {
+        let mut mgr = MemorySegmentManager::new();
+        let arena = mgr.add().unwrap();
+        let (target, _) = mgr.arena_new(arena.segment_index).unwrap();
+        mgr.write(target, Felt::new(7).into()).unwrap();
+        let (size_first, _) = mgr
+            .arena_finalize(arena.segment_index, target.segment_index)
+            .unwrap();
+        let (size_second, _) = mgr
+            .arena_finalize(arena.segment_index, target.segment_index)
+            .unwrap();
+        assert_eq!(size_first, 1);
+        assert_eq!(size_second, 1);
+    }
+
+    #[test]
+    fn arena_finalize_rejects_size_mismatch() {
+        let mut mgr = MemorySegmentManager::new();
+        let arena = mgr.add().unwrap();
+        let (target, _) = mgr.arena_new(arena.segment_index).unwrap();
+        mgr.write(target, Felt::new(7).into()).unwrap();
+        mgr.arena_finalize(arena.segment_index, target.segment_index)
+            .unwrap();
+
+        mgr.write(
+            Relocatable::new(target.segment_index, 1),
+            Felt::new(8).into(),
+        )
+        .unwrap();
+        let err = mgr
+            .arena_finalize(arena.segment_index, target.segment_index)
+            .unwrap_err();
+        assert_eq!(
+            err,
+            MemoryError::ArenaRefinalize {
+                target: target.segment_index,
+                previous: 1,
+                current: 2,
+            }
+        );
+    }
+
+    #[test]
+    fn arena_new_rejects_unknown_arena_segment() {
+        let mut mgr = MemorySegmentManager::new();
+        let err = mgr.arena_new(7).unwrap_err();
+        assert_eq!(err, MemoryError::SegmentNotFound(7));
+    }
+
+    #[test]
+    fn arena_finalize_rejects_unknown_target() {
+        let mut mgr = MemorySegmentManager::new();
+        let arena = mgr.add().unwrap();
+        let err = mgr.arena_finalize(arena.segment_index, 99).unwrap_err();
+        assert_eq!(err, MemoryError::SegmentNotFound(99));
+    }
+
+    #[test]
+    fn arena_segments_relocate_back_to_back_in_flat_space() {
+        let mut mgr = MemorySegmentManager::new();
+        let arena = mgr.add().unwrap();
+        let (a, _) = mgr.arena_new(arena.segment_index).unwrap();
+        let (b, _) = mgr.arena_new(arena.segment_index).unwrap();
+        mgr.write(a, Felt::new(10).into()).unwrap();
+        mgr.write(Relocatable::new(a.segment_index, 1), Felt::new(20).into())
+            .unwrap();
+        mgr.write(b, Felt::new(30).into()).unwrap();
+        mgr.arena_finalize(arena.segment_index, a.segment_index)
+            .unwrap();
+        mgr.arena_finalize(arena.segment_index, b.segment_index)
+            .unwrap();
+
+        let table = mgr.relocate_segments().unwrap();
+        // Arena segment 0 holds two arena-id cells and two finalize markers.
+        assert_eq!(table[arena.segment_index as usize], 1);
+        // Segment a base = 1 + 4 (arena holds 4 cells) = 5.
+        assert_eq!(table[a.segment_index as usize], 5);
+        // Segment b base = 5 + 2 = 7.
+        assert_eq!(table[b.segment_index as usize], 7);
     }
 
     #[test]

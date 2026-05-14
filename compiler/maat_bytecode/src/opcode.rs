@@ -259,6 +259,18 @@ pub enum Opcode {
     /// Internal-only opcode; not emitted by the surface language.
     /// Operands: none
     SegmentNew = 53,
+
+    /// Allocate a fresh memory segment whose base relocatable is on top of the stack.
+    ///
+    /// Internal-only opcode; not emitted by the surface language.
+    /// Operands: none
+    ArenaNew = 54,
+
+    /// Finalize a segment that was previously allocated via [`Self::ArenaNew`].
+    ///
+    /// Internal-only opcode; not emitted by the surface language.
+    /// Operands: none
+    ArenaFinalize = 55,
 }
 
 impl Opcode {
@@ -318,6 +330,8 @@ impl Opcode {
             Self::HeapRead => "OpHeapRead",
             Self::HeapWrite => "OpHeapWrite",
             Self::SegmentNew => "OpSegmentNew",
+            Self::ArenaNew => "OpArenaNew",
+            Self::ArenaFinalize => "OpArenaFinalize",
         }
     }
 
@@ -376,7 +390,9 @@ impl Opcode {
             | Self::HeapAlloc
             | Self::HeapRead
             | Self::HeapWrite
-            | Self::SegmentNew => &[],
+            | Self::SegmentNew
+            | Self::ArenaNew
+            | Self::ArenaFinalize => &[],
         }
     }
 
@@ -437,6 +453,8 @@ impl Opcode {
             51 => Some(Self::HeapRead),
             52 => Some(Self::HeapWrite),
             53 => Some(Self::SegmentNew),
+            54 => Some(Self::ArenaNew),
+            55 => Some(Self::ArenaFinalize),
             _ => None,
         }
     }
@@ -548,10 +566,18 @@ mod tests {
 
     #[test]
     fn opcode_roundtrip() {
-        for byte in 0..=53 {
+        for byte in 0..=55 {
             let opcode = Opcode::from_byte(byte).unwrap();
             assert_eq!(opcode.to_byte(), byte);
         }
+    }
+
+    #[test]
+    fn arena_opcodes_are_operandless() {
+        assert_eq!(Opcode::ArenaNew.operand_widths(), &[]);
+        assert_eq!(Opcode::ArenaFinalize.operand_widths(), &[]);
+        assert_eq!(Opcode::ArenaNew.name(), "OpArenaNew");
+        assert_eq!(Opcode::ArenaFinalize.name(), "OpArenaFinalize");
     }
 
     #[test]

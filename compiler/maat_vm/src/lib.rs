@@ -491,6 +491,41 @@ impl VM {
                 self.heap_values.insert(addr, value);
                 recorder.record_heap_access(addr.segment_index, addr.offset, value_mr, false);
             }
+            Opcode::ArenaNew => {
+                let arena_base = self.pop_relocatable("ArenaNew")?;
+                let (allocated_base, info_addr) = self
+                    .segments
+                    .arena_new(arena_base.segment_index)
+                    .map_err(|e| self.vm_error(format!("ArenaNew: {e}")))?;
+                let id = MaybeRelocatable::Felt(Felt::new(u64::from(allocated_base.segment_index)));
+                self.heap_values.insert(
+                    info_addr,
+                    Value::Felt(Felt::new(u64::from(allocated_base.segment_index))),
+                );
+                self.push_stack(Value::Relocatable(allocated_base))?;
+                recorder.record_out(MaybeRelocatable::Relocatable(allocated_base));
+                recorder.record_heap_access(info_addr.segment_index, info_addr.offset, id, false);
+            }
+            Opcode::ArenaFinalize => {
+                let target_base = self.pop_relocatable("ArenaFinalize")?;
+                let arena_base = self.pop_relocatable("ArenaFinalize")?;
+                let (_size, marker_addr) = self
+                    .segments
+                    .arena_finalize(arena_base.segment_index, target_base.segment_index)
+                    .map_err(|e| self.vm_error(format!("ArenaFinalize: {e}")))?;
+                let marker =
+                    MaybeRelocatable::Felt(Felt::new(u64::from(target_base.segment_index)));
+                self.heap_values.insert(
+                    marker_addr,
+                    Value::Felt(Felt::new(u64::from(target_base.segment_index))),
+                );
+                recorder.record_heap_access(
+                    marker_addr.segment_index,
+                    marker_addr.offset,
+                    marker,
+                    false,
+                );
+            }
         }
         Ok(())
     }

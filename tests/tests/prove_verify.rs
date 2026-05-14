@@ -1130,3 +1130,96 @@ fn pubmem_tampered_segment_length_longer_rejected() {
         "segment length (longer)",
     );
 }
+
+#[test]
+fn arena_three_segments_alloc_finalize_proves_and_verifies() {
+    let bytecode = synthetic_arena_alloc_finalize_bytecode(&[11, 22, 33]);
+    prove_synthetic_heap(bytecode, BaseElement::new(11));
+}
+
+#[test]
+fn arena_three_segments_alloc_finalize_production() {
+    let bytecode = synthetic_arena_alloc_finalize_bytecode(&[11, 22, 33]);
+    prove_synthetic_heap_production(bytecode, BaseElement::new(11));
+}
+
+#[test]
+fn arena_assigns_distinct_segment_ids() {
+    let bytecode = synthetic_arena_alloc_finalize_bytecode(&[7, 13, 21, 29]);
+    let (trace, _) = maat_trace::run(bytecode).expect("arena trace failed");
+
+    let n = trace.num_rows();
+    let mut writes: Vec<u64> = (0..n)
+        .filter(|&i| {
+            trace.row(i)[COL_MEM_ADDR].as_int() != 0
+                && trace.row(i)[maat_trace::table::COL_IS_READ].as_int() == 0
+        })
+        .map(|i| trace.row(i)[COL_MEM_VAL].as_int())
+        .collect();
+
+    writes.sort_unstable();
+    writes.dedup();
+
+    assert!(
+        writes.windows(2).all(|w| w[0] != w[1]),
+        "duplicate arena id surfaced in trace: {writes:?}"
+    );
+}
+
+#[test]
+fn arena_tampered_id_value_rejected() {
+    let bytecode = synthetic_arena_alloc_finalize_bytecode(&[7, 13, 21]);
+    let (mut trace, _) = maat_trace::run(bytecode.clone()).expect("arena trace failed");
+
+    let n = trace.num_rows();
+    let mut tampered = false;
+    for i in 0..n {
+        let val = trace.row(i)[COL_MEM_VAL].as_int();
+        if trace.row(i)[maat_trace::table::COL_IS_READ].as_int() == 0
+            && (1..=10).contains(&val)
+            && trace.row(i)[COL_MEM_ADDR].as_int() != 0
+        {
+            trace.row_mut(i)[COL_MEM_VAL] = Felt::new(val + 100);
+            tampered = true;
+            break;
+        }
+    }
+    assert!(tampered, "expected at least one arena-id write to tamper");
+
+    let program_hash = compute_program_hash(&bytecode).expect("hash failed");
+    let public_inputs = MaatPublicInputs::new(program_hash, vec![], BaseElement::new(7));
+    let prover = MaatProver::new(development_options(), public_inputs.clone());
+
+    let prove_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        prover.generate_proof(trace)
+    }));
+    match prove_result {
+        Err(_) => {}
+        Ok(proof) => {
+            let proof = proof.expect("proof generation failed");
+            assert!(
+                verify_with_inputs(proof, public_inputs).is_err(),
+                "tampered arena id must be rejected by the verifier",
+            );
+        }
+    }
+}
+
+#[test]
+fn arena_segments_relocate_into_distinct_flat_ranges() {
+    let bytecode = synthetic_arena_alloc_finalize_bytecode(&[100, 200, 300]);
+    let (trace, _) = maat_trace::run(bytecode).expect("arena trace failed");
+
+    let n = trace.num_rows();
+    let mut unique_addrs = std::collections::HashSet::new();
+    for i in 0..n {
+        unique_addrs.insert(trace.row(i)[COL_MEM_ADDR].as_int());
+    }
+    let max = unique_addrs.iter().copied().max().unwrap_or(0);
+    for addr in 1..=max {
+        assert!(
+            unique_addrs.contains(&addr),
+            "flat address {addr} missing after arena relocation (max = {max})",
+        );
+    }
+}

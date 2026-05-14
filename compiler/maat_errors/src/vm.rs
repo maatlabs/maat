@@ -76,4 +76,12 @@ pub enum MemoryError {
     },
     #[error("relocation table overflow: cumulative base exceeds u32::MAX")]
     RelocationOverflow,
+    #[error(
+        "arena finalize: target segment {target} was already finalized at size {previous} but caller now requests {current}"
+    )]
+    ArenaRefinalize {
+        target: u32,
+        previous: u32,
+        current: u32,
+    },
 }
