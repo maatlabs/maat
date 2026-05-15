@@ -4,6 +4,61 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-05-15
+
+Memory segments and proof-system foundations. Lifts Maat's memory model from a single contiguous heap (`[2^32, 2^33)` addressed by a global allocator counter) to per-instance memory segments concatenated into a flat address space at proof time.
+
+### Added
+
+#### Memory segments and `Relocatable` addresses
+
+- **`Relocatable { segment_index: u32, offset: u32 }` and `MaybeRelocatable`** (`maat_runtime::memory`). Logical addresses decoupled from the flat AIR address space. `Relocatable + felt = Relocatable` arithmetic with `u32`-overflow checks; same-segment subtraction returns a Goldilocks-encoded signed difference; cross-segment subtraction is rejected at the runtime level.
+- **`MemorySegmentManager`** allocates segments on demand. Write-once semantics enforced (`MemoryError::WriteOnceViolation` on differing rewrites). Reserved segment IDs `0` (program), `1` (execution), `2` (public output) are exposed as `SEG_PROGRAM`/`SEG_EXECUTION`/`SEG_PUBLIC_OUTPUT` constants but not pre-allocated by `MemorySegmentManager::new()`.
+- **`MemoryError` codex** (`maat_errors::vm`). Variants: `OffsetOverflow`, `CrossSegmentSubtraction`, `SegmentNotFound`, `SegmentTooLarge`, `SegmentCountOverflow`, `WriteOnceViolation`, `DeclaredSizeUnderflow`, `RelocationOverflow`, `ArenaRefinalize`.
+
+#### Segment-aware heap opcodes
+
+- **`Opcode::SegmentNew` (53)** -- allocates a fresh user segment via the segment manager, pushes the resulting `Relocatable` (encoded as `Value::Relocatable`) and sets the VM's current segment so subsequent `HeapAlloc`s append into it. Sticky until the next `SegmentNew` redirects the target.
+- **`HeapAlloc`/`HeapRead`/`HeapWrite` (50/51/52)** rewired to consume `Relocatable` addresses through `MemorySegmentManager`. Pre-`SegmentNew` callers fall back to a lazily-created default segment for backward compatibility.
+- **`Value::Relocatable(u32, u32)`** stack value variant. `to_maybe_relocatable()` distinguishes felt-shaped values from logical addresses for the trace recorder.
+- **Trace recorder** (`maat_trace::TraceRecorder`) records `(segment, offset, value)` tuples per heap access plus a per-row `RowRelocPlan` marking which trace cells carry `Relocatable` values. Heap-access set checks (`HashSet<(u32, u32)>`) replace the flat-address allocator for write/read consistency.
+
+#### Relocation pass
+
+- **`Relocator`** (`maat_trace::mem`). Builds the relocation table `base[seg_{i+1}] = base[seg_i] + size[seg_i]` from segment sizes, with the user heap starting at the recorder's `heap_base` (just past the locals/globals/saved-FP region) so flat addresses do not collide with the existing pre-segment allocator. `flatten(Relocatable) -> Felt` resolves logical addresses; cross-table overflow is detected.
+- **`relocate_trace(trace, plans, relocator)`** rewrites every relocatable-bearing cell (`COL_MEM_ADDR`, `COL_MEM_VAL`, `COL_S0..S2`, `COL_OUT`) to its flat form using the per-row plans the recorder produces in lock-step with trace rows.
+- **Pipeline integration.** `maat_trace::run_with_output(bytecode, output_segment_id)` runs the VM, computes effective segment sizes, builds the relocator, relocates the trace, fills memory holes, and appends the public-memory dummy rows--all between trace finalization and proof generation. The CPU AIR continues to consume flat addresses; no AIR change for memory itself.
+
+#### Memory hole filling for sparse segments
+
+- **`fill_memory_holes(trace, segments, relocator)`** appends a dummy-read row for every unaccessed offset inside each segment. Each dummy carries `(flat_addr, 0, is_read=true)` plus the prior row's PC/SP/FP/OUT so the existing `(addr_delta)(addr_delta - 1) = 0` continuity gate stays satisfied across sparse writes. Holes between accesses are filled; holes past the high-water mark are not (the segment's effective size cuts off there).
+
+#### Multi-cell public output and public-memory pinning
+
+- **Public-memory accumulator (one AIR change).** Adopts the L1/L2 mechanism from the Cairo whitepaper (Goldberg, 2021): the L2 builder removes `l = output_segment.len()` `(0, 0)` entries from L1's multiset, adds the `l` public `(addr, val)` entries, and sorts everything together. Implementation deviates from the spec's strict "first `l` rows" placement to avoid reordering Maat's flat layout (where locals/globals at `[1, K)` precede user segments).
+- **`MaatPublicInputs::with_output_segment(program_hash, inputs, output, output_base, output_segment)`** carries the multi-cell public output; `to_elements()` feeds the segment length into the Fiat-Shamir transcript so verifier disagreement on `output_segment.len()` produces different challenges and verification fails. (Cryptographic length binding sits in the transcript, not in the AIR, for now.)
+- **Pubmem dummy rows.** `append_pubmem_dummies(trace, count)` appends `count` `(0, 0)` dummies inheriting the prior row's CPU state, completing the public-memory accumulator's L1 prefix.
+- **Prover/verifier wiring.** `MaatProver::generate_proof` now consumes `MaatPublicInputs` carrying the segment metadata; `verify_with_inputs` reconstructs the accumulator endpoint and rejects tampered output cells, segment lengths, or output bases.
+
+#### `SegmentArena` meta-builtin
+
+- **`Opcode::ArenaNew` (54)** -- pops the arena's base relocatable, allocates a fresh user segment via the segment manager, registers the new segment id in the arena's info segment, and pushes the new segment's base. Maps to selector class `SEL_HEAP_ALLOC` (constraint shape unchanged).
+- **`Opcode::ArenaFinalize` (55)** -- pops the target and arena bases, records the target's high-water mark in `segment_sizes`, and appends a finalize marker carrying the target's segment id into the arena's info segment. Maps to `SEL_HEAP_WRITE`. Idempotent on identical sizes; rejects size mismatches via `MemoryError::ArenaRefinalize`.
+- **No new mini-AIR.** The arena's info segment is a regular user segment; every cell written by `ArenaNew`/`ArenaFinalize` flows through the unified memory permutation argument, which already enforces single-value over those addresses and pair-form continuity over the flat-laid arena cells.
+
+#### Codegen migration to per-instance segments (`maat_codegen`)
+
+- **`compile_array_literal` -- per-instance segment.** Now emits `SegmentNew + N * (push e_i; HeapAlloc; Pop)`. Each fixed-size array allocates its own segment; element `i` lives at offset `i` within the segment; the segment base is left on top of the stack as the array's heap pointer. `compile_index_expression` and `compile_array_equality` need no code change -- `Add(base, i)` already produces `Relocatable(seg, i)` via the existing relocatable arithmetic, and `HeapRead` looks it up via the segment manager. Empty array literals get a fresh empty segment (size 0, handled by the relocator + hole filler).
+- **VM `current_segment` is sticky.** `heap_target_segment` reads the current segment without consuming it, so all N appends in a `SegmentNew + N * HeapAlloc` sequence land in the same segment. The slot is reset only by the next `SegmentNew`.
+
+### Changed
+
+- **Per-crate `Cargo.toml` consolidation.** Workspace dependencies are now declared centrally in the root `Cargo.toml`; per-crate manifests inherit via `dep.workspace = true`.
+- **Publishing tooling.** `scripts/publish-crates.sh` is removed; `cargo-workspaces` is now the canonical publish path (`cargo workspaces publish --from-git`).
+- **Test harness.** Prover integration helpers (`prove_and_verify`, `compile_and_trace`, `prove_synthetic_heap`, tamper-rejection helpers, all synthetic bytecode constructors) extracted from `tests/tests/prove_verify.rs` into `tests/src/prover.rs` for reuse across the new segment / relocation / hole / pubmem / arena test suites.
+
+---
+
 ## [0.13.1] - 2026-05-07
 
 Adds fuzz targets, property tests, and benchmarks to the STARK proof system; closes a proof option-downgrade malleability gap; patches two internal naming issues.
@@ -1191,6 +1246,7 @@ When adding entries to this changelog for future releases:
 3. **Audience**: Write for users, not developers (focus on impact, not implementation)
 4. **Links**: Add comparison links at the bottom: `[0.2.0]: https://github.com/maatlabs/maat/compare/v0.1.0...v0.2.0`
 
+[0.14.0]: https://github.com/maatlabs/maat/compare/v0.13.1...v0.14.0
 [0.13.1]: https://github.com/maatlabs/maat/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/maatlabs/maat/compare/v0.12.3...v0.13.0
 [0.12.3]: https://github.com/maatlabs/maat/compare/v0.12.2...v0.12.3
