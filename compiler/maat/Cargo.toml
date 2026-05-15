@@ -20,19 +20,19 @@ clap = { version = "4", features = ["derive"] }
 rustyline = { version = "18", features = ["with-file-history", "derive"] }
 serde_json = "1"
 
-maat_ast = { path = "../maat_ast", version = "0.13.1" }
-maat_bytecode = { path = "../maat_bytecode", version = "0.13.1" }
-maat_codegen = { path = "../maat_codegen", version = "0.13.1" }
-maat_errors = { path = "../maat_errors", version = "0.13.1" }
-maat_eval = { path = "../maat_eval", version = "0.13.1" }
-maat_lexer = { path = "../maat_lexer", version = "0.13.1" }
-maat_module = { path = "../maat_module", version = "0.13.1" }
-maat_parser = { path = "../maat_parser", version = "0.13.1" }
-maat_runtime = { path = "../maat_runtime", version = "0.13.1" }
-maat_types = { path = "../maat_types", version = "0.13.1" }
-maat_span = { path = "../maat_span", version = "0.13.1" }
-maat_trace = { path = "../maat_trace", version = "0.13.1" }
-maat_vm = { path = "../maat_vm", version = "0.13.1" }
-maat_air = { path = "../maat_air", version = "0.13.1" }
-maat_field = { path = "../maat_field", version = "0.13.1" }
-maat_prover = { path = "../maat_prover", version = "0.13.1" }
+maat_span.workspace = true
+maat_errors.workspace = true
+maat_field.workspace = true
+maat_lexer.workspace = true
+maat_ast.workspace = true
+maat_parser.workspace = true
+maat_runtime.workspace = true
+maat_types.workspace = true
+maat_eval.workspace = true
+maat_bytecode.workspace = true
+maat_codegen.workspace = true
+maat_vm.workspace = true
+maat_trace.workspace = true
+maat_air.workspace = true
+maat_prover.workspace = true
+maat_module.workspace = true

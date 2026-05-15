@@ -26,9 +26,9 @@ Bytecode --> VM + TraceRecorder --> TraceTable --> MaatProver --> Proof
 
 Both presets require `FieldExtension::Quadratic` because the auxiliary trace segment evaluates constraints over `QuadExtension<BaseElement>`.
 
-## Provability Scope (v0.13.0)
+## Provability Scope (v0.14.0)
 
-End-to-end proving is supported for programs that operate on **primitive types only**: integers (`i8`..`i64`, `u8`..`u64`, `usize`), `bool`, `Felt` (Goldilocks field element), and user-defined functions over those types (including parameters, return values, nested calls, and bounded recursion). Composite types (`Vector<T>`, `Map<K, V>`, `Set<T>`, `str`, `struct`, `enum`, fixed-size arrays `[T; N]`, closures) execute correctly under the standard VM but are **not yet trace-VM-complete**: `prove` will emit a proof that the verifier rejects. Composite-type tracing requires heap-allocated segment memory model, planned for a future release.
+End-to-end proving is supported for programs that operate on **primitive types and fixed-size arrays**: integers (`i8`..`i64`, `u8`..`u64`, `usize`), `bool`, `Felt` (Goldilocks field element), `[T; N]` for primitive `T`, and user-defined functions over those types (including parameters, return values, nested calls, and bounded recursion). v0.14.0 ships the segmented-memory foundation -- per-instance segments via `MemorySegmentManager`, a relocation pass that flattens segments into the AIR's single address space, sparse-segment hole filling, multi-cell public output through a public-memory accumulator, and a `SegmentArena` meta-builtin for per-instance dictionary allocation -- but the surface-language composite types (`Vector<T>`, `Map<K, V>`, `Set<T>`, `str`, `struct`, `enum`, closures) still execute under the standard VM only. They will lower onto the segmented memory model in a future release; until then, `prove` on a composite-typed program emits a proof that the verifier rejects.
 
 ## Proof File Format
 

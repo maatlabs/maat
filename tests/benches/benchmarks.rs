@@ -376,7 +376,8 @@ fn bench_aux_columns(c: &mut Criterion) {
                     .iter()
                     .map(Vec::as_slice)
                     .collect::<Vec<&[BaseElement]>>();
-                let result = build_aux_columns(black_box(&slices), black_box(&rands));
+                let result =
+                    build_aux_columns(black_box(&slices), black_box(&rands), 0, black_box(&[]));
                 black_box(result);
             });
         });

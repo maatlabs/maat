@@ -4,7 +4,7 @@ Trace-generating virtual machine for the Maat programming language.
 
 ## Role
 
-`maat_trace` instruments every bytecode instruction to record a 56-column execution trace suitable for STARK proving. Each step appends one row to the `TraceTable` capturing variables such as the program counter, frame pointer, stack pointer, memory address and value, a one-hot opcode selector, etc. The table is padded to the next power of two (minimum 8 rows) as required by the Winterfell FRI prover. The resulting trace is consumed by `maat_air` for constraint verification.
+`maat_trace` instruments every bytecode instruction to record a 56-column execution trace suitable for STARK proving. Each step appends one row to the `TraceTable` capturing variables such as the program counter, frame pointer, stack pointer, memory address and value, a one-hot opcode selector, etc. Heap accesses record `(segment, offset, value)` tuples plus a per-row `RowRelocPlan`; between trace finalization and proof generation, a relocation pass concatenates the per-instance segments into a flat address space, fills sparse-segment holes with dummy reads, and appends the public-memory dummies the AIR's accumulator needs. The table is padded to the next power of two (minimum 8 rows) as required by the Winterfell FRI prover. The resulting trace is consumed by `maat_air` for constraint verification.
 
 ## Main Segment Schema (56 columns)
 
@@ -16,7 +16,7 @@ This crate produces the **main** trace segment. `maat_air` appends a 137-column 
 | `operand_0`         | 1     | First instruction operand byte                                                                                                                      |
 | `s0`, `s1`, `s2`    | 3     | Top three stack values before instruction                                                                                                           |
 | `out`               | 1     | Result value pushed to stack                                                                                                                        |
-| `mem_addr/val`      | 2     | Memory access address and value (unified segment; heap at `[2^32, 2^33)`)                                                                           |
+| `mem_addr/val`      | 2     | Memory access address and value (flat space after relocation; heap segments concatenated past the locals/globals/saved-FP region)                   |
 | `is_read`           | 1     | Read (`1`) or write (`0`) flag                                                                                                                      |
 | Selector columns    | 20    | One-hot opcode class encoding (20 classes)                                                                                                          |
 | `rc_val`            | 1     | Value being range-checked; also carries `cmp_diff = s1 - s0` on ordering rows                                                                       |

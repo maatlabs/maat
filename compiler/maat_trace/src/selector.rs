@@ -132,7 +132,8 @@ pub const fn selector_index(op: Opcode) -> usize {
         | Opcode::Unit
         | Opcode::GetBuiltin
         | Opcode::GetFree
-        | Opcode::CurrentClosure => SEL_PUSH,
+        | Opcode::CurrentClosure
+        | Opcode::SegmentNew => SEL_PUSH,
 
         Opcode::Add | Opcode::Sub | Opcode::Mul => SEL_ARITH,
 
@@ -173,9 +174,9 @@ pub const fn selector_index(op: Opcode) -> usize {
             SEL_FELT
         }
 
-        Opcode::HeapAlloc => SEL_HEAP_ALLOC,
+        Opcode::HeapAlloc | Opcode::ArenaNew => SEL_HEAP_ALLOC,
         Opcode::HeapRead => SEL_HEAP_READ,
-        Opcode::HeapWrite => SEL_HEAP_WRITE,
+        Opcode::HeapWrite | Opcode::ArenaFinalize => SEL_HEAP_WRITE,
     }
 }
 
@@ -207,7 +208,7 @@ mod tests {
 
     #[test]
     fn every_opcode_maps_to_valid_selector() {
-        for byte in 0..=52u8 {
+        for byte in 0..=55u8 {
             let op = Opcode::from_byte(byte).unwrap();
             let class = selector_index(op);
             assert!(
@@ -219,6 +220,12 @@ mod tests {
                 "opcode {op:?} must not map to SEL_NOP (reserved for padding)"
             );
         }
+    }
+
+    #[test]
+    fn arena_opcodes_share_heap_selector_classes() {
+        assert_eq!(selector_index(Opcode::ArenaNew), SEL_HEAP_ALLOC);
+        assert_eq!(selector_index(Opcode::ArenaFinalize), SEL_HEAP_WRITE);
     }
 
     #[test]
@@ -245,7 +252,7 @@ mod tests {
 
     #[test]
     fn sub_selectors_are_in_range() {
-        for byte in 0..=52u8 {
+        for byte in 0..=55u8 {
             let op = Opcode::from_byte(byte).unwrap();
             if let Some(sub) = sub_selector_index(op) {
                 assert!(

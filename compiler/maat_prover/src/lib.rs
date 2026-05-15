@@ -208,8 +208,12 @@ impl Prover for MaatProver {
         aux_rand_elements: &AuxRandElements<E>,
     ) -> ColMatrix<E> {
         let main_columns = main_trace.main_column_slices();
-        let aux_columns =
-            maat_air::build_aux_columns(&main_columns, aux_rand_elements.rand_elements());
+        let aux_columns = maat_air::build_aux_columns(
+            &main_columns,
+            aux_rand_elements.rand_elements(),
+            self.inputs.output_base,
+            &self.inputs.output_segment,
+        );
         ColMatrix::new(aux_columns)
     }
 }

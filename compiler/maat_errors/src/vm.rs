@@ -47,3 +47,41 @@ impl From<&str> for VmError {
         }
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum MemoryError {
+    #[error("segment count exceeds u32::MAX")]
+    SegmentCountOverflow,
+    #[error("segment {0} does not exist")]
+    SegmentNotFound(u32),
+    #[error("segment {0} holds more than u32::MAX cells")]
+    SegmentTooLarge(u32),
+    #[error("offset overflow: segment {segment}, offset {offset}, addend {addend}")]
+    OffsetOverflow {
+        segment: u32,
+        offset: u32,
+        addend: u64,
+    },
+    #[error("cross-segment subtraction: lhs segment {lhs_segment}, rhs segment {rhs_segment}")]
+    CrossSegmentSubtraction { lhs_segment: u32, rhs_segment: u32 },
+    #[error("write-once violation at {segment}:{offset}")]
+    WriteOnceViolation { segment: u32, offset: u32 },
+    #[error(
+        "declared size {declared} for segment {segment} is below highest written offset {actual}"
+    )]
+    DeclaredSizeUnderflow {
+        segment: u32,
+        declared: u32,
+        actual: u32,
+    },
+    #[error("relocation table overflow: cumulative base exceeds u32::MAX")]
+    RelocationOverflow,
+    #[error(
+        "arena finalize: target segment {target} was already finalized at size {previous} but caller now requests {current}"
+    )]
+    ArenaRefinalize {
+        target: u32,
+        previous: u32,
+        current: u32,
+    },
+}

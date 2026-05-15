@@ -3,6 +3,7 @@
 use maat_bytecode::Opcode;
 use maat_errors::Result;
 use maat_field::Felt;
+use maat_runtime::{MaybeRelocatable, Relocatable};
 
 /// Interface the VM dispatch loop consults at each instrumentation point.
 ///
@@ -18,20 +19,33 @@ pub trait Tracer {
 
     /// Records the output value for the current row.
     #[inline(always)]
-    fn record_out(&mut self, _value: Felt) {}
+    fn record_out(&mut self, _value: MaybeRelocatable) {}
 
     /// Records a read or write of a global variable slot.
     #[inline(always)]
-    fn record_global_access(&mut self, _index: usize, _value: Felt, _is_read: bool) {}
+    fn record_global_access(&mut self, _index: usize, _value: MaybeRelocatable, _is_read: bool) {}
 
     /// Records a read or write of a local variable slot in the active frame.
     #[inline(always)]
-    fn record_local_access(&mut self, _local_index: usize, _value: Felt, _is_read: bool) {}
+    fn record_local_access(
+        &mut self,
+        _local_index: usize,
+        _value: MaybeRelocatable,
+        _is_read: bool,
+    ) {
+    }
 
-    /// Records a heap access (alloc, read, or write) against the unified
-    /// memory permutation argument.
+    /// Records a heap access (alloc, read, or write) against the
+    /// unified memory permutation argument.
     #[inline(always)]
-    fn record_heap_access(&mut self, _heap_id: usize, _value: Felt, _is_read: bool) {}
+    fn record_heap_access(
+        &mut self,
+        _segment: u32,
+        _offset: u32,
+        _value: MaybeRelocatable,
+        _is_read: bool,
+    ) {
+    }
 
     /// Records entry into a closure frame.
     #[inline(always)]
@@ -89,12 +103,18 @@ pub struct DispatchCtx {
     pub operand1: usize,
     /// Operand stack pointer (depth of the operand stack).
     pub sp: usize,
-    /// Stack top encoded as a Goldilocks field element (or zero if empty).
+    /// Stack top.
     pub s0: Felt,
-    /// Stack second element encoded as a field element (or zero if absent).
+    /// Stack second element.
     pub s1: Felt,
-    /// Stack third element encoded as a field element (or zero if absent).
+    /// Stack third element.
     pub s2: Felt,
+    /// Relocatable shape of the stack top.
+    pub s0_reloc: Option<Relocatable>,
+    /// Relocatable shape of the stack second element.
+    pub s1_reloc: Option<Relocatable>,
+    /// Relocatable shape of the stack third element.
+    pub s2_reloc: Option<Relocatable>,
 }
 
 /// Pre-frame-push call site context, supplied to [`Tracer::record_call_closure`].
@@ -106,8 +126,8 @@ pub struct CallCtx<'a> {
     pub sp_at_call: usize,
     /// Number of locals declared by the caller's frame.
     pub caller_num_locals: usize,
-    /// Argument values flowing into the callee, encoded as field elements.
-    pub args: &'a [Felt],
+    /// Argument values flowing into the callee.
+    pub args: &'a [MaybeRelocatable],
 }
 
 /// A recorder that drops every event. Used by the VM run path so

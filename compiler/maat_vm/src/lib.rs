@@ -16,8 +16,8 @@ use maat_bytecode::{Bytecode, MAX_FRAMES, MAX_GLOBALS, MAX_STACK_SIZE, Opcode, T
 use maat_errors::{Result, VmError};
 use maat_field::{Felt, FieldElement, from_i64, try_inv};
 use maat_runtime::{
-    BUILTINS, Closure, CompiledFn, EnumVariantVal, FALSE, Hashable, Integer, Map, StructVal, TRUE,
-    TypeDef, UNIT, Value, WideInt,
+    BUILTINS, Closure, CompiledFn, EnumVariantVal, FALSE, Hashable, Integer, Map, MaybeRelocatable,
+    MemorySegmentManager, Relocatable, StructVal, TRUE, TypeDef, UNIT, Value, WideInt,
 };
 use maat_span::{SourceMap, Span};
 
@@ -57,9 +57,10 @@ pub struct VM {
     frames: Vec<Frame>,
     source_map: SourceMap,
     type_registry: Vec<TypeDef>,
-    heap_alloc_ptr: usize,
-    heap_addr_map: HashMap<usize, usize>,
-    heap_values: HashMap<usize, Value>,
+    segments: MemorySegmentManager,
+    heap_values: HashMap<Relocatable, Value>,
+    current_segment: Option<u32>,
+    default_segment: Option<u32>,
 }
 
 impl VM {
@@ -88,14 +89,19 @@ impl VM {
             frames: vec![main_frame],
             source_map,
             type_registry,
-            heap_alloc_ptr: 1,
-            heap_addr_map: HashMap::new(),
+            segments: MemorySegmentManager::new(),
             heap_values: HashMap::new(),
+            current_segment: None,
+            default_segment: None,
         }
     }
 
     pub fn globals(&self) -> &[Value] {
         &self.globals
+    }
+
+    pub fn segments(&self) -> &MemorySegmentManager {
+        &self.segments
     }
 
     pub fn last_popped_stack_elem(&self) -> Option<&Value> {
@@ -127,7 +133,10 @@ impl VM {
                 .ok_or_else(|| self.vm_error(format!("unknown opcode: {op_byte}")))?;
 
             let (operand0, operand1) = self.read_operands(ip, op)?;
-            let (s0, s1, s2) = self.peek_stack_felts();
+            let (s0_mr, s1_mr, s2_mr) = self.peek_stack_maybe_reloc();
+            let s0 = s0_mr.as_felt().unwrap_or(Felt::ZERO);
+            let s1 = s1_mr.as_felt().unwrap_or(Felt::ZERO);
+            let s2 = s2_mr.as_felt().unwrap_or(Felt::ZERO);
             recorder.before_dispatch(DispatchCtx {
                 ip,
                 op,
@@ -137,6 +146,9 @@ impl VM {
                 s0,
                 s1,
                 s2,
+                s0_reloc: s0_mr.as_relocatable(),
+                s1_reloc: s1_mr.as_relocatable(),
+                s2_reloc: s2_mr.as_relocatable(),
             });
 
             self.dispatch(op, ip, s0, s1, recorder)?;
@@ -170,7 +182,7 @@ impl VM {
                         "constant pool access out of bounds at index {index}"
                     ))
                 })?;
-                recorder.record_out(constant.to_felt());
+                recorder.record_out(constant.to_maybe_relocatable());
                 self.push_stack(constant)?;
             }
             Opcode::Pop => {
@@ -185,37 +197,39 @@ impl VM {
             | Opcode::Shl
             | Opcode::Shr => {
                 self.execute_binary_operation(op)?;
-                recorder.record_out(self.peek_top_felt());
+                recorder.record_out(self.peek_top_maybe_reloc());
             }
             Opcode::Div | Opcode::Mod => {
                 self.execute_binary_operation(op)?;
-                let result = self.peek_top_felt();
+                let result = self.peek_top_maybe_reloc();
+                let result_felt = result.as_felt().unwrap_or(Felt::ZERO);
                 recorder.record_out(result);
-                recorder.record_div_mod_witness(op, s0_pre, s1_pre, result);
+                recorder.record_div_mod_witness(op, s0_pre, s1_pre, result_felt);
             }
             Opcode::True => {
                 self.push_stack(TRUE)?;
-                recorder.record_out(Felt::ONE);
+                recorder.record_out(MaybeRelocatable::Felt(Felt::ONE));
             }
             Opcode::False => {
                 self.push_stack(FALSE)?;
             }
             Opcode::Equal | Opcode::NotEqual | Opcode::GreaterThan | Opcode::LessThan => {
                 self.execute_comparison(op)?;
-                let result = self.peek_top_felt();
+                let result = self.peek_top_maybe_reloc();
+                let result_felt = result.as_felt().unwrap_or(Felt::ZERO);
                 recorder.record_out(result);
                 recorder.record_cmp_witness(s0_pre, s1_pre);
                 if matches!(op, Opcode::LessThan | Opcode::GreaterThan) {
-                    recorder.record_lt_gt_witness(op, s0_pre, s1_pre, result);
+                    recorder.record_lt_gt_witness(op, s0_pre, s1_pre, result_felt);
                 }
             }
             Opcode::Bang => {
                 self.execute_bang_operator()?;
-                recorder.record_out(self.peek_top_felt());
+                recorder.record_out(self.peek_top_maybe_reloc());
             }
             Opcode::Minus => {
                 self.execute_minus_operator()?;
-                recorder.record_out(self.peek_top_felt());
+                recorder.record_out(self.peek_top_maybe_reloc());
             }
             Opcode::Jump => {
                 let target = self.read_u16_operand(ip + 1)? as isize;
@@ -236,12 +250,12 @@ impl VM {
                 let index = self.read_u16_operand(ip + 1)?;
                 self.current_frame_mut()?.ip += 2;
                 let value = self.pop_stack()?;
-                let felt = value.to_felt();
+                let mr = value.to_maybe_relocatable();
                 if index >= self.globals.len() {
                     self.globals.resize(index + 1, Value::Unit);
                 }
                 self.globals[index] = value;
-                recorder.record_global_access(index, felt, false);
+                recorder.record_global_access(index, mr, false);
             }
             Opcode::GetGlobal => {
                 let index = self.read_u16_operand(ip + 1)?;
@@ -249,9 +263,9 @@ impl VM {
                 let value = self.globals.get(index).cloned().ok_or_else(|| {
                     self.vm_error(format!("undefined global variable at index {index}"))
                 })?;
-                let felt = value.to_felt();
-                recorder.record_out(felt);
-                recorder.record_global_access(index, felt, true);
+                let mr = value.to_maybe_relocatable();
+                recorder.record_out(mr);
+                recorder.record_global_access(index, mr, true);
                 self.push_stack(value)?;
             }
             Opcode::Vector => {
@@ -282,7 +296,7 @@ impl VM {
                 let index = self.pop_stack()?;
                 let container = self.pop_stack()?;
                 self.execute_index_expression(container, index)?;
-                recorder.record_out(self.peek_top_felt());
+                recorder.record_out(self.peek_top_maybe_reloc());
             }
             Opcode::Call => {
                 let num_args = self.read_u8_operand(ip + 1)?;
@@ -336,7 +350,7 @@ impl VM {
                     .ok_or_else(|| {
                         self.vm_error(format!("free variable index out of bounds: {index}"))
                     })?;
-                recorder.record_out(value.to_felt());
+                recorder.record_out(value.to_maybe_relocatable());
                 self.push_stack(value)?;
             }
             Opcode::CurrentClosure => {
@@ -347,9 +361,10 @@ impl VM {
                 let tag_byte = self.read_u8_operand(ip + 1)?;
                 self.current_frame_mut()?.ip += 1;
                 self.execute_convert(tag_byte)?;
-                let result = self.peek_top_felt();
+                let result = self.peek_top_maybe_reloc();
+                let result_felt = result.as_felt().unwrap_or(Felt::ZERO);
                 recorder.record_out(result);
-                recorder.record_convert_witness(result);
+                recorder.record_convert_witness(result_felt);
             }
             Opcode::Construct => {
                 let type_index = self.read_u16_operand(ip + 1)?;
@@ -361,7 +376,7 @@ impl VM {
                 let field_index = self.read_u16_operand(ip + 1)?;
                 self.current_frame_mut()?.ip += 2;
                 self.execute_get_field(field_index)?;
-                recorder.record_out(self.peek_top_felt());
+                recorder.record_out(self.peek_top_maybe_reloc());
             }
             Opcode::MatchTag => {
                 let expected_tag = self.read_u16_operand(ip + 1)?;
@@ -371,11 +386,11 @@ impl VM {
             }
             Opcode::ReturnValue => {
                 let return_value = self.pop_stack()?;
-                let return_felt = return_value.to_felt();
+                let return_mr = return_value.to_maybe_relocatable();
                 let frame = self.pop_frame()?;
                 self.sp = frame.base_pointer.saturating_sub(1);
                 self.push_stack(return_value)?;
-                recorder.record_out(return_felt);
+                recorder.record_out(return_mr);
                 recorder.record_return()?;
             }
             Opcode::Return => {
@@ -389,13 +404,13 @@ impl VM {
                 self.current_frame_mut()?.ip += 1;
                 let base_pointer = self.current_frame()?.base_pointer;
                 let value = self.pop_stack()?;
-                let felt = value.to_felt();
+                let mr = value.to_maybe_relocatable();
                 let slot = base_pointer + local_index;
                 if slot >= self.stack.len() {
                     self.stack.resize(slot + 1, Value::Unit);
                 }
                 self.stack[slot] = value;
-                recorder.record_local_access(local_index, felt, false);
+                recorder.record_local_access(local_index, mr, false);
             }
             Opcode::GetLocal => {
                 let local_index = self.read_u8_operand(ip + 1)?;
@@ -407,9 +422,9 @@ impl VM {
                         "local variable access out of bounds at slot {slot}"
                     ))
                 })?;
-                let felt = value.to_felt();
-                recorder.record_out(felt);
-                recorder.record_local_access(local_index, felt, true);
+                let mr = value.to_maybe_relocatable();
+                recorder.record_out(mr);
+                recorder.record_local_access(local_index, mr, true);
                 self.push_stack(value)?;
             }
             Opcode::MakeRange => {
@@ -424,50 +439,120 @@ impl VM {
             }
             Opcode::FeltAdd | Opcode::FeltSub | Opcode::FeltMul => {
                 self.execute_felt_binop(op)?;
-                recorder.record_out(self.peek_top_felt());
+                recorder.record_out(self.peek_top_maybe_reloc());
             }
             Opcode::FeltInv => {
                 self.execute_felt_inv()?;
-                recorder.record_out(self.peek_top_felt());
+                recorder.record_out(self.peek_top_maybe_reloc());
             }
             Opcode::FeltPow => {
                 self.execute_felt_pow()?;
-                recorder.record_out(self.peek_top_felt());
+                recorder.record_out(self.peek_top_maybe_reloc());
+            }
+            Opcode::SegmentNew => {
+                let base = self
+                    .segments
+                    .add()
+                    .map_err(|e| self.vm_error(format!("SegmentNew: {e}")))?;
+                self.current_segment = Some(base.segment_index);
+                self.push_stack(Value::Relocatable(base))?;
+                recorder.record_out(MaybeRelocatable::Relocatable(base));
             }
             Opcode::HeapAlloc => {
                 let initial = self.pop_stack()?;
-                let initial_felt = initial.to_felt();
-                let physical = self.alloc_heap_physical()?;
-                self.heap_addr_map.insert(physical, physical);
-                self.heap_values.insert(physical, initial);
-                self.push_stack(Value::Integer(Integer::U64(physical as u64)))?;
-                recorder.record_out(Felt::new(physical as u64));
-                recorder.record_heap_access(physical, initial_felt, false);
+                let initial_mr = initial.to_maybe_relocatable();
+                let segment = self.heap_target_segment()?;
+                let addr = self
+                    .segments
+                    .append(segment, initial_mr)
+                    .map_err(|e| self.vm_error(format!("HeapAlloc: {e}")))?;
+                self.heap_values.insert(addr, initial);
+                self.push_stack(Value::Relocatable(addr))?;
+                recorder.record_out(MaybeRelocatable::Relocatable(addr));
+                recorder.record_heap_access(addr.segment_index, addr.offset, initial_mr, false);
             }
             Opcode::HeapRead => {
-                let logical = self.pop_heap_addr("HeapRead")?;
-                let physical = *self.heap_addr_map.get(&logical).ok_or_else(|| {
-                    self.vm_error(format!("heap read of unallocated address {logical}"))
+                let addr = self.pop_relocatable("HeapRead")?;
+                let value = self.heap_values.get(&addr).cloned().ok_or_else(|| {
+                    self.vm_error(format!("heap read of unallocated address {addr}"))
                 })?;
-                let value = self.heap_values.get(&physical).cloned().ok_or_else(|| {
-                    self.vm_error(format!("heap value missing at physical {physical}"))
-                })?;
-                let value_felt = value.to_felt();
-                recorder.record_out(value_felt);
-                recorder.record_heap_access(physical, value_felt, true);
+                let value_mr = value.to_maybe_relocatable();
+                recorder.record_out(value_mr);
+                recorder.record_heap_access(addr.segment_index, addr.offset, value_mr, true);
                 self.push_stack(value)?;
             }
             Opcode::HeapWrite => {
                 let value = self.pop_stack()?;
-                let value_felt = value.to_felt();
-                let logical = self.pop_heap_addr("HeapWrite")?;
-                let physical = self.alloc_heap_physical()?;
-                self.heap_addr_map.insert(logical, physical);
-                self.heap_values.insert(physical, value);
-                recorder.record_heap_access(physical, value_felt, false);
+                let value_mr = value.to_maybe_relocatable();
+                let addr = self.pop_relocatable("HeapWrite")?;
+                self.segments
+                    .write(addr, value_mr)
+                    .map_err(|e| self.vm_error(format!("HeapWrite: {e}")))?;
+                self.heap_values.insert(addr, value);
+                recorder.record_heap_access(addr.segment_index, addr.offset, value_mr, false);
+            }
+            Opcode::ArenaNew => {
+                let arena_base = self.pop_relocatable("ArenaNew")?;
+                let (allocated_base, info_addr) = self
+                    .segments
+                    .arena_new(arena_base.segment_index)
+                    .map_err(|e| self.vm_error(format!("ArenaNew: {e}")))?;
+                let id = MaybeRelocatable::Felt(Felt::new(u64::from(allocated_base.segment_index)));
+                self.heap_values.insert(
+                    info_addr,
+                    Value::Felt(Felt::new(u64::from(allocated_base.segment_index))),
+                );
+                self.push_stack(Value::Relocatable(allocated_base))?;
+                recorder.record_out(MaybeRelocatable::Relocatable(allocated_base));
+                recorder.record_heap_access(info_addr.segment_index, info_addr.offset, id, false);
+            }
+            Opcode::ArenaFinalize => {
+                let target_base = self.pop_relocatable("ArenaFinalize")?;
+                let arena_base = self.pop_relocatable("ArenaFinalize")?;
+                let (_size, marker_addr) = self
+                    .segments
+                    .arena_finalize(arena_base.segment_index, target_base.segment_index)
+                    .map_err(|e| self.vm_error(format!("ArenaFinalize: {e}")))?;
+                let marker =
+                    MaybeRelocatable::Felt(Felt::new(u64::from(target_base.segment_index)));
+                self.heap_values.insert(
+                    marker_addr,
+                    Value::Felt(Felt::new(u64::from(target_base.segment_index))),
+                );
+                recorder.record_heap_access(
+                    marker_addr.segment_index,
+                    marker_addr.offset,
+                    marker,
+                    false,
+                );
             }
         }
         Ok(())
+    }
+
+    fn heap_target_segment(&mut self) -> Result<u32> {
+        if let Some(seg) = self.current_segment {
+            return Ok(seg);
+        }
+        if let Some(seg) = self.default_segment {
+            return Ok(seg);
+        }
+        let base = self
+            .segments
+            .add()
+            .map_err(|e| self.vm_error(format!("HeapAlloc default segment: {e}")))?;
+        self.default_segment = Some(base.segment_index);
+        Ok(base.segment_index)
+    }
+
+    fn pop_relocatable(&mut self, context: &str) -> Result<Relocatable> {
+        match self.pop_stack()? {
+            Value::Relocatable(r) => Ok(r),
+            other => Err(self.vm_error(format!(
+                "{context} expects relocatable heap address, got {}",
+                other.type_name()
+            ))),
+        }
     }
 
     fn execute_function_call<R: Tracer>(
@@ -512,16 +597,16 @@ impl VM {
             .sp
             .checked_sub(num_args)
             .ok_or_else(|| self.vm_error("stack underflow in function call"))?;
-        let arg_felts = self.stack[args_start..args_start + num_args]
+        let arg_mrs = self.stack[args_start..args_start + num_args]
             .iter()
-            .map(|v| v.to_felt())
-            .collect::<Vec<Felt>>();
+            .map(Value::to_maybe_relocatable)
+            .collect::<Vec<MaybeRelocatable>>();
 
         recorder.record_call_closure(CallCtx {
             call_ip,
             sp_at_call,
             caller_num_locals,
-            args: &arg_felts,
+            args: &arg_mrs,
         })?;
 
         let base_pointer = args_start;
@@ -552,27 +637,6 @@ impl VM {
         self.push_stack(result)?;
         recorder.record_call_builtin();
         Ok(())
-    }
-
-    fn pop_heap_addr(&mut self, context: &str) -> Result<usize> {
-        match self.pop_stack()? {
-            Value::Integer(int) => int.to_usize().ok_or_else(|| {
-                self.vm_error(format!("{context} expects non-negative heap address"))
-            }),
-            other => Err(self.vm_error(format!(
-                "{context} expects integer heap address, got {}",
-                other.type_name()
-            ))),
-        }
-    }
-
-    fn alloc_heap_physical(&mut self) -> Result<usize> {
-        let physical = self.heap_alloc_ptr;
-        self.heap_alloc_ptr = self
-            .heap_alloc_ptr
-            .checked_add(1)
-            .ok_or_else(|| self.vm_error("heap allocator overflow"))?;
-        Ok(physical)
     }
 
     fn current_span(&self) -> Option<Span> {
@@ -710,30 +774,19 @@ impl VM {
         }
     }
 
-    fn peek_stack_felts(&self) -> (Felt, Felt, Felt) {
-        let s0 = if self.sp >= 1 {
-            self.stack[self.sp - 1].to_felt()
-        } else {
-            Felt::ZERO
-        };
-        let s1 = if self.sp >= 2 {
-            self.stack[self.sp - 2].to_felt()
-        } else {
-            Felt::ZERO
-        };
-        let s2 = if self.sp >= 3 {
-            self.stack[self.sp - 3].to_felt()
-        } else {
-            Felt::ZERO
-        };
-        (s0, s1, s2)
+    fn peek_stack_maybe_reloc(&self) -> (MaybeRelocatable, MaybeRelocatable, MaybeRelocatable) {
+        (self.peek_at(1), self.peek_at(2), self.peek_at(3))
     }
 
-    fn peek_top_felt(&self) -> Felt {
-        if self.sp >= 1 {
-            self.stack[self.sp - 1].to_felt()
+    fn peek_top_maybe_reloc(&self) -> MaybeRelocatable {
+        self.peek_at(1)
+    }
+
+    fn peek_at(&self, depth: usize) -> MaybeRelocatable {
+        if self.sp >= depth {
+            self.stack[self.sp - depth].to_maybe_relocatable()
         } else {
-            Felt::ZERO
+            MaybeRelocatable::Felt(Felt::ZERO)
         }
     }
 
@@ -746,6 +799,18 @@ impl VM {
             && let (Value::Str(l), Value::Str(r)) = (&left, &right)
         {
             return self.push_stack(Value::Str(format!("{}{}", l, r)));
+        }
+
+        if op == Opcode::Add
+            && let (Value::Relocatable(addr), Value::Integer(idx)) = (&left, &right)
+        {
+            let addend = idx.to_felt().ok_or_else(|| {
+                self.vm_error("Relocatable offset addend does not fit in the base field")
+            })?;
+            let next = addr
+                .add_offset(addend)
+                .map_err(|e| self.vm_error(format!("Relocatable arithmetic: {e}")))?;
+            return self.push_stack(Value::Relocatable(next));
         }
 
         match (left, right) {

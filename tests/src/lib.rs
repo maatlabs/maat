@@ -7,6 +7,8 @@ use maat_lexer::MaatLexer;
 use maat_parser::MaatParser;
 use maat_types::TypeChecker;
 
+pub mod prover;
+
 pub fn parse(input: &str) -> Program {
     let lexer = MaatLexer::new(input);
     let mut parser = MaatParser::new(lexer);

@@ -1,19 +1,16 @@
 //! Trace recorder: a [`Tracer`] implementation that materialises the
 //! execution trace consumed by the STARK prover.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use maat_bytecode::{MAX_GLOBALS, Opcode};
 use maat_errors::{Result, VmError};
 use maat_field::{Felt, FieldElement, try_inv};
+use maat_runtime::{MaybeRelocatable, Relocatable};
 use maat_vm::trace::{CallCtx, DispatchCtx, Tracer};
 
 use crate::selector::{OpcodeMeta, SEL_NOP};
 use crate::table::*;
-
-/// Logical-address offset that lifts heap accesses out of the locals/globals
-/// region of the unified memory segment.
-const HEAP_LOGICAL_BASE: usize = 1usize << 32;
 
 /// Decomposes a 64-bit value into four 16-bit limbs `[l0, l1, l2, l3]` such
 /// that `val = l0 + 2^16 l1 + 2^32 l2 + 2^48 l3`.
@@ -26,33 +23,59 @@ fn decompose_limbs(val: u64) -> [Felt; 4] {
     ]
 }
 
+/// Per-row relocation plan. A `Some(_)` entry marks the corresponding trace
+/// column as carrying a logical `Relocatable` that the relocation pass must
+/// rewrite to a flat field-element address. `None` means the column is
+/// already final (an integer-shaped felt, a flat global/local address, or
+/// a non-memory cell).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RowRelocPlan {
+    pub mem_addr: Option<Relocatable>,
+    pub mem_val: Option<Relocatable>,
+    pub s0: Option<Relocatable>,
+    pub s1: Option<Relocatable>,
+    pub s2: Option<Relocatable>,
+    pub out: Option<Relocatable>,
+}
+
 pub struct TraceRecorder {
     trace: TraceTable,
+    plans: Vec<RowRelocPlan>,
     current: TraceRow,
+    current_plan: RowRelocPlan,
     alloc_ptr: usize,
     addr_map: HashMap<usize, usize>,
+    heap_alloc_set: HashSet<(u32, u32)>,
     fp: usize,
     fp_stack: Vec<usize>,
     last_mem_addr: Felt,
     last_mem_val: Felt,
+    last_mem_addr_reloc: Option<Relocatable>,
+    last_mem_val_reloc: Option<Relocatable>,
 }
 
 impl TraceRecorder {
     pub fn new() -> Self {
         Self {
             trace: TraceTable::new(),
+            plans: Vec::new(),
             current: [Felt::ZERO; TRACE_WIDTH],
+            current_plan: RowRelocPlan::default(),
             alloc_ptr: 1,
             addr_map: HashMap::new(),
+            heap_alloc_set: HashSet::new(),
             fp: MAX_GLOBALS,
             fp_stack: Vec::new(),
             last_mem_addr: Felt::ZERO,
             last_mem_val: Felt::ZERO,
+            last_mem_addr_reloc: None,
+            last_mem_val_reloc: None,
         }
     }
 
-    pub fn into_trace(self) -> TraceTable {
-        self.trace
+    pub fn finish(self) -> (TraceTable, Vec<RowRelocPlan>, u32) {
+        let heap_base = u32::try_from(self.alloc_ptr).unwrap_or(u32::MAX);
+        (self.trace, self.plans, heap_base)
     }
 
     fn alloc_physical(&mut self) -> Result<usize> {
@@ -64,30 +87,77 @@ impl TraceRecorder {
         Ok(physical)
     }
 
-    fn record_mem_write(&mut self, logical: usize, value: Felt) -> Result<()> {
+    fn record_mem_write(&mut self, logical: usize, value: MaybeRelocatable) -> Result<()> {
         let physical = self.alloc_physical()?;
         self.addr_map.insert(logical, physical);
         let addr_felt = Felt::new(physical as u64);
+        let val_felt = value.as_felt().unwrap_or(Felt::ZERO);
         self.current[COL_MEM_ADDR] = addr_felt;
-        self.current[COL_MEM_VAL] = value;
+        self.current[COL_MEM_VAL] = val_felt;
         self.current[COL_IS_READ] = Felt::ZERO;
+        self.current_plan.mem_addr = None;
+        self.current_plan.mem_val = value.as_relocatable();
         self.last_mem_addr = addr_felt;
-        self.last_mem_val = value;
+        self.last_mem_val = val_felt;
+        self.last_mem_addr_reloc = None;
+        self.last_mem_val_reloc = value.as_relocatable();
         Ok(())
     }
 
-    fn record_mem_read(&mut self, logical: usize, value: Felt) -> Result<()> {
+    fn record_mem_read(&mut self, logical: usize, value: MaybeRelocatable) -> Result<()> {
         let physical = *self.addr_map.get(&logical).ok_or_else(|| {
             VmError::new(format!(
                 "memory read of unallocated logical address {logical}"
             ))
         })?;
         let addr_felt = Felt::new(physical as u64);
+        let val_felt = value.as_felt().unwrap_or(Felt::ZERO);
         self.current[COL_MEM_ADDR] = addr_felt;
-        self.current[COL_MEM_VAL] = value;
+        self.current[COL_MEM_VAL] = val_felt;
         self.current[COL_IS_READ] = Felt::ONE;
+        self.current_plan.mem_addr = None;
+        self.current_plan.mem_val = value.as_relocatable();
         self.last_mem_addr = addr_felt;
-        self.last_mem_val = value;
+        self.last_mem_val = val_felt;
+        self.last_mem_addr_reloc = None;
+        self.last_mem_val_reloc = value.as_relocatable();
+        Ok(())
+    }
+
+    fn record_heap_write(&mut self, key: (u32, u32), value: MaybeRelocatable) {
+        self.heap_alloc_set.insert(key);
+        let val_felt = value.as_felt().unwrap_or(Felt::ZERO);
+        let addr_reloc = Relocatable::new(key.0, key.1);
+        self.current[COL_MEM_ADDR] = Felt::ZERO;
+        self.current[COL_MEM_VAL] = val_felt;
+        self.current[COL_IS_READ] = Felt::ZERO;
+        self.current_plan.mem_addr = Some(addr_reloc);
+        self.current_plan.mem_val = value.as_relocatable();
+        self.last_mem_addr = Felt::ZERO;
+        self.last_mem_val = val_felt;
+        self.last_mem_addr_reloc = Some(addr_reloc);
+        self.last_mem_val_reloc = value.as_relocatable();
+    }
+
+    fn record_heap_read(&mut self, key: (u32, u32), value: MaybeRelocatable) -> Result<()> {
+        if !self.heap_alloc_set.contains(&key) {
+            return Err(VmError::new(format!(
+                "memory read of unallocated heap cell {}:{}",
+                key.0, key.1
+            ))
+            .into());
+        }
+        let val_felt = value.as_felt().unwrap_or(Felt::ZERO);
+        let addr_reloc = Relocatable::new(key.0, key.1);
+        self.current[COL_MEM_ADDR] = Felt::ZERO;
+        self.current[COL_MEM_VAL] = val_felt;
+        self.current[COL_IS_READ] = Felt::ONE;
+        self.current_plan.mem_addr = Some(addr_reloc);
+        self.current_plan.mem_val = value.as_relocatable();
+        self.last_mem_addr = Felt::ZERO;
+        self.last_mem_val = val_felt;
+        self.last_mem_addr_reloc = Some(addr_reloc);
+        self.last_mem_val_reloc = value.as_relocatable();
         Ok(())
     }
 
@@ -97,13 +167,13 @@ impl TraceRecorder {
         sp_at_call: usize,
         caller_fp: usize,
         new_fp: usize,
-        args: &[Felt],
+        args: &[MaybeRelocatable],
     ) -> Result<()> {
         let pc = Felt::new(call_ip as u64);
         let sp = Felt::new(sp_at_call as u64);
         let fp = Felt::new(caller_fp as u64);
         let out = Felt::new(new_fp as u64);
-        for (i, &arg_felt) in args.iter().enumerate() {
+        for (i, arg) in args.iter().enumerate() {
             let physical = self.alloc_physical()?;
             let logical = new_fp
                 .checked_add(i)
@@ -111,6 +181,7 @@ impl TraceRecorder {
             self.addr_map.insert(logical, physical);
 
             let mem_addr = Felt::new(physical as u64);
+            let mem_val = arg.as_felt().unwrap_or(Felt::ZERO);
             let mut row = [Felt::ZERO; TRACE_WIDTH];
             row[COL_PC] = pc;
             row[COL_SP] = sp;
@@ -118,12 +189,18 @@ impl TraceRecorder {
             row[COL_OUT] = out;
             row[COL_SEL_BASE + SEL_NOP] = Felt::ONE;
             row[COL_MEM_ADDR] = mem_addr;
-            row[COL_MEM_VAL] = arg_felt;
+            row[COL_MEM_VAL] = mem_val;
             row[COL_IS_READ] = Felt::ZERO;
 
             self.last_mem_addr = mem_addr;
-            self.last_mem_val = arg_felt;
+            self.last_mem_val = mem_val;
+            self.last_mem_addr_reloc = None;
+            self.last_mem_val_reloc = arg.as_relocatable();
             self.trace.push_row(row);
+            self.plans.push(RowRelocPlan {
+                mem_val: arg.as_relocatable(),
+                ..RowRelocPlan::default()
+            });
         }
         Ok(())
     }
@@ -157,13 +234,22 @@ impl Tracer for TraceRecorder {
         row[COL_MEM_VAL] = self.last_mem_val;
         row[COL_IS_READ] = Felt::ONE;
         self.current = row;
+        self.current_plan = RowRelocPlan {
+            mem_addr: self.last_mem_addr_reloc,
+            mem_val: self.last_mem_val_reloc,
+            s0: ctx.s0_reloc,
+            s1: ctx.s1_reloc,
+            s2: ctx.s2_reloc,
+            out: None,
+        };
     }
 
-    fn record_out(&mut self, value: Felt) {
-        self.current[COL_OUT] = value;
+    fn record_out(&mut self, value: MaybeRelocatable) {
+        self.current[COL_OUT] = value.as_felt().unwrap_or(Felt::ZERO);
+        self.current_plan.out = value.as_relocatable();
     }
 
-    fn record_global_access(&mut self, index: usize, value: Felt, is_read: bool) {
+    fn record_global_access(&mut self, index: usize, value: MaybeRelocatable, is_read: bool) {
         let result = if is_read {
             self.record_mem_read(index, value)
         } else {
@@ -176,7 +262,7 @@ impl Tracer for TraceRecorder {
         }
     }
 
-    fn record_local_access(&mut self, local_index: usize, value: Felt, is_read: bool) {
+    fn record_local_access(&mut self, local_index: usize, value: MaybeRelocatable, is_read: bool) {
         let logical = self.fp.wrapping_add(local_index);
         let result = if is_read {
             self.record_mem_read(logical, value)
@@ -188,15 +274,20 @@ impl Tracer for TraceRecorder {
         }
     }
 
-    fn record_heap_access(&mut self, heap_id: usize, value: Felt, is_read: bool) {
-        let logical = HEAP_LOGICAL_BASE.wrapping_add(heap_id);
-        let result = if is_read {
-            self.record_mem_read(logical, value)
+    fn record_heap_access(
+        &mut self,
+        segment: u32,
+        offset: u32,
+        value: MaybeRelocatable,
+        is_read: bool,
+    ) {
+        let key = (segment, offset);
+        if is_read {
+            if let Err(e) = self.record_heap_read(key, value) {
+                panic!("trace recorder: heap access failed: {e}");
+            }
         } else {
-            self.record_mem_write(logical, value)
-        };
-        if let Err(e) = result {
-            panic!("trace recorder: heap access failed: {e}");
+            self.record_heap_write(key, value);
         }
     }
 
@@ -219,17 +310,23 @@ impl Tracer for TraceRecorder {
         self.current[COL_MEM_ADDR] = mem_addr;
         self.current[COL_MEM_VAL] = mem_val;
         self.current[COL_IS_READ] = Felt::ZERO;
+        self.current_plan.mem_addr = None;
+        self.current_plan.mem_val = None;
         self.last_mem_addr = mem_addr;
         self.last_mem_val = mem_val;
+        self.last_mem_addr_reloc = None;
+        self.last_mem_val_reloc = None;
 
         self.fp_stack.push(caller_fp);
         self.fp = new_fp;
         self.current[COL_OUT] = Felt::new(new_fp as u64);
+        self.current_plan.out = None;
         Ok(())
     }
 
     fn record_call_builtin(&mut self) {
         self.current[COL_OUT] = Felt::new(self.fp as u64);
+        self.current_plan.out = None;
     }
 
     fn record_return(&mut self) -> Result<()> {
@@ -247,8 +344,12 @@ impl Tracer for TraceRecorder {
         self.current[COL_MEM_ADDR] = mem_addr;
         self.current[COL_MEM_VAL] = mem_val;
         self.current[COL_IS_READ] = Felt::ONE;
+        self.current_plan.mem_addr = None;
+        self.current_plan.mem_val = None;
         self.last_mem_addr = mem_addr;
         self.last_mem_val = mem_val;
+        self.last_mem_addr_reloc = None;
+        self.last_mem_val_reloc = None;
         self.fp = caller_fp;
         Ok(())
     }
@@ -301,7 +402,9 @@ impl Tracer for TraceRecorder {
 
     fn end_row(&mut self) {
         let row = std::mem::replace(&mut self.current, [Felt::ZERO; TRACE_WIDTH]);
+        let plan = std::mem::take(&mut self.current_plan);
         self.trace.push_row(row);
+        self.plans.push(plan);
     }
 
     fn finalize(&mut self, final_pc: usize, final_sp: usize) {
@@ -314,5 +417,10 @@ impl Tracer for TraceRecorder {
         row[COL_MEM_VAL] = self.last_mem_val;
         row[COL_IS_READ] = Felt::ONE;
         self.trace.push_row(row);
+        self.plans.push(RowRelocPlan {
+            mem_addr: self.last_mem_addr_reloc,
+            mem_val: self.last_mem_val_reloc,
+            ..RowRelocPlan::default()
+        });
     }
 }

@@ -7,6 +7,7 @@
 
 mod builtins;
 mod env;
+mod memory;
 mod num;
 
 use std::fmt;
@@ -21,6 +22,10 @@ use maat_errors::{Error, EvalError, Result};
 use maat_field::{Encodable as _, FieldElement};
 pub use maat_field::{Felt, StarkField, from_i64, try_div, try_inv};
 use maat_span::SourceMap;
+pub use memory::{
+    MaybeRelocatable, MemorySegmentManager, RELOCATION_BASE, Relocatable, SEG_EXECUTION,
+    SEG_PROGRAM, SEG_PUBLIC_OUTPUT,
+};
 pub use num::{Integer, WideInt};
 use serde::{Deserialize, Serialize};
 
@@ -82,6 +87,8 @@ pub enum Value {
     Range(Integer, Integer),
     /// An inclusive range `start..=end`, generic over all integer types.
     RangeInclusive(Integer, Integer),
+    /// A logical address within a memory segment.
+    Relocatable(Relocatable),
 }
 
 impl Value {
@@ -102,6 +109,13 @@ impl Value {
             Self::Char(c) => c.encode()[0],
             Self::Unit => ().encode()[0],
             _ => Felt::ZERO,
+        }
+    }
+
+    pub fn to_maybe_relocatable(&self) -> MaybeRelocatable {
+        match self {
+            Self::Relocatable(r) => MaybeRelocatable::Relocatable(*r),
+            other => MaybeRelocatable::Felt(other.to_felt()),
         }
     }
 
@@ -204,6 +218,7 @@ impl Value {
             Self::Set(_) => "Set",
             Self::Range(..) => "Range",
             Self::RangeInclusive(..) => "RangeInclusive",
+            Self::Relocatable(_) => "Relocatable",
         }
     }
 }
@@ -319,6 +334,7 @@ impl PartialEq for Value {
             (Set(s1), Set(s2)) => s1 == s2,
             (Range(s1, e1), Range(s2, e2)) => s1 == s2 && e1 == e2,
             (RangeInclusive(s1, e1), RangeInclusive(s2, e2)) => s1 == s2 && e1 == e2,
+            (Relocatable(a), Relocatable(b)) => a == b,
             _ => false,
         }
     }
@@ -491,6 +507,7 @@ impl fmt::Display for Value {
             Self::Set(v) => v.fmt(f),
             Self::Range(start, end) => write!(f, "{start}..{end}"),
             Self::RangeInclusive(start, end) => write!(f, "{start}..={end}"),
+            Self::Relocatable(r) => r.fmt(f),
         }
     }
 }

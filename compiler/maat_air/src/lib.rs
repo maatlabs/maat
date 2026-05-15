@@ -112,9 +112,14 @@ impl Air for MaatAir {
 
     fn get_aux_assertions<E: FieldElement<BaseField = Self::BaseField>>(
         &self,
-        _aux_rand_elements: &AuxRandElements<E>,
+        aux_rand_elements: &AuxRandElements<E>,
     ) -> Vec<Assertion<E>> {
-        aux_assertions::<E>(self.trace_length() - 1)
+        aux_assertions::<E>(
+            self.trace_length() - 1,
+            aux_rand_elements.rand_elements(),
+            self.public_inputs.output_base,
+            &self.public_inputs.output_segment,
+        )
     }
 }
 

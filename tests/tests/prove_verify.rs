@@ -4,141 +4,15 @@
 //! produces a STARK proof, and verifies it; exercising the full pipeline
 //! from source code to cryptographic soundness.
 
-use maat_air::{MaatPublicInputs, Proof};
-use maat_bytecode::{Bytecode, Instructions, Opcode, encode};
-use maat_field::{BaseElement, Felt, FieldElement};
+use maat_air::MaatPublicInputs;
+use maat_field::{BaseElement, Felt};
 use maat_prover::{
     MaatProver, compute_program_hash, compute_program_hash_bytes, deserialize_proof,
     development_options, production_options, serialize_proof, verify, verify_with_inputs,
 };
-use maat_runtime::{Integer, Value};
-use maat_span::SourceMap;
+use maat_tests::prover::*;
 use maat_trace::selector::*;
-use maat_trace::table::{COL_MEM_ADDR, COL_MEM_VAL, COL_OUT, COL_SUB_SEL_BASE, TraceTable};
-
-fn compile_and_trace(source: &str) -> (Bytecode, TraceTable, BaseElement) {
-    let bytecode = maat_tests::compile(source);
-    let (trace, result) = maat_trace::run(bytecode.clone()).expect("trace execution failed");
-    let output = result.map(|v| v.to_felt()).unwrap_or(BaseElement::ZERO);
-    (bytecode, trace, output)
-}
-
-fn prove(bytecode: &Bytecode, trace: TraceTable, output: BaseElement) -> (Proof, MaatPublicInputs) {
-    let program_hash = compute_program_hash(bytecode).expect("program hash failed");
-    let public_inputs = MaatPublicInputs::new(program_hash, vec![], output);
-    let prover = MaatProver::new(development_options(), public_inputs.clone());
-    let proof = prover
-        .generate_proof(trace)
-        .expect("proof generation failed");
-    (proof, public_inputs)
-}
-
-fn prove_and_verify(source: &str) {
-    let (bytecode, trace, output) = compile_and_trace(source);
-    let (proof, public_inputs) = prove(&bytecode, trace, output);
-    verify_with_inputs(proof, public_inputs).expect("verification failed");
-}
-
-fn tamper_output_on_sub_sel(trace: &mut TraceTable, sub_selector: usize) {
-    let n = trace.num_rows();
-    for i in 0..n {
-        if trace.row(i)[COL_SUB_SEL_BASE + sub_selector] == Felt::ONE {
-            let cur = trace.row(i)[COL_OUT].as_int();
-            trace.row_mut(i)[COL_OUT] = Felt::new(cur.wrapping_add(1));
-            return;
-        }
-    }
-    panic!("no row with sub_selector offset {sub_selector} found in trace");
-}
-
-fn assert_tampered_trace_rejected(
-    bytecode: Bytecode,
-    trace: TraceTable,
-    output: BaseElement,
-    label: &str,
-) {
-    let program_hash = compute_program_hash(&bytecode).expect("program hash failed");
-    let public_inputs = MaatPublicInputs::new(program_hash, vec![], output);
-    let prover = MaatProver::new(development_options(), public_inputs.clone());
-
-    let prove_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        prover.generate_proof(trace)
-    }));
-    match prove_result {
-        Err(_) => {}
-        Ok(proof) => {
-            let proof = proof.expect("proof generation failed");
-            assert!(
-                verify_with_inputs(proof, public_inputs).is_err(),
-                "tampered {label} output must be rejected by the verifier",
-            );
-        }
-    }
-}
-
-fn synthetic_heap_alloc_read_bytecode(initial_value: i64) -> Bytecode {
-    let mut instructions = Instructions::new();
-    instructions.extend_from_bytes(&encode(Opcode::Constant, &[0]));
-    instructions.extend_from_bytes(&encode(Opcode::HeapAlloc, &[]));
-    instructions.extend_from_bytes(&encode(Opcode::HeapRead, &[]));
-    instructions.extend_from_bytes(&encode(Opcode::Pop, &[]));
-    Bytecode {
-        instructions,
-        constants: vec![Value::Integer(Integer::I64(initial_value))],
-        source_map: SourceMap::new(),
-        type_registry: vec![],
-    }
-}
-
-fn synthetic_heap_write_then_read_bytecode(initial: i64, updated: i64) -> Bytecode {
-    let mut instructions = Instructions::new();
-    // Constants: 0 = initial, 1 = updated, 2 = logical heap address (1).
-    // alloc: push initial, HeapAlloc -> push allocated address
-    instructions.extend_from_bytes(&encode(Opcode::Constant, &[0]));
-    instructions.extend_from_bytes(&encode(Opcode::HeapAlloc, &[]));
-    instructions.extend_from_bytes(&encode(Opcode::Pop, &[]));
-    // write: push logical addr, push updated value, HeapWrite
-    instructions.extend_from_bytes(&encode(Opcode::Constant, &[2]));
-    instructions.extend_from_bytes(&encode(Opcode::Constant, &[1]));
-    instructions.extend_from_bytes(&encode(Opcode::HeapWrite, &[]));
-    // read: push logical addr, HeapRead -> push value
-    instructions.extend_from_bytes(&encode(Opcode::Constant, &[2]));
-    instructions.extend_from_bytes(&encode(Opcode::HeapRead, &[]));
-    instructions.extend_from_bytes(&encode(Opcode::Pop, &[]));
-    Bytecode {
-        instructions,
-        constants: vec![
-            Value::Integer(Integer::I64(initial)),
-            Value::Integer(Integer::I64(updated)),
-            Value::Integer(Integer::U64(1)),
-        ],
-        source_map: SourceMap::new(),
-        type_registry: vec![],
-    }
-}
-
-fn prove_synthetic_heap(bytecode: Bytecode, expected_output: BaseElement) {
-    let (trace, _) = maat_trace::run(bytecode.clone()).expect("heap trace failed");
-    let program_hash = compute_program_hash(&bytecode).expect("program hash failed");
-    let public_inputs = MaatPublicInputs::new(program_hash, vec![], expected_output);
-    let prover = MaatProver::new(development_options(), public_inputs.clone());
-    let proof = prover
-        .generate_proof(trace)
-        .expect("heap synthetic proof generation failed");
-    verify_with_inputs(proof, public_inputs).expect("heap synthetic verification failed");
-}
-
-fn prove_synthetic_heap_production(bytecode: Bytecode, expected_output: BaseElement) {
-    let (trace, _) = maat_trace::run(bytecode.clone()).expect("heap trace failed");
-    let program_hash = compute_program_hash(&bytecode).expect("program hash failed");
-    let public_inputs = MaatPublicInputs::new(program_hash, vec![], expected_output);
-    let prover = MaatProver::new(production_options(), public_inputs.clone());
-    let proof = prover
-        .generate_proof(trace)
-        .expect("heap synthetic proof generation (production) failed");
-    verify_with_inputs(proof, public_inputs)
-        .expect("heap synthetic verification (production) failed");
-}
+use maat_trace::table::{COL_MEM_ADDR, COL_MEM_VAL, TraceTable};
 
 #[test]
 fn prove_and_verify_arithmetic() {
@@ -770,25 +644,42 @@ fn tampered_equality_output_rejected() {
 
 #[test]
 fn heap_synthetic_alloc_read_write_development() {
-    let bytecode = synthetic_heap_alloc_read_bytecode(42);
+    let bytecode = synthetic_segment_alloc_read_bytecode(42);
     prove_synthetic_heap(bytecode, BaseElement::new(42));
 }
 
 #[test]
 fn heap_synthetic_alloc_read_write_production() {
-    let bytecode = synthetic_heap_alloc_read_bytecode(42);
+    let bytecode = synthetic_segment_alloc_read_bytecode(42);
     prove_synthetic_heap_production(bytecode, BaseElement::new(42));
 }
 
 #[test]
-fn heap_synthetic_write_then_read_development() {
-    let bytecode = synthetic_heap_write_then_read_bytecode(7, 99);
-    prove_synthetic_heap(bytecode, BaseElement::new(99));
+fn heap_synthetic_two_segments_cross_segment_read() {
+    let bytecode = synthetic_two_segments_bytecode(7, 99);
+    prove_synthetic_heap(bytecode, BaseElement::new(7));
+}
+
+#[test]
+fn heap_synthetic_relocatable_value_stored_and_relocated() {
+    let bytecode = synthetic_relocatable_cell_value_bytecode(1234);
+    prove_synthetic_heap(bytecode, BaseElement::new(1234));
+}
+
+#[test]
+fn heap_synthetic_write_once_violation_rejected() {
+    let bytecode = synthetic_write_once_violation_bytecode(7, 99);
+    let err = maat_trace::run(bytecode).expect_err("write-once violation must produce an error");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("write-once violation"),
+        "expected write-once rejection, got: {msg}"
+    );
 }
 
 #[test]
 fn heap_synthetic_single_value_tampered_rejected() {
-    let bytecode = synthetic_heap_alloc_read_bytecode(42);
+    let bytecode = synthetic_segment_alloc_read_bytecode(42);
     let (mut trace, _) = maat_trace::run(bytecode.clone()).expect("heap trace failed");
 
     // Find the first row that records the heap-allocated value 42 in the
@@ -821,6 +712,94 @@ fn heap_synthetic_single_value_tampered_rejected() {
             assert!(
                 verify_with_inputs(proof, public_inputs).is_err(),
                 "heap single-value violation must be rejected by the verifier",
+            );
+        }
+    }
+}
+
+#[test]
+fn heap_synthetic_intra_segment_holes_filled() {
+    let bytecode = synthetic_sparse_segment_bytecode(17, 42);
+    let (trace_before, _) = maat_trace::run(bytecode.clone()).expect("sparse heap trace failed");
+    let n = trace_before.num_rows();
+
+    let mut unique_addrs = std::collections::HashSet::new();
+    for i in 0..n {
+        unique_addrs.insert(trace_before.row(i)[COL_MEM_ADDR].as_int());
+    }
+    let max = unique_addrs.iter().copied().max().unwrap_or(0);
+    for addr in 1..=max {
+        assert!(
+            unique_addrs.contains(&addr),
+            "flat address {addr} missing after hole filling (max = {max})",
+        );
+    }
+    prove_synthetic_heap(bytecode, BaseElement::new(17));
+}
+
+#[test]
+fn heap_synthetic_intra_segment_holes_filled_production() {
+    let bytecode = synthetic_sparse_segment_bytecode(17, 42);
+    prove_synthetic_heap_production(bytecode, BaseElement::new(17));
+}
+
+#[test]
+fn heap_synthetic_cross_segment_holes_filled() {
+    let bytecode = synthetic_cross_segment_sparse_bytecode(11, 23);
+    let (trace, _) = maat_trace::run(bytecode.clone()).expect("cross-segment trace failed");
+    let n = trace.num_rows();
+    let mut unique_addrs = std::collections::HashSet::new();
+    for i in 0..n {
+        unique_addrs.insert(trace.row(i)[COL_MEM_ADDR].as_int());
+    }
+    let max = unique_addrs.iter().copied().max().unwrap_or(0);
+    for addr in 1..=max {
+        assert!(
+            unique_addrs.contains(&addr),
+            "flat address {addr} missing across two sparse segments",
+        );
+    }
+    prove_synthetic_heap(bytecode, BaseElement::new(11));
+}
+
+#[test]
+fn heap_synthetic_hole_row_removed_rejected() {
+    let bytecode = synthetic_sparse_segment_bytecode(17, 42);
+    let (mut trace, _) = maat_trace::run(bytecode.clone()).expect("sparse heap trace failed");
+
+    let mut addrs: Vec<u64> = (0..trace.num_rows())
+        .map(|i| trace.row(i)[COL_MEM_ADDR].as_int())
+        .collect();
+    addrs.sort_unstable();
+    addrs.dedup();
+    let hole_addr = addrs
+        .iter()
+        .zip(addrs.iter().skip(1))
+        .find_map(|(&a, &b)| if b == a + 1 { Some(a + 1) } else { None })
+        .expect("expected at least one dummy hole row");
+
+    let mut rebuilt = TraceTable::new();
+    for i in 0..trace.num_rows() {
+        if trace.row(i)[COL_MEM_ADDR].as_int() != hole_addr {
+            rebuilt.push_row(*trace.row(i));
+        }
+    }
+    trace = rebuilt;
+
+    let program_hash = compute_program_hash(&bytecode).expect("hash failed");
+    let public_inputs = MaatPublicInputs::new(program_hash, vec![], BaseElement::new(17));
+    let prover = MaatProver::new(development_options(), public_inputs.clone());
+
+    let prove_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        prover.generate_proof(trace)
+    }));
+    match prove_result {
+        Err(_) => {}
+        Ok(proof) => {
+            let proof = proof.expect("proof generation failed");
+            assert!(
+                verify_with_inputs(proof, public_inputs).is_err(),
+                "removing a hole row must be rejected by the verifier",
             );
         }
     }
@@ -1087,4 +1066,160 @@ fn tampered_gt_output_rejected() {
     let (bytecode, mut trace, output) = compile_and_trace(source);
     tamper_output_on_sub_sel(&mut trace, SUB_SEL_GT);
     assert_tampered_trace_rejected(bytecode, trace, output, "ordering gt");
+}
+
+#[test]
+fn pubmem_three_cell_output_proves_and_verifies() {
+    let bytecode = synthetic_output_segment_bytecode(&[10, 20, 30]);
+    let artifacts = maat_trace::run_with_output(bytecode.clone(), Some(0)).expect("trace failed");
+    assert_eq!(artifacts.output_segment.len(), 3);
+    assert_eq!(artifacts.output_segment[0], Felt::new(10));
+    assert_eq!(artifacts.output_segment[1], Felt::new(20));
+    assert_eq!(artifacts.output_segment[2], Felt::new(30));
+    prove_and_verify_pubmem(bytecode, 0);
+}
+
+#[test]
+fn pubmem_two_cell_struct_shaped_output_proves_and_verifies() {
+    let bytecode = synthetic_output_segment_bytecode(&[1, 2]);
+    prove_and_verify_pubmem(bytecode, 0);
+}
+
+#[test]
+fn pubmem_tampered_output_cell_value_rejected() {
+    let bytecode = synthetic_output_segment_bytecode(&[10, 20, 30]);
+    honest_prover_dishonest_verifier(
+        bytecode,
+        0,
+        |inputs| inputs.output_segment[1] = Felt::new(999),
+        "output cell value",
+    );
+}
+
+#[test]
+fn pubmem_tampered_output_base_rejected() {
+    let bytecode = synthetic_output_segment_bytecode(&[10, 20, 30]);
+    honest_prover_dishonest_verifier(
+        bytecode,
+        0,
+        |inputs| inputs.output_base = inputs.output_base.wrapping_add(17),
+        "output base",
+    );
+}
+
+#[test]
+fn pubmem_tampered_segment_length_shorter_rejected() {
+    let bytecode = synthetic_output_segment_bytecode(&[10, 20, 30]);
+    honest_prover_dishonest_verifier(
+        bytecode,
+        0,
+        |inputs| {
+            inputs.output_segment.pop();
+        },
+        "segment length (shorter)",
+    );
+}
+
+#[test]
+fn pubmem_tampered_segment_length_longer_rejected() {
+    let bytecode = synthetic_output_segment_bytecode(&[10, 20, 30]);
+    honest_prover_dishonest_verifier(
+        bytecode,
+        0,
+        |inputs| inputs.output_segment.push(Felt::new(40)),
+        "segment length (longer)",
+    );
+}
+
+#[test]
+fn arena_three_segments_alloc_finalize_proves_and_verifies() {
+    let bytecode = synthetic_arena_alloc_finalize_bytecode(&[11, 22, 33]);
+    prove_synthetic_heap(bytecode, BaseElement::new(11));
+}
+
+#[test]
+fn arena_three_segments_alloc_finalize_production() {
+    let bytecode = synthetic_arena_alloc_finalize_bytecode(&[11, 22, 33]);
+    prove_synthetic_heap_production(bytecode, BaseElement::new(11));
+}
+
+#[test]
+fn arena_assigns_distinct_segment_ids() {
+    let bytecode = synthetic_arena_alloc_finalize_bytecode(&[7, 13, 21, 29]);
+    let (trace, _) = maat_trace::run(bytecode).expect("arena trace failed");
+
+    let n = trace.num_rows();
+    let mut writes: Vec<u64> = (0..n)
+        .filter(|&i| {
+            trace.row(i)[COL_MEM_ADDR].as_int() != 0
+                && trace.row(i)[maat_trace::table::COL_IS_READ].as_int() == 0
+        })
+        .map(|i| trace.row(i)[COL_MEM_VAL].as_int())
+        .collect();
+
+    writes.sort_unstable();
+    writes.dedup();
+
+    assert!(
+        writes.windows(2).all(|w| w[0] != w[1]),
+        "duplicate arena id surfaced in trace: {writes:?}"
+    );
+}
+
+#[test]
+fn arena_tampered_id_value_rejected() {
+    let bytecode = synthetic_arena_alloc_finalize_bytecode(&[7, 13, 21]);
+    let (mut trace, _) = maat_trace::run(bytecode.clone()).expect("arena trace failed");
+
+    let n = trace.num_rows();
+    let mut tampered = false;
+    for i in 0..n {
+        let val = trace.row(i)[COL_MEM_VAL].as_int();
+        if trace.row(i)[maat_trace::table::COL_IS_READ].as_int() == 0
+            && (1..=10).contains(&val)
+            && trace.row(i)[COL_MEM_ADDR].as_int() != 0
+        {
+            trace.row_mut(i)[COL_MEM_VAL] = Felt::new(val + 100);
+            tampered = true;
+            break;
+        }
+    }
+    assert!(tampered, "expected at least one arena-id write to tamper");
+
+    let program_hash = compute_program_hash(&bytecode).expect("hash failed");
+    let public_inputs = MaatPublicInputs::new(program_hash, vec![], BaseElement::new(7));
+    let prover = MaatProver::new(development_options(), public_inputs.clone());
+
+    let prove_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        prover.generate_proof(trace)
+    }));
+    match prove_result {
+        Err(_) => {}
+        Ok(proof) => {
+            let proof = proof.expect("proof generation failed");
+            assert!(
+                verify_with_inputs(proof, public_inputs).is_err(),
+                "tampered arena id must be rejected by the verifier",
+            );
+        }
+    }
+}
+
+#[test]
+fn arena_segments_relocate_into_distinct_flat_ranges() {
+    let bytecode = synthetic_arena_alloc_finalize_bytecode(&[100, 200, 300]);
+    let (trace, _) = maat_trace::run(bytecode).expect("arena trace failed");
+
+    let n = trace.num_rows();
+    let mut unique_addrs = std::collections::HashSet::new();
+    for i in 0..n {
+        unique_addrs.insert(trace.row(i)[COL_MEM_ADDR].as_int());
+    }
+    let max = unique_addrs.iter().copied().max().unwrap_or(0);
+    for addr in 1..=max {
+        assert!(
+            unique_addrs.contains(&addr),
+            "flat address {addr} missing after arena relocation (max = {max})",
+        );
+    }
 }
