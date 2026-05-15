@@ -258,10 +258,10 @@ maat prove program.maat --inputs-file inputs.json
 
 #### Current Limitations
 
-The STARK proof system is functional for **primitive-typed** programs (`i8`..`i64`, `u8`..`u64`, `usize`, `bool`, `Felt`) and user-defined functions over those types, including parameters, return values, nested calls, and bounded recursion. The following remain planned for future releases:
+The STARK proof system is functional for **primitive-typed** programs (`i8`..`i64`, `u8`..`u64`, `usize`, `bool`, `Felt`), **fixed-size arrays** `[T; N]` over primitive `T`, and user-defined functions over those types -- including parameters, return values, nested calls, and bounded recursion. The following remain planned for future releases:
 
-- **Composite-type tracing**: Programs that use `Vector<T>`, `Map<K, V>`, `Set<T>`, `str`, `struct`, `enum` (including `Option<T>`, `Result<T, E>`), fixed-size arrays `[T; N]`, or closures execute correctly under `maat run` but cannot yet be proven end-to-end. `maat prove` will emit a proof, but the verifier will reject it because the trace VM does not yet record every composite-type operation as constraint-satisfying rows.
-- **Ordering for `u64`/`i64` and signed types**: `<`, `>`, `<=`, `>=` are proven for `u8`/`u16`/`u32`/`usize`/`char` in v0.13.x; full-width 64-bit and signed ordering require a tighter range primitive and are deferred.
+- **Composite-type tracing**: Programs that use the surface composite types (`Vector<T>`, `Map<K, V>`, `Set<T>`, `str`, `struct`, `enum` including `Option<T>` / `Result<T, E>`, closures) execute correctly under `maat run` but cannot yet be proven end-to-end. `maat prove` will emit a proof on a composite-typed program, but the verifier will reject it.
+- **Ordering for `u64`/`i64` and signed types**: `<`, `>`, `<=`, `>=` are proven for `u8`/`u16`/`u32`/`usize`/`char` in v0.14.0; full-width 64-bit and signed ordering require a tighter range primitive and are deferred.
 - **STARK-to-SNARK wrapping**: STARK proofs ship today; succinct on-chain verification via Groth16 over BN254 is planned.
 
 Note that I/O side effects (`println!`) are not captured in the proof--the proof attests to correct computation of the return value.
@@ -376,7 +376,7 @@ cargo doc --all-features --no-deps --open
 
 ## Architecture
 
-Maat uses a multi-module compilation pipeline. Source files are parsed into per-module ASTs, organized into a dependency graph by `maat_module`, type-checked independently with cross-module visibility enforcement, compiled to bytecode by a shared `maat_codegen` compiler instance (which implicitly links all modules into a single instruction stream), and executed on the stack-based `maat_vm`. The `maat_eval` crate (the tree-walking evaluator) is reduced to a macro-expansion-only engine (`define_macros`/`expand_macros`). The STARK proof system begins with `maat_trace`, a trace-generating VM that records every instruction step into a 56-column algebraic witness matrix over the Goldilocks field (sub-selector witnesses for 16 opcode sub-classes, comparison and division auxiliaries, and a per-row encoded operand width); `maat_air` encodes the CPU semantics as 81 main + 20 auxiliary Winterfell transition constraints (output correctness for arithmetic/bitwise/ordering/equality, universal PC advance, unified memory permutation, range-check sub-AIR, and builtin-segment ABI), with static `pub const` transition-degree arrays (no per-trace FFT detection); `maat_prover` wires the AIR to Winterfell to produce and verify proofs.
+Maat uses a multi-module compilation pipeline. Source files are parsed into per-module ASTs, organized into a dependency graph by `maat_module`, type-checked independently with cross-module visibility enforcement, compiled to bytecode by a shared `maat_codegen` compiler instance (which implicitly links all modules into a single instruction stream), and executed on the stack-based `maat_vm`. The `maat_eval` crate (the tree-walking evaluator) is reduced to a macro-expansion-only engine (`define_macros`/`expand_macros`). The STARK proof system begins with `maat_trace`, a trace-generating VM that records every instruction step into a 56-column algebraic witness matrix over the Goldilocks field (sub-selector witnesses for 16 opcode sub-classes, comparison and division auxiliaries, and a per-row encoded operand width); heap accesses go through per-instance memory segments via `MemorySegmentManager`, and a relocation pass between trace finalization and proof generation flattens those segments into the single AIR address space, fills sparse-segment holes, and appends the public-memory accumulator's dummy rows. `maat_air` encodes the CPU semantics as 81 main + 20 auxiliary Winterfell transition constraints (output correctness for arithmetic/bitwise/ordering/equality, universal PC advance, unified memory permutation, public-memory accumulator over the multi-cell output segment, range-check sub-AIR, and builtin-segment ABI), with static `pub const` transition-degree arrays (no per-trace FFT detection); `maat_prover` wires the AIR to Winterfell to produce and verify proofs.
 
 The type checker infers types for each module using Hindley-Milner inference (Algorithm W), with imported bindings injected from dependency modules' public exports. Type annotations are optional--the inference engine deduces types from usage--but can be provided on `let` bindings, function parameters, and return types for documentation or to constrain polymorphism. Generic functions with parametric polymorphism are supported (`fn identity<T>(x: T) -> T { x }`). Tuples, `char`, `Map<K, V>`, `Set<T>`, `Vector<T>`, and fixed-size arrays `[T; N]` are all first-class types with full inference support. `Felt` (Goldilocks field element) is a first-class numeric type for zero-knowledge arithmetic.
 
@@ -419,7 +419,7 @@ Unless you explicitly state otherwise, any contribution intentionally submitted 
 
 ## Security
 
-All 17 crates enforce `#![forbid(unsafe_code)]`. The compiler and VM have been hardened against adversarial input with resource limits, checked arithmetic, and safe type conversions. Field element arithmetic uses the Winterfell library's constant-time implementations. See [`SECURITY.md`](./SECURITY.md) for the full threat model.
+All 18 crates enforce `#![forbid(unsafe_code)]`. The compiler and VM have been hardened against adversarial input with resource limits, checked arithmetic, and safe type conversions. Field element arithmetic uses the Winterfell library's constant-time implementations. See [`SECURITY.md`](./SECURITY.md) for the full threat model.
 
 ## Roadmap
 
@@ -433,11 +433,11 @@ Maat's development follows a phased milestone plan.
 
 ## Status
 
-Maat is currently at version `0.13.1` (ZK proof system foundation for primitive-typed programs). The compiler frontend, type system, module system, bytecode VM, and CLI toolchain are functional and tested. The ZK backend proves and verifies user-defined function calls with parameters, return values, nested calls, bounded recursion, arithmetic, bitwise operations, and unsigned ordering comparisons. See the [current limitations](#current-limitations) for gaps deferred to future releases.
+Maat is currently at version `0.14.0`. The compiler frontend, type system, module system, bytecode VM, and CLI toolchain are functional and tested. The ZK backend proves and verifies user-defined function calls with parameters, return values, nested calls, bounded recursion, arithmetic, bitwise operations, unsigned ordering comparisons, and fixed-size arrays `[T; N]` over primitive `T`. See the [current limitations](#current-limitations) for gaps deferred to future releases.
 
 ## Disclaimer
 
-Early adopters should be aware that Maat `0.13.1` is a step toward Maat 1.0, for which a formal audit process is expected. In the meantime, we invite you to explore and experiment with Maat, but we do not recommend using it to build mission-critical systems.
+Early adopters should be aware that Maat `0.14.0` is a step toward Maat 1.0, for which a formal audit process is expected. In the meantime, we invite you to explore and experiment with Maat, but we do not recommend using it to build mission-critical systems.
 
 ## Acknowledgments
 
