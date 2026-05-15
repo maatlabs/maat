@@ -531,7 +531,7 @@ impl VM {
     }
 
     fn heap_target_segment(&mut self) -> Result<u32> {
-        if let Some(seg) = self.current_segment.take() {
+        if let Some(seg) = self.current_segment {
             return Ok(seg);
         }
         if let Some(seg) = self.default_segment {

@@ -253,8 +253,9 @@ pub enum Opcode {
     HeapWrite = 52,
 
     /// Allocate a fresh memory segment and push its base address as a
-    /// `Value::Relocatable`. Sets the VM's current segment so the next
-    /// `HeapAlloc` appends into this segment.
+    /// `Value::Relocatable`. Sets the VM's current segment so subsequent
+    /// `HeapAlloc` instructions append into this segment until the next
+    /// `SegmentNew` redirects the target.
     ///
     /// Internal-only opcode; not emitted by the surface language.
     /// Operands: none
