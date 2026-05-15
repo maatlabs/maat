@@ -14,7 +14,7 @@ CPU constraint system (AIR) for the Maat programming language.
 | Auxiliary           | 137     | 20          | Memory permutation (3), `RangeCheckBuiltin` (5), `BitwiseBuiltin` (11), `IdentityBuiltin` (1)                 |
 | **Total**           | **193** | **101**     | Max declared degree 5                                                                                         |
 
-**Boundary assertions:** 9 — `pc[0]=0`, `sp[0]=0`, `out[last]=output` (main); `mem_acc[0]=1`, `mem_acc[last]=1`, `rc_acc[0]=1`, `rc_acc[last]=1`, `id_col[0]=1`, `id_col[last]=1` (auxiliary).
+**Boundary assertions:** 9 — `pc[0]=0`, `sp[0]=0`, `out[last]=output` (main); `mem_acc[0]=1`, `mem_acc[last] = z^l / ∏(z - α·v_i - a_i)` over the public-output segment (public-memory accumulator), `rc_acc[0]=1`, `rc_acc[last]=1`, `id_col[0]=1`, `id_col[last]=1` (auxiliary). When `output_segment` is empty the endpoint collapses to `1`.
 
 **Output correctness:** dedicated constraints for `Add`/`Sub`/`Mul`, `Div`/`Mod` (with `COL_DIV_AUX` remainder witness), `Neg`/`Not`, `FeltAdd`/`FeltSub`/`FeltMul`, `Equal`/`NotEqual` (with `COL_CMP_INV` inverse witness), `BitAnd`/`BitOr`/`BitXor`/`Shl`/`Shr` (via `BitwiseBuiltin` aux columns), `LessThan`/`GreaterThan` (via range-check sign-pattern constraints). Sub-selector witness columns gate each per-opcode constraint within its parent class.
 
@@ -30,7 +30,12 @@ CPU constraint system (AIR) for the Maat programming language.
 use maat_air::{AUX_WIDTH, MaatAir, MaatPublicInputs, NUM_AUX_RANDS, build_aux_columns};
 use winter_air::TraceInfo;
 
+// Single-cell output
 let public_inputs = MaatPublicInputs::new(program_hash, vec![], output_felt);
+// or, multi-cell output
+// let public_inputs = MaatPublicInputs::with_output_segment(
+//     program_hash, vec![], output_felt, output_base, output_segment,
+// );
 let trace_info = TraceInfo::new_multi_segment(
     maat_trace::TRACE_WIDTH,
     AUX_WIDTH,
