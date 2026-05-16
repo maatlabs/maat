@@ -244,6 +244,7 @@ enum SerVal {
     Set(Set),
     Range(Integer, Integer),
     RangeInclusive(Integer, Integer),
+    Relocatable(Relocatable),
 }
 
 impl Serialize for Value {
@@ -269,6 +270,7 @@ impl Serialize for Value {
             Self::Set(v) => SerVal::Set(v.clone()),
             Self::Range(s, e) => SerVal::Range(*s, *e),
             Self::RangeInclusive(s, e) => SerVal::RangeInclusive(*s, *e),
+            Self::Relocatable(r) => SerVal::Relocatable(*r),
             other => {
                 return Err(serde::ser::Error::custom(format!(
                     "non-serializable value: {}",
@@ -302,6 +304,7 @@ impl<'de> Deserialize<'de> for Value {
             SerVal::Set(v) => Self::Set(v),
             SerVal::Range(s, e) => Self::Range(s, e),
             SerVal::RangeInclusive(s, e) => Self::RangeInclusive(s, e),
+            SerVal::Relocatable(r) => Self::Relocatable(r),
         })
     }
 }

@@ -6,7 +6,7 @@ use maat_field::{BaseElement, Felt, FieldElement};
 use maat_prover::{
     MaatProver, compute_program_hash, development_options, production_options, verify_with_inputs,
 };
-use maat_runtime::{Integer, Value};
+use maat_runtime::{Integer, Relocatable, SEG_PUBLIC_OUTPUT, Value};
 use maat_span::SourceMap;
 use maat_trace::table::{COL_OUT, COL_SUB_SEL_BASE, TraceTable};
 
@@ -269,16 +269,18 @@ pub fn synthetic_cross_segment_sparse_bytecode(seg_a_value: i64, seg_b_value: i6
     }
 }
 
-/// Bytecode that writes `cells.len()` values to a freshly allocated user
-/// segment and leaves the segment base pointer as the program's
-/// last-popped value.
+/// Bytecode that writes `cells.len()` values directly into the pre-allocated
+/// public-output segment ([`SEG_PUBLIC_OUTPUT`]) at offsets `0..cells.len()`
+/// and leaves the segment base pointer as the program's last-popped value.
 pub fn synthetic_output_segment_bytecode(cells: &[i64]) -> Bytecode {
     let mut instructions = Instructions::new();
-    // SegmentNew -> stash base in global 0.
-    instructions.extend_from_bytes(&encode(Opcode::SegmentNew, &[]));
+    let mut constants: Vec<Value> = Vec::with_capacity(cells.len() * 2 + 1);
+
+    let pubmem_base_idx = constants.len();
+    constants.push(Value::Relocatable(Relocatable::new(SEG_PUBLIC_OUTPUT, 0)));
+    instructions.extend_from_bytes(&encode(Opcode::Constant, &[pubmem_base_idx]));
     instructions.extend_from_bytes(&encode(Opcode::SetGlobal, &[0]));
 
-    let mut constants: Vec<Value> = Vec::with_capacity(cells.len() * 2);
     for (off, &val) in cells.iter().enumerate() {
         // Push the cell address: `base` for offset 0, `base + off` otherwise.
         instructions.extend_from_bytes(&encode(Opcode::GetGlobal, &[0]));
@@ -306,12 +308,12 @@ pub fn synthetic_output_segment_bytecode(cells: &[i64]) -> Bytecode {
     }
 }
 
-/// Runs the bytecode against the public-output segment `seg_id`,
-/// builds `MaatPublicInputs::with_output_segment`, and
-/// verifies the proof end-to-end.
-pub fn prove_and_verify_pubmem(bytecode: Bytecode, seg_id: u32) {
-    let artifacts = maat_trace::run_with_output(bytecode.clone(), Some(seg_id))
-        .expect("trace with public output failed");
+/// Runs the bytecode, extracts the public-output segment from the reserved
+/// [`SEG_PUBLIC_OUTPUT`] slot, builds `MaatPublicInputs::with_output_segment`,
+/// and verifies the proof end-to-end.
+pub fn prove_and_verify_pubmem(bytecode: Bytecode) {
+    let artifacts =
+        maat_trace::run_with_output(bytecode.clone()).expect("trace with public output failed");
     let output_felt = BaseElement::new(u64::from(artifacts.output_base));
     let program_hash = compute_program_hash(&bytecode).expect("program hash failed");
     let public_inputs = MaatPublicInputs::with_output_segment(
@@ -406,12 +408,10 @@ pub fn synthetic_arena_alloc_finalize_bytecode(payloads: &[i64]) -> Bytecode {
 /// Prove honestly, then verify against a tampered public input.
 pub fn honest_prover_dishonest_verifier(
     bytecode: Bytecode,
-    seg_id: u32,
     tamper: impl FnOnce(&mut MaatPublicInputs),
     label: &str,
 ) {
-    let artifacts =
-        maat_trace::run_with_output(bytecode.clone(), Some(seg_id)).expect("trace failed");
+    let artifacts = maat_trace::run_with_output(bytecode.clone()).expect("trace failed");
     let output_felt = BaseElement::new(u64::from(artifacts.output_base));
     let program_hash = compute_program_hash(&bytecode).expect("hash");
     let honest_inputs = MaatPublicInputs::with_output_segment(

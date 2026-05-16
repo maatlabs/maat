@@ -1071,18 +1071,18 @@ fn tampered_gt_output_rejected() {
 #[test]
 fn pubmem_three_cell_output_proves_and_verifies() {
     let bytecode = synthetic_output_segment_bytecode(&[10, 20, 30]);
-    let artifacts = maat_trace::run_with_output(bytecode.clone(), Some(0)).expect("trace failed");
+    let artifacts = maat_trace::run_with_output(bytecode.clone()).expect("trace failed");
     assert_eq!(artifacts.output_segment.len(), 3);
     assert_eq!(artifacts.output_segment[0], Felt::new(10));
     assert_eq!(artifacts.output_segment[1], Felt::new(20));
     assert_eq!(artifacts.output_segment[2], Felt::new(30));
-    prove_and_verify_pubmem(bytecode, 0);
+    prove_and_verify_pubmem(bytecode);
 }
 
 #[test]
 fn pubmem_two_cell_struct_shaped_output_proves_and_verifies() {
     let bytecode = synthetic_output_segment_bytecode(&[1, 2]);
-    prove_and_verify_pubmem(bytecode, 0);
+    prove_and_verify_pubmem(bytecode);
 }
 
 #[test]
@@ -1090,7 +1090,6 @@ fn pubmem_tampered_output_cell_value_rejected() {
     let bytecode = synthetic_output_segment_bytecode(&[10, 20, 30]);
     honest_prover_dishonest_verifier(
         bytecode,
-        0,
         |inputs| inputs.output_segment[1] = Felt::new(999),
         "output cell value",
     );
@@ -1101,7 +1100,6 @@ fn pubmem_tampered_output_base_rejected() {
     let bytecode = synthetic_output_segment_bytecode(&[10, 20, 30]);
     honest_prover_dishonest_verifier(
         bytecode,
-        0,
         |inputs| inputs.output_base = inputs.output_base.wrapping_add(17),
         "output base",
     );
@@ -1112,7 +1110,6 @@ fn pubmem_tampered_segment_length_shorter_rejected() {
     let bytecode = synthetic_output_segment_bytecode(&[10, 20, 30]);
     honest_prover_dishonest_verifier(
         bytecode,
-        0,
         |inputs| {
             inputs.output_segment.pop();
         },
@@ -1125,7 +1122,6 @@ fn pubmem_tampered_segment_length_longer_rejected() {
     let bytecode = synthetic_output_segment_bytecode(&[10, 20, 30]);
     honest_prover_dishonest_verifier(
         bytecode,
-        0,
         |inputs| inputs.output_segment.push(Felt::new(40)),
         "segment length (longer)",
     );

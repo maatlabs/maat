@@ -89,7 +89,7 @@ impl VM {
             frames: vec![main_frame],
             source_map,
             type_registry,
-            segments: MemorySegmentManager::new(),
+            segments: MemorySegmentManager::with_reserved_segments(),
             heap_values: HashMap::new(),
             current_segment: None,
             default_segment: None,
