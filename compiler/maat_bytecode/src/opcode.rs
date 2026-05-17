@@ -274,7 +274,7 @@ pub enum Opcode {
     ArenaFinalize = 55,
 
     /// Allocate a fresh per-instance segment and push a
-    /// `Value::VectorSeg { base, len: 0 }` containing the segment's base.
+    /// `Value::Vector { base, len: 0 }` containing the segment's base.
     ///
     /// Internal-only opcode; emitted by the codegen intercept for
     /// `Vector::new()`.

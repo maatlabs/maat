@@ -391,9 +391,10 @@ pub fn start_interactive() {
         symbols_table = next_symbols;
         constants = next_constants;
 
-        match vm.last_popped_stack_elem() {
+        match vm.last_popped_stack_elem().cloned() {
             Some(val) if !only_let_stmts && !matches!(val, Value::Unit) => {
-                println!("{val}");
+                let display = vm.materialize_for_inspection(&val).unwrap_or(val);
+                println!("{display}");
             }
             _ => println!(),
         }
@@ -504,9 +505,10 @@ mod tests {
             globals = vm.globals().to_vec();
             symbols_table = next_symbols;
             constants = next_constants;
-            match vm.last_popped_stack_elem() {
+            match vm.last_popped_stack_elem().cloned() {
                 Some(val) if !only_let_stmts && !matches!(val, Value::Unit) => {
-                    writeln!(writer, "{val}")?;
+                    let display = vm.materialize_for_inspection(&val).unwrap_or(val);
+                    writeln!(writer, "{display}")?;
                 }
                 _ => writeln!(writer)?,
             }

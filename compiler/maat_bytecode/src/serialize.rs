@@ -149,11 +149,11 @@ mod tests {
     fn array_constant() {
         let bc = Bytecode {
             instructions: Instructions::new(),
-            constants: vec![Value::Vector(vec![
+            constants: vec![Value::VectorLit(vec![
                 Value::Integer(Integer::I64(1)),
                 Value::Str("two".to_owned()),
                 Value::Bool(true),
-                Value::Vector(vec![
+                Value::VectorLit(vec![
                     Value::Integer(Integer::I64(3)),
                     Value::Integer(Integer::I64(4)),
                 ]),

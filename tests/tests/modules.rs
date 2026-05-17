@@ -27,7 +27,11 @@ fn run_project(pairs: &[(&str, &str)]) -> Value {
     let bytecode = compile_project(pairs).expect("compilation failed");
     let mut vm = VM::new(bytecode);
     vm.run().expect("vm error");
-    vm.last_popped_stack_elem().cloned().unwrap_or(Value::Unit)
+    let value = vm.last_popped_stack_elem().cloned().unwrap_or(Value::Unit);
+    // Materialize segment-backed `Vector`s into the `VectorLit` form so
+    // tests can compare against `Value::VectorLit(vec![...])` literals.
+    vm.materialize_for_inspection(&value)
+        .expect("vector materialization for assertion failed")
 }
 
 #[test]
@@ -340,7 +344,7 @@ fn std_string_methods() {
     let result = run_project(&[("main.maat", "let s: str = \"a,b,c\";\ns.split(\",\")")]);
     assert_eq!(
         result,
-        Value::Vector(vec![
+        Value::VectorLit(vec![
             Value::Str("a".to_string()),
             Value::Str("b".to_string()),
             Value::Str("c".to_string()),
@@ -499,7 +503,7 @@ fn str_methods() {
     let result = run_project(&[("main.maat", "let s: str = \"a,b,c\";\ns.split(\",\")")]);
     assert_eq!(
         result,
-        Value::Vector(vec![
+        Value::VectorLit(vec![
             Value::Str("a".to_string()),
             Value::Str("b".to_string()),
             Value::Str("c".to_string()),

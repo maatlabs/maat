@@ -112,6 +112,19 @@ impl VM {
         }
     }
 
+    /// Reads the elements of a segment-backed `Value::Vector { base, len }`
+    /// out of the heap and returns the legacy `Value::VectorLit(Vec<Value>)`
+    /// form. For non-Vector values, returns the value unchanged.
+    ///
+    /// Intended for tests and external tooling that need to inspect vector
+    /// contents without dealing with the segment manager directly. The user
+    /// stack only holds segment-backed Vectors at runtime; this helper is the
+    /// inverse of the materialize-on-return shim used internally when bridging
+    /// segment-backed values to legacy builtins.
+    pub fn materialize_for_inspection(&self, value: &Value) -> Result<Value> {
+        self.materialize_vector_seg(value)
+    }
+
     pub fn run(&mut self) -> Result<()> {
         self.run_with_recorder(&mut NoOpRecorder)
     }
@@ -182,6 +195,7 @@ impl VM {
                         "constant pool access out of bounds at index {index}"
                     ))
                 })?;
+                let constant = self.materialize_for_runtime(constant, recorder)?;
                 recorder.record_out(constant.to_maybe_relocatable());
                 self.push_stack(constant)?;
             }
@@ -271,7 +285,7 @@ impl VM {
             Opcode::Vector => {
                 let n = self.read_u16_operand(ip + 1)?;
                 self.current_frame_mut()?.ip += 2;
-                let v = self.build_collection(n, Value::Vector)?;
+                let v = self.build_vector_segment(n, recorder)?;
                 self.push_stack(v)?;
             }
             Opcode::Tuple => {
@@ -295,7 +309,7 @@ impl VM {
             Opcode::Index => {
                 let index = self.pop_stack()?;
                 let container = self.pop_stack()?;
-                if let Value::VectorSeg { base, len } = container {
+                if let Value::Vector { base, len } = container {
                     let addr = self.index_vector_seg(base, len, &index)?;
                     let value = self.heap_values.get(&addr).cloned().ok_or_else(|| {
                         self.vm_error(format!("vector cell {addr} is unallocated"))
@@ -542,14 +556,14 @@ impl VM {
                     .add()
                     .map_err(|e| self.vm_error(format!("VectorNew: {e}")))?;
                 self.current_segment = Some(base.segment_index);
-                self.push_stack(Value::VectorSeg { base, len: 0 })?;
+                self.push_stack(Value::Vector { base, len: 0 })?;
                 recorder.record_out(MaybeRelocatable::Relocatable(base));
             }
             Opcode::VectorPush => {
                 let val = self.pop_stack()?;
                 let vec = self.pop_stack()?;
                 match vec {
-                    Value::VectorSeg { base, len } => {
+                    Value::Vector { base, len } => {
                         let val_mr = val.to_maybe_relocatable();
                         let cell_addr = Relocatable::new(base.segment_index, len);
                         self.segments
@@ -559,7 +573,7 @@ impl VM {
                         let new_len = len
                             .checked_add(1)
                             .ok_or_else(|| self.vm_error("VectorPush: vector length overflow"))?;
-                        self.push_stack(Value::VectorSeg { base, len: new_len })?;
+                        self.push_stack(Value::Vector { base, len: new_len })?;
                         self.push_stack(Value::Relocatable(cell_addr))?;
                         recorder.record_out(MaybeRelocatable::Relocatable(cell_addr));
                         recorder.record_heap_access(
@@ -568,12 +582,6 @@ impl VM {
                             val_mr,
                             false,
                         );
-                    }
-                    Value::Vector(mut elements) => {
-                        elements.push(val);
-                        self.push_stack(Value::Vector(elements))?;
-                        self.push_stack(Value::Unit)?;
-                        recorder.record_out(MaybeRelocatable::Felt(Felt::ZERO));
                     }
                     other => {
                         return Err(self.vm_error(format!(
@@ -693,6 +701,7 @@ impl VM {
             .map(|v| self.materialize_vector_seg(v))
             .collect::<Result<_>>()?;
         let result = func(&args)?;
+        let result = self.materialize_for_runtime(result, recorder)?;
 
         self.sp = args_start - 1;
         self.push_stack(result)?;
@@ -700,21 +709,130 @@ impl VM {
         Ok(())
     }
 
+    /// Walks a value tree and converts every `Value::VectorLit(Vec<Value>)`
+    /// (including nested instances inside `Tuple`, `Array`, `Map`, `Set`,
+    /// `Struct`, `EnumVariant`, `Closure`, `ReturnValue`, `Break`) into a
+    /// segment-backed `Value::Vector { base, len }`.
+    fn materialize_for_runtime<R: Tracer>(
+        &mut self,
+        value: Value,
+        recorder: &mut R,
+    ) -> Result<Value> {
+        match value {
+            Value::VectorLit(elements) => {
+                let materialized = elements
+                    .into_iter()
+                    .map(|e| self.materialize_for_runtime(e, recorder))
+                    .collect::<Result<Vec<_>>>()?;
+                self.allocate_vector_segment(materialized, recorder)
+            }
+            Value::Tuple(elements) => {
+                let materialized = elements
+                    .into_iter()
+                    .map(|e| self.materialize_for_runtime(e, recorder))
+                    .collect::<Result<Vec<_>>>()?;
+                Ok(Value::Tuple(materialized))
+            }
+            Value::Array(elements) => {
+                let materialized = elements
+                    .into_iter()
+                    .map(|e| self.materialize_for_runtime(e, recorder))
+                    .collect::<Result<Vec<_>>>()?;
+                Ok(Value::Array(materialized))
+            }
+            Value::Map(mut map) => {
+                let pairs = std::mem::take(&mut map.pairs);
+                let mut materialized = IndexMap::with_capacity(pairs.len());
+                for (k, v) in pairs {
+                    let v = self.materialize_for_runtime(v, recorder)?;
+                    materialized.insert(k, v);
+                }
+                map.pairs = materialized;
+                Ok(Value::Map(map))
+            }
+            Value::Struct(mut s) => {
+                let fields = std::mem::take(&mut s.fields);
+                s.fields = fields
+                    .into_iter()
+                    .map(|e| self.materialize_for_runtime(e, recorder))
+                    .collect::<Result<Vec<_>>>()?;
+                Ok(Value::Struct(s))
+            }
+            Value::EnumVariant(mut ev) => {
+                let fields = std::mem::take(&mut ev.fields);
+                ev.fields = fields
+                    .into_iter()
+                    .map(|e| self.materialize_for_runtime(e, recorder))
+                    .collect::<Result<Vec<_>>>()?;
+                Ok(Value::EnumVariant(ev))
+            }
+            Value::ReturnValue(inner) => {
+                let inner = self.materialize_for_runtime(*inner, recorder)?;
+                Ok(Value::ReturnValue(Box::new(inner)))
+            }
+            Value::Break(inner) => {
+                let inner = self.materialize_for_runtime(*inner, recorder)?;
+                Ok(Value::Break(Box::new(inner)))
+            }
+            other => Ok(other),
+        }
+    }
+
+    /// Builds a segment-backed `Value::Vector { base, len }`
+    /// from a vector of elements.
+    fn allocate_vector_segment<R: Tracer>(
+        &mut self,
+        elements: Vec<Value>,
+        recorder: &mut R,
+    ) -> Result<Value> {
+        let base = self
+            .segments
+            .add()
+            .map_err(|e| self.vm_error(format!("Vector segment allocation: {e}")))?;
+        let len = u32::try_from(elements.len())
+            .map_err(|_| self.vm_error("Vector length exceeds u32 representable range"))?;
+        for (offset, element) in elements.into_iter().enumerate() {
+            let offset = u32::try_from(offset)
+                .map_err(|_| self.vm_error("Vector offset exceeds u32 representable range"))?;
+            let addr = Relocatable::new(base.segment_index, offset);
+            let mr = element.to_maybe_relocatable();
+            self.segments
+                .write(addr, mr)
+                .map_err(|e| self.vm_error(format!("Vector cell write: {e}")))?;
+            self.heap_values.insert(addr, element);
+            recorder.record_heap_access(addr.segment_index, addr.offset, mr, false);
+        }
+        Ok(Value::Vector { base, len })
+    }
+
+    fn build_vector_segment<R: Tracer>(&mut self, n: usize, recorder: &mut R) -> Result<Value> {
+        if n > self.sp {
+            return Err(self.vm_error(format!(
+                "stack underflow in vector construction: need {n} elements, stack has {}",
+                self.sp
+            )));
+        }
+        let start = self.sp - n;
+        let elements = self.stack[start..self.sp].to_vec();
+        self.sp = start;
+        self.allocate_vector_segment(elements, recorder)
+    }
+
     fn materialize_vector_seg(&self, value: &Value) -> Result<Value> {
         match value {
-            Value::VectorSeg { base, len } => {
+            Value::Vector { base, len } => {
                 let len = *len;
                 let mut elements = Vec::with_capacity(len as usize);
                 for off in 0..len {
                     let addr = Relocatable::new(base.segment_index, off);
                     let cell = self.heap_values.get(&addr).cloned().ok_or_else(|| {
                         self.vm_error(format!(
-                            "VectorSeg materialization: cell {addr} is unallocated"
+                            "Vector materialization: cell {addr} is unallocated"
                         ))
                     })?;
                     elements.push(cell);
                 }
-                Ok(Value::Vector(elements))
+                Ok(Value::VectorLit(elements))
             }
             other => Ok(other.clone()),
         }
@@ -895,7 +1013,7 @@ impl VM {
         }
 
         if op == Opcode::Add
-            && let (Value::VectorSeg { base, .. }, Value::Integer(idx)) = (&left, &right)
+            && let (Value::Vector { base, .. }, Value::Integer(idx)) = (&left, &right)
         {
             let addend = idx.to_felt().ok_or_else(|| {
                 self.vm_error("Vector index addend does not fit in the base field")
@@ -1208,9 +1326,7 @@ impl VM {
 
     fn execute_index_expression(&mut self, container: Value, index: Value) -> Result<()> {
         match (&container, &index) {
-            (Value::Vector(elements) | Value::Array(elements), _) => {
-                self.execute_vector_index(elements, &index)
-            }
+            (Value::Array(elements), _) => self.execute_vector_index(elements, &index),
             (Value::Map(map), _) => self.execute_map_index(map, index),
             _ => Err(self.vm_error(format!(
                 "index operator not supported: {}",
@@ -1228,12 +1344,12 @@ impl VM {
         }
         let idx = index.to_vector_index().ok_or_else(|| {
             self.vm_error(format!(
-                "vector index out of range: index is {index}, length is {len}"
+                "index out of bounds: index is {index}, length is {len}"
             ))
         })?;
         let idx_u32 = u32::try_from(idx).map_err(|_| {
             self.vm_error(format!(
-                "vector index {idx} exceeds u32 representable range"
+                "index out of bounds: index {idx} exceeds u32 representable range"
             ))
         })?;
         if idx_u32 >= len {

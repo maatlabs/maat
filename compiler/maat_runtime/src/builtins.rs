@@ -206,8 +206,8 @@ fn __panic(args: &[Value]) -> Result<Value> {
 fn vector_len(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::len", args, 1)?;
     match &args[0] {
-        Value::Vector(arr) | Value::Array(arr) => Ok(Value::Integer(Integer::Usize(arr.len()))),
-        Value::VectorSeg { len, .. } => Ok(Value::Integer(Integer::Usize(*len as usize))),
+        Value::VectorLit(arr) | Value::Array(arr) => Ok(Value::Integer(Integer::Usize(arr.len()))),
+        Value::Vector { len, .. } => Ok(Value::Integer(Integer::Usize(*len as usize))),
         other => method_type_error(other, "len", "Vector"),
     }
 }
@@ -215,7 +215,7 @@ fn vector_len(args: &[Value]) -> Result<Value> {
 fn vector_first(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::first", args, 1)?;
     match &args[0] {
-        Value::Vector(arr) => Ok(option_wrap(arr.first().cloned())),
+        Value::VectorLit(arr) => Ok(option_wrap(arr.first().cloned())),
         other => method_type_error(other, "first", "Vector"),
     }
 }
@@ -223,7 +223,7 @@ fn vector_first(args: &[Value]) -> Result<Value> {
 fn vector_last(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::last", args, 1)?;
     match &args[0] {
-        Value::Vector(arr) => Ok(option_wrap(arr.last().cloned())),
+        Value::VectorLit(arr) => Ok(option_wrap(arr.last().cloned())),
         other => method_type_error(other, "last", "Vector"),
     }
 }
@@ -231,9 +231,9 @@ fn vector_last(args: &[Value]) -> Result<Value> {
 fn vector_split_first(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::split_first", args, 1)?;
     match &args[0] {
-        Value::Vector(arr) => Ok(arr.split_first().map_or_else(
-            || Value::Vector(vec![]),
-            |(_, tail)| Value::Vector(tail.to_vec()),
+        Value::VectorLit(arr) => Ok(arr.split_first().map_or_else(
+            || Value::VectorLit(vec![]),
+            |(_, tail)| Value::VectorLit(tail.to_vec()),
         )),
         other => method_type_error(other, "split_first", "Vector"),
     }
@@ -242,10 +242,10 @@ fn vector_split_first(args: &[Value]) -> Result<Value> {
 fn vector_push(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::push", args, 2)?;
     match &args[0] {
-        Value::Vector(arr) => {
+        Value::VectorLit(arr) => {
             let mut new_arr = arr.to_vec();
             new_arr.push(args[1].clone());
-            Ok(Value::Vector(new_arr))
+            Ok(Value::VectorLit(new_arr))
         }
         other => method_type_error(other, "push", "Vector"),
     }
@@ -254,7 +254,7 @@ fn vector_push(args: &[Value]) -> Result<Value> {
 fn vector_join(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::join", args, 2)?;
     match (&args[0], &args[1]) {
-        (Value::Vector(arr), Value::Str(sep)) => {
+        (Value::VectorLit(arr), Value::Str(sep)) => {
             let joined = arr
                 .iter()
                 .map(|val| format!("{val}"))
@@ -262,7 +262,7 @@ fn vector_join(args: &[Value]) -> Result<Value> {
                 .join(sep);
             Ok(Value::Str(joined))
         }
-        (Value::Vector(_), other) => Err(EvalError::Builtin(format!(
+        (Value::VectorLit(_), other) => Err(EvalError::Builtin(format!(
             "Vector::join: separator must be a string, got {}",
             other.type_name()
         ))
@@ -273,16 +273,16 @@ fn vector_join(args: &[Value]) -> Result<Value> {
 
 fn vector_new(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::new", args, 0)?;
-    Ok(Value::Vector(Vec::new()))
+    Ok(Value::VectorLit(Vec::new()))
 }
 
 fn vector_rev(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::rev", args, 1)?;
     match &args[0] {
-        Value::Vector(v) => {
+        Value::VectorLit(v) => {
             let mut reversed = v.clone();
             reversed.reverse();
-            Ok(Value::Vector(reversed))
+            Ok(Value::VectorLit(reversed))
         }
         other => method_type_error(other, "rev", "Vector"),
     }
@@ -295,11 +295,11 @@ fn vector_count(args: &[Value]) -> Result<Value> {
 fn vector_take(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::take", args, 2)?;
     match (&args[0], &args[1]) {
-        (Value::Vector(v), Value::Integer(Integer::Usize(n))) => {
+        (Value::VectorLit(v), Value::Integer(Integer::Usize(n))) => {
             let taken = v.iter().take(*n).cloned().collect();
-            Ok(Value::Vector(taken))
+            Ok(Value::VectorLit(taken))
         }
-        (Value::Vector(_), other) => Err(EvalError::Builtin(format!(
+        (Value::VectorLit(_), other) => Err(EvalError::Builtin(format!(
             "Vector::take: expected usize, got {}",
             other.type_name()
         ))
@@ -311,11 +311,11 @@ fn vector_take(args: &[Value]) -> Result<Value> {
 fn vector_skip(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::skip", args, 2)?;
     match (&args[0], &args[1]) {
-        (Value::Vector(v), Value::Integer(Integer::Usize(n))) => {
+        (Value::VectorLit(v), Value::Integer(Integer::Usize(n))) => {
             let skipped = v.iter().skip(*n).cloned().collect();
-            Ok(Value::Vector(skipped))
+            Ok(Value::VectorLit(skipped))
         }
-        (Value::Vector(_), other) => Err(EvalError::Builtin(format!(
+        (Value::VectorLit(_), other) => Err(EvalError::Builtin(format!(
             "Vector::skip: expected usize, got {}",
             other.type_name()
         ))
@@ -327,14 +327,14 @@ fn vector_skip(args: &[Value]) -> Result<Value> {
 fn vector_dedup(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::dedup", args, 1)?;
     match &args[0] {
-        Value::Vector(v) => {
+        Value::VectorLit(v) => {
             let mut deduped = Vec::with_capacity(v.len());
             for item in v {
                 if deduped.last() != Some(item) {
                     deduped.push(item.clone());
                 }
             }
-            Ok(Value::Vector(deduped))
+            Ok(Value::VectorLit(deduped))
         }
         other => method_type_error(other, "dedup", "Vector"),
     }
@@ -343,12 +343,12 @@ fn vector_dedup(args: &[Value]) -> Result<Value> {
 fn vector_chain(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::chain", args, 2)?;
     match (&args[0], &args[1]) {
-        (Value::Vector(a), Value::Vector(b)) => {
+        (Value::VectorLit(a), Value::VectorLit(b)) => {
             let mut chained = a.clone();
             chained.extend_from_slice(b);
-            Ok(Value::Vector(chained))
+            Ok(Value::VectorLit(chained))
         }
-        (Value::Vector(_), other) => Err(EvalError::Builtin(format!(
+        (Value::VectorLit(_), other) => Err(EvalError::Builtin(format!(
             "Vector::chain: expected Vector, got {}",
             other.type_name()
         ))
@@ -360,7 +360,7 @@ fn vector_chain(args: &[Value]) -> Result<Value> {
 fn vector_contains(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::contains", args, 2)?;
     match &args[0] {
-        Value::Vector(v) | Value::Array(v) => Ok(Value::Bool(v.contains(&args[1]))),
+        Value::VectorLit(v) | Value::Array(v) => Ok(Value::Bool(v.contains(&args[1]))),
         other => method_type_error(other, "contains", "Vector"),
     }
 }
@@ -368,13 +368,13 @@ fn vector_contains(args: &[Value]) -> Result<Value> {
 fn vector_enumerate(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::enumerate", args, 1)?;
     match &args[0] {
-        Value::Vector(v) => {
+        Value::VectorLit(v) => {
             let pairs = v
                 .iter()
                 .enumerate()
                 .map(|(i, val)| Value::Tuple(vec![Value::Integer(Integer::Usize(i)), val.clone()]))
                 .collect();
-            Ok(Value::Vector(pairs))
+            Ok(Value::VectorLit(pairs))
         }
         other => method_type_error(other, "enumerate", "Vector"),
     }
@@ -383,15 +383,15 @@ fn vector_enumerate(args: &[Value]) -> Result<Value> {
 fn vector_zip(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::zip", args, 2)?;
     match (&args[0], &args[1]) {
-        (Value::Vector(a), Value::Vector(b)) => {
+        (Value::VectorLit(a), Value::VectorLit(b)) => {
             let zipped = a
                 .iter()
                 .zip(b.iter())
                 .map(|(x, y)| Value::Tuple(vec![x.clone(), y.clone()]))
                 .collect();
-            Ok(Value::Vector(zipped))
+            Ok(Value::VectorLit(zipped))
         }
-        (Value::Vector(_), other) => Err(EvalError::Builtin(format!(
+        (Value::VectorLit(_), other) => Err(EvalError::Builtin(format!(
             "Vector::zip: expected Vector, got {}",
             other.type_name()
         ))
@@ -403,17 +403,20 @@ fn vector_zip(args: &[Value]) -> Result<Value> {
 fn vector_windows(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::windows", args, 2)?;
     match (&args[0], &args[1]) {
-        (Value::Vector(v), Value::Integer(Integer::Usize(n))) => {
+        (Value::VectorLit(v), Value::Integer(Integer::Usize(n))) => {
             if *n == 0 {
                 return Err(EvalError::Builtin(
                     "Vector::windows: window size must be > 0".to_string(),
                 )
                 .into());
             }
-            let windows = v.windows(*n).map(|w| Value::Vector(w.to_vec())).collect();
-            Ok(Value::Vector(windows))
+            let windows = v
+                .windows(*n)
+                .map(|w| Value::VectorLit(w.to_vec()))
+                .collect();
+            Ok(Value::VectorLit(windows))
         }
-        (Value::Vector(_), other) => Err(EvalError::Builtin(format!(
+        (Value::VectorLit(_), other) => Err(EvalError::Builtin(format!(
             "Vector::windows: expected usize, got {}",
             other.type_name()
         ))
@@ -425,17 +428,17 @@ fn vector_windows(args: &[Value]) -> Result<Value> {
 fn vector_chunks(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::chunks", args, 2)?;
     match (&args[0], &args[1]) {
-        (Value::Vector(v), Value::Integer(Integer::Usize(n))) => {
+        (Value::VectorLit(v), Value::Integer(Integer::Usize(n))) => {
             if *n == 0 {
                 return Err(EvalError::Builtin(
                     "Vector::chunks: chunk size must be > 0".to_string(),
                 )
                 .into());
             }
-            let chunks = v.chunks(*n).map(|c| Value::Vector(c.to_vec())).collect();
-            Ok(Value::Vector(chunks))
+            let chunks = v.chunks(*n).map(|c| Value::VectorLit(c.to_vec())).collect();
+            Ok(Value::VectorLit(chunks))
         }
-        (Value::Vector(_), other) => Err(EvalError::Builtin(format!(
+        (Value::VectorLit(_), other) => Err(EvalError::Builtin(format!(
             "Vector::chunks: expected usize, got {}",
             other.type_name()
         ))
@@ -447,7 +450,7 @@ fn vector_chunks(args: &[Value]) -> Result<Value> {
 fn vector_sum(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::sum", args, 1)?;
     match &args[0] {
-        Value::Vector(v) => {
+        Value::VectorLit(v) => {
             if v.is_empty() {
                 return Ok(Value::Integer(Integer::I64(0)));
             }
@@ -486,7 +489,7 @@ fn vector_sum(args: &[Value]) -> Result<Value> {
 fn vector_product(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::product", args, 1)?;
     match &args[0] {
-        Value::Vector(v) => {
+        Value::VectorLit(v) => {
             if v.is_empty() {
                 return Ok(Value::Integer(Integer::I64(1)));
             }
@@ -525,7 +528,7 @@ fn vector_product(args: &[Value]) -> Result<Value> {
 fn vector_min(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::min", args, 1)?;
     match &args[0] {
-        Value::Vector(v) => {
+        Value::VectorLit(v) => {
             if v.is_empty() {
                 return Ok(option_wrap(None));
             }
@@ -549,7 +552,7 @@ fn vector_min(args: &[Value]) -> Result<Value> {
 fn vector_max(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::max", args, 1)?;
     match &args[0] {
-        Value::Vector(v) => {
+        Value::VectorLit(v) => {
             if v.is_empty() {
                 return Ok(option_wrap(None));
             }
@@ -638,7 +641,7 @@ fn map_keys(args: &[Value]) -> Result<Value> {
     match &args[0] {
         Value::Map(map) => {
             let keys = map.pairs.keys().map(hashable_to_object).collect();
-            Ok(Value::Vector(keys))
+            Ok(Value::VectorLit(keys))
         }
         other => method_type_error(other, "keys", "Map"),
     }
@@ -649,7 +652,7 @@ fn map_values(args: &[Value]) -> Result<Value> {
     match &args[0] {
         Value::Map(map) => {
             let values = map.pairs.values().cloned().collect();
-            Ok(Value::Vector(values))
+            Ok(Value::VectorLit(values))
         }
         other => method_type_error(other, "values", "Map"),
     }
@@ -720,7 +723,7 @@ fn set_to_vector(args: &[Value]) -> Result<Value> {
                     Hashable::Str(v) => Value::Str(v.clone()),
                 })
                 .collect();
-            Ok(Value::Vector(arr))
+            Ok(Value::VectorLit(arr))
         }
         other => method_type_error(other, "to_vector", "Set"),
     }
@@ -791,7 +794,7 @@ fn str_split(args: &[Value]) -> Result<Value> {
                 .split(delim.as_str())
                 .map(|part| Value::Str(part.to_string()))
                 .collect();
-            Ok(Value::Vector(parts))
+            Ok(Value::VectorLit(parts))
         }
         (Value::Str(_), other) => Err(EvalError::Builtin(format!(
             "str::split: delimiter must be a string, got {}",

@@ -53,8 +53,14 @@ pub enum Value {
     Str(String),
     /// An ordered, fixed-size collection of heterogeneous values.
     Tuple(Vec<Value>),
-    /// A vector of values.
-    Vector(Vec<Value>),
+    /// Builtin-marshalling vector form. Carries an inline
+    /// `Vec<Value>` rather than a segment pointer.
+    ///
+    /// The VM never produces this variant on the user
+    /// stack during user-code execution.
+    ///
+    /// The user-facing runtime form is [`Self::Vector`].
+    VectorLit(Vec<Value>),
     /// A fixed-size array of homogeneous values.
     Array(Vec<Value>),
     /// An ordered map of key-value pairs, backed by [`IndexMap`].
@@ -89,9 +95,9 @@ pub enum Value {
     RangeInclusive(Integer, Integer),
     /// A logical address within a memory segment.
     Relocatable(Relocatable),
-    /// A segment-backed vector: a fat pointer to per-instance segment storage
-    /// (`base`) paired with the inline length (`len`).
-    VectorSeg { base: Relocatable, len: u32 },
+    /// The user-facing runtime form of a vector: a fat pointer to per-instance
+    /// segment storage (`base`) paired with the inline length (`len`).
+    Vector { base: Relocatable, len: u32 },
 }
 
 impl Value {
@@ -204,7 +210,7 @@ impl Value {
             Self::Char(_) => "char",
             Self::Str(_) => "str",
             Self::Tuple(_) => "tuple",
-            Self::Vector(_) => "Vector",
+            Self::VectorLit(_) => "Vector",
             Self::Array(_) => "Array",
             Self::Map(_) => "Map",
             Self::Function(_) => "fn",
@@ -222,7 +228,7 @@ impl Value {
             Self::Range(..) => "Range",
             Self::RangeInclusive(..) => "RangeInclusive",
             Self::Relocatable(_) => "Relocatable",
-            Self::VectorSeg { .. } => "Vector",
+            Self::Vector { .. } => "Vector",
         }
     }
 }
@@ -238,7 +244,7 @@ enum SerVal {
     Char(char),
     Str(String),
     Tuple(Vec<Value>),
-    Vector(Vec<Value>),
+    VectorLit(Vec<Value>),
     Array(Vec<Value>),
     Map(Map),
     CompiledFn(CompiledFn),
@@ -249,7 +255,7 @@ enum SerVal {
     Range(Integer, Integer),
     RangeInclusive(Integer, Integer),
     Relocatable(Relocatable),
-    VectorSeg { base: Relocatable, len: u32 },
+    Vector { base: Relocatable, len: u32 },
 }
 
 impl Serialize for Value {
@@ -265,7 +271,7 @@ impl Serialize for Value {
             Self::Char(v) => SerVal::Char(*v),
             Self::Str(v) => SerVal::Str(v.clone()),
             Self::Tuple(v) => SerVal::Tuple(v.clone()),
-            Self::Vector(v) => SerVal::Vector(v.clone()),
+            Self::VectorLit(v) => SerVal::VectorLit(v.clone()),
             Self::Array(v) => SerVal::Array(v.clone()),
             Self::Map(v) => SerVal::Map(v.clone()),
             Self::CompiledFn(v) => SerVal::CompiledFn(v.clone()),
@@ -276,7 +282,7 @@ impl Serialize for Value {
             Self::Range(s, e) => SerVal::Range(*s, *e),
             Self::RangeInclusive(s, e) => SerVal::RangeInclusive(*s, *e),
             Self::Relocatable(r) => SerVal::Relocatable(*r),
-            Self::VectorSeg { base, len } => SerVal::VectorSeg {
+            Self::Vector { base, len } => SerVal::Vector {
                 base: *base,
                 len: *len,
             },
@@ -303,7 +309,7 @@ impl<'de> Deserialize<'de> for Value {
             SerVal::Char(v) => Self::Char(v),
             SerVal::Str(v) => Self::Str(v),
             SerVal::Tuple(v) => Self::Tuple(v),
-            SerVal::Vector(v) => Self::Vector(v),
+            SerVal::VectorLit(v) => Self::VectorLit(v),
             SerVal::Array(v) => Self::Array(v),
             SerVal::Map(v) => Self::Map(v),
             SerVal::CompiledFn(v) => Self::CompiledFn(v),
@@ -314,7 +320,7 @@ impl<'de> Deserialize<'de> for Value {
             SerVal::Range(s, e) => Self::Range(s, e),
             SerVal::RangeInclusive(s, e) => Self::RangeInclusive(s, e),
             SerVal::Relocatable(r) => Self::Relocatable(r),
-            SerVal::VectorSeg { base, len } => Self::VectorSeg { base, len },
+            SerVal::Vector { base, len } => Self::Vector { base, len },
         })
     }
 }
@@ -330,7 +336,7 @@ impl PartialEq for Value {
             (Char(a), Char(b)) => a == b,
             (Str(a), Str(b)) => a == b,
             (Tuple(t1), Tuple(t2)) => t1 == t2,
-            (Vector(v1), Vector(v2)) => v1 == v2,
+            (VectorLit(v1), VectorLit(v2)) => v1 == v2,
             (Array(a1), Array(a2)) => a1 == a2,
             (Map(m1), Map(m2)) => m1 == m2,
             (Function(f1), Function(f2)) => f1 == f2,
@@ -348,9 +354,7 @@ impl PartialEq for Value {
             (Range(s1, e1), Range(s2, e2)) => s1 == s2 && e1 == e2,
             (RangeInclusive(s1, e1), RangeInclusive(s2, e2)) => s1 == s2 && e1 == e2,
             (Relocatable(a), Relocatable(b)) => a == b,
-            (VectorSeg { base: ba, len: la }, VectorSeg { base: bb, len: lb }) => {
-                ba == bb && la == lb
-            }
+            (Vector { base: ba, len: la }, Vector { base: bb, len: lb }) => ba == bb && la == lb,
             _ => false,
         }
     }
@@ -482,7 +486,7 @@ impl fmt::Display for Value {
                 write_comma_separated(f, elems)?;
                 f.write_str(")")
             }
-            Self::Vector(vector) => {
+            Self::VectorLit(vector) => {
                 f.write_str("[")?;
                 write_comma_separated(f, vector)?;
                 f.write_str("]")
@@ -524,7 +528,7 @@ impl fmt::Display for Value {
             Self::Range(start, end) => write!(f, "{start}..{end}"),
             Self::RangeInclusive(start, end) => write!(f, "{start}..={end}"),
             Self::Relocatable(r) => r.fmt(f),
-            Self::VectorSeg { base, len } => write!(f, "Vector[base={base}, len={len}]"),
+            Self::Vector { base, len } => write!(f, "Vector[base={base}, len={len}]"),
         }
     }
 }

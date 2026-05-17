@@ -64,7 +64,7 @@ pub fn eval(node: MaatAst, env: &Env) -> Result<Value> {
             }
             Expr::Vector(vector) => {
                 let elements = eval_expressions(&vector.elements, env)?;
-                Ok(Value::Vector(elements))
+                Ok(Value::VectorLit(elements))
             }
             Expr::Array(arr) => {
                 let elements = eval_expressions(&arr.elements, env)?;
@@ -234,7 +234,7 @@ fn eval_while_statement(stmt: WhileStmt, env: &Env) -> Result<Value> {
 fn eval_for_statement(stmt: ForStmt, env: &Env) -> Result<Value> {
     let iterable = eval(MaatAst::Expr(*stmt.iterable), env)?;
     let elements = match iterable {
-        Value::Vector(elems) | Value::Array(elems) => elems,
+        Value::VectorLit(elems) | Value::Array(elems) => elems,
         other => {
             return Err(EvalError::Ident(format!(
                 "for..in requires a vector or array, got {}",
@@ -279,7 +279,7 @@ fn eval_index_expression(idx_expr: IndexExpr, env: &Env) -> Result<Value> {
     let index = eval(MaatAst::Expr(*idx_expr.index), env)?;
 
     match expr {
-        Value::Vector(arr) | Value::Array(arr) => {
+        Value::VectorLit(arr) | Value::Array(arr) => {
             if index.is_integer() {
                 match index.to_vector_index() {
                     Some(idx) if idx < arr.len() => Ok(arr[idx].clone()),
