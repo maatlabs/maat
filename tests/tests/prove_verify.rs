@@ -190,6 +190,35 @@ fn prove_and_verify_fixed_size_array_function_param_and_return() {
 }
 
 #[test]
+fn vector_element_tamper_rejected() {
+    let source = "
+        let mut v = Vector::new();
+        v = v.push(11);
+        v = v.push(22);
+        v = v.push(33);
+        v[0] + v[1] + v[2]
+    ";
+    let (bytecode, mut trace, output) = compile_and_trace(source);
+    // Each push writes one cell via VectorPush, which records the value into
+    // the unified memory permutation. Corrupt the trace row carrying the
+    // middle value to break single-value consistency on the matching read.
+    let n = trace.num_rows();
+    let mut tampered = false;
+    for i in 0..n {
+        if trace.row(i)[COL_MEM_VAL].as_int() == 22 {
+            trace.row_mut(i)[COL_MEM_VAL] = Felt::new(999);
+            tampered = true;
+            break;
+        }
+    }
+    assert!(
+        tampered,
+        "expected at least one memory row carrying vector element value 22"
+    );
+    assert_tampered_trace_rejected(bytecode, trace, output, "vector element");
+}
+
+#[test]
 fn fixed_size_array_element_tamper_rejected() {
     let source = "
         let a: [i64; 3] = [10, 20, 30];

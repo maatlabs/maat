@@ -101,6 +101,15 @@ impl Compiler {
                 Ok(())
             }
             Expr::Call(call) => {
+                if call.arguments.is_empty()
+                    && let Expr::PathExpr(path) = call.function.as_ref()
+                    && path.segments.len() == 2
+                    && path.segments[0] == "Vector"
+                    && path.segments[1] == "new"
+                {
+                    self.emit(Opcode::VectorNew, &[], span);
+                    return Ok(());
+                }
                 self.compile_expression(&call.function)?;
                 for arg in &call.arguments {
                     self.compile_expression(arg)?;

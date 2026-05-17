@@ -709,15 +709,14 @@ fn compile_builtins() {
                 encode(Opcode::Pop, &[]),
             ],
         ),
-        // Method calls: Vector::push (builtin index 9)
         (
             "[].push(1);",
             vec![Constant::Int(1)],
             vec![
-                encode(Opcode::GetBuiltin, &[9]),
                 encode(Opcode::Vector, &[0]),
                 encode(Opcode::Constant, &[0]),
-                encode(Opcode::Call, &[2]),
+                encode(Opcode::VectorPush, &[]),
+                encode(Opcode::Pop, &[]),
                 encode(Opcode::Pop, &[]),
             ],
         ),

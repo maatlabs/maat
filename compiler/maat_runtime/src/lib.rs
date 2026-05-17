@@ -89,6 +89,9 @@ pub enum Value {
     RangeInclusive(Integer, Integer),
     /// A logical address within a memory segment.
     Relocatable(Relocatable),
+    /// A segment-backed vector: a fat pointer to per-instance segment storage
+    /// (`base`) paired with the inline length (`len`).
+    VectorSeg { base: Relocatable, len: u32 },
 }
 
 impl Value {
@@ -219,6 +222,7 @@ impl Value {
             Self::Range(..) => "Range",
             Self::RangeInclusive(..) => "RangeInclusive",
             Self::Relocatable(_) => "Relocatable",
+            Self::VectorSeg { .. } => "Vector",
         }
     }
 }
@@ -245,6 +249,7 @@ enum SerVal {
     Range(Integer, Integer),
     RangeInclusive(Integer, Integer),
     Relocatable(Relocatable),
+    VectorSeg { base: Relocatable, len: u32 },
 }
 
 impl Serialize for Value {
@@ -271,6 +276,10 @@ impl Serialize for Value {
             Self::Range(s, e) => SerVal::Range(*s, *e),
             Self::RangeInclusive(s, e) => SerVal::RangeInclusive(*s, *e),
             Self::Relocatable(r) => SerVal::Relocatable(*r),
+            Self::VectorSeg { base, len } => SerVal::VectorSeg {
+                base: *base,
+                len: *len,
+            },
             other => {
                 return Err(serde::ser::Error::custom(format!(
                     "non-serializable value: {}",
@@ -305,6 +314,7 @@ impl<'de> Deserialize<'de> for Value {
             SerVal::Range(s, e) => Self::Range(s, e),
             SerVal::RangeInclusive(s, e) => Self::RangeInclusive(s, e),
             SerVal::Relocatable(r) => Self::Relocatable(r),
+            SerVal::VectorSeg { base, len } => Self::VectorSeg { base, len },
         })
     }
 }
@@ -338,6 +348,9 @@ impl PartialEq for Value {
             (Range(s1, e1), Range(s2, e2)) => s1 == s2 && e1 == e2,
             (RangeInclusive(s1, e1), RangeInclusive(s2, e2)) => s1 == s2 && e1 == e2,
             (Relocatable(a), Relocatable(b)) => a == b,
+            (VectorSeg { base: ba, len: la }, VectorSeg { base: bb, len: lb }) => {
+                ba == bb && la == lb
+            }
             _ => false,
         }
     }
@@ -511,6 +524,7 @@ impl fmt::Display for Value {
             Self::Range(start, end) => write!(f, "{start}..{end}"),
             Self::RangeInclusive(start, end) => write!(f, "{start}..={end}"),
             Self::Relocatable(r) => r.fmt(f),
+            Self::VectorSeg { base, len } => write!(f, "Vector[base={base}, len={len}]"),
         }
     }
 }

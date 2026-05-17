@@ -24,6 +24,13 @@ impl Compiler {
             }
             .at(span)
         })?;
+        if qualified_name == "Vector::push" && mc.arguments.len() == 1 {
+            self.compile_expression(&mc.object)?;
+            self.compile_expression(&mc.arguments[0])?;
+            self.emit(Opcode::VectorPush, &[], span);
+            self.emit(Opcode::Pop, &[], span);
+            return Ok(());
+        }
         let symbol = self.resolve_or_error(&qualified_name, span)?;
         self.load_symbol(&symbol, span);
         self.compile_expression(&mc.object)?;

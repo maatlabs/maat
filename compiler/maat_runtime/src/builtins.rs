@@ -207,6 +207,7 @@ fn vector_len(args: &[Value]) -> Result<Value> {
     expect_arg_count("Vector::len", args, 1)?;
     match &args[0] {
         Value::Vector(arr) | Value::Array(arr) => Ok(Value::Integer(Integer::Usize(arr.len()))),
+        Value::VectorSeg { len, .. } => Ok(Value::Integer(Integer::Usize(*len as usize))),
         other => method_type_error(other, "len", "Vector"),
     }
 }

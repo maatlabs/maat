@@ -272,6 +272,21 @@ pub enum Opcode {
     /// Internal-only opcode; not emitted by the surface language.
     /// Operands: none
     ArenaFinalize = 55,
+
+    /// Allocate a fresh per-instance segment and push a
+    /// `Value::VectorSeg { base, len: 0 }` containing the segment's base.
+    ///
+    /// Internal-only opcode; emitted by the codegen intercept for
+    /// `Vector::new()`.
+    /// Operands: none
+    VectorNew = 56,
+
+    /// Append the popped value to the segment-backed vector below it.
+    ///
+    /// Internal-only opcode; emitted by the codegen intercept for
+    /// `Vector::push`.
+    /// Operands: none
+    VectorPush = 57,
 }
 
 impl Opcode {
@@ -333,6 +348,8 @@ impl Opcode {
             Self::SegmentNew => "OpSegmentNew",
             Self::ArenaNew => "OpArenaNew",
             Self::ArenaFinalize => "OpArenaFinalize",
+            Self::VectorNew => "OpVectorNew",
+            Self::VectorPush => "OpVectorPush",
         }
     }
 
@@ -393,7 +410,9 @@ impl Opcode {
             | Self::HeapWrite
             | Self::SegmentNew
             | Self::ArenaNew
-            | Self::ArenaFinalize => &[],
+            | Self::ArenaFinalize
+            | Self::VectorNew
+            | Self::VectorPush => &[],
         }
     }
 
@@ -456,6 +475,8 @@ impl Opcode {
             53 => Some(Self::SegmentNew),
             54 => Some(Self::ArenaNew),
             55 => Some(Self::ArenaFinalize),
+            56 => Some(Self::VectorNew),
+            57 => Some(Self::VectorPush),
             _ => None,
         }
     }
@@ -567,7 +588,7 @@ mod tests {
 
     #[test]
     fn opcode_roundtrip() {
-        for byte in 0..=55 {
+        for byte in 0..=57 {
             let opcode = Opcode::from_byte(byte).unwrap();
             assert_eq!(opcode.to_byte(), byte);
         }
@@ -579,6 +600,14 @@ mod tests {
         assert_eq!(Opcode::ArenaFinalize.operand_widths(), &[]);
         assert_eq!(Opcode::ArenaNew.name(), "OpArenaNew");
         assert_eq!(Opcode::ArenaFinalize.name(), "OpArenaFinalize");
+    }
+
+    #[test]
+    fn vector_opcodes_are_operandless() {
+        assert_eq!(Opcode::VectorNew.operand_widths(), &[]);
+        assert_eq!(Opcode::VectorPush.operand_widths(), &[]);
+        assert_eq!(Opcode::VectorNew.name(), "OpVectorNew");
+        assert_eq!(Opcode::VectorPush.name(), "OpVectorPush");
     }
 
     #[test]

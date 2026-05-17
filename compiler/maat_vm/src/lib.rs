@@ -295,7 +295,17 @@ impl VM {
             Opcode::Index => {
                 let index = self.pop_stack()?;
                 let container = self.pop_stack()?;
-                self.execute_index_expression(container, index)?;
+                if let Value::VectorSeg { base, len } = container {
+                    let addr = self.index_vector_seg(base, len, &index)?;
+                    let value = self.heap_values.get(&addr).cloned().ok_or_else(|| {
+                        self.vm_error(format!("vector cell {addr} is unallocated"))
+                    })?;
+                    let value_mr = value.to_maybe_relocatable();
+                    recorder.record_heap_access(addr.segment_index, addr.offset, value_mr, true);
+                    self.push_stack(value)?;
+                } else {
+                    self.execute_index_expression(container, index)?;
+                }
                 recorder.record_out(self.peek_top_maybe_reloc());
             }
             Opcode::Call => {
@@ -526,6 +536,53 @@ impl VM {
                     false,
                 );
             }
+            Opcode::VectorNew => {
+                let base = self
+                    .segments
+                    .add()
+                    .map_err(|e| self.vm_error(format!("VectorNew: {e}")))?;
+                self.current_segment = Some(base.segment_index);
+                self.push_stack(Value::VectorSeg { base, len: 0 })?;
+                recorder.record_out(MaybeRelocatable::Relocatable(base));
+            }
+            Opcode::VectorPush => {
+                let val = self.pop_stack()?;
+                let vec = self.pop_stack()?;
+                match vec {
+                    Value::VectorSeg { base, len } => {
+                        let val_mr = val.to_maybe_relocatable();
+                        let cell_addr = Relocatable::new(base.segment_index, len);
+                        self.segments
+                            .write(cell_addr, val_mr)
+                            .map_err(|e| self.vm_error(format!("VectorPush: {e}")))?;
+                        self.heap_values.insert(cell_addr, val);
+                        let new_len = len
+                            .checked_add(1)
+                            .ok_or_else(|| self.vm_error("VectorPush: vector length overflow"))?;
+                        self.push_stack(Value::VectorSeg { base, len: new_len })?;
+                        self.push_stack(Value::Relocatable(cell_addr))?;
+                        recorder.record_out(MaybeRelocatable::Relocatable(cell_addr));
+                        recorder.record_heap_access(
+                            cell_addr.segment_index,
+                            cell_addr.offset,
+                            val_mr,
+                            false,
+                        );
+                    }
+                    Value::Vector(mut elements) => {
+                        elements.push(val);
+                        self.push_stack(Value::Vector(elements))?;
+                        self.push_stack(Value::Unit)?;
+                        recorder.record_out(MaybeRelocatable::Felt(Felt::ZERO));
+                    }
+                    other => {
+                        return Err(self.vm_error(format!(
+                            "VectorPush: receiver must be a Vector, got {}",
+                            other.type_name()
+                        )));
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -630,13 +687,37 @@ impl VM {
         recorder: &mut R,
     ) -> Result<()> {
         let args_start = self.sp - num_args;
-        let args = self.stack[args_start..self.sp].to_vec();
+        let raw_args = &self.stack[args_start..self.sp];
+        let args: Vec<Value> = raw_args
+            .iter()
+            .map(|v| self.materialize_vector_seg(v))
+            .collect::<Result<_>>()?;
         let result = func(&args)?;
 
         self.sp = args_start - 1;
         self.push_stack(result)?;
         recorder.record_call_builtin();
         Ok(())
+    }
+
+    fn materialize_vector_seg(&self, value: &Value) -> Result<Value> {
+        match value {
+            Value::VectorSeg { base, len } => {
+                let len = *len;
+                let mut elements = Vec::with_capacity(len as usize);
+                for off in 0..len {
+                    let addr = Relocatable::new(base.segment_index, off);
+                    let cell = self.heap_values.get(&addr).cloned().ok_or_else(|| {
+                        self.vm_error(format!(
+                            "VectorSeg materialization: cell {addr} is unallocated"
+                        ))
+                    })?;
+                    elements.push(cell);
+                }
+                Ok(Value::Vector(elements))
+            }
+            other => Ok(other.clone()),
+        }
     }
 
     fn current_span(&self) -> Option<Span> {
@@ -810,6 +891,18 @@ impl VM {
             let next = addr
                 .add_offset(addend)
                 .map_err(|e| self.vm_error(format!("Relocatable arithmetic: {e}")))?;
+            return self.push_stack(Value::Relocatable(next));
+        }
+
+        if op == Opcode::Add
+            && let (Value::VectorSeg { base, .. }, Value::Integer(idx)) = (&left, &right)
+        {
+            let addend = idx.to_felt().ok_or_else(|| {
+                self.vm_error("Vector index addend does not fit in the base field")
+            })?;
+            let next = base
+                .add_offset(addend)
+                .map_err(|e| self.vm_error(format!("Vector index arithmetic: {e}")))?;
             return self.push_stack(Value::Relocatable(next));
         }
 
@@ -1124,6 +1217,31 @@ impl VM {
                 container.type_name()
             ))),
         }
+    }
+
+    fn index_vector_seg(&self, base: Relocatable, len: u32, index: &Value) -> Result<Relocatable> {
+        if !index.is_integer() {
+            return Err(self.vm_error(format!(
+                "vector index must be an integer, got {}",
+                index.type_name()
+            )));
+        }
+        let idx = index.to_vector_index().ok_or_else(|| {
+            self.vm_error(format!(
+                "vector index out of range: index is {index}, length is {len}"
+            ))
+        })?;
+        let idx_u32 = u32::try_from(idx).map_err(|_| {
+            self.vm_error(format!(
+                "vector index {idx} exceeds u32 representable range"
+            ))
+        })?;
+        if idx_u32 >= len {
+            return Err(self.vm_error(format!(
+                "index out of bounds: index is {idx_u32}, length is {len}"
+            )));
+        }
+        Ok(Relocatable::new(base.segment_index, idx_u32))
     }
 
     fn execute_vector_index(&mut self, elements: &[Value], index: &Value) -> Result<()> {
