@@ -1,7 +1,7 @@
 use maat_ast::MethodCallExpr;
-use maat_bytecode::Opcode;
+use maat_bytecode::{Constant, Opcode};
 use maat_errors::{CompileErrorKind, Result};
-use maat_runtime::{Integer, TypeDef, Value};
+use maat_runtime::{Integer, TypeDef};
 
 use super::Compiler;
 use crate::registry::BUILTIN_METHOD_PREFIXES;
@@ -299,7 +299,7 @@ impl Compiler {
         self.emit(Opcode::Vector, &[0], span);
         let result_sym = self.define_and_set(&result_name, true, span)?;
 
-        let zero_idx = self.add_constant(Value::Integer(Integer::I64(0)))?;
+        let zero_idx = self.add_constant(Constant::Integer(Integer::I64(0)))?;
         self.emit(Opcode::Constant, &[zero_idx], span);
         let i_sym = self.define_and_set(&i_name, true, span)?;
 
@@ -324,7 +324,7 @@ impl Compiler {
         self.emit_set_symbol(&result_sym, span);
 
         self.load_symbol(&i_sym, span);
-        let one_idx = self.add_constant(Value::Integer(Integer::I64(1)))?;
+        let one_idx = self.add_constant(Constant::Integer(Integer::I64(1)))?;
         self.emit(Opcode::Constant, &[one_idx], span);
         self.emit(Opcode::Add, &[], span);
         self.emit_set_symbol(&i_sym, span);
@@ -364,7 +364,7 @@ impl Compiler {
         self.emit(Opcode::Vector, &[0], span);
         let result_sym = self.define_and_set(&result_name, true, span)?;
 
-        let zero_idx = self.add_constant(Value::Integer(Integer::I64(0)))?;
+        let zero_idx = self.add_constant(Constant::Integer(Integer::I64(0)))?;
         self.emit(Opcode::Constant, &[zero_idx], span);
         let i_sym = self.define_and_set(&i_name, true, span)?;
 
@@ -395,7 +395,7 @@ impl Compiler {
         self.replace_operand(skip_jump, skip_target)?;
 
         self.load_symbol(&i_sym, span);
-        let one_idx = self.add_constant(Value::Integer(Integer::I64(1)))?;
+        let one_idx = self.add_constant(Constant::Integer(Integer::I64(1)))?;
         self.emit(Opcode::Constant, &[one_idx], span);
         self.emit(Opcode::Add, &[], span);
         self.emit_set_symbol(&i_sym, span);
@@ -435,7 +435,7 @@ impl Compiler {
         self.emit(Opcode::Call, &[1], span);
         let len_sym = self.define_and_set(&len_name, false, span)?;
 
-        let zero_idx = self.add_constant(Value::Integer(Integer::I64(0)))?;
+        let zero_idx = self.add_constant(Constant::Integer(Integer::I64(0)))?;
         self.emit(Opcode::Constant, &[zero_idx], span);
         let i_sym = self.define_and_set(&i_name, true, span)?;
 
@@ -457,7 +457,7 @@ impl Compiler {
         self.emit_set_symbol(&acc_sym, span);
 
         self.load_symbol(&i_sym, span);
-        let one_idx = self.add_constant(Value::Integer(Integer::I64(1)))?;
+        let one_idx = self.add_constant(Constant::Integer(Integer::I64(1)))?;
         self.emit(Opcode::Constant, &[one_idx], span);
         self.emit(Opcode::Add, &[], span);
         self.emit_set_symbol(&i_sym, span);
@@ -493,7 +493,7 @@ impl Compiler {
         self.emit(Opcode::Call, &[1], span);
         let len_sym = self.define_and_set(&len_name, false, span)?;
 
-        let zero_idx = self.add_constant(Value::Integer(Integer::I64(0)))?;
+        let zero_idx = self.add_constant(Constant::Integer(Integer::I64(0)))?;
         self.emit(Opcode::Constant, &[zero_idx], span);
         let i_sym = self.define_and_set(&i_name, true, span)?;
 
@@ -517,7 +517,7 @@ impl Compiler {
         if is_any {
             let continue_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
 
-            let early_idx = self.add_constant(Value::Bool(early_value))?;
+            let early_idx = self.add_constant(Constant::Bool(early_value))?;
             self.emit(Opcode::Constant, &[early_idx], span);
             let early_exit = self.emit(Opcode::Jump, &[Self::JUMP], span);
 
@@ -525,7 +525,7 @@ impl Compiler {
             self.replace_operand(continue_jump, continue_target)?;
 
             self.load_symbol(&i_sym, span);
-            let one_idx = self.add_constant(Value::Integer(Integer::I64(1)))?;
+            let one_idx = self.add_constant(Constant::Integer(Integer::I64(1)))?;
             self.emit(Opcode::Constant, &[one_idx], span);
             self.emit(Opcode::Add, &[], span);
             self.emit_set_symbol(&i_sym, span);
@@ -533,7 +533,7 @@ impl Compiler {
 
             let default_target = self.current_instructions().len();
             self.replace_operand(exit_jump, default_target)?;
-            let default_idx = self.add_constant(Value::Bool(default_value))?;
+            let default_idx = self.add_constant(Constant::Bool(default_value))?;
             self.emit(Opcode::Constant, &[default_idx], span);
 
             let end = self.current_instructions().len();
@@ -542,7 +542,7 @@ impl Compiler {
             let early_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
 
             self.load_symbol(&i_sym, span);
-            let one_idx = self.add_constant(Value::Integer(Integer::I64(1)))?;
+            let one_idx = self.add_constant(Constant::Integer(Integer::I64(1)))?;
             self.emit(Opcode::Constant, &[one_idx], span);
             self.emit(Opcode::Add, &[], span);
             self.emit_set_symbol(&i_sym, span);
@@ -550,13 +550,13 @@ impl Compiler {
 
             let early_target = self.current_instructions().len();
             self.replace_operand(early_jump, early_target)?;
-            let early_idx = self.add_constant(Value::Bool(early_value))?;
+            let early_idx = self.add_constant(Constant::Bool(early_value))?;
             self.emit(Opcode::Constant, &[early_idx], span);
             let early_exit = self.emit(Opcode::Jump, &[Self::JUMP], span);
 
             let default_target = self.current_instructions().len();
             self.replace_operand(exit_jump, default_target)?;
-            let default_idx = self.add_constant(Value::Bool(default_value))?;
+            let default_idx = self.add_constant(Constant::Bool(default_value))?;
             self.emit(Opcode::Constant, &[default_idx], span);
 
             let end = self.current_instructions().len();
@@ -588,7 +588,7 @@ impl Compiler {
         self.emit(Opcode::Call, &[1], span);
         let len_sym = self.define_and_set(&len_name, false, span)?;
 
-        let zero_idx = self.add_constant(Value::Integer(Integer::I64(0)))?;
+        let zero_idx = self.add_constant(Constant::Integer(Integer::I64(0)))?;
         self.emit(Opcode::Constant, &[zero_idx], span);
         let i_sym = self.define_and_set(&i_name, true, span)?;
 
@@ -618,7 +618,7 @@ impl Compiler {
         self.replace_operand(continue_jump, continue_target)?;
 
         self.load_symbol(&i_sym, span);
-        let one_idx = self.add_constant(Value::Integer(Integer::I64(1)))?;
+        let one_idx = self.add_constant(Constant::Integer(Integer::I64(1)))?;
         self.emit(Opcode::Constant, &[one_idx], span);
         self.emit(Opcode::Add, &[], span);
         self.emit_set_symbol(&i_sym, span);
@@ -657,7 +657,7 @@ impl Compiler {
         self.emit(Opcode::Call, &[1], span);
         let len_sym = self.define_and_set(&len_name, false, span)?;
 
-        let zero_idx = self.add_constant(Value::Integer(Integer::Usize(0)))?;
+        let zero_idx = self.add_constant(Constant::Integer(Integer::Usize(0)))?;
         self.emit(Opcode::Constant, &[zero_idx], span);
         let i_sym = self.define_and_set(&i_name, true, span)?;
 
@@ -687,7 +687,7 @@ impl Compiler {
         self.replace_operand(continue_jump, continue_target)?;
 
         self.load_symbol(&i_sym, span);
-        let one_idx = self.add_constant(Value::Integer(Integer::Usize(1)))?;
+        let one_idx = self.add_constant(Constant::Integer(Integer::Usize(1)))?;
         self.emit(Opcode::Constant, &[one_idx], span);
         self.emit(Opcode::Add, &[], span);
         self.emit_set_symbol(&i_sym, span);
@@ -726,7 +726,7 @@ impl Compiler {
         self.emit(Opcode::Call, &[1], span);
         let len_sym = self.define_and_set(&len_name, false, span)?;
 
-        let zero_idx = self.add_constant(Value::Integer(Integer::I64(0)))?;
+        let zero_idx = self.add_constant(Constant::Integer(Integer::I64(0)))?;
         self.emit(Opcode::Constant, &[zero_idx], span);
         let i_sym = self.define_and_set(&i_name, true, span)?;
 
@@ -747,7 +747,7 @@ impl Compiler {
         self.emit(Opcode::Pop, &[], span);
 
         self.load_symbol(&i_sym, span);
-        let one_idx = self.add_constant(Value::Integer(Integer::I64(1)))?;
+        let one_idx = self.add_constant(Constant::Integer(Integer::I64(1)))?;
         self.emit(Opcode::Constant, &[one_idx], span);
         self.emit(Opcode::Add, &[], span);
         self.emit_set_symbol(&i_sym, span);
@@ -756,7 +756,7 @@ impl Compiler {
         let loop_exit = self.current_instructions().len();
         self.replace_operand(exit_jump, loop_exit)?;
 
-        let unit_idx = self.add_constant(Value::Unit)?;
+        let unit_idx = self.add_constant(Constant::Unit)?;
         self.emit(Opcode::Constant, &[unit_idx], span);
         Ok(())
     }
@@ -788,7 +788,7 @@ impl Compiler {
         self.emit(Opcode::Vector, &[0], span);
         let result_sym = self.define_and_set(&result_name, true, span)?;
 
-        let zero_idx = self.add_constant(Value::Integer(Integer::I64(0)))?;
+        let zero_idx = self.add_constant(Constant::Integer(Integer::I64(0)))?;
         self.emit(Opcode::Constant, &[zero_idx], span);
         let i_sym = self.define_and_set(&i_name, true, span)?;
 
@@ -813,7 +813,7 @@ impl Compiler {
         self.emit_set_symbol(&result_sym, span);
 
         self.load_symbol(&i_sym, span);
-        let one_idx = self.add_constant(Value::Integer(Integer::I64(1)))?;
+        let one_idx = self.add_constant(Constant::Integer(Integer::I64(1)))?;
         self.emit(Opcode::Constant, &[one_idx], span);
         self.emit(Opcode::Add, &[], span);
         self.emit_set_symbol(&i_sym, span);

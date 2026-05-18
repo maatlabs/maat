@@ -1,7 +1,10 @@
 use indexmap::{IndexMap, IndexSet};
 use maat_errors::{Error, EvalError, Result};
 
-use crate::{BuiltinFn, EnumVariantVal, Felt, Hashable, Integer, Map, Set, UNIT, Value};
+use crate::{
+    BuiltinArg, BuiltinFn, BuiltinReturn, EnumVariantVal, Felt, Hashable, Integer, Map, Set, UNIT,
+    Value,
+};
 
 const OPTION_TYPE_INDEX: u16 = 0;
 const SOME_TAG: u16 = 0;
@@ -173,96 +176,132 @@ define_builtins! {
     "cmp::clamp" => cmp_clamp,
 }
 
-fn __print_str(args: &[Value]) -> Result<Value> {
+fn arg_to_value(arg: &BuiltinArg<'_>) -> Value {
+    match arg {
+        BuiltinArg::Unit => Value::Unit,
+        BuiltinArg::Integer(i) => Value::Integer(*i),
+        BuiltinArg::Felt(f) => Value::Felt(*f),
+        BuiltinArg::Bool(b) => Value::Bool(*b),
+        BuiltinArg::Char(c) => Value::Char(*c),
+        BuiltinArg::Str(s) => Value::Str((*s).to_owned()),
+        BuiltinArg::Tuple(t) => Value::Tuple((*t).to_vec()),
+        BuiltinArg::Vector(_) => {
+            unreachable!(
+                "BuiltinArg::Vector cannot be embedded into a Value directly; \
+                 return it via BuiltinReturn::Vector so the VM segment-allocates."
+            )
+        }
+        BuiltinArg::Array(a) => Value::Array((*a).to_vec()),
+        BuiltinArg::Map(m) => Value::Map((*m).clone()),
+        BuiltinArg::Set(s) => Value::Set((*s).clone()),
+        BuiltinArg::Builtin(f) => Value::Builtin(*f),
+        BuiltinArg::CompiledFn(f) => Value::CompiledFn((*f).clone()),
+        BuiltinArg::Closure(c) => Value::Closure((*c).clone()),
+        BuiltinArg::Struct(s) => Value::Struct((*s).clone()),
+        BuiltinArg::EnumVariant(ev) => Value::EnumVariant((*ev).clone()),
+        BuiltinArg::Range(s, e) => Value::Range(*s, *e),
+        BuiltinArg::RangeInclusive(s, e) => Value::RangeInclusive(*s, *e),
+        BuiltinArg::Relocatable(r) => Value::Relocatable(*r),
+    }
+}
+
+/// Convenience for builtins that return a primitive [`Value`].
+#[inline]
+fn val(v: Value) -> Result<BuiltinReturn> {
+    Ok(BuiltinReturn::Value(v))
+}
+
+fn __print_str(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("__print_str", args, 1)?;
     print!("{}", args[0]);
-    Ok(UNIT)
+    val(UNIT)
 }
 
-fn __print_str_ln(args: &[Value]) -> Result<Value> {
+fn __print_str_ln(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("__print_str_ln", args, 1)?;
     println!("{}", args[0]);
-    Ok(UNIT)
+    val(UNIT)
 }
 
-fn __to_string(args: &[Value]) -> Result<Value> {
+fn __to_string(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("__to_string", args, 1)?;
-    Ok(Value::Str(format!("{}", args[0])))
+    Ok(BuiltinReturn::Str(format!("{}", args[0])))
 }
 
-fn __str_concat(args: &[Value]) -> Result<Value> {
+fn __str_concat(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("__str_concat", args, 2)?;
     match (&args[0], &args[1]) {
-        (Value::Str(a), Value::Str(b)) => Ok(Value::Str(format!("{a}{b}"))),
+        (BuiltinArg::Str(a), BuiltinArg::Str(b)) => Ok(BuiltinReturn::Str(format!("{a}{b}"))),
         _ => Err(EvalError::Builtin("__str_concat: expected two string arguments".into()).into()),
     }
 }
 
-fn __panic(args: &[Value]) -> Result<Value> {
+fn __panic(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("__panic", args, 1)?;
     Err(EvalError::Builtin(format!("{}", args[0])).into())
 }
 
-fn vector_len(args: &[Value]) -> Result<Value> {
+fn vector_len(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Vector::len", args, 1)?;
     match &args[0] {
-        Value::VectorLit(arr) | Value::Array(arr) => Ok(Value::Integer(Integer::Usize(arr.len()))),
-        Value::Vector { len, .. } => Ok(Value::Integer(Integer::Usize(*len as usize))),
+        BuiltinArg::Vector(arr) | BuiltinArg::Array(arr) => {
+            val(Value::Integer(Integer::Usize(arr.len())))
+        }
         other => method_type_error(other, "len", "Vector"),
     }
 }
 
-fn vector_first(args: &[Value]) -> Result<Value> {
+fn vector_first(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Vector::first", args, 1)?;
     match &args[0] {
-        Value::VectorLit(arr) => Ok(option_wrap(arr.first().cloned())),
+        BuiltinArg::Vector(arr) => val(option_wrap(arr.first().cloned())),
         other => method_type_error(other, "first", "Vector"),
     }
 }
 
-fn vector_last(args: &[Value]) -> Result<Value> {
+fn vector_last(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Vector::last", args, 1)?;
     match &args[0] {
-        Value::VectorLit(arr) => Ok(option_wrap(arr.last().cloned())),
+        BuiltinArg::Vector(arr) => val(option_wrap(arr.last().cloned())),
         other => method_type_error(other, "last", "Vector"),
     }
 }
 
-fn vector_split_first(args: &[Value]) -> Result<Value> {
+fn vector_split_first(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Vector::split_first", args, 1)?;
     match &args[0] {
-        Value::VectorLit(arr) => Ok(arr.split_first().map_or_else(
-            || Value::VectorLit(vec![]),
-            |(_, tail)| Value::VectorLit(tail.to_vec()),
-        )),
+        BuiltinArg::Vector(arr) => {
+            let tail = arr.split_first().map(|(_, t)| t).unwrap_or(&[]);
+            Ok(BuiltinReturn::vector_from_values(tail.to_vec()))
+        }
         other => method_type_error(other, "split_first", "Vector"),
     }
 }
 
-fn vector_push(args: &[Value]) -> Result<Value> {
+fn vector_push(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Vector::push", args, 2)?;
     match &args[0] {
-        Value::VectorLit(arr) => {
+        BuiltinArg::Vector(arr) => {
             let mut new_arr = arr.to_vec();
-            new_arr.push(args[1].clone());
-            Ok(Value::VectorLit(new_arr))
+            new_arr.push(arg_to_value(&args[1]));
+            Ok(BuiltinReturn::vector_from_values(new_arr))
         }
         other => method_type_error(other, "push", "Vector"),
     }
 }
 
-fn vector_join(args: &[Value]) -> Result<Value> {
+fn vector_join(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Vector::join", args, 2)?;
     match (&args[0], &args[1]) {
-        (Value::VectorLit(arr), Value::Str(sep)) => {
+        (BuiltinArg::Vector(arr), BuiltinArg::Str(sep)) => {
             let joined = arr
                 .iter()
-                .map(|val| format!("{val}"))
+                .map(|v| format!("{v}"))
                 .collect::<Vec<_>>()
                 .join(sep);
-            Ok(Value::Str(joined))
+            Ok(BuiltinReturn::Str(joined))
         }
-        (Value::VectorLit(_), other) => Err(EvalError::Builtin(format!(
+        (BuiltinArg::Vector(_), other) => Err(EvalError::Builtin(format!(
             "Vector::join: separator must be a string, got {}",
             other.type_name()
         ))
@@ -271,35 +310,35 @@ fn vector_join(args: &[Value]) -> Result<Value> {
     }
 }
 
-fn vector_new(args: &[Value]) -> Result<Value> {
+fn vector_new(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Vector::new", args, 0)?;
-    Ok(Value::VectorLit(Vec::new()))
+    Ok(BuiltinReturn::vector_from_values(Vec::new()))
 }
 
-fn vector_rev(args: &[Value]) -> Result<Value> {
+fn vector_rev(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Vector::rev", args, 1)?;
     match &args[0] {
-        Value::VectorLit(v) => {
-            let mut reversed = v.clone();
+        BuiltinArg::Vector(v) => {
+            let mut reversed = v.to_vec();
             reversed.reverse();
-            Ok(Value::VectorLit(reversed))
+            Ok(BuiltinReturn::vector_from_values(reversed))
         }
         other => method_type_error(other, "rev", "Vector"),
     }
 }
 
-fn vector_count(args: &[Value]) -> Result<Value> {
+fn vector_count(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     vector_len(args)
 }
 
-fn vector_take(args: &[Value]) -> Result<Value> {
+fn vector_take(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Vector::take", args, 2)?;
     match (&args[0], &args[1]) {
-        (Value::VectorLit(v), Value::Integer(Integer::Usize(n))) => {
+        (BuiltinArg::Vector(v), BuiltinArg::Integer(Integer::Usize(n))) => {
             let taken = v.iter().take(*n).cloned().collect();
-            Ok(Value::VectorLit(taken))
+            Ok(BuiltinReturn::vector_from_values(taken))
         }
-        (Value::VectorLit(_), other) => Err(EvalError::Builtin(format!(
+        (BuiltinArg::Vector(_), other) => Err(EvalError::Builtin(format!(
             "Vector::take: expected usize, got {}",
             other.type_name()
         ))
@@ -308,14 +347,14 @@ fn vector_take(args: &[Value]) -> Result<Value> {
     }
 }
 
-fn vector_skip(args: &[Value]) -> Result<Value> {
+fn vector_skip(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Vector::skip", args, 2)?;
     match (&args[0], &args[1]) {
-        (Value::VectorLit(v), Value::Integer(Integer::Usize(n))) => {
+        (BuiltinArg::Vector(v), BuiltinArg::Integer(Integer::Usize(n))) => {
             let skipped = v.iter().skip(*n).cloned().collect();
-            Ok(Value::VectorLit(skipped))
+            Ok(BuiltinReturn::vector_from_values(skipped))
         }
-        (Value::VectorLit(_), other) => Err(EvalError::Builtin(format!(
+        (BuiltinArg::Vector(_), other) => Err(EvalError::Builtin(format!(
             "Vector::skip: expected usize, got {}",
             other.type_name()
         ))
@@ -324,31 +363,31 @@ fn vector_skip(args: &[Value]) -> Result<Value> {
     }
 }
 
-fn vector_dedup(args: &[Value]) -> Result<Value> {
+fn vector_dedup(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Vector::dedup", args, 1)?;
     match &args[0] {
-        Value::VectorLit(v) => {
+        BuiltinArg::Vector(v) => {
             let mut deduped = Vec::with_capacity(v.len());
-            for item in v {
+            for item in *v {
                 if deduped.last() != Some(item) {
                     deduped.push(item.clone());
                 }
             }
-            Ok(Value::VectorLit(deduped))
+            Ok(BuiltinReturn::vector_from_values(deduped))
         }
         other => method_type_error(other, "dedup", "Vector"),
     }
 }
 
-fn vector_chain(args: &[Value]) -> Result<Value> {
+fn vector_chain(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Vector::chain", args, 2)?;
     match (&args[0], &args[1]) {
-        (Value::VectorLit(a), Value::VectorLit(b)) => {
-            let mut chained = a.clone();
+        (BuiltinArg::Vector(a), BuiltinArg::Vector(b)) => {
+            let mut chained = a.to_vec();
             chained.extend_from_slice(b);
-            Ok(Value::VectorLit(chained))
+            Ok(BuiltinReturn::vector_from_values(chained))
         }
-        (Value::VectorLit(_), other) => Err(EvalError::Builtin(format!(
+        (BuiltinArg::Vector(_), other) => Err(EvalError::Builtin(format!(
             "Vector::chain: expected Vector, got {}",
             other.type_name()
         ))
@@ -357,41 +396,46 @@ fn vector_chain(args: &[Value]) -> Result<Value> {
     }
 }
 
-fn vector_contains(args: &[Value]) -> Result<Value> {
+fn vector_contains(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Vector::contains", args, 2)?;
     match &args[0] {
-        Value::VectorLit(v) | Value::Array(v) => Ok(Value::Bool(v.contains(&args[1]))),
+        BuiltinArg::Vector(v) | BuiltinArg::Array(v) => {
+            let target = arg_to_value(&args[1]);
+            val(Value::Bool(v.contains(&target)))
+        }
         other => method_type_error(other, "contains", "Vector"),
     }
 }
 
-fn vector_enumerate(args: &[Value]) -> Result<Value> {
+fn vector_enumerate(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Vector::enumerate", args, 1)?;
     match &args[0] {
-        Value::VectorLit(v) => {
+        BuiltinArg::Vector(v) => {
             let pairs = v
                 .iter()
                 .enumerate()
-                .map(|(i, val)| Value::Tuple(vec![Value::Integer(Integer::Usize(i)), val.clone()]))
+                .map(|(i, item)| {
+                    Value::Tuple(vec![Value::Integer(Integer::Usize(i)), item.clone()])
+                })
                 .collect();
-            Ok(Value::VectorLit(pairs))
+            Ok(BuiltinReturn::vector_from_values(pairs))
         }
         other => method_type_error(other, "enumerate", "Vector"),
     }
 }
 
-fn vector_zip(args: &[Value]) -> Result<Value> {
+fn vector_zip(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Vector::zip", args, 2)?;
     match (&args[0], &args[1]) {
-        (Value::VectorLit(a), Value::VectorLit(b)) => {
+        (BuiltinArg::Vector(a), BuiltinArg::Vector(b)) => {
             let zipped = a
                 .iter()
                 .zip(b.iter())
                 .map(|(x, y)| Value::Tuple(vec![x.clone(), y.clone()]))
                 .collect();
-            Ok(Value::VectorLit(zipped))
+            Ok(BuiltinReturn::vector_from_values(zipped))
         }
-        (Value::VectorLit(_), other) => Err(EvalError::Builtin(format!(
+        (BuiltinArg::Vector(_), other) => Err(EvalError::Builtin(format!(
             "Vector::zip: expected Vector, got {}",
             other.type_name()
         ))
@@ -400,10 +444,10 @@ fn vector_zip(args: &[Value]) -> Result<Value> {
     }
 }
 
-fn vector_windows(args: &[Value]) -> Result<Value> {
+fn vector_windows(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Vector::windows", args, 2)?;
     match (&args[0], &args[1]) {
-        (Value::VectorLit(v), Value::Integer(Integer::Usize(n))) => {
+        (BuiltinArg::Vector(v), BuiltinArg::Integer(Integer::Usize(n))) => {
             if *n == 0 {
                 return Err(EvalError::Builtin(
                     "Vector::windows: window size must be > 0".to_string(),
@@ -412,11 +456,11 @@ fn vector_windows(args: &[Value]) -> Result<Value> {
             }
             let windows = v
                 .windows(*n)
-                .map(|w| Value::VectorLit(w.to_vec()))
+                .map(|w| BuiltinReturn::vector_from_values(w.to_vec()))
                 .collect();
-            Ok(Value::VectorLit(windows))
+            Ok(BuiltinReturn::Vector(windows))
         }
-        (Value::VectorLit(_), other) => Err(EvalError::Builtin(format!(
+        (BuiltinArg::Vector(_), other) => Err(EvalError::Builtin(format!(
             "Vector::windows: expected usize, got {}",
             other.type_name()
         ))
@@ -425,20 +469,23 @@ fn vector_windows(args: &[Value]) -> Result<Value> {
     }
 }
 
-fn vector_chunks(args: &[Value]) -> Result<Value> {
+fn vector_chunks(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Vector::chunks", args, 2)?;
     match (&args[0], &args[1]) {
-        (Value::VectorLit(v), Value::Integer(Integer::Usize(n))) => {
+        (BuiltinArg::Vector(v), BuiltinArg::Integer(Integer::Usize(n))) => {
             if *n == 0 {
                 return Err(EvalError::Builtin(
                     "Vector::chunks: chunk size must be > 0".to_string(),
                 )
                 .into());
             }
-            let chunks = v.chunks(*n).map(|c| Value::VectorLit(c.to_vec())).collect();
-            Ok(Value::VectorLit(chunks))
+            let chunks = v
+                .chunks(*n)
+                .map(|c| BuiltinReturn::vector_from_values(c.to_vec()))
+                .collect();
+            Ok(BuiltinReturn::Vector(chunks))
         }
-        (Value::VectorLit(_), other) => Err(EvalError::Builtin(format!(
+        (BuiltinArg::Vector(_), other) => Err(EvalError::Builtin(format!(
             "Vector::chunks: expected usize, got {}",
             other.type_name()
         ))
@@ -447,12 +494,12 @@ fn vector_chunks(args: &[Value]) -> Result<Value> {
     }
 }
 
-fn vector_sum(args: &[Value]) -> Result<Value> {
+fn vector_sum(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Vector::sum", args, 1)?;
     match &args[0] {
-        Value::VectorLit(v) => {
+        BuiltinArg::Vector(v) => {
             if v.is_empty() {
-                return Ok(Value::Integer(Integer::I64(0)));
+                return val(Value::Integer(Integer::I64(0)));
             }
             let mut acc = match &v[0] {
                 Value::Integer(i) => i.zero(),
@@ -464,7 +511,7 @@ fn vector_sum(args: &[Value]) -> Result<Value> {
                     .into());
                 }
             };
-            for item in v {
+            for item in *v {
                 match item {
                     Value::Integer(i) => {
                         acc = acc.checked_add(*i).ok_or_else(|| {
@@ -480,18 +527,18 @@ fn vector_sum(args: &[Value]) -> Result<Value> {
                     }
                 }
             }
-            Ok(Value::Integer(acc))
+            val(Value::Integer(acc))
         }
         other => method_type_error(other, "sum", "Vector"),
     }
 }
 
-fn vector_product(args: &[Value]) -> Result<Value> {
+fn vector_product(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Vector::product", args, 1)?;
     match &args[0] {
-        Value::VectorLit(v) => {
+        BuiltinArg::Vector(v) => {
             if v.is_empty() {
-                return Ok(Value::Integer(Integer::I64(1)));
+                return val(Value::Integer(Integer::I64(1)));
             }
             let mut acc = match &v[0] {
                 Value::Integer(i) => i.one(),
@@ -503,7 +550,7 @@ fn vector_product(args: &[Value]) -> Result<Value> {
                     .into());
                 }
             };
-            for item in v {
+            for item in *v {
                 match item {
                     Value::Integer(i) => {
                         acc = acc.checked_mul(*i).ok_or_else(|| {
@@ -519,18 +566,18 @@ fn vector_product(args: &[Value]) -> Result<Value> {
                     }
                 }
             }
-            Ok(Value::Integer(acc))
+            val(Value::Integer(acc))
         }
         other => method_type_error(other, "product", "Vector"),
     }
 }
 
-fn vector_min(args: &[Value]) -> Result<Value> {
+fn vector_min(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Vector::min", args, 1)?;
     match &args[0] {
-        Value::VectorLit(v) => {
+        BuiltinArg::Vector(v) => {
             if v.is_empty() {
-                return Ok(option_wrap(None));
+                return val(option_wrap(None));
             }
             let mut min = &v[0];
             for item in &v[1..] {
@@ -543,18 +590,18 @@ fn vector_min(args: &[Value]) -> Result<Value> {
                     _ => {}
                 }
             }
-            Ok(option_wrap(Some(min.clone())))
+            val(option_wrap(Some(min.clone())))
         }
         other => method_type_error(other, "min", "Vector"),
     }
 }
 
-fn vector_max(args: &[Value]) -> Result<Value> {
+fn vector_max(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Vector::max", args, 1)?;
     match &args[0] {
-        Value::VectorLit(v) => {
+        BuiltinArg::Vector(v) => {
             if v.is_empty() {
-                return Ok(option_wrap(None));
+                return val(option_wrap(None));
             }
             let mut max = &v[0];
             for item in &v[1..] {
@@ -567,191 +614,181 @@ fn vector_max(args: &[Value]) -> Result<Value> {
                     _ => {}
                 }
             }
-            Ok(option_wrap(Some(max.clone())))
+            val(option_wrap(Some(max.clone())))
         }
         other => method_type_error(other, "max", "Vector"),
     }
 }
 
-fn map_new(args: &[Value]) -> Result<Value> {
+fn map_new(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Map::new", args, 0)?;
-    Ok(Value::Map(Map {
+    val(Value::Map(Map {
         pairs: IndexMap::new(),
     }))
 }
 
-fn map_insert(args: &[Value]) -> Result<Value> {
+fn map_insert(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Map::insert", args, 3)?;
     match &args[0] {
-        Value::Map(map) => {
+        BuiltinArg::Map(map) => {
             let key = Hashable::try_from(args[1].clone())?;
             let mut new_map = map.pairs.clone();
-            new_map.insert(key, args[2].clone());
-            Ok(Value::Map(Map { pairs: new_map }))
+            new_map.insert(key, arg_to_value(&args[2]));
+            val(Value::Map(Map { pairs: new_map }))
         }
         other => method_type_error(other, "insert", "Map"),
     }
 }
 
-fn map_get(args: &[Value]) -> Result<Value> {
+fn map_get(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Map::get", args, 2)?;
     match &args[0] {
-        Value::Map(map) => {
+        BuiltinArg::Map(map) => {
             let key = Hashable::try_from(args[1].clone())?;
-            Ok(option_wrap(map.pairs.get(&key).cloned()))
+            val(option_wrap(map.pairs.get(&key).cloned()))
         }
         other => method_type_error(other, "get", "Map"),
     }
 }
 
-fn map_contains_key(args: &[Value]) -> Result<Value> {
+fn map_contains_key(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Map::contains_key", args, 2)?;
     match &args[0] {
-        Value::Map(map) => {
+        BuiltinArg::Map(map) => {
             let key = Hashable::try_from(args[1].clone())?;
-            Ok(Value::Bool(map.pairs.contains_key(&key)))
+            val(Value::Bool(map.pairs.contains_key(&key)))
         }
         other => method_type_error(other, "contains_key", "Map"),
     }
 }
 
-fn map_remove(args: &[Value]) -> Result<Value> {
+fn map_remove(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Map::remove", args, 2)?;
     match &args[0] {
-        Value::Map(map) => {
+        BuiltinArg::Map(map) => {
             let key = Hashable::try_from(args[1].clone())?;
             let mut new_map = map.pairs.clone();
             new_map.swap_remove(&key);
-            Ok(Value::Map(Map { pairs: new_map }))
+            val(Value::Map(Map { pairs: new_map }))
         }
         other => method_type_error(other, "remove", "Map"),
     }
 }
 
-fn map_len(args: &[Value]) -> Result<Value> {
+fn map_len(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Map::len", args, 1)?;
     match &args[0] {
-        Value::Map(map) => Ok(Value::Integer(Integer::Usize(map.pairs.len()))),
+        BuiltinArg::Map(map) => val(Value::Integer(Integer::Usize(map.pairs.len()))),
         other => method_type_error(other, "len", "Map"),
     }
 }
 
-fn map_keys(args: &[Value]) -> Result<Value> {
+fn map_keys(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Map::keys", args, 1)?;
     match &args[0] {
-        Value::Map(map) => {
+        BuiltinArg::Map(map) => {
             let keys = map.pairs.keys().map(hashable_to_object).collect();
-            Ok(Value::VectorLit(keys))
+            Ok(BuiltinReturn::vector_from_values(keys))
         }
         other => method_type_error(other, "keys", "Map"),
     }
 }
 
-fn map_values(args: &[Value]) -> Result<Value> {
+fn map_values(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Map::values", args, 1)?;
     match &args[0] {
-        Value::Map(map) => {
+        BuiltinArg::Map(map) => {
             let values = map.pairs.values().cloned().collect();
-            Ok(Value::VectorLit(values))
+            Ok(BuiltinReturn::vector_from_values(values))
         }
         other => method_type_error(other, "values", "Map"),
     }
 }
 
-fn set_new(args: &[Value]) -> Result<Value> {
+fn set_new(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Set::new", args, 0)?;
-    Ok(Value::Set(Set(IndexSet::new())))
+    val(Value::Set(Set(IndexSet::new())))
 }
 
-fn set_insert(args: &[Value]) -> Result<Value> {
+fn set_insert(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Set::insert", args, 2)?;
     match &args[0] {
-        Value::Set(set) => {
+        BuiltinArg::Set(set) => {
             let key = Hashable::try_from(args[1].clone())?;
-            let mut new_set = set.clone();
+            let mut new_set: Set = (*set).clone();
             new_set.0.insert(key);
-            Ok(Value::Set(new_set))
+            val(Value::Set(new_set))
         }
         other => method_type_error(other, "insert", "Set"),
     }
 }
 
-fn set_contains(args: &[Value]) -> Result<Value> {
+fn set_contains(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Set::contains", args, 2)?;
     match &args[0] {
-        Value::Set(set) => {
+        BuiltinArg::Set(set) => {
             let key = Hashable::try_from(args[1].clone())?;
-            Ok(Value::Bool(set.0.contains(&key)))
+            val(Value::Bool(set.0.contains(&key)))
         }
         other => method_type_error(other, "contains", "Set"),
     }
 }
 
-fn set_remove(args: &[Value]) -> Result<Value> {
+fn set_remove(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Set::remove", args, 2)?;
     match &args[0] {
-        Value::Set(set) => {
+        BuiltinArg::Set(set) => {
             let key = Hashable::try_from(args[1].clone())?;
-            let mut new_set = set.clone();
+            let mut new_set: Set = (*set).clone();
             new_set.0.swap_remove(&key);
-            Ok(Value::Set(new_set))
+            val(Value::Set(new_set))
         }
         other => method_type_error(other, "remove", "Set"),
     }
 }
 
-fn set_len(args: &[Value]) -> Result<Value> {
+fn set_len(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Set::len", args, 1)?;
     match &args[0] {
-        Value::Set(set) => Ok(Value::Integer(Integer::Usize(set.0.len()))),
+        BuiltinArg::Set(set) => val(Value::Integer(Integer::Usize(set.0.len()))),
         other => method_type_error(other, "len", "Set"),
     }
 }
 
-fn set_to_vector(args: &[Value]) -> Result<Value> {
+fn set_to_vector(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Set::to_vector", args, 1)?;
     match &args[0] {
-        Value::Set(set) => {
-            let arr = set
-                .0
-                .iter()
-                .map(|h| match h {
-                    Hashable::Integer(v) => Value::Integer(*v),
-                    Hashable::Felt(v) => Value::Felt(Felt::new(*v)),
-                    Hashable::Bool(v) => Value::Bool(*v),
-                    Hashable::Char(v) => Value::Char(*v),
-                    Hashable::Str(v) => Value::Str(v.clone()),
-                })
-                .collect();
-            Ok(Value::VectorLit(arr))
+        BuiltinArg::Set(set) => {
+            let arr = set.0.iter().map(hashable_to_object).collect();
+            Ok(BuiltinReturn::vector_from_values(arr))
         }
         other => method_type_error(other, "to_vector", "Set"),
     }
 }
 
-fn str_len(args: &[Value]) -> Result<Value> {
+fn str_len(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("str::len", args, 1)?;
     match &args[0] {
-        Value::Str(s) => Ok(Value::Integer(Integer::Usize(s.len()))),
+        BuiltinArg::Str(s) => val(Value::Integer(Integer::Usize(s.len()))),
         other => method_type_error(other, "len", "str"),
     }
 }
 
-fn str_trim(args: &[Value]) -> Result<Value> {
+fn str_trim(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("str::trim", args, 1)?;
     match &args[0] {
-        Value::Str(s) => Ok(Value::Str(s.trim().to_string())),
+        BuiltinArg::Str(s) => Ok(BuiltinReturn::Str(s.trim().to_string())),
         other => method_type_error(other, "trim", "str"),
     }
 }
 
-fn str_contains(args: &[Value]) -> Result<Value> {
+fn str_contains(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("str::contains", args, 2)?;
     match (&args[0], &args[1]) {
-        (Value::Str(haystack), Value::Str(needle)) => {
-            Ok(Value::Bool(haystack.contains(needle.as_str())))
+        (BuiltinArg::Str(haystack), BuiltinArg::Str(needle)) => {
+            val(Value::Bool(haystack.contains(*needle)))
         }
-        (Value::Str(_), other) => Err(EvalError::Builtin(format!(
+        (BuiltinArg::Str(_), other) => Err(EvalError::Builtin(format!(
             "str::contains: pattern must be a string, got {}",
             other.type_name()
         ))
@@ -760,11 +797,11 @@ fn str_contains(args: &[Value]) -> Result<Value> {
     }
 }
 
-fn str_starts_with(args: &[Value]) -> Result<Value> {
+fn str_starts_with(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("str::starts_with", args, 2)?;
     match (&args[0], &args[1]) {
-        (Value::Str(s), Value::Str(prefix)) => Ok(Value::Bool(s.starts_with(prefix.as_str()))),
-        (Value::Str(_), other) => Err(EvalError::Builtin(format!(
+        (BuiltinArg::Str(s), BuiltinArg::Str(prefix)) => val(Value::Bool(s.starts_with(*prefix))),
+        (BuiltinArg::Str(_), other) => Err(EvalError::Builtin(format!(
             "str::starts_with: prefix must be a string, got {}",
             other.type_name()
         ))
@@ -773,11 +810,11 @@ fn str_starts_with(args: &[Value]) -> Result<Value> {
     }
 }
 
-fn str_ends_with(args: &[Value]) -> Result<Value> {
+fn str_ends_with(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("str::ends_with", args, 2)?;
     match (&args[0], &args[1]) {
-        (Value::Str(s), Value::Str(suffix)) => Ok(Value::Bool(s.ends_with(suffix.as_str()))),
-        (Value::Str(_), other) => Err(EvalError::Builtin(format!(
+        (BuiltinArg::Str(s), BuiltinArg::Str(suffix)) => val(Value::Bool(s.ends_with(*suffix))),
+        (BuiltinArg::Str(_), other) => Err(EvalError::Builtin(format!(
             "str::ends_with: suffix must be a string, got {}",
             other.type_name()
         ))
@@ -786,17 +823,17 @@ fn str_ends_with(args: &[Value]) -> Result<Value> {
     }
 }
 
-fn str_split(args: &[Value]) -> Result<Value> {
+fn str_split(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("str::split", args, 2)?;
     match (&args[0], &args[1]) {
-        (Value::Str(s), Value::Str(delim)) => {
+        (BuiltinArg::Str(s), BuiltinArg::Str(delim)) => {
             let parts = s
-                .split(delim.as_str())
+                .split(*delim)
                 .map(|part| Value::Str(part.to_string()))
                 .collect();
-            Ok(Value::VectorLit(parts))
+            Ok(BuiltinReturn::vector_from_values(parts))
         }
-        (Value::Str(_), other) => Err(EvalError::Builtin(format!(
+        (BuiltinArg::Str(_), other) => Err(EvalError::Builtin(format!(
             "str::split: delimiter must be a string, got {}",
             other.type_name()
         ))
@@ -805,26 +842,26 @@ fn str_split(args: &[Value]) -> Result<Value> {
     }
 }
 
-fn char_is_alphabetic(args: &[Value]) -> Result<Value> {
+fn char_is_alphabetic(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("char::is_alphabetic", args, 1)?;
     match &args[0] {
-        Value::Char(c) => Ok(Value::Bool(c.is_alphabetic())),
+        BuiltinArg::Char(c) => val(Value::Bool(c.is_alphabetic())),
         other => method_type_error(other, "is_alphabetic", "char"),
     }
 }
 
-fn char_is_numeric(args: &[Value]) -> Result<Value> {
+fn char_is_numeric(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("char::is_numeric", args, 1)?;
     match &args[0] {
-        Value::Char(c) => Ok(Value::Bool(c.is_numeric())),
+        BuiltinArg::Char(c) => val(Value::Bool(c.is_numeric())),
         other => method_type_error(other, "is_numeric", "char"),
     }
 }
 
-fn char_to_string(args: &[Value]) -> Result<Value> {
+fn char_to_string(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("char::to_string", args, 1)?;
     match &args[0] {
-        Value::Char(c) => Ok(Value::Str(c.to_string())),
+        BuiltinArg::Char(c) => Ok(BuiltinReturn::Str(c.to_string())),
         other => method_type_error(other, "to_string", "char"),
     }
 }
@@ -866,10 +903,10 @@ fn parse_err(error: ParseIntError) -> Value {
 
 macro_rules! define_str_parse {
     ($fn_name:ident, $method:literal, $rust_ty:ty, $variant:ident) => {
-        fn $fn_name(args: &[Value]) -> Result<Value> {
+        fn $fn_name(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
             expect_arg_count(concat!("str::", $method), args, 1)?;
             match &args[0] {
-                Value::Str(s) => Ok(s.trim().parse::<$rust_ty>().map_or_else(
+                BuiltinArg::Str(s) => val(s.trim().parse::<$rust_ty>().map_or_else(
                     |e| parse_err(ParseIntError::from_std(&e)),
                     |v| parse_ok(Value::Integer(Integer::$variant(v))),
                 )),
@@ -891,59 +928,62 @@ define_str_parse!(str_parse_u64, "parse_u64", u64, U64);
 define_str_parse!(str_parse_u128, "parse_u128", u128, U128);
 define_str_parse!(str_parse_usize, "parse_usize", usize, Usize);
 
-fn option_unwrap(args: &[Value]) -> Result<Value> {
+fn option_unwrap(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Option::unwrap", args, 1)?;
     match &args[0] {
-        Value::EnumVariant(v) if v.type_index == OPTION_TYPE_INDEX && v.tag == SOME_TAG => {
-            Ok(v.fields[0].clone())
+        BuiltinArg::EnumVariant(v) if v.type_index == OPTION_TYPE_INDEX && v.tag == SOME_TAG => {
+            val(v.fields[0].clone())
         }
-        Value::EnumVariant(v) if v.type_index == OPTION_TYPE_INDEX && v.tag == NONE_TAG => Err(
-            EvalError::Builtin("called `Option::unwrap()` on a `None` value".to_string()).into(),
-        ),
+        BuiltinArg::EnumVariant(v) if v.type_index == OPTION_TYPE_INDEX && v.tag == NONE_TAG => {
+            Err(
+                EvalError::Builtin("called `Option::unwrap()` on a `None` value".to_string())
+                    .into(),
+            )
+        }
         other => method_type_error(other, "unwrap", "Option"),
     }
 }
 
-fn option_unwrap_or(args: &[Value]) -> Result<Value> {
+fn option_unwrap_or(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Option::unwrap_or", args, 2)?;
     match &args[0] {
-        Value::EnumVariant(v) if v.type_index == OPTION_TYPE_INDEX && v.tag == SOME_TAG => {
-            Ok(v.fields[0].clone())
+        BuiltinArg::EnumVariant(v) if v.type_index == OPTION_TYPE_INDEX && v.tag == SOME_TAG => {
+            val(v.fields[0].clone())
         }
-        Value::EnumVariant(v) if v.type_index == OPTION_TYPE_INDEX && v.tag == NONE_TAG => {
-            Ok(args[1].clone())
+        BuiltinArg::EnumVariant(v) if v.type_index == OPTION_TYPE_INDEX && v.tag == NONE_TAG => {
+            val(arg_to_value(&args[1]))
         }
         other => method_type_error(other, "unwrap_or", "Option"),
     }
 }
 
-fn option_is_some(args: &[Value]) -> Result<Value> {
+fn option_is_some(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Option::is_some", args, 1)?;
     match &args[0] {
-        Value::EnumVariant(v) if v.type_index == OPTION_TYPE_INDEX => {
-            Ok(Value::Bool(v.tag == SOME_TAG))
+        BuiltinArg::EnumVariant(v) if v.type_index == OPTION_TYPE_INDEX => {
+            val(Value::Bool(v.tag == SOME_TAG))
         }
         other => method_type_error(other, "is_some", "Option"),
     }
 }
 
-fn option_is_none(args: &[Value]) -> Result<Value> {
+fn option_is_none(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Option::is_none", args, 1)?;
     match &args[0] {
-        Value::EnumVariant(v) if v.type_index == OPTION_TYPE_INDEX => {
-            Ok(Value::Bool(v.tag == NONE_TAG))
+        BuiltinArg::EnumVariant(v) if v.type_index == OPTION_TYPE_INDEX => {
+            val(Value::Bool(v.tag == NONE_TAG))
         }
         other => method_type_error(other, "is_none", "Option"),
     }
 }
 
-fn result_unwrap(args: &[Value]) -> Result<Value> {
+fn result_unwrap(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Result::unwrap", args, 1)?;
     match &args[0] {
-        Value::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX && v.tag == OK_TAG => {
-            Ok(v.fields[0].clone())
+        BuiltinArg::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX && v.tag == OK_TAG => {
+            val(v.fields[0].clone())
         }
-        Value::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX && v.tag == ERR_TAG => {
+        BuiltinArg::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX && v.tag == ERR_TAG => {
             let err_val = v
                 .fields
                 .first()
@@ -957,51 +997,51 @@ fn result_unwrap(args: &[Value]) -> Result<Value> {
     }
 }
 
-fn result_unwrap_or(args: &[Value]) -> Result<Value> {
+fn result_unwrap_or(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Result::unwrap_or", args, 2)?;
     match &args[0] {
-        Value::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX && v.tag == OK_TAG => {
-            Ok(v.fields[0].clone())
+        BuiltinArg::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX && v.tag == OK_TAG => {
+            val(v.fields[0].clone())
         }
-        Value::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX && v.tag == ERR_TAG => {
-            Ok(args[1].clone())
+        BuiltinArg::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX && v.tag == ERR_TAG => {
+            val(arg_to_value(&args[1]))
         }
         other => method_type_error(other, "unwrap_or", "Result"),
     }
 }
 
-fn result_is_ok(args: &[Value]) -> Result<Value> {
+fn result_is_ok(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Result::is_ok", args, 1)?;
     match &args[0] {
-        Value::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX => {
-            Ok(Value::Bool(v.tag == OK_TAG))
+        BuiltinArg::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX => {
+            val(Value::Bool(v.tag == OK_TAG))
         }
         other => method_type_error(other, "is_ok", "Result"),
     }
 }
 
-fn result_is_err(args: &[Value]) -> Result<Value> {
+fn result_is_err(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Result::is_err", args, 1)?;
     match &args[0] {
-        Value::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX => {
-            Ok(Value::Bool(v.tag == ERR_TAG))
+        BuiltinArg::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX => {
+            val(Value::Bool(v.tag == ERR_TAG))
         }
         other => method_type_error(other, "is_err", "Result"),
     }
 }
 
-fn option_ok(args: &[Value]) -> Result<Value> {
+fn option_ok(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Option::ok", args, 1)?;
     match &args[0] {
-        Value::EnumVariant(v) if v.type_index == OPTION_TYPE_INDEX && v.tag == SOME_TAG => {
-            Ok(Value::EnumVariant(EnumVariantVal {
+        BuiltinArg::EnumVariant(v) if v.type_index == OPTION_TYPE_INDEX && v.tag == SOME_TAG => {
+            val(Value::EnumVariant(EnumVariantVal {
                 type_index: RESULT_TYPE_INDEX,
                 tag: OK_TAG,
                 fields: vec![v.fields[0].clone()],
             }))
         }
-        Value::EnumVariant(v) if v.type_index == OPTION_TYPE_INDEX && v.tag == NONE_TAG => {
-            Ok(Value::EnumVariant(EnumVariantVal {
+        BuiltinArg::EnumVariant(v) if v.type_index == OPTION_TYPE_INDEX && v.tag == NONE_TAG => {
+            val(Value::EnumVariant(EnumVariantVal {
                 type_index: RESULT_TYPE_INDEX,
                 tag: ERR_TAG,
                 fields: vec![Value::Unit],
@@ -1011,13 +1051,13 @@ fn option_ok(args: &[Value]) -> Result<Value> {
     }
 }
 
-fn option_flatten(args: &[Value]) -> Result<Value> {
+fn option_flatten(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Option::flatten", args, 1)?;
     match &args[0] {
-        Value::EnumVariant(v) if v.type_index == OPTION_TYPE_INDEX && v.tag == SOME_TAG => {
+        BuiltinArg::EnumVariant(v) if v.type_index == OPTION_TYPE_INDEX && v.tag == SOME_TAG => {
             match &v.fields[0] {
                 inner @ Value::EnumVariant(iv) if iv.type_index == OPTION_TYPE_INDEX => {
-                    Ok(inner.clone())
+                    val(inner.clone())
                 }
                 _ => Err(EvalError::Builtin(
                     "called `Option::flatten()` on a non-nested Option".to_string(),
@@ -1025,32 +1065,32 @@ fn option_flatten(args: &[Value]) -> Result<Value> {
                 .into()),
             }
         }
-        Value::EnumVariant(v) if v.type_index == OPTION_TYPE_INDEX && v.tag == NONE_TAG => {
-            Ok(args[0].clone())
+        BuiltinArg::EnumVariant(v) if v.type_index == OPTION_TYPE_INDEX && v.tag == NONE_TAG => {
+            val(arg_to_value(&args[0]))
         }
         other => method_type_error(other, "flatten", "Option"),
     }
 }
 
-fn option_zip(args: &[Value]) -> Result<Value> {
+fn option_zip(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Option::zip", args, 2)?;
     match (&args[0], &args[1]) {
-        (Value::EnumVariant(a), Value::EnumVariant(b))
+        (BuiltinArg::EnumVariant(a), BuiltinArg::EnumVariant(b))
             if a.type_index == OPTION_TYPE_INDEX
                 && a.tag == SOME_TAG
                 && b.type_index == OPTION_TYPE_INDEX
                 && b.tag == SOME_TAG =>
         {
-            Ok(Value::EnumVariant(EnumVariantVal {
+            val(Value::EnumVariant(EnumVariantVal {
                 type_index: OPTION_TYPE_INDEX,
                 tag: SOME_TAG,
                 fields: vec![Value::Tuple(vec![a.fields[0].clone(), b.fields[0].clone()])],
             }))
         }
-        (Value::EnumVariant(a), Value::EnumVariant(b))
+        (BuiltinArg::EnumVariant(a), BuiltinArg::EnumVariant(b))
             if a.type_index == OPTION_TYPE_INDEX && b.type_index == OPTION_TYPE_INDEX =>
         {
-            Ok(Value::EnumVariant(EnumVariantVal {
+            val(Value::EnumVariant(EnumVariantVal {
                 type_index: OPTION_TYPE_INDEX,
                 tag: NONE_TAG,
                 fields: vec![],
@@ -1060,13 +1100,13 @@ fn option_zip(args: &[Value]) -> Result<Value> {
     }
 }
 
-fn result_unwrap_err(args: &[Value]) -> Result<Value> {
+fn result_unwrap_err(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Result::unwrap_err", args, 1)?;
     match &args[0] {
-        Value::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX && v.tag == ERR_TAG => {
-            Ok(v.fields[0].clone())
+        BuiltinArg::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX && v.tag == ERR_TAG => {
+            val(v.fields[0].clone())
         }
-        Value::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX && v.tag == OK_TAG => {
+        BuiltinArg::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX && v.tag == OK_TAG => {
             let ok_val = v
                 .fields
                 .first()
@@ -1080,18 +1120,18 @@ fn result_unwrap_err(args: &[Value]) -> Result<Value> {
     }
 }
 
-fn result_ok(args: &[Value]) -> Result<Value> {
+fn result_ok(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Result::ok", args, 1)?;
     match &args[0] {
-        Value::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX && v.tag == OK_TAG => {
-            Ok(Value::EnumVariant(EnumVariantVal {
+        BuiltinArg::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX && v.tag == OK_TAG => {
+            val(Value::EnumVariant(EnumVariantVal {
                 type_index: OPTION_TYPE_INDEX,
                 tag: SOME_TAG,
                 fields: vec![v.fields[0].clone()],
             }))
         }
-        Value::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX && v.tag == ERR_TAG => {
-            Ok(Value::EnumVariant(EnumVariantVal {
+        BuiltinArg::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX && v.tag == ERR_TAG => {
+            val(Value::EnumVariant(EnumVariantVal {
                 type_index: OPTION_TYPE_INDEX,
                 tag: NONE_TAG,
                 fields: vec![],
@@ -1101,18 +1141,18 @@ fn result_ok(args: &[Value]) -> Result<Value> {
     }
 }
 
-fn result_err(args: &[Value]) -> Result<Value> {
+fn result_err(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("Result::err", args, 1)?;
     match &args[0] {
-        Value::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX && v.tag == ERR_TAG => {
-            Ok(Value::EnumVariant(EnumVariantVal {
+        BuiltinArg::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX && v.tag == ERR_TAG => {
+            val(Value::EnumVariant(EnumVariantVal {
                 type_index: OPTION_TYPE_INDEX,
                 tag: SOME_TAG,
                 fields: vec![v.fields[0].clone()],
             }))
         }
-        Value::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX && v.tag == OK_TAG => {
-            Ok(Value::EnumVariant(EnumVariantVal {
+        BuiltinArg::EnumVariant(v) if v.type_index == RESULT_TYPE_INDEX && v.tag == OK_TAG => {
+            val(Value::EnumVariant(EnumVariantVal {
                 type_index: OPTION_TYPE_INDEX,
                 tag: NONE_TAG,
                 fields: vec![],
@@ -1132,7 +1172,7 @@ fn hashable_to_object(h: &Hashable) -> Value {
     }
 }
 
-fn expect_arg_count(method: &str, args: &[Value], count: usize) -> Result<()> {
+fn expect_arg_count(method: &str, args: &[BuiltinArg<'_>], count: usize) -> Result<()> {
     (args.len() == count).then_some(()).ok_or(
         EvalError::Builtin(format!(
             "{method}: wrong number of arguments. got={}, want={count}",
@@ -1142,26 +1182,30 @@ fn expect_arg_count(method: &str, args: &[Value], count: usize) -> Result<()> {
     )
 }
 
-fn method_type_error(val: &Value, method: &str, expected_type: &str) -> Result<Value> {
+fn method_type_error(
+    arg: &BuiltinArg<'_>,
+    method: &str,
+    expected_type: &str,
+) -> Result<BuiltinReturn> {
     Err(EvalError::Builtin(format!(
         "cannot call `{method}` on {}, expected {expected_type}",
-        val.type_name()
+        arg.type_name()
     ))
     .into())
 }
 
 macro_rules! define_from_signed {
     ($fn_name:ident, $target_name:expr, $target_ty:ty, $variant:ident) => {
-        fn $fn_name(args: &[Value]) -> Result<Value> {
+        fn $fn_name(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
             expect_arg_count($target_name, args, 1)?;
             match &args[0] {
-                Value::Integer(n) => {
+                BuiltinArg::Integer(n) => {
                     let wide = n
                         .to_i128()
                         .ok_or_else(|| conversion_error(n, $target_name))?;
-                    let val = <$target_ty>::try_from(wide)
+                    let v = <$target_ty>::try_from(wide)
                         .map_err(|_| conversion_error(n, $target_name))?;
-                    Ok(Value::Integer(Integer::$variant(val)))
+                    val(Value::Integer(Integer::$variant(v)))
                 }
                 other => Err(EvalError::Builtin(format!(
                     "{}: expected integer, got {}",
@@ -1176,16 +1220,16 @@ macro_rules! define_from_signed {
 
 macro_rules! define_from_unsigned {
     ($fn_name:ident, $target_name:expr, $target_ty:ty, $variant:ident) => {
-        fn $fn_name(args: &[Value]) -> Result<Value> {
+        fn $fn_name(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
             expect_arg_count($target_name, args, 1)?;
             match &args[0] {
-                Value::Integer(n) => {
+                BuiltinArg::Integer(n) => {
                     let wide = n
                         .to_i128()
                         .ok_or_else(|| conversion_error(n, $target_name))?;
-                    let val = <$target_ty>::try_from(wide)
+                    let v = <$target_ty>::try_from(wide)
                         .map_err(|_| conversion_error(n, $target_name))?;
-                    Ok(Value::Integer(Integer::$variant(val)))
+                    val(Value::Integer(Integer::$variant(v)))
                 }
                 other => Err(EvalError::Builtin(format!(
                     "{}: expected integer, got {}",
@@ -1213,9 +1257,9 @@ fn conversion_error(n: &Integer, target: &str) -> Error {
 
 macro_rules! define_default {
     ($fn_name:ident, $name:expr, $value:expr) => {
-        fn $fn_name(args: &[Value]) -> Result<Value> {
+        fn $fn_name(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
             expect_arg_count($name, args, 0)?;
-            Ok($value)
+            val($value)
         }
     };
 }
@@ -1249,60 +1293,64 @@ define_default!(
     Value::Integer(Integer::Isize(0))
 );
 define_default!(bool_default, "bool::default", Value::Bool(false));
-define_default!(str_default, "str::default", Value::Str(String::new()));
 
-fn cmp_min(args: &[Value]) -> Result<Value> {
+fn str_default(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
+    expect_arg_count("str::default", args, 0)?;
+    Ok(BuiltinReturn::Str(String::new()))
+}
+
+fn cmp_min(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("cmp::min", args, 2)?;
     match (&args[0], &args[1]) {
-        (Value::Integer(a), Value::Integer(b)) => {
+        (BuiltinArg::Integer(a), BuiltinArg::Integer(b)) => {
             let ord = a
                 .to_i128()
                 .zip(b.to_i128())
                 .ok_or_else(|| cmp_error("min"))?;
-            Ok(if ord.0 <= ord.1 {
-                args[0].clone()
+            val(if ord.0 <= ord.1 {
+                Value::Integer(*a)
             } else {
-                args[1].clone()
+                Value::Integer(*b)
             })
         }
         _ => Err(cmp_error("min")),
     }
 }
 
-fn cmp_max(args: &[Value]) -> Result<Value> {
+fn cmp_max(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("cmp::max", args, 2)?;
     match (&args[0], &args[1]) {
-        (Value::Integer(a), Value::Integer(b)) => {
+        (BuiltinArg::Integer(a), BuiltinArg::Integer(b)) => {
             let ord = a
                 .to_i128()
                 .zip(b.to_i128())
                 .ok_or_else(|| cmp_error("max"))?;
-            Ok(if ord.0 >= ord.1 {
-                args[0].clone()
+            val(if ord.0 >= ord.1 {
+                Value::Integer(*a)
             } else {
-                args[1].clone()
+                Value::Integer(*b)
             })
         }
         _ => Err(cmp_error("max")),
     }
 }
 
-fn cmp_clamp(args: &[Value]) -> Result<Value> {
+fn cmp_clamp(args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
     expect_arg_count("cmp::clamp", args, 3)?;
     match (&args[0], &args[1], &args[2]) {
-        (Value::Integer(val), Value::Integer(lo), Value::Integer(hi)) => {
-            let (v, l, h) = val
+        (BuiltinArg::Integer(v), BuiltinArg::Integer(lo), BuiltinArg::Integer(hi)) => {
+            let (vv, l, h) = v
                 .to_i128()
                 .zip(lo.to_i128())
                 .zip(hi.to_i128())
-                .map(|((v, l), h)| (v, l, h))
+                .map(|((vv, l), h)| (vv, l, h))
                 .ok_or_else(|| cmp_error("clamp"))?;
-            Ok(if v < l {
-                args[1].clone()
-            } else if v > h {
-                args[2].clone()
+            val(if vv < l {
+                Value::Integer(*lo)
+            } else if vv > h {
+                Value::Integer(*hi)
             } else {
-                args[0].clone()
+                Value::Integer(*v)
             })
         }
         _ => Err(cmp_error("clamp")),

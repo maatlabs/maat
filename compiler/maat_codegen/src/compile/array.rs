@@ -1,7 +1,7 @@
 use maat_ast::{ArrayLit, IndexExpr, InfixExpr, MethodCallExpr};
-use maat_bytecode::{Opcode, TypeTag};
+use maat_bytecode::{Constant, Opcode, TypeTag};
 use maat_errors::Result;
-use maat_runtime::{Integer, Value};
+use maat_runtime::Integer;
 use maat_span::Span;
 
 use super::Compiler;
@@ -87,7 +87,7 @@ impl Compiler {
         i: usize,
         span: Span,
     ) -> Result<()> {
-        let i_const = self.add_constant(Value::Integer(Integer::U64(i as u64)))?;
+        let i_const = self.add_constant(Constant::Integer(Integer::U64(i as u64)))?;
         self.load_symbol(lhs_sym, span);
         self.emit(Opcode::Constant, &[i_const], span);
         self.emit(Opcode::Add, &[], span);
@@ -108,7 +108,7 @@ impl Compiler {
     ) -> Result<()> {
         self.compile_expression(&mc.object)?;
         self.emit(Opcode::Pop, &[], span);
-        let idx = self.add_constant(Value::Integer(Integer::Usize(n)))?;
+        let idx = self.add_constant(Constant::Integer(Integer::Usize(n)))?;
         self.emit(Opcode::Constant, &[idx], span);
         Ok(())
     }

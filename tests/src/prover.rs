@@ -1,12 +1,12 @@
 //! Utilities used by the `prove_verify.rs` integration tests
 
 use maat_air::{MaatPublicInputs, Proof};
-use maat_bytecode::{Bytecode, Instructions, Opcode, encode};
+use maat_bytecode::{Bytecode, Constant, Instructions, Opcode, encode};
 use maat_field::{BaseElement, Felt, FieldElement};
 use maat_prover::{
     MaatProver, compute_program_hash, development_options, production_options, verify_with_inputs,
 };
-use maat_runtime::{Integer, Relocatable, SEG_PUBLIC_OUTPUT, Value};
+use maat_runtime::{Integer, Relocatable, SEG_PUBLIC_OUTPUT};
 use maat_span::SourceMap;
 use maat_trace::table::{COL_OUT, COL_SUB_SEL_BASE, TraceTable};
 
@@ -85,7 +85,7 @@ pub fn synthetic_segment_alloc_read_bytecode(initial_value: i64) -> Bytecode {
     instructions.extend_from_bytes(&encode(Opcode::Pop, &[]));
     Bytecode {
         instructions,
-        constants: vec![Value::Integer(Integer::I64(initial_value))],
+        constants: vec![Constant::Integer(Integer::I64(initial_value))],
         source_map: SourceMap::new(),
         type_registry: vec![],
     }
@@ -115,8 +115,8 @@ pub fn synthetic_two_segments_bytecode(seg_a_value: i64, seg_b_value: i64) -> By
     Bytecode {
         instructions,
         constants: vec![
-            Value::Integer(Integer::I64(seg_a_value)),
-            Value::Integer(Integer::I64(seg_b_value)),
+            Constant::Integer(Integer::I64(seg_a_value)),
+            Constant::Integer(Integer::I64(seg_b_value)),
         ],
         source_map: SourceMap::new(),
         type_registry: vec![],
@@ -140,8 +140,8 @@ pub fn synthetic_write_once_violation_bytecode(initial: i64, conflict: i64) -> B
     Bytecode {
         instructions,
         constants: vec![
-            Value::Integer(Integer::I64(initial)),
-            Value::Integer(Integer::I64(conflict)),
+            Constant::Integer(Integer::I64(initial)),
+            Constant::Integer(Integer::I64(conflict)),
         ],
         source_map: SourceMap::new(),
         type_registry: vec![],
@@ -172,7 +172,7 @@ pub fn synthetic_relocatable_cell_value_bytecode(payload: i64) -> Bytecode {
     instructions.extend_from_bytes(&encode(Opcode::Pop, &[]));
     Bytecode {
         instructions,
-        constants: vec![Value::Integer(Integer::I64(payload))],
+        constants: vec![Constant::Integer(Integer::I64(payload))],
         source_map: SourceMap::new(),
         type_registry: vec![],
     }
@@ -209,9 +209,9 @@ pub fn synthetic_sparse_segment_bytecode(low_value: i64, high_value: i64) -> Byt
     Bytecode {
         instructions,
         constants: vec![
-            Value::Integer(Integer::I64(low_value)),
-            Value::Integer(Integer::I64(5)),
-            Value::Integer(Integer::I64(high_value)),
+            Constant::Integer(Integer::I64(low_value)),
+            Constant::Integer(Integer::I64(5)),
+            Constant::Integer(Integer::I64(high_value)),
         ],
         source_map: SourceMap::new(),
         type_registry: vec![],
@@ -257,12 +257,12 @@ pub fn synthetic_cross_segment_sparse_bytecode(seg_a_value: i64, seg_b_value: i6
     Bytecode {
         instructions,
         constants: vec![
-            Value::Integer(Integer::I64(seg_a_value)),
-            Value::Integer(Integer::I64(3)),
-            Value::Integer(Integer::I64(seg_a_value.wrapping_add(100))),
-            Value::Integer(Integer::I64(seg_b_value)),
-            Value::Integer(Integer::I64(2)),
-            Value::Integer(Integer::I64(seg_b_value.wrapping_add(100))),
+            Constant::Integer(Integer::I64(seg_a_value)),
+            Constant::Integer(Integer::I64(3)),
+            Constant::Integer(Integer::I64(seg_a_value.wrapping_add(100))),
+            Constant::Integer(Integer::I64(seg_b_value)),
+            Constant::Integer(Integer::I64(2)),
+            Constant::Integer(Integer::I64(seg_b_value.wrapping_add(100))),
         ],
         source_map: SourceMap::new(),
         type_registry: vec![],
@@ -274,10 +274,13 @@ pub fn synthetic_cross_segment_sparse_bytecode(seg_a_value: i64, seg_b_value: i6
 /// and leaves the segment base pointer as the program's last-popped value.
 pub fn synthetic_output_segment_bytecode(cells: &[i64]) -> Bytecode {
     let mut instructions = Instructions::new();
-    let mut constants: Vec<Value> = Vec::with_capacity(cells.len() * 2 + 1);
+    let mut constants: Vec<Constant> = Vec::with_capacity(cells.len() * 2 + 1);
 
     let pubmem_base_idx = constants.len();
-    constants.push(Value::Relocatable(Relocatable::new(SEG_PUBLIC_OUTPUT, 0)));
+    constants.push(Constant::Relocatable(Relocatable::new(
+        SEG_PUBLIC_OUTPUT,
+        0,
+    )));
     instructions.extend_from_bytes(&encode(Opcode::Constant, &[pubmem_base_idx]));
     instructions.extend_from_bytes(&encode(Opcode::SetGlobal, &[0]));
 
@@ -286,13 +289,13 @@ pub fn synthetic_output_segment_bytecode(cells: &[i64]) -> Bytecode {
         instructions.extend_from_bytes(&encode(Opcode::GetGlobal, &[0]));
         if off > 0 {
             let off_const_idx = constants.len();
-            constants.push(Value::Integer(Integer::I64(off as i64)));
+            constants.push(Constant::Integer(Integer::I64(off as i64)));
             instructions.extend_from_bytes(&encode(Opcode::Constant, &[off_const_idx]));
             instructions.extend_from_bytes(&encode(Opcode::Add, &[]));
         }
         // Push the cell value, then HeapWrite.
         let val_const_idx = constants.len();
-        constants.push(Value::Integer(Integer::I64(val)));
+        constants.push(Constant::Integer(Integer::I64(val)));
         instructions.extend_from_bytes(&encode(Opcode::Constant, &[val_const_idx]));
         instructions.extend_from_bytes(&encode(Opcode::HeapWrite, &[]));
     }
@@ -371,7 +374,7 @@ pub fn synthetic_arena_alloc_finalize_bytecode(payloads: &[i64]) -> Bytecode {
     instructions.extend_from_bytes(&encode(Opcode::SegmentNew, &[]));
     instructions.extend_from_bytes(&encode(Opcode::SetGlobal, &[0]));
 
-    let mut constants: Vec<Value> = Vec::with_capacity(payloads.len());
+    let mut constants: Vec<Constant> = Vec::with_capacity(payloads.len());
 
     for (i, &payload) in payloads.iter().enumerate() {
         let alloc_slot = i + 1;
@@ -381,7 +384,7 @@ pub fn synthetic_arena_alloc_finalize_bytecode(payloads: &[i64]) -> Bytecode {
 
         instructions.extend_from_bytes(&encode(Opcode::GetGlobal, &[alloc_slot]));
         let const_idx = constants.len();
-        constants.push(Value::Integer(Integer::I64(payload)));
+        constants.push(Constant::Integer(Integer::I64(payload)));
         instructions.extend_from_bytes(&encode(Opcode::Constant, &[const_idx]));
         instructions.extend_from_bytes(&encode(Opcode::HeapWrite, &[]));
     }

@@ -13,10 +13,11 @@
 #![forbid(unsafe_code)]
 
 mod interpreter;
+mod value;
 
 pub use interpreter::{eval, eval_block_statement};
 use maat_ast::{Expr, MaatAst, Program, Stmt, transform};
-use maat_runtime::{Env, Macro, Quote, Value};
+pub use value::{EvalEnv, EvalFunction, EvalMacro, EvalMap, EvalQuote, EvalSet, EvalValue};
 
 /// The name of the `quote` special form for AST quoting.
 ///
@@ -30,14 +31,14 @@ pub const QUOTE: &str = "quote";
 /// This is a special form handled during quote evaluation, not a regular builtin.
 pub const UNQUOTE: &str = "unquote";
 
-pub fn extract_macros(mut program: Program, env: &Env) -> Program {
+pub fn extract_macros(mut program: Program, env: &EvalEnv) -> Program {
     let mut defs = Vec::new();
 
     for (i, stmt) in program.statements.iter().enumerate() {
         if let Stmt::Let(l) = stmt
             && let Expr::MacroLit(m) = &l.value
         {
-            let val = Value::Macro(Macro {
+            let val = EvalValue::Macro(EvalMacro {
                 params: m.params.clone(),
                 body: m.body.clone(),
                 env: env.clone(),
@@ -53,17 +54,17 @@ pub fn extract_macros(mut program: Program, env: &Env) -> Program {
     program
 }
 
-pub fn expand_macros(program: MaatAst, env: &Env) -> MaatAst {
+pub fn expand_macros(program: MaatAst, env: &EvalEnv) -> MaatAst {
     transform(program, &mut |node| {
         if let MaatAst::Expr(Expr::Call(call_expr)) = &node
             && let Expr::Ident(ident) = &*call_expr.function
-            && let Some(Value::Macro(val)) = env.get(&ident.value)
+            && let Some(EvalValue::Macro(val)) = env.get(&ident.value)
         {
             let args = call_expr
                 .arguments
                 .iter()
                 .map(|arg| {
-                    Value::Quote(Box::new(Quote {
+                    EvalValue::Quote(Box::new(EvalQuote {
                         node: MaatAst::Expr(arg.clone()),
                     }))
                 })
@@ -74,7 +75,7 @@ pub fn expand_macros(program: MaatAst, env: &Env) -> MaatAst {
             }
 
             // Create extended environment for macro evaluation
-            let ext_env = Env::new_enclosed(&val.env);
+            let ext_env = EvalEnv::new_enclosed(&val.env);
             for (param, arg) in val.params.iter().zip(args.iter()) {
                 ext_env.set(param.clone(), arg);
             }
@@ -84,7 +85,7 @@ pub fn expand_macros(program: MaatAst, env: &Env) -> MaatAst {
                 Err(_) => return node,
             };
 
-            if let Value::Quote(val) = evaluated {
+            if let EvalValue::Quote(val) = evaluated {
                 return val.node;
             }
         }

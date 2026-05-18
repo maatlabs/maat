@@ -344,7 +344,7 @@ fn std_string_methods() {
     let result = run_project(&[("main.maat", "let s: str = \"a,b,c\";\ns.split(\",\")")]);
     assert_eq!(
         result,
-        Value::VectorLit(vec![
+        Value::Array(vec![
             Value::Str("a".to_string()),
             Value::Str("b".to_string()),
             Value::Str("c".to_string()),
@@ -503,7 +503,7 @@ fn str_methods() {
     let result = run_project(&[("main.maat", "let s: str = \"a,b,c\";\ns.split(\",\")")]);
     assert_eq!(
         result,
-        Value::VectorLit(vec![
+        Value::Array(vec![
             Value::Str("a".to_string()),
             Value::Str("b".to_string()),
             Value::Str("c".to_string()),

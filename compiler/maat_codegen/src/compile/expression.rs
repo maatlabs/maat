@@ -1,5 +1,5 @@
 use maat_ast::{unescape_string, *};
-use maat_bytecode::{Opcode, TypeTag};
+use maat_bytecode::{Constant, Opcode, TypeTag};
 use maat_errors::{CompileErrorKind, Result};
 use maat_runtime::Value;
 use maat_span::Span;
@@ -13,7 +13,21 @@ impl Compiler {
             Expr::Number(lit) => {
                 let val = Value::from_number_literal(lit)
                     .map_err(|msg| CompileErrorKind::UnsupportedExpr { expr_type: msg }.at(span))?;
-                self.compile_numeric_constant(val, span)
+                let entry = match val {
+                    Value::Integer(i) => Constant::Integer(i),
+                    Value::Felt(f) => Constant::Felt(f.as_int()),
+                    other => {
+                        return Err(CompileErrorKind::UnsupportedExpr {
+                            expr_type: format!(
+                                "numeric literal produced non-numeric Value: {}",
+                                other.type_name()
+                            ),
+                        }
+                        .at(span)
+                        .into());
+                    }
+                };
+                self.compile_numeric_constant(entry, span)
             }
             Expr::Bool(b) => {
                 let opcode = if b.value { Opcode::True } else { Opcode::False };
@@ -56,7 +70,7 @@ impl Compiler {
                 }
             }
             Expr::Char(c) => {
-                let index = self.add_constant(Value::Char(c.value))?;
+                let index = self.add_constant(Constant::Char(c.value))?;
                 self.emit(Opcode::Constant, &[index], span);
                 Ok(())
             }
@@ -68,7 +82,7 @@ impl Compiler {
                 Ok(())
             }
             Expr::Str(s) => {
-                let constant = Value::Str(unescape_string(&s.value));
+                let constant = Constant::Str(unescape_string(&s.value));
                 let index = self.add_constant(constant)?;
                 self.emit(Opcode::Constant, &[index], span);
                 Ok(())

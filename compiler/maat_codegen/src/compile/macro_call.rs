@@ -1,7 +1,6 @@
 use maat_ast::{Expr, FmtSegment, Ident, MacroCallExpr, parse_format_string, unescape_string};
-use maat_bytecode::Opcode;
+use maat_bytecode::{Constant, Opcode};
 use maat_errors::{CompileErrorKind, Result};
-use maat_runtime::Value;
 use maat_span::Span;
 
 use super::Compiler;
@@ -19,12 +18,12 @@ impl Compiler {
             "panic" => self.compile_panic_macro(&mc.arguments, span),
             "todo" => self.emit_builtin_call(
                 "__panic",
-                &[Value::Str("not yet implemented".to_string())],
+                &[Constant::Str("not yet implemented".to_string())],
                 span,
             ),
             "unimplemented" => self.emit_builtin_call(
                 "__panic",
-                &[Value::Str("not implemented".to_string())],
+                &[Constant::Str("not implemented".to_string())],
                 span,
             ),
             _ => Err(CompileErrorKind::UnknownMacro {
@@ -37,7 +36,7 @@ impl Compiler {
 
     fn compile_format_macro(&mut self, args: &[Expr], span: Span) -> Result<()> {
         if args.is_empty() {
-            let idx = self.add_constant(Value::Str(String::new()))?;
+            let idx = self.add_constant(Constant::Str(String::new()))?;
             self.emit(Opcode::Constant, &[idx], span);
             return Ok(());
         }
@@ -74,7 +73,7 @@ impl Compiler {
         for segment in &segments {
             match segment {
                 FmtSegment::Literal(text) => {
-                    let idx = self.add_constant(Value::Str(text.clone()))?;
+                    let idx = self.add_constant(Constant::Str(text.clone()))?;
                     self.emit(Opcode::Constant, &[idx], span);
                     pieces += 1;
                 }
@@ -98,7 +97,7 @@ impl Compiler {
         }
 
         if pieces == 0 {
-            let idx = self.add_constant(Value::Str(String::new()))?;
+            let idx = self.add_constant(Constant::Str(String::new()))?;
             self.emit(Opcode::Constant, &[idx], span);
         }
 
@@ -112,11 +111,11 @@ impl Compiler {
             if newline {
                 return self.emit_builtin_call(
                     "__print_str_ln",
-                    &[Value::Str(String::new())],
+                    &[Constant::Str(String::new())],
                     span,
                 );
             }
-            return self.emit_builtin_call("__print_str", &[Value::Str(String::new())], span);
+            return self.emit_builtin_call("__print_str", &[Constant::Str(String::new())], span);
         }
         let fmt = match &args[0] {
             Expr::Str(s) => unescape_string(&s.value),
@@ -154,7 +153,7 @@ impl Compiler {
             }
             match segment {
                 FmtSegment::Literal(text) => {
-                    self.emit_builtin_call("__print_str", &[Value::Str(text.clone())], span)?;
+                    self.emit_builtin_call("__print_str", &[Constant::Str(text.clone())], span)?;
                     emitted_calls += 1;
                 }
                 FmtSegment::Arg => {
@@ -178,7 +177,7 @@ impl Compiler {
             if emitted_calls > 0 {
                 self.emit(Opcode::Pop, &[], span);
             }
-            self.emit_builtin_call("__print_str_ln", &[Value::Str(String::new())], span)?;
+            self.emit_builtin_call("__print_str_ln", &[Constant::Str(String::new())], span)?;
         }
         Ok(())
     }
@@ -206,7 +205,7 @@ impl Compiler {
         } else {
             self.emit_builtin_call(
                 "__panic",
-                &[Value::Str("assertion failed".to_string())],
+                &[Constant::Str("assertion failed".to_string())],
                 span,
             )?;
         }
@@ -239,7 +238,9 @@ impl Compiler {
         self.replace_operand(cond_jump_pos, panic_start)?;
         self.emit_builtin_call(
             "__panic",
-            &[Value::Str("assertion `left == right` failed".to_string())],
+            &[Constant::Str(
+                "assertion `left == right` failed".to_string(),
+            )],
             span,
         )?;
         self.emit(Opcode::Pop, &[], span);
@@ -254,7 +255,7 @@ impl Compiler {
         if args.is_empty() {
             return self.emit_builtin_call(
                 "__panic",
-                &[Value::Str("explicit panic".to_string())],
+                &[Constant::Str("explicit panic".to_string())],
                 span,
             );
         }
@@ -286,7 +287,7 @@ impl Compiler {
         }
 
         if placeholder_count == 0 {
-            return self.emit_builtin_call("__panic", &[Value::Str(fmt)], span);
+            return self.emit_builtin_call("__panic", &[Constant::Str(fmt)], span);
         }
 
         let mut arg_idx = 0;
@@ -295,7 +296,7 @@ impl Compiler {
         for segment in &segments {
             let segment_str = match segment {
                 FmtSegment::Literal(text) => {
-                    let idx = self.add_constant(Value::Str(text.clone()))?;
+                    let idx = self.add_constant(Constant::Str(text.clone()))?;
                     self.emit(Opcode::Constant, &[idx], span);
                     true
                 }

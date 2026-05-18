@@ -1,10 +1,9 @@
 use maat_ast::{Expr, MaatAst};
-use maat_eval::{eval, expand_macros, extract_macros};
-use maat_runtime::{Env, Value};
+use maat_eval::{EvalEnv, EvalValue, eval, expand_macros, extract_macros};
 
 fn test_macros(input: &str, expected: &str) {
     let program = maat_tests::parse(input);
-    let env = Env::default();
+    let env = EvalEnv::default();
     let program = extract_macros(program, &env);
     let expanded = expand_macros(MaatAst::Program(program), &env);
 
@@ -40,12 +39,12 @@ fn test_define_macros() {
         let mymacro = macro(x, y) { x + y; };
     "#;
     let program = maat_tests::parse(input);
-    let env = Env::default();
+    let env = EvalEnv::default();
     let modified = extract_macros(program, &env);
     assert_eq!(modified.statements.len(), 2);
     assert!(env.get("mymacro").is_some());
 
-    if let Some(Value::Macro(macro_obj)) = env.get("mymacro") {
+    if let Some(EvalValue::Macro(macro_obj)) = env.get("mymacro") {
         assert_eq!(macro_obj.params.len(), 2);
         assert_eq!(macro_obj.params[0], "x");
         assert_eq!(macro_obj.params[1], "y");
@@ -59,9 +58,9 @@ fn test_define_macros() {
 fn test_quote_builtin() {
     let input = "quote(5 + 5)";
     let program = maat_tests::parse(input);
-    let env = Env::default();
+    let env = EvalEnv::default();
     let result = eval(MaatAst::Program(program), &env).unwrap();
-    if let Value::Quote(q) = result {
+    if let EvalValue::Quote(q) = result {
         if let MaatAst::Expr(Expr::Infix(infix)) = &q.node {
             assert_eq!(infix.operator, "+");
             assert_eq!(format!("{infix}"), "(5 + 5)");

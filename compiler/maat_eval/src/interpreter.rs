@@ -1,16 +1,29 @@
-//! Implements a tree-walking interpreter that evaluates the AST nodes into runtime values.
+//! Tree-walking interpreter for macro expansion.
+//!
+//! Operates on [`EvalValue`] / [`EvalEnv`] from `crate::value`; the runtime
+//! [`Value`] enum is only touched at the builtin call boundary
+//! (where the interpreter passes [`BuiltinArg`]) and at the unquote reification
+//! site (where AST nodes flow out).
 
 use indexmap::IndexMap;
 use maat_ast::*;
 use maat_errors::{EvalError, Result};
 use maat_runtime::{
-    Env, FALSE, Felt, Function, Hashable, Integer, Macro, Map, Quote, TRUE, UNIT, Value, WideInt,
-    from_i64, get_builtin, try_div,
+    BuiltinArg, BuiltinFn, Felt, Hashable, Integer, Map, Set, Value, WideInt, from_i64,
+    get_builtin, try_div,
 };
 
+use crate::value::{
+    EvalEnv, EvalFunction, EvalMacro, EvalMap, EvalQuote, EvalValue, eval_value_to_builtin_arg,
+    eval_value_to_value, return_to_eval_value,
+};
 use crate::{QUOTE, UNQUOTE};
 
-pub fn eval(node: MaatAst, env: &Env) -> Result<Value> {
+const UNIT: EvalValue = EvalValue::Unit;
+const TRUE: EvalValue = EvalValue::Bool(true);
+const FALSE: EvalValue = EvalValue::Bool(false);
+
+pub fn eval(node: MaatAst, env: &EvalEnv) -> Result<EvalValue> {
     match node {
         MaatAst::Program(prog) => eval_program(prog, env),
         MaatAst::Stmt(stmt) => match stmt {
@@ -26,12 +39,12 @@ pub fn eval(node: MaatAst, env: &Env) -> Result<Value> {
             }
             Stmt::Return(rs) => {
                 let val = eval(MaatAst::Expr(rs.value), env)?;
-                Ok(Value::ReturnValue(Box::new(val)))
+                Ok(EvalValue::ReturnValue(Box::new(val)))
             }
             Stmt::Expr(es) => eval(MaatAst::Expr(es.value), env),
             Stmt::Block(bs) => eval_block_statement(&bs, env),
             Stmt::FuncDef(fn_item) => {
-                let val = Value::Function(Function {
+                let val = EvalValue::Function(EvalFunction {
                     params: fn_item.param_names().map(String::from).collect(),
                     body: fn_item.body,
                     env: env.clone(),
@@ -50,25 +63,27 @@ pub fn eval(node: MaatAst, env: &Env) -> Result<Value> {
             | Stmt::Mod(_) => Ok(UNIT),
         },
         MaatAst::Expr(expr) => match expr {
-            Expr::Number(v) => Ok(Value::from_number_literal(&v).map_err(EvalError::Number)?),
-            Expr::Bool(b) => Ok(Value::Bool(b.value)),
-            Expr::Str(s) => Ok(Value::Str(maat_ast::unescape_string(&s.value))),
-            Expr::Char(c) => Ok(Value::Char(c.value)),
+            Expr::Number(v) => {
+                EvalValue::from_number_literal(&v).map_err(|e| EvalError::Number(e).into())
+            }
+            Expr::Bool(b) => Ok(EvalValue::Bool(b.value)),
+            Expr::Str(s) => Ok(EvalValue::Str(maat_ast::unescape_string(&s.value))),
+            Expr::Char(c) => Ok(EvalValue::Char(c.value)),
             Expr::Tuple(tuple) => {
                 let elements = tuple
                     .elements
                     .iter()
                     .map(|e| eval(MaatAst::Expr(e.clone()), env))
                     .collect::<Result<Vec<_>>>()?;
-                Ok(Value::Tuple(elements))
+                Ok(EvalValue::Tuple(elements))
             }
             Expr::Vector(vector) => {
                 let elements = eval_expressions(&vector.elements, env)?;
-                Ok(Value::VectorLit(elements))
+                Ok(EvalValue::Vector(elements))
             }
             Expr::Array(arr) => {
                 let elements = eval_expressions(&arr.elements, env)?;
-                Ok(Value::Array(elements))
+                Ok(EvalValue::Array(elements))
             }
             Expr::Index(index_expr) => eval_index_expression(index_expr, env),
             Expr::Map(map) => eval_map_literal(map, env),
@@ -81,12 +96,12 @@ pub fn eval(node: MaatAst, env: &Env) -> Result<Value> {
             Expr::Infix(infix_expr) => eval_infix_expression(infix_expr, env),
             Expr::Cond(cond_expr) => eval_conditional_expression(cond_expr, env),
             Expr::Ident(ident) => eval_identifier(ident.value, env),
-            Expr::Lambda(lambda) => Ok(Value::Function(Function {
+            Expr::Lambda(lambda) => Ok(EvalValue::Function(EvalFunction {
                 params: lambda.param_names().map(String::from).collect(),
                 body: lambda.body,
                 env: env.clone(),
             })),
-            Expr::MacroLit(macro_lit) => Ok(Value::Macro(Macro {
+            Expr::MacroLit(macro_lit) => Ok(EvalValue::Macro(EvalMacro {
                 params: macro_lit.params,
                 body: macro_lit.body,
                 env: env.clone(),
@@ -97,19 +112,19 @@ pub fn eval(node: MaatAst, env: &Env) -> Result<Value> {
                     .map(|v| eval(MaatAst::Expr(*v), env))
                     .transpose()?
                     .unwrap_or(UNIT);
-                Ok(Value::Break(Box::new(value)))
+                Ok(EvalValue::Break(Box::new(value)))
             }
-            Expr::Continue(_) => Ok(Value::Continue),
+            Expr::Continue(_) => Ok(EvalValue::Continue),
             Expr::Cast(cast_expr) => eval_cast_expression(cast_expr, env),
             Expr::Range(range) => {
                 let start = eval(MaatAst::Expr(*range.start), env)?;
                 let end = eval(MaatAst::Expr(*range.end), env)?;
                 match (start, end) {
-                    (Value::Integer(s), Value::Integer(e)) => {
+                    (EvalValue::Integer(s), EvalValue::Integer(e)) => {
                         if range.inclusive {
-                            Ok(Value::RangeInclusive(s, e))
+                            Ok(EvalValue::RangeInclusive(s, e))
                         } else {
-                            Ok(Value::Range(s, e))
+                            Ok(EvalValue::Range(s, e))
                         }
                     }
                     _ => {
@@ -141,7 +156,7 @@ pub fn eval(node: MaatAst, env: &Env) -> Result<Value> {
                     }
                     let node = MaatAst::Expr(call_expr.arguments[0].clone());
                     let node = eval_unquote_calls(node, env);
-                    return Ok(Value::Quote(Box::new(Quote { node })));
+                    return Ok(EvalValue::Quote(Box::new(EvalQuote { node })));
                 }
                 eval_function_call(call_expr, env)
             }
@@ -149,15 +164,13 @@ pub fn eval(node: MaatAst, env: &Env) -> Result<Value> {
     }
 }
 
-fn eval_program(prog: Program, env: &Env) -> Result<Value> {
+fn eval_program(prog: Program, env: &EvalEnv) -> Result<EvalValue> {
     let mut result = UNIT;
     for stmt in &prog.statements {
         result = eval(MaatAst::Stmt(stmt.clone()), env)?;
         match result {
-            // Unwrap early returns at program level.
-            Value::ReturnValue(val) => return Ok(*val),
-            // Break/Continue outside a loop is a semantic error.
-            Value::Break(_) | Value::Continue => {
+            EvalValue::ReturnValue(val) => return Ok(*val),
+            EvalValue::Break(_) | EvalValue::Continue => {
                 return Err(
                     EvalError::Ident("break/continue outside of a loop".to_string()).into(),
                 );
@@ -168,15 +181,14 @@ fn eval_program(prog: Program, env: &Env) -> Result<Value> {
     Ok(result)
 }
 
-pub fn eval_block_statement(block: &BlockStmt, env: &Env) -> Result<Value> {
-    let block_env = Env::new_enclosed(env);
+pub fn eval_block_statement(block: &BlockStmt, env: &EvalEnv) -> Result<EvalValue> {
+    let block_env = EvalEnv::new_enclosed(env);
     let mut result = UNIT;
     for stmt in &block.statements {
         result = eval(MaatAst::Stmt(stmt.clone()), &block_env)?;
-        // Propagate control flow signals up to the enclosing loop or function.
         if matches!(
             result,
-            Value::ReturnValue(_) | Value::Break(_) | Value::Continue
+            EvalValue::ReturnValue(_) | EvalValue::Break(_) | EvalValue::Continue
         ) {
             return Ok(result);
         }
@@ -184,7 +196,7 @@ pub fn eval_block_statement(block: &BlockStmt, env: &Env) -> Result<Value> {
     Ok(result)
 }
 
-fn eval_loop_statement(stmt: LoopStmt, env: &Env) -> Result<Value> {
+fn eval_loop_statement(stmt: LoopStmt, env: &EvalEnv) -> Result<EvalValue> {
     let bound = stmt.bound;
     let mut counter = 0u64;
     loop {
@@ -193,9 +205,9 @@ fn eval_loop_statement(stmt: LoopStmt, env: &Env) -> Result<Value> {
         }
         let result = eval_block_statement(&stmt.body, env)?;
         match result {
-            Value::Break(val) => return Ok(*val),
-            Value::ReturnValue(_) => return Ok(result),
-            Value::Continue => {
+            EvalValue::Break(val) => return Ok(*val),
+            EvalValue::ReturnValue(_) => return Ok(result),
+            EvalValue::Continue => {
                 counter += 1;
                 continue;
             }
@@ -205,7 +217,7 @@ fn eval_loop_statement(stmt: LoopStmt, env: &Env) -> Result<Value> {
     }
 }
 
-fn eval_while_statement(stmt: WhileStmt, env: &Env) -> Result<Value> {
+fn eval_while_statement(stmt: WhileStmt, env: &EvalEnv) -> Result<EvalValue> {
     let bound = stmt.bound;
     let mut counter = 0u64;
     loop {
@@ -218,9 +230,9 @@ fn eval_while_statement(stmt: WhileStmt, env: &Env) -> Result<Value> {
         }
         let result = eval_block_statement(&stmt.body, env)?;
         match result {
-            Value::Break(val) => return Ok(*val),
-            Value::ReturnValue(_) => return Ok(result),
-            Value::Continue => {
+            EvalValue::Break(val) => return Ok(*val),
+            EvalValue::ReturnValue(_) => return Ok(result),
+            EvalValue::Continue => {
                 counter += 1;
                 continue;
             }
@@ -231,10 +243,10 @@ fn eval_while_statement(stmt: WhileStmt, env: &Env) -> Result<Value> {
     Ok(UNIT)
 }
 
-fn eval_for_statement(stmt: ForStmt, env: &Env) -> Result<Value> {
+fn eval_for_statement(stmt: ForStmt, env: &EvalEnv) -> Result<EvalValue> {
     let iterable = eval(MaatAst::Expr(*stmt.iterable), env)?;
     let elements = match iterable {
-        Value::VectorLit(elems) | Value::Array(elems) => elems,
+        EvalValue::Vector(elems) | EvalValue::Array(elems) => elems,
         other => {
             return Err(EvalError::Ident(format!(
                 "for..in requires a vector or array, got {}",
@@ -243,43 +255,38 @@ fn eval_for_statement(stmt: ForStmt, env: &Env) -> Result<Value> {
             .into());
         }
     };
-    let loop_env = Env::new_enclosed(env);
+    let loop_env = EvalEnv::new_enclosed(env);
     for elem in elements {
         loop_env.set(stmt.ident.clone(), &elem);
         let result = eval_block_statement(&stmt.body, &loop_env)?;
         match result {
-            Value::Break(val) => return Ok(*val),
-            Value::ReturnValue(_) => return Ok(result),
-            Value::Continue => continue,
+            EvalValue::Break(val) => return Ok(*val),
+            EvalValue::ReturnValue(_) => return Ok(result),
+            EvalValue::Continue => continue,
             _ => {}
         }
     }
     Ok(UNIT)
 }
 
-/// Evaluates an expression in the given environment.
-///
-/// This is a convenience wrapper around `eval` for macro system use.
-fn eval_expression(expr: &Expr, env: &Env) -> Result<Value> {
+fn eval_expression(expr: &Expr, env: &EvalEnv) -> Result<EvalValue> {
     eval(MaatAst::Expr(expr.clone()), env)
 }
 
-fn eval_expressions(exprs: &[Expr], env: &Env) -> Result<Vec<Value>> {
-    let mut result = Vec::new();
-    for expr in exprs {
-        let evaluated = eval(MaatAst::Expr(expr.to_owned()), env)?;
-        result.push(evaluated);
-    }
-    Ok(result)
+fn eval_expressions(exprs: &[Expr], env: &EvalEnv) -> Result<Vec<EvalValue>> {
+    exprs
+        .iter()
+        .map(|expr| eval(MaatAst::Expr(expr.to_owned()), env))
+        .collect()
 }
 
-fn eval_index_expression(idx_expr: IndexExpr, env: &Env) -> Result<Value> {
+fn eval_index_expression(idx_expr: IndexExpr, env: &EvalEnv) -> Result<EvalValue> {
     let expr = eval(MaatAst::Expr(*idx_expr.expr), env)?;
     let expr_type = expr.type_name();
     let index = eval(MaatAst::Expr(*idx_expr.index), env)?;
 
     match expr {
-        Value::VectorLit(arr) | Value::Array(arr) => {
+        EvalValue::Vector(arr) | EvalValue::Array(arr) => {
             if index.is_integer() {
                 match index.to_vector_index() {
                     Some(idx) if idx < arr.len() => Ok(arr[idx].clone()),
@@ -293,7 +300,7 @@ fn eval_index_expression(idx_expr: IndexExpr, env: &Env) -> Result<Value> {
                 .into())
             }
         }
-        Value::Map(map) => {
+        EvalValue::Map(map) => {
             let key_hash = Hashable::try_from(index)?;
             Ok(map.pairs.get(&key_hash).cloned().unwrap_or(UNIT))
         }
@@ -303,7 +310,7 @@ fn eval_index_expression(idx_expr: IndexExpr, env: &Env) -> Result<Value> {
     }
 }
 
-fn eval_map_literal(expr: MapLit, env: &Env) -> Result<Value> {
+fn eval_map_literal(expr: MapLit, env: &EvalEnv) -> Result<EvalValue> {
     let mut pairs = IndexMap::new();
     for (key_expr, val_expr) in &expr.pairs {
         let key = eval(MaatAst::Expr(key_expr.clone()), env)?;
@@ -311,10 +318,10 @@ fn eval_map_literal(expr: MapLit, env: &Env) -> Result<Value> {
         let value = eval(MaatAst::Expr(val_expr.clone()), env)?;
         pairs.insert(key, value);
     }
-    Ok(Value::Map(Map { pairs }))
+    Ok(EvalValue::Map(EvalMap { pairs }))
 }
 
-fn eval_prefix_expression(expr: PrefixExpr, env: &Env) -> Result<Value> {
+fn eval_prefix_expression(expr: PrefixExpr, env: &EvalEnv) -> Result<EvalValue> {
     let operand = eval(MaatAst::Expr(*expr.operand), env)?;
     let op = &expr.operator;
 
@@ -324,9 +331,9 @@ fn eval_prefix_expression(expr: PrefixExpr, env: &Env) -> Result<Value> {
             _ => Ok(FALSE),
         },
         "-" => match operand {
-            Value::Integer(v) => v
+            EvalValue::Integer(v) => v
                 .checked_neg()
-                .map(Value::Integer)
+                .map(EvalValue::Integer)
                 .ok_or_else(|| EvalError::PrefixExpr(format!("negation overflow: -{v}")).into()),
             _ => Err(
                 EvalError::PrefixExpr(format!("{} cannot be negated", operand.type_name())).into(),
@@ -338,9 +345,9 @@ fn eval_prefix_expression(expr: PrefixExpr, env: &Env) -> Result<Value> {
     }
 }
 
-fn eval_logical_expression(expr: InfixExpr, env: &Env) -> Result<Value> {
+fn eval_logical_expression(expr: InfixExpr, env: &EvalEnv) -> Result<EvalValue> {
     let lhs = eval(MaatAst::Expr(*expr.lhs), env)?;
-    let Value::Bool(left_val) = &lhs else {
+    let EvalValue::Bool(left_val) = &lhs else {
         return Err(EvalError::InfixExpr(format!(
             "expected bool in `{}` expression, got `{lhs}`",
             expr.operator
@@ -350,13 +357,13 @@ fn eval_logical_expression(expr: InfixExpr, env: &Env) -> Result<Value> {
     match expr.operator.as_str() {
         "&&" => {
             if !left_val {
-                return Ok(Value::Bool(false));
+                return Ok(EvalValue::Bool(false));
             }
             eval(MaatAst::Expr(*expr.rhs), env)
         }
         "||" => {
             if *left_val {
-                return Ok(Value::Bool(true));
+                return Ok(EvalValue::Bool(true));
             }
             eval(MaatAst::Expr(*expr.rhs), env)
         }
@@ -364,13 +371,13 @@ fn eval_logical_expression(expr: InfixExpr, env: &Env) -> Result<Value> {
     }
 }
 
-fn eval_infix_expression(expr: InfixExpr, env: &Env) -> Result<Value> {
+fn eval_infix_expression(expr: InfixExpr, env: &EvalEnv) -> Result<EvalValue> {
     let lhs = eval(MaatAst::Expr(*expr.lhs), env)?;
     let rhs = eval(MaatAst::Expr(*expr.rhs), env)?;
     let op = &expr.operator;
 
     match (&lhs, &rhs) {
-        (Value::Integer(l), Value::Integer(r)) => {
+        (EvalValue::Integer(l), EvalValue::Integer(r)) => {
             let result = match op.as_str() {
                 "+" => l.checked_add(*r).ok_or_else(|| {
                     EvalError::Number(format!(
@@ -408,7 +415,7 @@ fn eval_infix_expression(expr: InfixExpr, env: &Env) -> Result<Value> {
                             r.type_name()
                         ))
                     })?;
-                    return Ok(Value::Bool(ordering.is_lt()));
+                    return Ok(EvalValue::Bool(ordering.is_lt()));
                 }
                 ">" => {
                     let ordering = l.partial_cmp(r).ok_or_else(|| {
@@ -418,7 +425,7 @@ fn eval_infix_expression(expr: InfixExpr, env: &Env) -> Result<Value> {
                             r.type_name()
                         ))
                     })?;
-                    return Ok(Value::Bool(ordering.is_gt()));
+                    return Ok(EvalValue::Bool(ordering.is_gt()));
                 }
                 "<=" => {
                     let ordering = l.partial_cmp(r).ok_or_else(|| {
@@ -428,7 +435,7 @@ fn eval_infix_expression(expr: InfixExpr, env: &Env) -> Result<Value> {
                             r.type_name()
                         ))
                     })?;
-                    return Ok(Value::Bool(ordering.is_le()));
+                    return Ok(EvalValue::Bool(ordering.is_le()));
                 }
                 ">=" => {
                     let ordering = l.partial_cmp(r).ok_or_else(|| {
@@ -438,7 +445,7 @@ fn eval_infix_expression(expr: InfixExpr, env: &Env) -> Result<Value> {
                             r.type_name()
                         ))
                     })?;
-                    return Ok(Value::Bool(ordering.is_ge()));
+                    return Ok(EvalValue::Bool(ordering.is_ge()));
                 }
                 "==" => {
                     let ordering = l.partial_cmp(r).ok_or_else(|| {
@@ -448,7 +455,7 @@ fn eval_infix_expression(expr: InfixExpr, env: &Env) -> Result<Value> {
                             r.type_name()
                         ))
                     })?;
-                    return Ok(Value::Bool(ordering.is_eq()));
+                    return Ok(EvalValue::Bool(ordering.is_eq()));
                 }
                 "!=" => {
                     let ordering = l.partial_cmp(r).ok_or_else(|| {
@@ -458,7 +465,7 @@ fn eval_infix_expression(expr: InfixExpr, env: &Env) -> Result<Value> {
                             r.type_name()
                         ))
                     })?;
-                    return Ok(Value::Bool(!ordering.is_eq()));
+                    return Ok(EvalValue::Bool(!ordering.is_eq()));
                 }
                 _ => {
                     return Err(EvalError::Number(format!(
@@ -467,27 +474,27 @@ fn eval_infix_expression(expr: InfixExpr, env: &Env) -> Result<Value> {
                     .into());
                 }
             };
-            Ok(Value::Integer(result))
+            Ok(EvalValue::Integer(result))
         }
-        (Value::Felt(l), Value::Felt(r)) => eval_infix_felt(op, *l, *r),
-        (Value::Bool(l), Value::Bool(r)) => eval_infix_bool(op, *l, *r),
-        (Value::Str(l), Value::Str(r)) => eval_infix_string(op, l, r),
+        (EvalValue::Felt(l), EvalValue::Felt(r)) => eval_infix_felt(op, *l, *r),
+        (EvalValue::Bool(l), EvalValue::Bool(r)) => eval_infix_bool(op, *l, *r),
+        (EvalValue::Str(l), EvalValue::Str(r)) => eval_infix_string(op, l, r),
         _ => Err(
             EvalError::InfixExpr(format!("invalid infix expression: `{lhs} {op} {rhs}`")).into(),
         ),
     }
 }
 
-fn eval_infix_felt(op: &str, lhs: Felt, rhs: Felt) -> Result<Value> {
+fn eval_infix_felt(op: &str, lhs: Felt, rhs: Felt) -> Result<EvalValue> {
     match op {
-        "+" => Ok(Value::Felt(lhs + rhs)),
-        "-" => Ok(Value::Felt(lhs - rhs)),
-        "*" => Ok(Value::Felt(lhs * rhs)),
+        "+" => Ok(EvalValue::Felt(lhs + rhs)),
+        "-" => Ok(EvalValue::Felt(lhs - rhs)),
+        "*" => Ok(EvalValue::Felt(lhs * rhs)),
         "/" => try_div(lhs, rhs)
-            .map(Value::Felt)
+            .map(EvalValue::Felt)
             .map_err(|e| EvalError::Number(format!("Felt division error: {e}")).into()),
-        "==" => Ok(Value::Bool(lhs == rhs)),
-        "!=" => Ok(Value::Bool(lhs != rhs)),
+        "==" => Ok(EvalValue::Bool(lhs == rhs)),
+        "!=" => Ok(EvalValue::Bool(lhs != rhs)),
         _ => Err(EvalError::Number(format!(
             "operator `{op}` is not defined on Felt; field elements are unordered"
         ))
@@ -495,28 +502,28 @@ fn eval_infix_felt(op: &str, lhs: Felt, rhs: Felt) -> Result<Value> {
     }
 }
 
-fn eval_infix_bool(op: &str, lhs: bool, rhs: bool) -> Result<Value> {
+fn eval_infix_bool(op: &str, lhs: bool, rhs: bool) -> Result<EvalValue> {
     match op {
-        "==" => Ok(Value::Bool(lhs == rhs)),
-        "!=" => Ok(Value::Bool(lhs != rhs)),
-        "&&" => Ok(Value::Bool(lhs && rhs)),
-        "||" => Ok(Value::Bool(lhs || rhs)),
+        "==" => Ok(EvalValue::Bool(lhs == rhs)),
+        "!=" => Ok(EvalValue::Bool(lhs != rhs)),
+        "&&" => Ok(EvalValue::Bool(lhs && rhs)),
+        "||" => Ok(EvalValue::Bool(lhs || rhs)),
         _ => {
             Err(EvalError::Boolean(format!("invalid boolean operation: `{lhs} {op} {rhs}`")).into())
         }
     }
 }
 
-fn eval_infix_string(op: &str, lhs: &str, rhs: &str) -> Result<Value> {
+fn eval_infix_string(op: &str, lhs: &str, rhs: &str) -> Result<EvalValue> {
     if op != "+" {
         return Err(
             EvalError::InfixExpr(format!("invalid concat operation: `{lhs} {op} {rhs}`")).into(),
         );
     }
-    Ok(Value::Str(format!("{lhs}{rhs}")))
+    Ok(EvalValue::Str(format!("{lhs}{rhs}")))
 }
 
-fn eval_conditional_expression(expr: CondExpr, env: &Env) -> Result<Value> {
+fn eval_conditional_expression(expr: CondExpr, env: &EvalEnv) -> Result<EvalValue> {
     let condition = eval(MaatAst::Expr(*expr.condition), env)?;
     if condition.is_truthy() {
         eval(MaatAst::Stmt(Stmt::Block(expr.consequence)), env)
@@ -527,41 +534,41 @@ fn eval_conditional_expression(expr: CondExpr, env: &Env) -> Result<Value> {
     }
 }
 
-fn eval_identifier(ident: String, env: &Env) -> Result<Value> {
+fn eval_identifier(ident: String, env: &EvalEnv) -> Result<EvalValue> {
     match env.get(&ident) {
-        Some(val) => Ok(val.clone()),
+        Some(val) => Ok(val),
         None => match get_builtin(&ident) {
-            Some(func) => Ok(Value::Builtin(func)),
+            Some(func) => Ok(EvalValue::Builtin(func)),
             None => Err(EvalError::Ident(format!("unknown identifier: {ident}")).into()),
         },
     }
 }
 
-fn eval_function_call(expr: CallExpr, env: &Env) -> Result<Value> {
+fn eval_function_call(expr: CallExpr, env: &EvalEnv) -> Result<EvalValue> {
     let value = eval(MaatAst::Expr(*expr.function), env)?;
     let expressions = eval_expressions(&expr.arguments, env)?;
 
     match value {
-        Value::Function(func) => {
-            let env = Env::new_enclosed(&func.env);
+        EvalValue::Function(func) => {
+            let env = EvalEnv::new_enclosed(&func.env);
             func.params.iter().enumerate().for_each(|(i, param)| {
                 env.set(param.to_owned(), &expressions[i]);
             });
             let evaluated = eval(MaatAst::Stmt(Stmt::Block(func.body)), &env)?;
             match evaluated {
-                Value::ReturnValue(val) => Ok(*val),
-                Value::Break(_) | Value::Continue => {
+                EvalValue::ReturnValue(val) => Ok(*val),
+                EvalValue::Break(_) | EvalValue::Continue => {
                     Err(EvalError::Ident("break/continue outside of a loop".to_string()).into())
                 }
                 other => Ok(other),
             }
         }
-        Value::Builtin(builtin_fn) => builtin_fn(&expressions),
+        EvalValue::Builtin(builtin_fn) => call_builtin(builtin_fn, &expressions),
         val => Err(EvalError::NotAFunction(format!("expected {val} to be a function")).into()),
     }
 }
 
-fn eval_unquote_calls(quoted: MaatAst, env: &Env) -> MaatAst {
+fn eval_unquote_calls(quoted: MaatAst, env: &EvalEnv) -> MaatAst {
     transform(quoted, &mut |node| {
         if !is_unquote_call(&node) {
             return node;
@@ -574,7 +581,7 @@ fn eval_unquote_calls(quoted: MaatAst, env: &Env) -> MaatAst {
                 Ok(val) => val,
                 Err(_) => return node,
             };
-            match Value::to_ast_node(&unquoted) {
+            match EvalValue::to_ast_node(&unquoted) {
                 Some(ast_node) => ast_node,
                 None => node,
             }
@@ -584,18 +591,18 @@ fn eval_unquote_calls(quoted: MaatAst, env: &Env) -> MaatAst {
     })
 }
 
-fn eval_cast_expression(expr: CastExpr, env: &Env) -> Result<Value> {
+fn eval_cast_expression(expr: CastExpr, env: &EvalEnv) -> Result<EvalValue> {
     let value = eval(MaatAst::Expr(*expr.expr), env)?;
     let target = expr.target;
 
     match target {
         CastTarget::Char => match value {
-            Value::Integer(val) => {
+            EvalValue::Integer(val) => {
                 let scalar = match val.to_wide() {
                     WideInt::Signed(v) => u32::try_from(v).ok().and_then(char::from_u32),
                     WideInt::Unsigned(v) => u32::try_from(v).ok().and_then(char::from_u32),
                 };
-                scalar.map(Value::Char).ok_or_else(|| {
+                scalar.map(EvalValue::Char).ok_or_else(|| {
                     EvalError::Number(format!("value {val} is not a valid Unicode scalar value",))
                         .into()
                 })
@@ -606,16 +613,16 @@ fn eval_cast_expression(expr: CastExpr, env: &Env) -> Result<Value> {
         },
         CastTarget::Num(NumKind::Fe) => cast_to_felt(value),
         CastTarget::Num(num_kind) => match value {
-            Value::Char(ch) => {
+            EvalValue::Char(ch) => {
                 Integer::from_wide(WideInt::Unsigned(u128::from(ch as u32)), num_kind)
-                    .map(Value::Integer)
+                    .map(EvalValue::Integer)
                     .map_err(|e| EvalError::Number(e).into())
             }
-            Value::Integer(val) => val
+            EvalValue::Integer(val) => val
                 .cast_to(num_kind)
-                .map(Value::Integer)
+                .map(EvalValue::Integer)
                 .map_err(|e| EvalError::Number(e).into()),
-            Value::Felt(_) => Err(EvalError::Number(format!(
+            EvalValue::Felt(_) => Err(EvalError::Number(format!(
                 "cannot cast Felt to {}; field elements are non-narrowing",
                 num_kind.as_str(),
             ))
@@ -630,22 +637,22 @@ fn eval_cast_expression(expr: CastExpr, env: &Env) -> Result<Value> {
     }
 }
 
-fn cast_to_felt(value: Value) -> Result<Value> {
+fn cast_to_felt(value: EvalValue) -> Result<EvalValue> {
     use maat_runtime::Integer as I;
 
     let felt = match value {
-        Value::Felt(f) => return Ok(Value::Felt(f)),
-        Value::Integer(I::I8(v)) => from_i64(v as i64),
-        Value::Integer(I::I16(v)) => from_i64(v as i64),
-        Value::Integer(I::I32(v)) => from_i64(v as i64),
-        Value::Integer(I::I64(v)) => from_i64(v),
-        Value::Integer(I::Isize(v)) => from_i64(v as i64),
-        Value::Integer(I::U8(v)) => Felt::new(u64::from(v)),
-        Value::Integer(I::U16(v)) => Felt::new(u64::from(v)),
-        Value::Integer(I::U32(v)) => Felt::new(u64::from(v)),
-        Value::Integer(I::U64(v)) => Felt::new(v),
-        Value::Integer(I::Usize(v)) => Felt::new(v as u64),
-        Value::Integer(I::I128(_)) | Value::Integer(I::U128(_)) => {
+        EvalValue::Felt(f) => return Ok(EvalValue::Felt(f)),
+        EvalValue::Integer(I::I8(v)) => from_i64(v as i64),
+        EvalValue::Integer(I::I16(v)) => from_i64(v as i64),
+        EvalValue::Integer(I::I32(v)) => from_i64(v as i64),
+        EvalValue::Integer(I::I64(v)) => from_i64(v),
+        EvalValue::Integer(I::Isize(v)) => from_i64(v as i64),
+        EvalValue::Integer(I::U8(v)) => Felt::new(u64::from(v)),
+        EvalValue::Integer(I::U16(v)) => Felt::new(u64::from(v)),
+        EvalValue::Integer(I::U32(v)) => Felt::new(u64::from(v)),
+        EvalValue::Integer(I::U64(v)) => Felt::new(v),
+        EvalValue::Integer(I::Usize(v)) => Felt::new(v as u64),
+        EvalValue::Integer(I::I128(_)) | EvalValue::Integer(I::U128(_)) => {
             return Err(EvalError::Number(
                 "cannot cast 128-bit integer to Felt; use explicit `Felt::new`".to_string(),
             )
@@ -657,10 +664,9 @@ fn cast_to_felt(value: Value) -> Result<Value> {
             );
         }
     };
-    Ok(Value::Felt(felt))
+    Ok(EvalValue::Felt(felt))
 }
 
-/// Checks if a node is a call to the `unquote` builtin.
 fn is_unquote_call(node: &MaatAst) -> bool {
     if let MaatAst::Expr(Expr::Call(call)) = node
         && let Expr::Ident(ident) = &*call.function
@@ -668,4 +674,46 @@ fn is_unquote_call(node: &MaatAst) -> bool {
         return ident.value == UNQUOTE;
     }
     false
+}
+
+/// Bridges an [`EvalValue`]-shaped argument list into the
+/// [`BuiltinArg`]-shaped slice that builtins consume.
+fn call_builtin(func: BuiltinFn, args: &[EvalValue]) -> Result<EvalValue> {
+    let mut base_vecs: Vec<Vec<Value>> = Vec::with_capacity(args.len());
+    let mut base_maps: Vec<Map> = Vec::with_capacity(args.len());
+    let mut base_sets: Vec<Set> = Vec::with_capacity(args.len());
+
+    for arg in args {
+        let (vb, mb, sb) = match arg {
+            EvalValue::Vector(items) | EvalValue::Tuple(items) | EvalValue::Array(items) => {
+                let projected = items.iter().cloned().map(eval_value_to_value).collect();
+                (projected, Map::default(), Set::default())
+            }
+            EvalValue::Map(m) => {
+                let pairs = m
+                    .pairs
+                    .iter()
+                    .map(|(k, v)| (k.clone(), eval_value_to_value(v.clone())))
+                    .collect();
+                (Vec::new(), Map { pairs }, Set::default())
+            }
+            EvalValue::Set(s) => (Vec::new(), Map::default(), Set(s.0.clone())),
+            _ => (Vec::new(), Map::default(), Set::default()),
+        };
+        base_vecs.push(vb);
+        base_maps.push(mb);
+        base_sets.push(sb);
+    }
+
+    let args_view: Vec<BuiltinArg<'_>> = args
+        .iter()
+        .enumerate()
+        .map(|(i, arg)| eval_value_to_builtin_arg(arg, &base_vecs[i], &base_maps[i], &base_sets[i]))
+        .collect();
+    let ret = func(&args_view)?;
+    drop(args_view);
+    drop(base_vecs);
+    drop(base_maps);
+    drop(base_sets);
+    Ok(return_to_eval_value(ret))
 }

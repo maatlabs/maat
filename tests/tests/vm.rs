@@ -118,29 +118,25 @@ fn run_vm_test(input: &str, expected: TestValue) {
             _ => panic!("expected string, got: {:?}", stack_elem),
         },
         TestValue::IntVector(expected_vals) => {
-            let materialized = vm
-                .materialize_for_inspection(&stack_elem)
-                .expect("vector materialization for assertion failed");
-            match materialized {
-                Value::VectorLit(elements) => {
-                    assert_eq!(
-                        elements.len(),
-                        expected_vals.len(),
-                        "wrong vector length for input: {input}"
-                    );
-                    for (i, expected_elem) in expected_vals.iter().enumerate() {
-                        match &elements[i] {
-                            Value::Integer(Integer::I64(val)) => assert_eq!(
-                                *val, *expected_elem,
-                                "wrong vector element at index {i} for input: {input}"
-                            ),
-                            other => {
-                                panic!("expected integer in vector at index {i}, got: {:?}", other)
-                            }
-                        }
+            let elements = vm
+                .inspect_vector(&stack_elem)
+                .expect("vector inspection for assertion failed")
+                .expect("expected vector, got non-vector value");
+            assert_eq!(
+                elements.len(),
+                expected_vals.len(),
+                "wrong vector length for input: {input}"
+            );
+            for (i, expected_elem) in expected_vals.iter().enumerate() {
+                match &elements[i] {
+                    Value::Integer(Integer::I64(val)) => assert_eq!(
+                        *val, *expected_elem,
+                        "wrong vector element at index {i} for input: {input}"
+                    ),
+                    other => {
+                        panic!("expected integer in vector at index {i}, got: {:?}", other)
                     }
                 }
-                _ => panic!("expected vector, got: {:?}", materialized),
             }
         }
         TestValue::Map(expected_pairs) => match &stack_elem {

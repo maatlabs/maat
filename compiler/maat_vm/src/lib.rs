@@ -12,12 +12,13 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use indexmap::IndexMap;
-use maat_bytecode::{Bytecode, MAX_FRAMES, MAX_GLOBALS, MAX_STACK_SIZE, Opcode, TypeTag};
+use maat_bytecode::{Bytecode, Constant, MAX_FRAMES, MAX_GLOBALS, MAX_STACK_SIZE, Opcode, TypeTag};
 use maat_errors::{Result, VmError};
 use maat_field::{Felt, FieldElement, from_i64, try_inv};
 use maat_runtime::{
-    BUILTINS, Closure, CompiledFn, EnumVariantVal, FALSE, Hashable, Integer, Map, MaybeRelocatable,
-    MemorySegmentManager, Relocatable, StructVal, TRUE, TypeDef, UNIT, Value, WideInt,
+    BUILTINS, BuiltinArg, BuiltinFn, BuiltinReturn, Closure, CompiledFn, EnumVariantVal, FALSE,
+    Hashable, Integer, Map, MaybeRelocatable, MemorySegmentManager, Relocatable, Set, StructVal,
+    TRUE, TypeDef, UNIT, Value, WideInt,
 };
 use maat_span::{SourceMap, Span};
 
@@ -50,7 +51,7 @@ impl Frame {
 
 #[derive(Debug)]
 pub struct VM {
-    constants: Vec<Value>,
+    constants: Vec<Constant>,
     stack: Vec<Value>,
     sp: usize,
     globals: Vec<Value>,
@@ -113,16 +114,23 @@ impl VM {
     }
 
     /// Reads the elements of a segment-backed `Value::Vector { base, len }`
-    /// out of the heap and returns the legacy `Value::VectorLit(Vec<Value>)`
-    /// form. For non-Vector values, returns the value unchanged.
-    ///
-    /// Intended for tests and external tooling that need to inspect vector
-    /// contents without dealing with the segment manager directly. The user
-    /// stack only holds segment-backed Vectors at runtime; this helper is the
-    /// inverse of the materialize-on-return shim used internally when bridging
-    /// segment-backed values to legacy builtins.
+    /// out of the heap and returns them as a `Vec<Value>`. Returns `None`
+    /// for non-Vector values.
+    pub fn inspect_vector(&self, value: &Value) -> Result<Option<Vec<Value>>> {
+        match value {
+            Value::Vector { base, len } => self.read_vector_cells(*base, *len).map(Some),
+            _ => Ok(None),
+        }
+    }
+
     pub fn materialize_for_inspection(&self, value: &Value) -> Result<Value> {
-        self.materialize_vector_seg(value)
+        match value {
+            Value::Vector { base, len } => {
+                let cells = self.read_vector_cells(*base, *len)?;
+                Ok(Value::Array(cells))
+            }
+            other => Ok(other.clone()),
+        }
     }
 
     pub fn run(&mut self) -> Result<()> {
@@ -190,14 +198,14 @@ impl VM {
             Opcode::Constant => {
                 let index = self.read_u16_operand(ip + 1)?;
                 self.current_frame_mut()?.ip += 2;
-                let constant = self.constants.get(index).cloned().ok_or_else(|| {
+                let entry = self.constants.get(index).cloned().ok_or_else(|| {
                     self.vm_error(format!(
                         "constant pool access out of bounds at index {index}"
                     ))
                 })?;
-                let constant = self.materialize_for_runtime(constant, recorder)?;
-                recorder.record_out(constant.to_maybe_relocatable());
-                self.push_stack(constant)?;
+                let value = self.materialize_constant(entry, recorder)?;
+                recorder.record_out(value.to_maybe_relocatable());
+                self.push_stack(value)?;
             }
             Opcode::Pop => {
                 self.pop_stack()?;
@@ -340,7 +348,7 @@ impl VM {
                 let num_free = self.read_u8_operand(ip + 3)?;
                 self.current_frame_mut()?.ip += 3;
                 let func = match self.constants.get(const_index) {
-                    Some(Value::CompiledFn(f)) => f.clone(),
+                    Some(Constant::CompiledFn(f)) => f.clone(),
                     _ => {
                         return Err(self.vm_error(format!(
                             "expected CompiledFn at constant pool index {const_index}"
@@ -690,91 +698,166 @@ impl VM {
 
     fn call_builtin_fn<R: Tracer>(
         &mut self,
-        func: fn(&[Value]) -> Result<Value>,
+        func: BuiltinFn,
         num_args: usize,
         recorder: &mut R,
     ) -> Result<()> {
         let args_start = self.sp - num_args;
-        let raw_args = &self.stack[args_start..self.sp];
-        let args: Vec<Value> = raw_args
+        let raw_args: Vec<Value> = self.stack[args_start..self.sp].to_vec();
+
+        let base_vals: Vec<Vec<Value>> = raw_args
             .iter()
-            .map(|v| self.materialize_vector_seg(v))
+            .map(|v| match v {
+                Value::Vector { base, len } => self.read_vector_cells(*base, *len),
+                _ => Ok(Vec::new()),
+            })
             .collect::<Result<_>>()?;
-        let result = func(&args)?;
-        let result = self.materialize_for_runtime(result, recorder)?;
+
+        let args: Vec<BuiltinArg<'_>> = raw_args
+            .iter()
+            .zip(base_vals.iter())
+            .map(|(v, b)| Self::value_to_builtin_arg(v, b))
+            .collect();
+
+        let ret = func(&args)?;
+        drop(args);
+        drop(base_vals);
+        drop(raw_args);
+
+        let value = self.segment_allocate_return(ret, recorder)?;
 
         self.sp = args_start - 1;
-        self.push_stack(result)?;
+        self.push_stack(value)?;
         recorder.record_call_builtin();
         Ok(())
     }
 
-    /// Walks a value tree and converts every `Value::VectorLit(Vec<Value>)`
-    /// (including nested instances inside `Tuple`, `Array`, `Map`, `Set`,
-    /// `Struct`, `EnumVariant`, `Closure`, `ReturnValue`, `Break`) into a
-    /// segment-backed `Value::Vector { base, len }`.
-    fn materialize_for_runtime<R: Tracer>(
+    fn value_to_builtin_arg<'a>(value: &'a Value, base_vals: &'a [Value]) -> BuiltinArg<'a> {
+        match value {
+            Value::Unit => BuiltinArg::Unit,
+            Value::Integer(i) => BuiltinArg::Integer(*i),
+            Value::Felt(f) => BuiltinArg::Felt(*f),
+            Value::Bool(b) => BuiltinArg::Bool(*b),
+            Value::Char(c) => BuiltinArg::Char(*c),
+            Value::Str(s) => BuiltinArg::Str(s.as_str()),
+            Value::Tuple(t) => BuiltinArg::Tuple(t.as_slice()),
+            Value::Array(a) => BuiltinArg::Array(a.as_slice()),
+            Value::Map(m) => BuiltinArg::Map(m),
+            Value::Builtin(f) => BuiltinArg::Builtin(*f),
+            Value::CompiledFn(f) => BuiltinArg::CompiledFn(f),
+            Value::Closure(c) => BuiltinArg::Closure(c),
+            Value::Struct(s) => BuiltinArg::Struct(s),
+            Value::EnumVariant(ev) => BuiltinArg::EnumVariant(ev),
+            Value::Set(s) => BuiltinArg::Set(s),
+            Value::Range(s, e) => BuiltinArg::Range(*s, *e),
+            Value::RangeInclusive(s, e) => BuiltinArg::RangeInclusive(*s, *e),
+            Value::Relocatable(r) => BuiltinArg::Relocatable(*r),
+            Value::Vector { .. } => BuiltinArg::Vector(base_vals),
+        }
+    }
+
+    /// Recursively converts a [`BuiltinReturn`] tree into a runtime [`Value`].
+    fn segment_allocate_return<R: Tracer>(
         &mut self,
-        value: Value,
+        ret: BuiltinReturn,
         recorder: &mut R,
     ) -> Result<Value> {
-        match value {
-            Value::VectorLit(elements) => {
-                let materialized = elements
+        match ret {
+            BuiltinReturn::Value(v) => Ok(v),
+            BuiltinReturn::Str(s) => Ok(Value::Str(s)),
+            BuiltinReturn::Vector(entries) => {
+                let values = entries
                     .into_iter()
-                    .map(|e| self.materialize_for_runtime(e, recorder))
+                    .map(|e| self.segment_allocate_return(e, recorder))
                     .collect::<Result<Vec<_>>>()?;
-                self.allocate_vector_segment(materialized, recorder)
+                self.allocate_vector_segment(values, recorder)
             }
-            Value::Tuple(elements) => {
-                let materialized = elements
+        }
+    }
+
+    fn read_vector_cells(&self, base: Relocatable, len: u32) -> Result<Vec<Value>> {
+        let mut cells = Vec::with_capacity(len as usize);
+        for off in 0..len {
+            let addr = Relocatable::new(base.segment_index, off);
+            let cell = self.heap_values.get(&addr).cloned().ok_or_else(|| {
+                self.vm_error(format!(
+                    "Vector materialization: cell {addr} is unallocated"
+                ))
+            })?;
+            cells.push(cell);
+        }
+        Ok(cells)
+    }
+
+    /// Materializes a [`Constant`] into a runtime [`Value`].
+    fn materialize_constant<R: Tracer>(
+        &mut self,
+        entry: Constant,
+        recorder: &mut R,
+    ) -> Result<Value> {
+        match entry {
+            Constant::Unit => Ok(Value::Unit),
+            Constant::Integer(i) => Ok(Value::Integer(i)),
+            Constant::Felt(f) => Ok(Value::Felt(Felt::new(f))),
+            Constant::Bool(b) => Ok(Value::Bool(b)),
+            Constant::Char(c) => Ok(Value::Char(c)),
+            Constant::Str(s) => Ok(Value::Str(s)),
+            Constant::Tuple(entries) => {
+                let values = entries
                     .into_iter()
-                    .map(|e| self.materialize_for_runtime(e, recorder))
-                    .collect::<Result<Vec<_>>>()?;
-                Ok(Value::Tuple(materialized))
+                    .map(|e| self.materialize_constant(e, recorder))
+                    .collect::<Result<_>>()?;
+                Ok(Value::Tuple(values))
             }
-            Value::Array(elements) => {
-                let materialized = elements
+            Constant::Vector(entries) => {
+                let values = entries
                     .into_iter()
-                    .map(|e| self.materialize_for_runtime(e, recorder))
+                    .map(|e| self.materialize_constant(e, recorder))
                     .collect::<Result<Vec<_>>>()?;
-                Ok(Value::Array(materialized))
+                self.allocate_vector_segment(values, recorder)
             }
-            Value::Map(mut map) => {
-                let pairs = std::mem::take(&mut map.pairs);
-                let mut materialized = IndexMap::with_capacity(pairs.len());
-                for (k, v) in pairs {
-                    let v = self.materialize_for_runtime(v, recorder)?;
-                    materialized.insert(k, v);
+            Constant::Array(entries) => {
+                let values = entries
+                    .into_iter()
+                    .map(|e| self.materialize_constant(e, recorder))
+                    .collect::<Result<_>>()?;
+                Ok(Value::Array(values))
+            }
+            Constant::Map(map) => {
+                let mut pairs = IndexMap::with_capacity(map.len());
+                for (k, v) in map {
+                    let v = self.materialize_constant(v, recorder)?;
+                    pairs.insert(k, v);
                 }
-                map.pairs = materialized;
-                Ok(Value::Map(map))
+                Ok(Value::Map(Map { pairs }))
             }
-            Value::Struct(mut s) => {
-                let fields = std::mem::take(&mut s.fields);
-                s.fields = fields
+            Constant::Set(set) => Ok(Value::Set(Set(set))),
+            Constant::CompiledFn(f) => Ok(Value::CompiledFn(f)),
+            Constant::Struct { type_index, fields } => {
+                let fields = fields
                     .into_iter()
-                    .map(|e| self.materialize_for_runtime(e, recorder))
-                    .collect::<Result<Vec<_>>>()?;
-                Ok(Value::Struct(s))
+                    .map(|e| self.materialize_constant(e, recorder))
+                    .collect::<Result<_>>()?;
+                Ok(Value::Struct(StructVal { type_index, fields }))
             }
-            Value::EnumVariant(mut ev) => {
-                let fields = std::mem::take(&mut ev.fields);
-                ev.fields = fields
+            Constant::EnumVariant {
+                type_index,
+                tag,
+                fields,
+            } => {
+                let fields = fields
                     .into_iter()
-                    .map(|e| self.materialize_for_runtime(e, recorder))
-                    .collect::<Result<Vec<_>>>()?;
-                Ok(Value::EnumVariant(ev))
+                    .map(|e| self.materialize_constant(e, recorder))
+                    .collect::<Result<_>>()?;
+                Ok(Value::EnumVariant(EnumVariantVal {
+                    type_index,
+                    tag,
+                    fields,
+                }))
             }
-            Value::ReturnValue(inner) => {
-                let inner = self.materialize_for_runtime(*inner, recorder)?;
-                Ok(Value::ReturnValue(Box::new(inner)))
-            }
-            Value::Break(inner) => {
-                let inner = self.materialize_for_runtime(*inner, recorder)?;
-                Ok(Value::Break(Box::new(inner)))
-            }
-            other => Ok(other),
+            Constant::Range(s, e) => Ok(Value::Range(s, e)),
+            Constant::RangeInclusive(s, e) => Ok(Value::RangeInclusive(s, e)),
+            Constant::Relocatable(r) => Ok(Value::Relocatable(r)),
         }
     }
 
@@ -816,26 +899,6 @@ impl VM {
         let elements = self.stack[start..self.sp].to_vec();
         self.sp = start;
         self.allocate_vector_segment(elements, recorder)
-    }
-
-    fn materialize_vector_seg(&self, value: &Value) -> Result<Value> {
-        match value {
-            Value::Vector { base, len } => {
-                let len = *len;
-                let mut elements = Vec::with_capacity(len as usize);
-                for off in 0..len {
-                    let addr = Relocatable::new(base.segment_index, off);
-                    let cell = self.heap_values.get(&addr).cloned().ok_or_else(|| {
-                        self.vm_error(format!(
-                            "Vector materialization: cell {addr} is unallocated"
-                        ))
-                    })?;
-                    elements.push(cell);
-                }
-                Ok(Value::VectorLit(elements))
-            }
-            other => Ok(other.clone()),
-        }
     }
 
     fn current_span(&self) -> Option<Span> {

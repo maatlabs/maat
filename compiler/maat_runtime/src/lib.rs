@@ -6,7 +6,6 @@
 #![forbid(unsafe_code)]
 
 mod builtins;
-mod env;
 mod memory;
 mod num;
 
@@ -14,9 +13,8 @@ use std::fmt;
 use std::rc::Rc;
 
 pub use builtins::{BUILTIN_COUNT, BUILTINS, get_builtin};
-pub use env::Env;
 use indexmap::{IndexMap, IndexSet};
-use maat_ast::{BlockStmt, MaatAst, Number};
+use maat_ast::Number;
 pub use maat_ast::{CastTarget, NumKind};
 use maat_errors::{Error, EvalError, Result};
 use maat_field::{Encodable as _, FieldElement};
@@ -29,7 +27,8 @@ pub use memory::{
 pub use num::{Integer, WideInt};
 use serde::{Deserialize, Serialize};
 
-pub type BuiltinFn = fn(&[Value]) -> Result<Value>;
+/// Builtin function signature.
+pub type BuiltinFn = fn(&[BuiltinArg<'_>]) -> Result<BuiltinReturn>;
 
 pub const TRUE: Value = Value::Bool(true);
 pub const FALSE: Value = Value::Bool(false);
@@ -53,30 +52,10 @@ pub enum Value {
     Str(String),
     /// An ordered, fixed-size collection of heterogeneous values.
     Tuple(Vec<Value>),
-    /// Builtin-marshalling vector form. Carries an inline
-    /// `Vec<Value>` rather than a segment pointer.
-    ///
-    /// The VM never produces this variant on the user
-    /// stack during user-code execution.
-    ///
-    /// The user-facing runtime form is [`Self::Vector`].
-    VectorLit(Vec<Value>),
     /// A fixed-size array of homogeneous values.
     Array(Vec<Value>),
     /// An ordered map of key-value pairs, backed by [`IndexMap`].
     Map(Map),
-    /// A runtime function with parameters, body, and closure environment.
-    Function(Function),
-    /// A macro with parameters, body, and closure environment.
-    Macro(Macro),
-    /// A quoted AST node for metaprogramming.
-    Quote(Box<Quote>),
-    /// Wraps a return value for early function/block termination.
-    ReturnValue(Box<Value>),
-    /// Signals a `break` from a loop, optionally carrying a value.
-    Break(Box<Value>),
-    /// Signals a `continue` to the next loop iteration.
-    Continue,
     /// A builtin function.
     Builtin(BuiltinFn),
     /// A compiled function containing bytecode instructions.
@@ -155,29 +134,6 @@ impl Value {
         }
     }
 
-    pub fn to_ast_node(val: &Self) -> Option<MaatAst> {
-        use maat_ast::*;
-        use maat_span::Span;
-
-        match val {
-            Value::Integer(i) => {
-                let (kind, value) = i.to_ast_literal()?;
-                Some(MaatAst::Expr(Expr::Number(Number {
-                    kind,
-                    value,
-                    radix: Radix::Dec,
-                    span: Span::ZERO,
-                })))
-            }
-            Value::Bool(b) => Some(MaatAst::Expr(Expr::Bool(BoolLit {
-                value: *b,
-                span: Span::ZERO,
-            }))),
-            Value::Quote(q) => Some(q.node.clone()),
-            _ => None,
-        }
-    }
-
     #[inline]
     pub fn is_truthy(&self) -> bool {
         !matches!(self, Value::Bool(false))
@@ -210,15 +166,8 @@ impl Value {
             Self::Char(_) => "char",
             Self::Str(_) => "str",
             Self::Tuple(_) => "tuple",
-            Self::VectorLit(_) => "Vector",
             Self::Array(_) => "Array",
             Self::Map(_) => "Map",
-            Self::Function(_) => "fn",
-            Self::Macro(_) => "macro",
-            Self::Quote(_) => "quote",
-            Self::ReturnValue(_) => "return",
-            Self::Break(_) => "break",
-            Self::Continue => "continue",
             Self::Builtin(_) => "fn",
             Self::CompiledFn(_) => "fn",
             Self::Closure(_) => "fn",
@@ -233,98 +182,6 @@ impl Value {
     }
 }
 
-/// Serialization proxy containing only the [`Value`] variants that can be
-/// represented in the bytecode binary format.
-#[derive(Serialize, Deserialize)]
-enum SerVal {
-    Unit,
-    Integer(Integer),
-    Felt(u64),
-    Bool(bool),
-    Char(char),
-    Str(String),
-    Tuple(Vec<Value>),
-    VectorLit(Vec<Value>),
-    Array(Vec<Value>),
-    Map(Map),
-    CompiledFn(CompiledFn),
-    Closure(Closure),
-    Struct(StructVal),
-    EnumVariant(EnumVariantVal),
-    Set(Set),
-    Range(Integer, Integer),
-    RangeInclusive(Integer, Integer),
-    Relocatable(Relocatable),
-    Vector { base: Relocatable, len: u32 },
-}
-
-impl Serialize for Value {
-    fn serialize<S: serde::Serializer>(
-        &self,
-        serializer: S,
-    ) -> std::result::Result<S::Ok, S::Error> {
-        let val = match self {
-            Self::Unit => SerVal::Unit,
-            Self::Integer(v) => SerVal::Integer(*v),
-            Self::Felt(v) => SerVal::Felt(v.as_int()),
-            Self::Bool(v) => SerVal::Bool(*v),
-            Self::Char(v) => SerVal::Char(*v),
-            Self::Str(v) => SerVal::Str(v.clone()),
-            Self::Tuple(v) => SerVal::Tuple(v.clone()),
-            Self::VectorLit(v) => SerVal::VectorLit(v.clone()),
-            Self::Array(v) => SerVal::Array(v.clone()),
-            Self::Map(v) => SerVal::Map(v.clone()),
-            Self::CompiledFn(v) => SerVal::CompiledFn(v.clone()),
-            Self::Closure(v) => SerVal::Closure(v.clone()),
-            Self::Struct(v) => SerVal::Struct(v.clone()),
-            Self::EnumVariant(v) => SerVal::EnumVariant(v.clone()),
-            Self::Set(v) => SerVal::Set(v.clone()),
-            Self::Range(s, e) => SerVal::Range(*s, *e),
-            Self::RangeInclusive(s, e) => SerVal::RangeInclusive(*s, *e),
-            Self::Relocatable(r) => SerVal::Relocatable(*r),
-            Self::Vector { base, len } => SerVal::Vector {
-                base: *base,
-                len: *len,
-            },
-            other => {
-                return Err(serde::ser::Error::custom(format!(
-                    "non-serializable value: {}",
-                    other.type_name()
-                )));
-            }
-        };
-        val.serialize(serializer)
-    }
-}
-
-impl<'de> Deserialize<'de> for Value {
-    fn deserialize<D: serde::Deserializer<'de>>(
-        deserializer: D,
-    ) -> std::result::Result<Self, D::Error> {
-        SerVal::deserialize(deserializer).map(|val| match val {
-            SerVal::Unit => Self::Unit,
-            SerVal::Integer(v) => Self::Integer(v),
-            SerVal::Felt(v) => Self::Felt(Felt::new(v)),
-            SerVal::Bool(v) => Self::Bool(v),
-            SerVal::Char(v) => Self::Char(v),
-            SerVal::Str(v) => Self::Str(v),
-            SerVal::Tuple(v) => Self::Tuple(v),
-            SerVal::VectorLit(v) => Self::VectorLit(v),
-            SerVal::Array(v) => Self::Array(v),
-            SerVal::Map(v) => Self::Map(v),
-            SerVal::CompiledFn(v) => Self::CompiledFn(v),
-            SerVal::Closure(v) => Self::Closure(v),
-            SerVal::Struct(v) => Self::Struct(v),
-            SerVal::EnumVariant(v) => Self::EnumVariant(v),
-            SerVal::Set(v) => Self::Set(v),
-            SerVal::Range(s, e) => Self::Range(s, e),
-            SerVal::RangeInclusive(s, e) => Self::RangeInclusive(s, e),
-            SerVal::Relocatable(r) => Self::Relocatable(r),
-            SerVal::Vector { base, len } => Self::Vector { base, len },
-        })
-    }
-}
-
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         use Value::*;
@@ -336,15 +193,8 @@ impl PartialEq for Value {
             (Char(a), Char(b)) => a == b,
             (Str(a), Str(b)) => a == b,
             (Tuple(t1), Tuple(t2)) => t1 == t2,
-            (VectorLit(v1), VectorLit(v2)) => v1 == v2,
             (Array(a1), Array(a2)) => a1 == a2,
             (Map(m1), Map(m2)) => m1 == m2,
-            (Function(f1), Function(f2)) => f1 == f2,
-            (Macro(m1), Macro(m2)) => m1 == m2,
-            (Quote(q1), Quote(q2)) => q1 == q2,
-            (ReturnValue(o1), ReturnValue(o2)) => o1 == o2,
-            (Break(o1), Break(o2)) => o1 == o2,
-            (Continue, Continue) => true,
             (Builtin(f1), Builtin(f2)) => std::ptr::fn_addr_eq(*f1, *f2),
             (CompiledFn(c1), CompiledFn(c2)) => c1 == c2,
             (Closure(c1), Closure(c2)) => c1 == c2,
@@ -360,23 +210,114 @@ impl PartialEq for Value {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Function {
-    pub params: Vec<String>,
-    pub body: BlockStmt,
-    pub env: Env,
+/// Borrowed view of a builtin function argument.
+#[derive(Debug, Clone)]
+pub enum BuiltinArg<'a> {
+    Unit,
+    Integer(Integer),
+    Felt(Felt),
+    Bool(bool),
+    Char(char),
+    Str(&'a str),
+    Tuple(&'a [Value]),
+    Vector(&'a [Value]),
+    Array(&'a [Value]),
+    Map(&'a Map),
+    Set(&'a Set),
+    Builtin(BuiltinFn),
+    CompiledFn(&'a CompiledFn),
+    Closure(&'a Closure),
+    Struct(&'a StructVal),
+    EnumVariant(&'a EnumVariantVal),
+    Range(Integer, Integer),
+    RangeInclusive(Integer, Integer),
+    Relocatable(Relocatable),
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Macro {
-    pub params: Vec<String>,
-    pub body: BlockStmt,
-    pub env: Env,
+impl BuiltinArg<'_> {
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Self::Unit => "()",
+            Self::Integer(n) => n.type_name(),
+            Self::Felt(_) => "Felt",
+            Self::Bool(_) => "bool",
+            Self::Char(_) => "char",
+            Self::Str(_) => "str",
+            Self::Tuple(_) => "tuple",
+            Self::Vector(_) => "Vector",
+            Self::Array(_) => "Array",
+            Self::Map(_) => "Map",
+            Self::Builtin(_) => "fn",
+            Self::CompiledFn(_) => "fn",
+            Self::Closure(_) => "fn",
+            Self::Struct(_) => "struct",
+            Self::EnumVariant(_) => "enum",
+            Self::Set(_) => "Set",
+            Self::Range(..) => "Range",
+            Self::RangeInclusive(..) => "RangeInclusive",
+            Self::Relocatable(_) => "Relocatable",
+        }
+    }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Quote {
-    pub node: MaatAst,
+impl fmt::Display for BuiltinArg<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unit => f.write_str("()"),
+            Self::Integer(v) => v.fmt(f),
+            Self::Felt(v) => v.fmt(f),
+            Self::Bool(v) => v.fmt(f),
+            Self::Char(v) => v.fmt(f),
+            Self::Str(s) => f.write_str(s),
+            Self::Tuple(elems) => {
+                f.write_str("(")?;
+                write_comma_separated(f, *elems)?;
+                f.write_str(")")
+            }
+            Self::Vector(elems) | Self::Array(elems) => {
+                f.write_str("[")?;
+                write_comma_separated(f, *elems)?;
+                f.write_str("]")
+            }
+            Self::Map(v) => v.fmt(f),
+            Self::Builtin(_) => f.write_str("builtin function"),
+            Self::CompiledFn(v) => write!(f, "CompiledFn[{v:p}]"),
+            Self::Closure(v) => write!(f, "Closure[{:p}]", &v.func),
+            Self::Struct(s) => write!(f, "Struct({}, fields={})", s.type_index, s.fields.len()),
+            Self::EnumVariant(v) => write!(
+                f,
+                "EnumVariant({}::{}, fields={})",
+                v.type_index,
+                v.tag,
+                v.fields.len()
+            ),
+            Self::Set(v) => v.fmt(f),
+            Self::Range(s, e) => write!(f, "{s}..{e}"),
+            Self::RangeInclusive(s, e) => write!(f, "{s}..={e}"),
+            Self::Relocatable(r) => r.fmt(f),
+        }
+    }
+}
+
+/// Owned return shape produced by a builtin function.
+#[derive(Debug, Clone)]
+pub enum BuiltinReturn {
+    Value(Value),
+    Str(String),
+    Vector(Vec<BuiltinReturn>),
+}
+
+impl BuiltinReturn {
+    #[inline]
+    pub fn value(v: Value) -> Self {
+        Self::Value(v)
+    }
+
+    /// Wraps a `Vec<Value>` as the elements of a fresh segment-backed Vector.
+    /// Each element is wrapped via [`Self::value`] (already-canonical).
+    pub fn vector_from_values(values: Vec<Value>) -> Self {
+        Self::Vector(values.into_iter().map(Self::Value).collect())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -387,19 +328,19 @@ pub struct CompiledFn {
     pub source_map: SourceMap,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Closure {
     pub func: CompiledFn,
     pub free_vars: Vec<Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StructVal {
     pub type_index: u16,
     pub fields: Vec<Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct EnumVariantVal {
     pub type_index: u16,
     pub tag: u16,
@@ -425,13 +366,13 @@ pub struct VariantInfo {
     pub field_count: u8,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Map {
     pub pairs: IndexMap<Hashable, Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct Set(IndexSet<Hashable>);
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Set(pub IndexSet<Hashable>);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Hashable {
@@ -453,6 +394,21 @@ impl TryFrom<Value> for Hashable {
             Value::Char(c) => Ok(Self::Char(c)),
             Value::Str(s) => Ok(Self::Str(s)),
             val => Err(EvalError::NotHashable(val.type_name().to_owned()).into()),
+        }
+    }
+}
+
+impl TryFrom<BuiltinArg<'_>> for Hashable {
+    type Error = Error;
+
+    fn try_from(value: BuiltinArg<'_>) -> Result<Self> {
+        match value {
+            BuiltinArg::Integer(i) => Ok(Self::Integer(i)),
+            BuiltinArg::Felt(f) => Ok(Self::Felt(f.as_int())),
+            BuiltinArg::Bool(b) => Ok(Self::Bool(b)),
+            BuiltinArg::Char(c) => Ok(Self::Char(c)),
+            BuiltinArg::Str(s) => Ok(Self::Str(s.to_owned())),
+            other => Err(EvalError::NotHashable(other.type_name().to_owned()).into()),
         }
     }
 }
@@ -486,23 +442,12 @@ impl fmt::Display for Value {
                 write_comma_separated(f, elems)?;
                 f.write_str(")")
             }
-            Self::VectorLit(vector) => {
-                f.write_str("[")?;
-                write_comma_separated(f, vector)?;
-                f.write_str("]")
-            }
             Self::Array(arr) => {
                 f.write_str("[")?;
                 write_comma_separated(f, arr)?;
                 f.write_str("]")
             }
             Self::Map(v) => v.fmt(f),
-            Self::Function(v) => v.fmt(f),
-            Self::Macro(v) => v.fmt(f),
-            Self::Quote(v) => v.fmt(f),
-            Self::ReturnValue(v) => v.fmt(f),
-            Self::Break(v) => write!(f, "break {v}"),
-            Self::Continue => f.write_str("continue"),
             Self::Builtin(_) => f.write_str("builtin function"),
             Self::CompiledFn(v) => write!(f, "CompiledFn[{v:p}]"),
             Self::Closure(v) => write!(f, "Closure[{:p}]", &v.func),
@@ -530,28 +475,6 @@ impl fmt::Display for Value {
             Self::Relocatable(r) => r.fmt(f),
             Self::Vector { base, len } => write!(f, "Vector[base={base}, len={len}]"),
         }
-    }
-}
-
-impl fmt::Display for Function {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("fn(")?;
-        write_comma_separated(f, &self.params)?;
-        write!(f, ") {{\n{}\n}}", self.body)
-    }
-}
-
-impl fmt::Display for Macro {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("macro(")?;
-        write_comma_separated(f, &self.params)?;
-        write!(f, ") {{\n{}\n}}", self.body)
-    }
-}
-
-impl fmt::Display for Quote {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "quote({})", self.node)
     }
 }
 

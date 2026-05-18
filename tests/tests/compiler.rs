@@ -1,5 +1,5 @@
-use maat_bytecode::{Bytecode, Instructions, Opcode, encode};
-use maat_runtime::{Integer, Value};
+use maat_bytecode::{Bytecode, Constant as ConstantPoolEntry, Instructions, Opcode, encode};
+use maat_runtime::Integer;
 
 /// A constant expectation that can be either an integer or a compiled function's instructions.
 enum Constant {
@@ -17,13 +17,13 @@ fn assert_constants(bytecode: &Bytecode, expected: &[Constant], input: &str) {
     );
     for (i, expected_const) in expected.iter().enumerate() {
         match (expected_const, &bytecode.constants[i]) {
-            (Constant::Int(expected_val), Value::Integer(Integer::I64(actual_val))) => {
+            (Constant::Int(expected_val), ConstantPoolEntry::Integer(Integer::I64(actual_val))) => {
                 assert_eq!(
                     actual_val, expected_val,
                     "constant {i} wrong for input: {input}"
                 );
             }
-            (Constant::Fn(expected_insts), Value::CompiledFn(cf)) => {
+            (Constant::Fn(expected_insts), ConstantPoolEntry::CompiledFn(cf)) => {
                 let expected_ins = concat_instructions(expected_insts);
                 let actual_ins = Instructions::from_bytes(cf.instructions.to_vec());
                 assert_eq!(
@@ -58,7 +58,7 @@ fn assert_integer_constants(bytecode: &Bytecode, expected: &[i64], input: &str) 
     );
     for (i, expected_val) in expected.iter().enumerate() {
         match &bytecode.constants[i] {
-            Value::Integer(Integer::I64(value)) => {
+            ConstantPoolEntry::Integer(Integer::I64(value)) => {
                 assert_eq!(
                     *value, *expected_val,
                     "constant {i} wrong for input: {input}"
@@ -344,7 +344,7 @@ fn compile_strings() {
         );
         for (i, expected) in expected_constants.iter().enumerate() {
             match &bytecode.constants[i] {
-                Value::Str(value) => {
+                ConstantPoolEntry::Str(value) => {
                     assert_eq!(value, expected, "constant {i} wrong for input: {input}")
                 }
                 _ => panic!("expected string constant at index {i}"),

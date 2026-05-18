@@ -81,11 +81,11 @@ impl Bytecode {
 mod tests {
     use std::rc::Rc;
 
-    use maat_runtime::{Closure, CompiledFn, Hashable, Integer, Map, Value};
+    use maat_runtime::{CompiledFn, Hashable, Integer};
     use maat_span::{SourceMap, Span};
 
     use super::*;
-    use crate::Instructions;
+    use crate::{Constant, Instructions};
 
     fn roundtrip(bytecode: &Bytecode) -> Bytecode {
         let bytes = bytecode.serialize().expect("serialize failed");
@@ -108,21 +108,21 @@ mod tests {
         let bc = Bytecode {
             instructions: Instructions::new(),
             constants: vec![
-                Value::Unit,
-                Value::Integer(Integer::I8(-42)),
-                Value::Integer(Integer::I16(-1000)),
-                Value::Integer(Integer::I32(100_000)),
-                Value::Integer(Integer::I64(i64::MAX)),
-                Value::Integer(Integer::I128(i128::MIN)),
-                Value::Integer(Integer::Isize(-1)),
-                Value::Integer(Integer::U8(255)),
-                Value::Integer(Integer::U16(65535)),
-                Value::Integer(Integer::U32(4_000_000_000)),
-                Value::Integer(Integer::U64(u64::MAX)),
-                Value::Integer(Integer::U128(u128::MAX)),
-                Value::Integer(Integer::Usize(42)),
-                Value::Bool(true),
-                Value::Bool(false),
+                Constant::Unit,
+                Constant::Integer(Integer::I8(-42)),
+                Constant::Integer(Integer::I16(-1000)),
+                Constant::Integer(Integer::I32(100_000)),
+                Constant::Integer(Integer::I64(i64::MAX)),
+                Constant::Integer(Integer::I128(i128::MIN)),
+                Constant::Integer(Integer::Isize(-1)),
+                Constant::Integer(Integer::U8(255)),
+                Constant::Integer(Integer::U16(65535)),
+                Constant::Integer(Integer::U32(4_000_000_000)),
+                Constant::Integer(Integer::U64(u64::MAX)),
+                Constant::Integer(Integer::U128(u128::MAX)),
+                Constant::Integer(Integer::Usize(42)),
+                Constant::Bool(true),
+                Constant::Bool(false),
             ],
             source_map: SourceMap::new(),
             type_registry: vec![],
@@ -135,9 +135,9 @@ mod tests {
         let bc = Bytecode {
             instructions: Instructions::new(),
             constants: vec![
-                Value::Str(String::new()),
-                Value::Str("hello, world!".to_owned()),
-                Value::Str("\u{1F600}".to_owned()),
+                Constant::Str(String::new()),
+                Constant::Str("hello, world!".to_owned()),
+                Constant::Str("\u{1F600}".to_owned()),
             ],
             source_map: SourceMap::new(),
             type_registry: vec![],
@@ -146,16 +146,16 @@ mod tests {
     }
 
     #[test]
-    fn array_constant() {
+    fn vector_constant() {
         let bc = Bytecode {
             instructions: Instructions::new(),
-            constants: vec![Value::VectorLit(vec![
-                Value::Integer(Integer::I64(1)),
-                Value::Str("two".to_owned()),
-                Value::Bool(true),
-                Value::VectorLit(vec![
-                    Value::Integer(Integer::I64(3)),
-                    Value::Integer(Integer::I64(4)),
+            constants: vec![Constant::Vector(vec![
+                Constant::Integer(Integer::I64(1)),
+                Constant::Str("two".to_owned()),
+                Constant::Bool(true),
+                Constant::Vector(vec![
+                    Constant::Integer(Integer::I64(3)),
+                    Constant::Integer(Integer::I64(4)),
                 ]),
             ])],
             source_map: SourceMap::new(),
@@ -169,13 +169,13 @@ mod tests {
         let mut pairs = indexmap::IndexMap::new();
         pairs.insert(
             Hashable::Integer(Integer::I64(1)),
-            Value::Str("one".to_owned()),
+            Constant::Str("one".to_owned()),
         );
-        pairs.insert(Hashable::Str("key".to_owned()), Value::Bool(true));
+        pairs.insert(Hashable::Str("key".to_owned()), Constant::Bool(true));
 
         let bc = Bytecode {
             instructions: Instructions::new(),
-            constants: vec![Value::Map(Map { pairs })],
+            constants: vec![Constant::Map(pairs)],
             source_map: SourceMap::new(),
             type_registry: vec![],
         };
@@ -192,31 +192,7 @@ mod tests {
         };
         let bc = Bytecode {
             instructions: Instructions::new(),
-            constants: vec![Value::CompiledFn(cf)],
-            source_map: SourceMap::new(),
-            type_registry: vec![],
-        };
-        assert_eq!(roundtrip(&bc), bc);
-    }
-
-    #[test]
-    fn closure_constant() {
-        let cf = CompiledFn {
-            instructions: Rc::from(vec![10u8, 20].as_slice()),
-            num_locals: 3,
-            num_parameters: 2,
-            source_map: SourceMap::new(),
-        };
-        let closure = Closure {
-            func: cf,
-            free_vars: vec![
-                Value::Integer(Integer::I64(42)),
-                Value::Str("captured".to_owned()),
-            ],
-        };
-        let bc = Bytecode {
-            instructions: Instructions::new(),
-            constants: vec![Value::Closure(closure)],
+            constants: vec![Constant::CompiledFn(cf)],
             source_map: SourceMap::new(),
             type_registry: vec![],
         };
@@ -234,8 +210,8 @@ mod tests {
         let bc = Bytecode {
             instructions: Instructions::from(vec![0, 0, 1, 2]),
             constants: vec![
-                Value::Integer(Integer::I64(99)),
-                Value::CompiledFn(inner_cf),
+                Constant::Integer(Integer::I64(99)),
+                Constant::CompiledFn(inner_cf),
             ],
             source_map: SourceMap::new(),
             type_registry: vec![],
@@ -300,24 +276,12 @@ mod tests {
     }
 
     #[test]
-    fn non_serializable_object() {
-        let bc = Bytecode {
-            instructions: Instructions::new(),
-            constants: vec![Value::Builtin(|_| Ok(Value::Unit))],
-            source_map: SourceMap::new(),
-            type_registry: vec![],
-        };
-        let result = bc.serialize();
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn roundtrip_identity() {
         let bc = Bytecode {
             instructions: Instructions::from(vec![0, 0, 1, 1, 2]),
             constants: vec![
-                Value::Integer(Integer::I64(42)),
-                Value::Str("test".to_owned()),
+                Constant::Integer(Integer::I64(42)),
+                Constant::Str("test".to_owned()),
             ],
             source_map: SourceMap::new(),
             type_registry: vec![],
