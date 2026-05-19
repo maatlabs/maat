@@ -62,6 +62,9 @@ pub enum TypeErrorKind {
 
     #[error("item `{item}` is private to module `{module}`")]
     PrivateAccess { item: String, module: String },
+
+    #[error("cannot call `Vector::push` on immutable binding `{binding}`")]
+    VectorPushRequiresMutReceiver { binding: String },
 }
 
 #[derive(Debug, Error)]

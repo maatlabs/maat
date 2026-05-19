@@ -13,7 +13,7 @@ use crate::{
 };
 
 pub struct TypeEnv {
-    bindings: Vec<(String, TypeScheme)>,
+    bindings: Vec<Binding>,
     scope_starts: Vec<usize>,
     next_var: TypeVarId,
     structs: IndexMap<String, StructDef>,
@@ -21,6 +21,13 @@ pub struct TypeEnv {
     traits: IndexMap<String, TraitDef>,
     impls: Vec<ImplDef>,
     builtin_method_schemes: IndexMap<String, BuiltinMethodScheme>,
+}
+
+#[derive(Debug, Clone)]
+struct Binding {
+    name: String,
+    scheme: TypeScheme,
+    is_mutable: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -1261,14 +1268,32 @@ impl TypeEnv {
     }
 
     pub fn define_scheme(&mut self, name: &str, scheme: TypeScheme) {
+        self.define_binding(name, scheme, None);
+    }
+
+    pub fn define_scheme_with_mutability(
+        &mut self,
+        name: &str,
+        scheme: TypeScheme,
+        is_mutable: bool,
+    ) {
+        self.define_binding(name, scheme, Some(is_mutable));
+    }
+
+    fn define_binding(&mut self, name: &str, scheme: TypeScheme, is_mutable: Option<bool>) {
         let scope_start = self.scope_starts.last().copied().unwrap_or(0);
         if let Some(entry) = self.bindings[scope_start..]
             .iter_mut()
-            .find(|(n, _)| n == name)
+            .find(|b| b.name == name)
         {
-            entry.1 = scheme;
+            entry.scheme = scheme;
+            entry.is_mutable = is_mutable;
         } else {
-            self.bindings.push((name.to_string(), scheme));
+            self.bindings.push(Binding {
+                name: name.to_string(),
+                scheme,
+                is_mutable,
+            });
         }
     }
 
@@ -1276,8 +1301,16 @@ impl TypeEnv {
         self.bindings
             .iter()
             .rev()
-            .find(|(n, _)| n == name)
-            .map(|(_, scheme)| scheme)
+            .find(|b| b.name == name)
+            .map(|b| &b.scheme)
+    }
+
+    pub fn is_binding_mutable(&self, name: &str) -> Option<bool> {
+        self.bindings
+            .iter()
+            .rev()
+            .find(|b| b.name == name)
+            .and_then(|b| b.is_mutable)
     }
 
     pub fn instantiate(&mut self, name: &str, subst: &Substitution) -> Option<Type> {
@@ -1313,10 +1346,11 @@ impl TypeEnv {
 
     fn free_env_vars(&self, subst: &Substitution) -> HashSet<TypeVarId> {
         let mut vars = HashSet::new();
-        for (_, scheme) in &self.bindings {
-            let resolved = subst.apply(&scheme.ty);
+        for b in &self.bindings {
+            let resolved = subst.apply(&b.scheme.ty);
             let scheme_free = resolved.free_type_vars();
-            let quantified = scheme
+            let quantified = b
+                .scheme
                 .forall
                 .iter()
                 .copied()
