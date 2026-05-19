@@ -88,10 +88,12 @@ impl Compiler {
                 Ok(())
             }
             Expr::Vector(array) => {
+                self.emit(Opcode::VectorNew, &[], span);
                 for element in &array.elements {
                     self.compile_expression(element)?;
+                    self.emit(Opcode::VectorPush, &[], span);
+                    self.emit(Opcode::Pop, &[], span);
                 }
-                self.emit(Opcode::Vector, &[array.elements.len()], span);
                 Ok(())
             }
             Expr::Array(arr) => self.compile_array_literal(arr, span),
