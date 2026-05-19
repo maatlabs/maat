@@ -84,8 +84,17 @@ impl TypeChecker {
                 _ => {}
             }
         }
-        for stmt in &mut program.statements {
-            self.check_statement(stmt);
+        let last_idx = program.statements.len().checked_sub(1);
+        for (idx, stmt) in program.statements.iter_mut().enumerate() {
+            if Some(idx) == last_idx
+                && let Stmt::Expr(expr_stmt) = stmt
+            {
+                let ty = self.infer_expression(&mut expr_stmt.value);
+                let resolved = self.subst.apply(&ty);
+                program.publishes_main_vector = matches!(resolved, Type::Vector(_));
+            } else {
+                self.check_statement(stmt);
+            }
         }
         self.subst.resolve_inferred_literals(program);
         self.validate_bitwise_ops();

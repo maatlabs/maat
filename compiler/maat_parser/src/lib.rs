@@ -169,7 +169,10 @@ impl<'src> MaatParser<'src> {
                 }
             }
         }
-        Program { statements }
+        Program {
+            statements,
+            ..Default::default()
+        }
     }
 }
 

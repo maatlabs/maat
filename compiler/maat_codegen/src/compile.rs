@@ -14,7 +14,7 @@ use maat_bytecode::{
     Bytecode, Constant, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, Opcode, encode,
 };
 use maat_errors::{CompileError, CompileErrorKind, Error, Result};
-use maat_runtime::TypeDef;
+use maat_runtime::{Integer, Relocatable, SEG_PUBLIC_OUTPUT, TypeDef};
 use maat_span::{SourceMap, Span};
 
 use crate::registry::{self, VariantEntry};
@@ -164,9 +164,68 @@ impl Compiler {
                 }
             }
         }
-        for stmt in &program.statements {
-            self.compile_statement(stmt)?;
+        let last_idx = program.statements.len().checked_sub(1);
+        for (idx, stmt) in program.statements.iter().enumerate() {
+            if Some(idx) == last_idx
+                && program.publishes_main_vector
+                && let Stmt::Expr(expr_stmt) = stmt
+            {
+                self.compile_main_vector_publication(expr_stmt)?;
+            } else {
+                self.compile_statement(stmt)?;
+            }
         }
+        Ok(())
+    }
+
+    fn compile_main_vector_publication(&mut self, expr_stmt: &ExprStmt) -> Result<()> {
+        let span = expr_stmt.span;
+        self.compile_expression(&expr_stmt.value)?;
+        let iter_sym = self.define_and_set("__main_publish_iter", false, span)?;
+
+        let len_builtin = self.resolve_or_error("Vector::len", span)?;
+        self.load_symbol(&len_builtin, span);
+        self.load_symbol(&iter_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+        let len_sym = self.define_and_set("__main_publish_len", false, span)?;
+
+        let zero_idx = self.add_constant(Constant::Integer(Integer::I64(0)))?;
+        self.emit(Opcode::Constant, &[zero_idx], span);
+        let i_sym = self.define_and_set("__main_publish_i", true, span)?;
+
+        let output_base_idx = self.add_constant(Constant::Relocatable(Relocatable::new(
+            SEG_PUBLIC_OUTPUT,
+            0,
+        )))?;
+        let one_idx = self.add_constant(Constant::Integer(Integer::I64(1)))?;
+
+        let loop_start = self.current_instructions().len();
+        self.load_symbol(&i_sym, span);
+        self.load_symbol(&len_sym, span);
+        self.emit(Opcode::LessThan, &[], span);
+        let exit_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+
+        self.emit(Opcode::Constant, &[output_base_idx], span);
+        self.load_symbol(&i_sym, span);
+        self.emit(Opcode::Add, &[], span);
+
+        self.load_symbol(&iter_sym, span);
+        self.load_symbol(&i_sym, span);
+        self.emit(Opcode::Index, &[], span);
+
+        self.emit(Opcode::HeapWrite, &[], span);
+
+        self.load_symbol(&i_sym, span);
+        self.emit(Opcode::Constant, &[one_idx], span);
+        self.emit(Opcode::Add, &[], span);
+        self.emit_set_symbol(&i_sym, span);
+
+        self.emit(Opcode::Jump, &[loop_start], span);
+        let loop_exit = self.current_instructions().len();
+        self.replace_operand(exit_jump, loop_exit)?;
+
+        self.load_symbol(&iter_sym, span);
+        self.emit(Opcode::Pop, &[], span);
         Ok(())
     }
 

@@ -64,6 +64,7 @@ mod tests {
                 value: expr,
                 span: Span::ZERO,
             })],
+            ..Default::default()
         };
         let mut compiler = Compiler::new();
         let result = compiler.compile(&MaatAst::Program(program));

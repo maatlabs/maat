@@ -23,3 +23,6 @@ for i in 0..n {
     total = total + v[i];
 }
 println!("{total}");
+
+// The trailing Vector return publishes its cells to `SEG_PUBLIC_OUTPUT`.
+v

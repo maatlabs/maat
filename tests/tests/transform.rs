@@ -63,6 +63,7 @@ fn transform_statements() {
                 span: Span::ZERO,
             }),
         ],
+        ..Default::default()
     };
     let MaatAst::Program(prog) = transform(MaatAst::Program(program), &mut turn_one_into_two)
     else {
@@ -186,6 +187,7 @@ fn transform_nested_structures() {
             pattern: None,
             span: Span::ZERO,
         })],
+        ..Default::default()
     };
 
     let MaatAst::Program(prog) = transform(MaatAst::Program(program), &mut turn_one_into_two)

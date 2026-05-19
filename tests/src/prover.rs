@@ -10,6 +10,11 @@ use maat_runtime::{Integer, Relocatable, SEG_PUBLIC_OUTPUT};
 use maat_span::SourceMap;
 use maat_trace::table::{COL_OUT, COL_SUB_SEL_BASE, TraceTable};
 
+fn trace_stamped_output(trace: &TraceTable) -> BaseElement {
+    let last = trace.num_rows().saturating_sub(1);
+    trace.row(last)[COL_OUT]
+}
+
 pub fn prove_and_verify(source: &str) {
     let (bytecode, trace, output) = compile_and_trace(source);
     let (proof, public_inputs) = prove(&bytecode, trace, output);
@@ -317,7 +322,7 @@ pub fn synthetic_output_segment_bytecode(cells: &[i64]) -> Bytecode {
 pub fn prove_and_verify_pubmem(bytecode: Bytecode) {
     let artifacts =
         maat_trace::run_with_output(bytecode.clone()).expect("trace with public output failed");
-    let output_felt = BaseElement::new(u64::from(artifacts.output_base));
+    let output_felt = trace_stamped_output(&artifacts.trace);
     let program_hash = compute_program_hash(&bytecode).expect("program hash failed");
     let public_inputs = MaatPublicInputs::with_output_segment(
         program_hash,
@@ -415,7 +420,7 @@ pub fn honest_prover_dishonest_verifier(
     label: &str,
 ) {
     let artifacts = maat_trace::run_with_output(bytecode.clone()).expect("trace failed");
-    let output_felt = BaseElement::new(u64::from(artifacts.output_base));
+    let output_felt = trace_stamped_output(&artifacts.trace);
     let program_hash = compute_program_hash(&bytecode).expect("hash");
     let honest_inputs = MaatPublicInputs::with_output_segment(
         program_hash,

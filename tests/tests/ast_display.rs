@@ -87,6 +87,7 @@ fn statements_display() {
             pattern: None,
             span: span(),
         })],
+        ..Default::default()
     };
     assert_eq!(prog.to_string(), "let x = 42;");
 }
