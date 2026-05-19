@@ -5,14 +5,14 @@
 //! from source code to cryptographic soundness.
 
 use maat_air::MaatPublicInputs;
-use maat_field::{BaseElement, Felt};
+use maat_field::{BaseElement, Felt, FieldElement};
 use maat_prover::{
     MaatProver, compute_program_hash, compute_program_hash_bytes, deserialize_proof,
     development_options, production_options, serialize_proof, verify, verify_with_inputs,
 };
 use maat_tests::prover::*;
 use maat_trace::selector::*;
-use maat_trace::table::{COL_MEM_ADDR, COL_MEM_VAL, TraceTable};
+use maat_trace::table::{COL_MEM_ADDR, COL_MEM_VAL, COL_SUB_SEL_BASE, TraceTable};
 
 #[test]
 fn prove_and_verify_arithmetic() {
@@ -1151,6 +1151,45 @@ fn vector_builtin_cells_in_heap_permutation() {
     assert_eq!(artifacts.output_segment[0], Felt::new(13));
     assert_eq!(artifacts.output_segment[1], Felt::new(7));
     prove_and_verify_pubmem(bytecode);
+}
+
+#[test]
+fn closure_capture_proves_and_verifies() {
+    prove_and_verify(
+        "
+        let make_adder = fn(x: i64) -> fn(i64) -> i64 {
+            fn(y: i64) -> i64 { x + y; }
+        };
+        let add5 = make_adder(5);
+        let add10 = make_adder(10);
+        add5(3) + add10(7)
+        ",
+    );
+}
+
+#[test]
+fn closure_capture_tampered_cell_rejected() {
+    let source = "
+        let make_id = fn(x: i64) {
+            fn() -> i64 { x; }
+        };
+        let f = make_id(42);
+        f()
+    ";
+    let (bytecode, mut trace, output) = compile_and_trace(source);
+    let mut tampered = false;
+    for i in 0..trace.num_rows() {
+        if trace.row(i)[COL_SUB_SEL_BASE + SUB_SEL_SYNTHETIC_HEAP] == Felt::ONE {
+            trace.row_mut(i)[COL_MEM_VAL] = Felt::new(999);
+            tampered = true;
+            break;
+        }
+    }
+    assert!(
+        tampered,
+        "expected at least one synthetic-heap-write row in the trace",
+    );
+    assert_tampered_trace_rejected(bytecode, trace, output, "closure capture cell");
 }
 
 #[test]

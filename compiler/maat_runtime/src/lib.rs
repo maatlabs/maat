@@ -331,7 +331,8 @@ pub struct CompiledFn {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Closure {
     pub func: CompiledFn,
-    pub free_vars: Vec<Value>,
+    pub base: Option<Relocatable>,
+    pub num_free: u32,
 }
 
 #[derive(Debug, Clone, PartialEq)]

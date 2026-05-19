@@ -79,7 +79,8 @@ impl VM {
                 num_parameters: 0,
                 source_map: SourceMap::new(),
             },
-            free_vars: vec![],
+            base: None,
+            num_free: 0,
         };
         let main_frame = Frame::new(main_closure, 0);
         Self {
@@ -355,34 +356,37 @@ impl VM {
                         )));
                     }
                 };
-                let base = self
+                let stack_base = self
                     .sp
                     .checked_sub(num_free)
                     .ok_or_else(|| self.vm_error("stack underflow reading free variables"))?;
-                let free_vars = (0..num_free)
-                    .map(|i| {
-                        self.stack
-                            .get(base + i)
-                            .cloned()
-                            .ok_or_else(|| self.vm_error("stack underflow reading free variables"))
-                    })
-                    .collect::<Result<Vec<_>>>()?;
-                self.sp = base;
-                self.push_stack(Value::Closure(Closure { func, free_vars }))?;
+                let captures = self.stack[stack_base..self.sp].to_vec();
+                self.sp = stack_base;
+                let closure_value = self.allocate_closure(func, captures, recorder)?;
+                self.push_stack(closure_value)?;
             }
             Opcode::GetFree => {
                 let index = self.read_u8_operand(ip + 1)?;
                 self.current_frame_mut()?.ip += 1;
-                let value = self
-                    .current_frame()?
-                    .closure
-                    .free_vars
-                    .get(index)
-                    .cloned()
-                    .ok_or_else(|| {
+                let closure = &self.current_frame()?.closure;
+                let num_free = closure.num_free;
+                let index_u32 = u32::try_from(index)
+                    .map_err(|_| self.vm_error("free variable index exceeds u32"))?;
+                if index_u32 >= num_free {
+                    return Err(
                         self.vm_error(format!("free variable index out of bounds: {index}"))
-                    })?;
-                recorder.record_out(value.to_maybe_relocatable());
+                    );
+                }
+                let base = closure.base.ok_or_else(|| {
+                    self.vm_error("GetFree on a closure that captures no variables")
+                })?;
+                let addr = Relocatable::new(base.segment_index, index_u32);
+                let value = self.heap_values.get(&addr).cloned().ok_or_else(|| {
+                    self.vm_error(format!("closure capture cell {addr} is unallocated"))
+                })?;
+                let value_mr = value.to_maybe_relocatable();
+                recorder.record_out(value_mr);
+                recorder.record_heap_access(addr.segment_index, addr.offset, value_mr, true);
                 self.push_stack(value)?;
             }
             Opcode::CurrentClosure => {
@@ -859,6 +863,44 @@ impl VM {
             Constant::RangeInclusive(s, e) => Ok(Value::RangeInclusive(s, e)),
             Constant::Relocatable(r) => Ok(Value::Relocatable(r)),
         }
+    }
+
+    fn allocate_closure<R: Tracer>(
+        &mut self,
+        func: CompiledFn,
+        captures: Vec<Value>,
+        recorder: &mut R,
+    ) -> Result<Value> {
+        let num_free = u32::try_from(captures.len())
+            .map_err(|_| self.vm_error("closure capture count exceeds u32 representable range"))?;
+        if num_free == 0 {
+            return Ok(Value::Closure(Closure {
+                func,
+                base: None,
+                num_free: 0,
+            }));
+        }
+        let base = self
+            .segments
+            .add()
+            .map_err(|e| self.vm_error(format!("Closure segment allocation: {e}")))?;
+        for (offset, capture) in captures.into_iter().enumerate() {
+            let offset = u32::try_from(offset).map_err(|_| {
+                self.vm_error("Closure capture offset exceeds u32 representable range")
+            })?;
+            let addr = Relocatable::new(base.segment_index, offset);
+            let value_mr = capture.to_maybe_relocatable();
+            self.segments
+                .write(addr, value_mr)
+                .map_err(|e| self.vm_error(format!("Closure capture write: {e}")))?;
+            self.heap_values.insert(addr, capture);
+            recorder.emit_synthetic_heap_write(addr.segment_index, addr.offset, value_mr);
+        }
+        Ok(Value::Closure(Closure {
+            func,
+            base: Some(base),
+            num_free,
+        }))
     }
 
     fn allocate_vector_segment<R: Tracer>(
