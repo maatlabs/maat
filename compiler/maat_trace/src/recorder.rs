@@ -9,7 +9,7 @@ use maat_field::{Felt, FieldElement, try_inv};
 use maat_runtime::{MaybeRelocatable, Relocatable};
 use maat_vm::trace::{CallCtx, DispatchCtx, Tracer};
 
-use crate::selector::{OpcodeMeta, SEL_NOP};
+use crate::selector::{OpcodeMeta, SEL_HEAP_ALLOC, SEL_NOP, SUB_SEL_SYNTHETIC_HEAP};
 use crate::table::*;
 
 /// Decomposes a 64-bit value into four 16-bit limbs `[l0, l1, l2, l3]` such
@@ -289,6 +289,39 @@ impl Tracer for TraceRecorder {
         } else {
             self.record_heap_write(key, value);
         }
+    }
+
+    fn emit_synthetic_heap_write(&mut self, segment: u32, offset: u32, value: MaybeRelocatable) {
+        let key = (segment, offset);
+        self.heap_alloc_set.insert(key);
+
+        let val_felt = value.as_felt().unwrap_or(Felt::ZERO);
+        let addr_reloc = Relocatable::new(segment, offset);
+
+        let mut row = [Felt::ZERO; TRACE_WIDTH];
+        row[COL_PC] = self.current[COL_PC];
+        row[COL_SP] = self.current[COL_SP];
+        row[COL_FP] = Felt::new(self.fp as u64);
+        row[COL_SEL_BASE + SEL_HEAP_ALLOC] = Felt::ONE;
+        row[COL_SUB_SEL_BASE + SUB_SEL_SYNTHETIC_HEAP] = Felt::ONE;
+        row[COL_OP_WIDTH] = Felt::ONE;
+        row[COL_MEM_ADDR] = Felt::ZERO;
+        row[COL_MEM_VAL] = val_felt;
+        row[COL_IS_READ] = Felt::ZERO;
+
+        let plan = RowRelocPlan {
+            mem_addr: Some(addr_reloc),
+            mem_val: value.as_relocatable(),
+            ..RowRelocPlan::default()
+        };
+
+        self.last_mem_addr = Felt::ZERO;
+        self.last_mem_val = val_felt;
+        self.last_mem_addr_reloc = Some(addr_reloc);
+        self.last_mem_val_reloc = value.as_relocatable();
+
+        self.trace.push_row(row);
+        self.plans.push(plan);
     }
 
     fn record_call_closure(&mut self, ctx: CallCtx<'_>) -> Result<()> {

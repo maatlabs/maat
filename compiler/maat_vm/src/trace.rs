@@ -47,6 +47,13 @@ pub trait Tracer {
     ) {
     }
 
+    /// Emits a synthetic heap-write row for a cell materialised inside the
+    /// current dispatch but not lowered to its own opcode (typically a
+    /// builtin-allocated vector cell).
+    #[inline(always)]
+    fn emit_synthetic_heap_write(&mut self, _segment: u32, _offset: u32, _value: MaybeRelocatable) {
+    }
+
     /// Records entry into a closure frame.
     #[inline(always)]
     fn record_call_closure(&mut self, _ctx: CallCtx<'_>) -> Result<()> {

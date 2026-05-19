@@ -864,7 +864,7 @@ impl VM {
     fn allocate_vector_segment<R: Tracer>(
         &mut self,
         elements: Vec<Value>,
-        _recorder: &mut R,
+        recorder: &mut R,
     ) -> Result<Value> {
         let base = self
             .segments
@@ -876,7 +876,12 @@ impl VM {
             let offset = u32::try_from(offset)
                 .map_err(|_| self.vm_error("Vector offset exceeds u32 representable range"))?;
             let addr = Relocatable::new(base.segment_index, offset);
+            let value_mr = element.to_maybe_relocatable();
+            self.segments
+                .write(addr, value_mr)
+                .map_err(|e| self.vm_error(format!("Vector segment write: {e}")))?;
             self.heap_values.insert(addr, element);
+            recorder.emit_synthetic_heap_write(addr.segment_index, addr.offset, value_mr);
         }
         Ok(Value::Vector { base, len })
     }

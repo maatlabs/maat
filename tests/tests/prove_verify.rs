@@ -1134,6 +1134,42 @@ fn vector_main_returns_segment_tampered_cell_rejected() {
 }
 
 #[test]
+fn vector_builtin_cells_in_heap_permutation() {
+    let source = "
+        let mut v = Vector::new();
+        v = v.push(7);
+        v = v.push(13);
+        v.rev()
+    ";
+    let bytecode = maat_tests::compile(source);
+    let artifacts = maat_trace::run_with_output(bytecode.clone()).expect("trace failed");
+    assert_eq!(
+        artifacts.output_segment.len(),
+        2,
+        "builtin-allocated trailing Vector must publish its cells"
+    );
+    assert_eq!(artifacts.output_segment[0], Felt::new(13));
+    assert_eq!(artifacts.output_segment[1], Felt::new(7));
+    prove_and_verify_pubmem(bytecode);
+}
+
+#[test]
+fn vector_builtin_cells_tampered_rejected() {
+    let source = "
+        let mut v = Vector::new();
+        v = v.push(7);
+        v = v.push(13);
+        v.rev()
+    ";
+    let bytecode = maat_tests::compile(source);
+    honest_prover_dishonest_verifier(
+        bytecode,
+        |inputs| inputs.output_segment[0] = Felt::new(999),
+        "builtin-allocated cell",
+    );
+}
+
+#[test]
 fn pubmem_three_cell_output_proves_and_verifies() {
     let bytecode = synthetic_output_segment_bytecode(&[10, 20, 30]);
     let artifacts = maat_trace::run_with_output(bytecode.clone()).expect("trace failed");
