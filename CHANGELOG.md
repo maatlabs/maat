@@ -4,6 +4,79 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-05-20
+
+Extensions on top of v0.14.0's memory-segment work. `Vector<T>` and `Closure` migrate to segment-backed runtime forms; the entire builtin signature surface is redesigned around `BuiltinArg` / `BuiltinReturn`; two pre-existing AIR soundness gaps close (range-check limb-pool padding, `MatchTag` pc-progression). All twelve `examples/*.maat` programs prove and verify end-to-end under `development_options`. Composite-type tracing for `struct` / `enum` / `Map` / `Set` is intentionally deferred--their inline runtime forms continue to prove and verify, so the segment-backed migration provides no functional unlock in this release.
+
+### Added
+
+#### `Vector<T>` segment-backed lowering
+
+- **`Value::Vector { base, len }`** -- single fat-pointer slot. The length is tracked outside the segment; the segment holds only elements at offsets `0..len`.
+- **`Opcode::VectorNew` (56)** -- allocates a fresh segment and pushes its base. Maps to `SEL_PUSH`.
+- **`Opcode::VectorPush` (57)** -- appends an element to the current segment's high-water mark; SP delta 0; trailing codegen `Pop` discards the cell address. Maps to `SEL_HEAP_ALLOC` (piggybacks `Opcode::HeapAlloc`'s constraint shape).
+- **`Add(Vector, integer) -> Relocatable`** dispatch arm so `vec[i]` lowers to `Add + HeapRead` without a dedicated indexing opcode.
+- **Materialize-on-call shim** in `call_builtin_fn` so Vector cells flow through the typed `BuiltinArg::Vector(&[Value])` boundary while the five traced primitives (`new`, `push`, indexing, `len`, iteration) bypass it.
+- **Main-return Vector publication.** The type checker stamps `Program::publishes_main_vector: bool` when the trailing top-level expression resolves to `Type::Vector(_)`. Codegen's `compile_main_vector_publication` emits a per-iteration loop (`Constant(Relocatable(SEG_PUBLIC_OUTPUT, 0)) + Add(i) + Index + HeapWrite`) so every cell becomes one trace row flowing through the unified memory permutation argument.
+
+#### Closure capture lowering
+
+- **`Closure { func, base: Option<Relocatable>, num_free }`** -- captures move from an inline `Vec<Value>` to a segment-backed layout. `base = None` for zero-capture closures (including the synthesised main-closure).
+- **`VM::allocate_closure`** parallels `allocate_vector_segment`, emitting one `emit_synthetic_heap_write` per capture cell. `Opcode::GetFree(i)` reads `closure.base + i` and records `record_heap_access(is_read=true)` so each lookup joins the memory permutation argument. Tampered capture cells are rejected via aux constraint 1.
+
+#### Synthetic heap-write primitive
+
+- **`Tracer::emit_synthetic_heap_write(segment, offset, value)`** -- VM-side hook for cells materialised mid-dispatch (typically builtin-allocated). The recorder pushes a fresh trace row directly (does not mutate `self.current`).
+- **`SUB_SEL_SYNTHETIC_HEAP` (index 16, parent `SEL_HEAP_ALLOC`)** -- distinguishes synthetic rows from genuine `HeapAlloc` rows so the AIR's `pc_uniform_gate` excludes them from the linear pc-progression rule.
+- **New constraint #81** -- `sub_synthetic_heap * (sub_synthetic_heap - sel_heap_alloc) = 0` (degree 2). Structural binary check: when the sub-selector is set the row must be a `SEL_HEAP_ALLOC` row.
+- **`VM::allocate_vector_segment`**: cells are reinstated in both `self.segments` and the memory permutation argument; a tampered builtin-allocated cell value (e.g. forcing a different `Vector::rev` result) is now rejected.
+
+#### Builtin signature redesign
+
+- **`BuiltinArg<'a>`** -- borrowed-view argument enum (`Str(&'a str)`, `Vector(&'a [Value])`, scalar copies, composite borrows). Avoids per-call ownership transfer.
+- **`BuiltinReturn`** -- owned counterpart with recursive `Vector(Vec<BuiltinReturn>)` so builtins can return nested segment-backed composites without `Value` wrappers. `VM::segment_allocate_return` walks the tree and allocates one segment per `Vector` node.
+- **`Constant` enum** in `maat_bytecode` -- replaces `Value`-shaped constant-pool entries. Carries exactly the forms a constant pool can hold (no `Value` dependency on the serialization side). `Opcode::Constant` dispatches through `VM::materialize_constant`, allocating fresh segments for composite entries.
+- **`EvalValue`** in `maat_eval` -- interpreter-only value enum (`Function`, `Macro`, `Quote`, `ReturnValue`, `Break`, `Continue`, the old `VectorLit`). The prover never sees an `EvalValue`. `Env` moves with it. Conversion to runtime `Value` happens only at the `unquote` reification boundary and at the builtin-call boundary.
+
+#### Type-system extensions
+
+- **Mut-receiver enforcement for `Vector::push`.** `TypeEnv::Binding` gains `is_mutable: Option<bool>`. The accumulator-rebind anti-pattern (`let v = ...; v = v.push(x)`) raises `TypeErrorKind::VectorPushRequiresMutReceiver { binding }` with a canonical `let mut` rewrite hint. Scoped narrowly: functional consumption like `arr.push(x)` inline (no rebind) still type-checks, preserving existing examples.
+
+#### Trace pipeline foundation
+
+- **`MemorySegmentManager::with_reserved_segments`** pre-allocates `SEG_PROGRAM` / `SEG_EXECUTION` / `SEG_PUBLIC_OUTPUT` (ids 0/1/2). The first user `SegmentNew` returns id 3.
+- **`fill_range_check_gaps`** post-process pass in `maat_trace::mem` -- injects NOP rows whose limbs collectively cover `1, 2, ..., max_limb` so the range-check builtin's sortedness constraint `d * (d - 1) = 0` holds for traces whose natural limbs skip values. Cost linear in `max_limb`; for v0.15.0 examples `<= 18` rows.
+
+### Fixed
+
+- **Range-check limb-pool sortedness (pre-existing v0.13.0 soundness gap).** The range-check builtin enforced `d * (d - 1) = 0` between adjacent values in the sorted limb pool, but the pool was built purely from natural trace limbs with no padding. Programs whose limbs skipped a value (e.g. `#[bounded(12)]` with residual iterations producing limbs `{2..11}` but no `1`) failed the constraint mid-trace. Single-limb cases happened to verify only because the gap landed in the trace's last row (Winterfell skips its outgoing transition). Closed by `fill_range_check_gaps` (see above).
+- **`MatchTag` pc-progression (pre-existing AIR gap).** `Opcode::MatchTag` lives in `SEL_CONSTRUCT` (a linear-advance class) but conditionally jumps on tag mismatch. Jumping rows tripped constraint 26 (`pc_uniform_gate * (pc_next - pc - op_width)`). Closed by mirroring the synthetic-heap-write pattern: new `SUB_SEL_MATCH_TAG_JUMP` (index 17, parent `SEL_CONSTRUCT`) set by the recorder when `execute_match_tag` (signature now `Result<bool>`) reports a jump-taken branch; constraint 26 subtracts `sub_match_tag_jump` from the gate; new structural constraint #82 enforces `sub_match_tag_jump * (sub_match_tag_jump - sel_construct) = 0`. Combined with the range-check fix, the example sweep moves from 7/12 to 12/12.
+
+### Changed
+
+- **`BuiltinFn` signature (breaking).** `fn(&[Value]) -> Result<Value>` becomes `fn(&[BuiltinArg<'_>]) -> Result<BuiltinReturn>`. All ~100 builtins migrated. Downstream consumers calling into `maat_runtime::Builtin` must update their argument construction.
+- **`Bytecode::constants` (breaking wire format).** `Vec<Value>` becomes `Vec<Constant>`. `SerVal` removed entirely. v0.14.0 bytecode files are not loadable in v0.15.0; recompile from source.
+- **`Closure` shape (breaking).** `{ func, free_vars: Vec<Value> }` becomes `{ func, base: Option<Relocatable>, num_free: u32 }`. Closures captured via the old shape do not round-trip.
+- **`Value` variants relocated.** Seven variants (`VectorLit`, `Function`, `Macro`, `Quote`, `ReturnValue`, `Break`, `Continue`) move out of `Value` into `EvalValue`. Code that pattern-matched on these variants from `Value` no longer compiles.
+- **`maat_trace::run_with_output`** drops its `Option<u32>` output-segment parameter -- public output always flows through `SEG_PUBLIC_OUTPUT`.
+- **`execute_match_tag`** signature `Result<()>` -> `Result<bool>` (true = jump taken). VM dispatch site invokes `recorder.record_match_tag_jump()` conditionally.
+- **AIR constraint counts.** `NUM_CONSTRAINTS` 80 -> 83. `NUM_SUB_SELECTORS` 16 -> 18. Verifier compatibility with v0.14.0 proofs is broken; both prover and verifier must run v0.15.0.
+- **`pc_uniform_gate` (constraint 26)** subtracts both `sub_synthetic_heap` and `sub_match_tag_jump` so consecutive same-PC synthetic rows and jumping `MatchTag` rows satisfy the gate.
+
+### Removed
+
+- **`SerVal` enum** -- subsumed by `Constant` in `maat_bytecode`.
+- **`Value::VectorLit`, `Value::Function`, `Value::Macro`, `Value::Quote`, `Value::ReturnValue`, `Value::Break`, `Value::Continue`** -- moved to `EvalValue`.
+- **Inline `Vec<Value>` closure free-vars** -- closures now reference a segment.
+
+### Deferred
+
+- **`Value::Str` segment-backed migration.** Inline `Value::Str(String)` already proves and verifies for every common `str` operation -- the inline form never touches the heap. Un-deferral triggers: `Map<str, V>` with in-AIR key proofs, STARK-to-SNARK wrapping, or flamegraph evidence of constant-pool string-clone cost.
+- **`struct` / `enum` / `Map` / `Set` segment-backed migration.** Inline composite forms prove and verify for every current consumer. Un-deferral triggers: a real consumer (recursive proofs, SNARK wrapping, in-AIR composite-cell content) or a tamper test demonstrating that the current inline-form coverage is load-bearing.
+- **`#[bounded(N)]` capacity on `Vector<T, N>`.** Pure type-system ergonomics with zero trace/AIR/sweep impact. Un-deferral triggers: stdlib bounded-capacity invariant not expressible as `[T; N]`, a real example needing it, or flamegraph evidence.
+
+---
+
 ## [0.14.0] - 2026-05-15
 
 Memory segments and proof-system foundations. Lifts Maat's memory model from a single contiguous heap (`[2^32, 2^33)` addressed by a global allocator counter) to per-instance memory segments concatenated into a flat address space at proof time.
@@ -1246,6 +1319,7 @@ When adding entries to this changelog for future releases:
 3. **Audience**: Write for users, not developers (focus on impact, not implementation)
 4. **Links**: Add comparison links at the bottom: `[0.2.0]: https://github.com/maatlabs/maat/compare/v0.1.0...v0.2.0`
 
+[0.15.0]: https://github.com/maatlabs/maat/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/maatlabs/maat/compare/v0.13.1...v0.14.0
 [0.13.1]: https://github.com/maatlabs/maat/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/maatlabs/maat/compare/v0.12.3...v0.13.0
