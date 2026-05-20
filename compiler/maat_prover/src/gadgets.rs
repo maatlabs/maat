@@ -60,11 +60,11 @@ pub mod hasher {
 pub mod proof_serializer {
     //! Proof serialization and deserialization.
     //!
-    //! Wire format (version 2):
+    //! Wire format (version 3):
     //!
     //! ```text
     //! PROOF_MAGIC:        b"MATP"       (4 bytes)
-    //! PROOF_VERSION:      u16 BE        (2 bytes, currently 2)
+    //! PROOF_VERSION:      u16 BE        (2 bytes, currently 3)
     //! PROGRAM_HASH:       [u8; 32]      (32 bytes, raw Blake3 digest)
     //! OUTPUT:             u64 LE        (8 bytes, claimed program output)
     //! INPUT_COUNT:        u16 BE        (2 bytes, number of public inputs)
@@ -79,7 +79,7 @@ pub mod proof_serializer {
     use maat_field::BaseElement;
 
     const PROOF_MAGIC: [u8; 4] = *b"MATP";
-    const PROOF_VERSION: u16 = 2;
+    const PROOF_VERSION: u16 = 3;
     // Minimum header size: 4 (magic) + 2 (version) + 32 (hash) + 8 (output) + 2 (input count).
     const MIN_HEADER_SIZE: usize = 48;
     const MAX_INPUT_COUNT: usize = 1024;

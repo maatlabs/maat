@@ -40,7 +40,7 @@ maat verify program.proof.bin
 The proof file is self-contained: it embeds the program hash, public inputs, and expected output, so verification requires no additional arguments.
 
 > **Note:** `println!` is for debugging only and does not affect the proof. The provable output is the program's return value.
-> **Provability scope:** v0.14.0 produces verifiable proofs for programs that operate on primitive types (integers, `bool`, `Felt`), fixed-size arrays `[T; N]`, and user-defined functions over those types. Composite-type tracing is planned for a future release. Until then, programs that use the surface composite types (`Vector<T>`, `Map<K, V>`, `Set<T>`, `str`, `struct`, `enum`, closures) run correctly under `maat run` but `maat prove` will emit a proof that the verifier rejects. See [maat_prover/README.md](../maat_prover/README.md#provability-scope-v0140).
+> **Provability scope:** v0.15.0 produces verifiable proofs for programs that operate on primitive types (integers, `bool`, `Felt`), fixed-size arrays `[T; N]`, `Vector<T>` for primitive `T`, closures, and user-defined functions over those types. All twelve `examples/*.maat` programs prove and verify end-to-end. `Map<K, V>`, `Set<T>`, `str`, `struct`, and `enum` continue to execute via inline `Value` variants -- they prove and verify cleanly for current programs (including `Option<T>` / `Result<T, E>` pattern matching) but their cells are not yet covered by the AIR's memory permutation argument. Segment-backed migration is deferred.
 
 ## Quick Start
 

@@ -15,7 +15,7 @@ use maat_errors::SerializationError;
 use crate::{Bytecode, MAX_CONSTANT_POOL_SIZE};
 
 const BYTECODE_MAGIC: [u8; 4] = *b"MATC";
-const BYTECODE_VERSION: u32 = 1;
+const BYTECODE_VERSION: u32 = 2;
 const HEADER_SIZE: usize = 4 + 4;
 const MAX_PAYLOAD_SIZE: usize = 16 * 1024 * 1024;
 const MAX_INSTRUCTION_COUNT: usize = 1_000_000;

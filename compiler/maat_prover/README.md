@@ -26,20 +26,25 @@ Bytecode --> VM + TraceRecorder --> TraceTable --> MaatProver --> Proof
 
 Both presets require `FieldExtension::Quadratic` because the auxiliary trace segment evaluates constraints over `QuadExtension<BaseElement>`.
 
-## Provability Scope (v0.14.0)
+## Provability Scope (v0.15.0)
 
-End-to-end proving is supported for programs that operate on **primitive types and fixed-size arrays**: integers (`i8`..`i64`, `u8`..`u64`, `usize`), `bool`, `Felt` (Goldilocks field element), `[T; N]` for primitive `T`, and user-defined functions over those types (including parameters, return values, nested calls, and bounded recursion). v0.14.0 ships the segmented-memory foundation -- per-instance segments via `MemorySegmentManager`, a relocation pass that flattens segments into the AIR's single address space, sparse-segment hole filling, multi-cell public output through a public-memory accumulator, and a `SegmentArena` meta-builtin for per-instance dictionary allocation -- but the surface-language composite types (`Vector<T>`, `Map<K, V>`, `Set<T>`, `str`, `struct`, `enum`, closures) still execute under the standard VM only. They will lower onto the segmented memory model in a future release; until then, `prove` on a composite-typed program emits a proof that the verifier rejects.
+End-to-end proving is supported for programs that operate on **primitive types, fixed-size arrays, `Vector<T>`, and closures**: integers (`i8`..`i64`, `u8`..`u64`, `usize`), `bool`, `Felt` (Goldilocks field element), `[T; N]` for primitive `T`, `Vector<T>` for primitive `T` (segment-backed, with builtin-allocated cells covered by the memory permutation argument), closures (segment-backed captures, tamper-detected via aux constraint 1), and user-defined functions over those types (parameters, return values, nested calls, bounded recursion). All twelve `examples/*.maat` programs prove and verify end-to-end under `development_options`.
+
+The remaining surface composite types (`Map<K, V>`, `Set<T>`, `str`, `struct`, `enum`) continue to execute under inline `Value` variants. The inline forms prove and verify cleanly for every program currently in the corpus because their cells never enter the heap and never produce multi-cell-per-dispatch trace rows. The verifier accepts a primitive-rooted program that contains these types, including programs that pattern-match on `Option<T>` / `Result<T, E>` or use `Map`/`Set` builtins. Segment-backed migration is deferred until a real consumer (recursive proofs, STARK-to-SNARK wrapping, in-AIR composite-cell content for Map keys) demonstrates that AIR-level cell coverage is load-bearing.
 
 ## Proof File Format
 
 ```text
-PROOF_MAGIC:        b"MATP"    (4 bytes)
-PROOF_VERSION:      u16 BE     (2 bytes, currently 2)
-PROGRAM_HASH:       [u8; 32]   (32 bytes, Blake3 digest of serialized bytecode)
-PAYLOAD:            Winterfell  (variable, native Proof encoding)
+PROOF_MAGIC:        b"MATP"       (4 bytes)
+PROOF_VERSION:      u16 BE        (2 bytes, currently 3)
+PROGRAM_HASH:       [u8; 32]      (32 bytes, raw Blake3 digest)
+OUTPUT:             u64 LE        (8 bytes, claimed program output)
+INPUT_COUNT:        u16 BE        (2 bytes, number of public inputs)
+INPUTS:             [u64; N] LE   (8 * N bytes, public input values)
+PAYLOAD:            Winterfell    (variable, native Proof encoding)
 ```
 
-Total header: 38 bytes. The program hash binds each proof to the exact bytecode that produced the execution trace.
+Minimum header: 48 bytes (with zero inputs). The program hash binds each proof to the exact bytecode that produced the execution trace; the embedded output and inputs are absorbed into the Fiat-Shamir transcript so a verifier disagreeing with the prover on any header field derives different challenges and rejects.
 
 ## Usage
 
