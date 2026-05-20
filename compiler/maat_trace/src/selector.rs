@@ -60,7 +60,7 @@ pub const SEL_HEAP_READ: usize = 18;
 pub const SEL_HEAP_WRITE: usize = 19;
 
 /// Number of per-opcode sub-selector flags.
-pub const NUM_SUB_SELECTORS: usize = 16;
+pub const NUM_SUB_SELECTORS: usize = 18;
 
 /// Sub-selector index: `Add` (parent [`SEL_ARITH`]).
 pub const SUB_SEL_ADD: usize = 0;
@@ -94,6 +94,12 @@ pub const SUB_SEL_SHR: usize = 13;
 pub const SUB_SEL_LT: usize = 14;
 /// Sub-selector index: `GreaterThan` (parent [`SEL_CMP`]).
 pub const SUB_SEL_GT: usize = 15;
+/// Sub-selector index: synthetic heap-write emitted by builtin allocation
+/// helpers (parent [`SEL_HEAP_ALLOC`]).
+pub const SUB_SEL_SYNTHETIC_HEAP: usize = 16;
+/// Sub-selector index: a `MatchTag` row whose dispatched arm jumped past the
+/// expected variant (parent [`SEL_CONSTRUCT`]).
+pub const SUB_SEL_MATCH_TAG_JUMP: usize = 17;
 
 #[derive(Debug, Clone, Copy)]
 pub struct OpcodeMeta {
@@ -133,7 +139,8 @@ pub const fn selector_index(op: Opcode) -> usize {
         | Opcode::GetBuiltin
         | Opcode::GetFree
         | Opcode::CurrentClosure
-        | Opcode::SegmentNew => SEL_PUSH,
+        | Opcode::SegmentNew
+        | Opcode::VectorNew => SEL_PUSH,
 
         Opcode::Add | Opcode::Sub | Opcode::Mul => SEL_ARITH,
 
@@ -174,7 +181,7 @@ pub const fn selector_index(op: Opcode) -> usize {
             SEL_FELT
         }
 
-        Opcode::HeapAlloc | Opcode::ArenaNew => SEL_HEAP_ALLOC,
+        Opcode::HeapAlloc | Opcode::ArenaNew | Opcode::VectorPush => SEL_HEAP_ALLOC,
         Opcode::HeapRead => SEL_HEAP_READ,
         Opcode::HeapWrite | Opcode::ArenaFinalize => SEL_HEAP_WRITE,
     }
@@ -208,7 +215,7 @@ mod tests {
 
     #[test]
     fn every_opcode_maps_to_valid_selector() {
-        for byte in 0..=55u8 {
+        for byte in 0..=57u8 {
             let op = Opcode::from_byte(byte).unwrap();
             let class = selector_index(op);
             assert!(
@@ -226,6 +233,12 @@ mod tests {
     fn arena_opcodes_share_heap_selector_classes() {
         assert_eq!(selector_index(Opcode::ArenaNew), SEL_HEAP_ALLOC);
         assert_eq!(selector_index(Opcode::ArenaFinalize), SEL_HEAP_WRITE);
+    }
+
+    #[test]
+    fn vector_opcodes_piggyback_on_existing_selectors() {
+        assert_eq!(selector_index(Opcode::VectorNew), SEL_PUSH);
+        assert_eq!(selector_index(Opcode::VectorPush), SEL_HEAP_ALLOC);
     }
 
     #[test]
@@ -252,7 +265,7 @@ mod tests {
 
     #[test]
     fn sub_selectors_are_in_range() {
-        for byte in 0..=55u8 {
+        for byte in 0..=57u8 {
             let op = Opcode::from_byte(byte).unwrap();
             if let Some(sub) = sub_selector_index(op) {
                 assert!(

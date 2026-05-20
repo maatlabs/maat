@@ -1,14 +1,19 @@
 //! Utilities used by the `prove_verify.rs` integration tests
 
 use maat_air::{MaatPublicInputs, Proof};
-use maat_bytecode::{Bytecode, Instructions, Opcode, encode};
+use maat_bytecode::{Bytecode, Constant, Instructions, Opcode, encode};
 use maat_field::{BaseElement, Felt, FieldElement};
 use maat_prover::{
     MaatProver, compute_program_hash, development_options, production_options, verify_with_inputs,
 };
-use maat_runtime::{Integer, Value};
+use maat_runtime::{Integer, Relocatable, SEG_PUBLIC_OUTPUT};
 use maat_span::SourceMap;
 use maat_trace::table::{COL_OUT, COL_SUB_SEL_BASE, TraceTable};
+
+fn trace_stamped_output(trace: &TraceTable) -> BaseElement {
+    let last = trace.num_rows().saturating_sub(1);
+    trace.row(last)[COL_OUT]
+}
 
 pub fn prove_and_verify(source: &str) {
     let (bytecode, trace, output) = compile_and_trace(source);
@@ -85,7 +90,7 @@ pub fn synthetic_segment_alloc_read_bytecode(initial_value: i64) -> Bytecode {
     instructions.extend_from_bytes(&encode(Opcode::Pop, &[]));
     Bytecode {
         instructions,
-        constants: vec![Value::Integer(Integer::I64(initial_value))],
+        constants: vec![Constant::Integer(Integer::I64(initial_value))],
         source_map: SourceMap::new(),
         type_registry: vec![],
     }
@@ -115,8 +120,8 @@ pub fn synthetic_two_segments_bytecode(seg_a_value: i64, seg_b_value: i64) -> By
     Bytecode {
         instructions,
         constants: vec![
-            Value::Integer(Integer::I64(seg_a_value)),
-            Value::Integer(Integer::I64(seg_b_value)),
+            Constant::Integer(Integer::I64(seg_a_value)),
+            Constant::Integer(Integer::I64(seg_b_value)),
         ],
         source_map: SourceMap::new(),
         type_registry: vec![],
@@ -140,8 +145,8 @@ pub fn synthetic_write_once_violation_bytecode(initial: i64, conflict: i64) -> B
     Bytecode {
         instructions,
         constants: vec![
-            Value::Integer(Integer::I64(initial)),
-            Value::Integer(Integer::I64(conflict)),
+            Constant::Integer(Integer::I64(initial)),
+            Constant::Integer(Integer::I64(conflict)),
         ],
         source_map: SourceMap::new(),
         type_registry: vec![],
@@ -172,7 +177,7 @@ pub fn synthetic_relocatable_cell_value_bytecode(payload: i64) -> Bytecode {
     instructions.extend_from_bytes(&encode(Opcode::Pop, &[]));
     Bytecode {
         instructions,
-        constants: vec![Value::Integer(Integer::I64(payload))],
+        constants: vec![Constant::Integer(Integer::I64(payload))],
         source_map: SourceMap::new(),
         type_registry: vec![],
     }
@@ -209,9 +214,9 @@ pub fn synthetic_sparse_segment_bytecode(low_value: i64, high_value: i64) -> Byt
     Bytecode {
         instructions,
         constants: vec![
-            Value::Integer(Integer::I64(low_value)),
-            Value::Integer(Integer::I64(5)),
-            Value::Integer(Integer::I64(high_value)),
+            Constant::Integer(Integer::I64(low_value)),
+            Constant::Integer(Integer::I64(5)),
+            Constant::Integer(Integer::I64(high_value)),
         ],
         source_map: SourceMap::new(),
         type_registry: vec![],
@@ -257,40 +262,45 @@ pub fn synthetic_cross_segment_sparse_bytecode(seg_a_value: i64, seg_b_value: i6
     Bytecode {
         instructions,
         constants: vec![
-            Value::Integer(Integer::I64(seg_a_value)),
-            Value::Integer(Integer::I64(3)),
-            Value::Integer(Integer::I64(seg_a_value.wrapping_add(100))),
-            Value::Integer(Integer::I64(seg_b_value)),
-            Value::Integer(Integer::I64(2)),
-            Value::Integer(Integer::I64(seg_b_value.wrapping_add(100))),
+            Constant::Integer(Integer::I64(seg_a_value)),
+            Constant::Integer(Integer::I64(3)),
+            Constant::Integer(Integer::I64(seg_a_value.wrapping_add(100))),
+            Constant::Integer(Integer::I64(seg_b_value)),
+            Constant::Integer(Integer::I64(2)),
+            Constant::Integer(Integer::I64(seg_b_value.wrapping_add(100))),
         ],
         source_map: SourceMap::new(),
         type_registry: vec![],
     }
 }
 
-/// Bytecode that writes `cells.len()` values to a freshly allocated user
-/// segment and leaves the segment base pointer as the program's
-/// last-popped value.
+/// Bytecode that writes `cells.len()` values directly into the pre-allocated
+/// public-output segment ([`SEG_PUBLIC_OUTPUT`]) at offsets `0..cells.len()`
+/// and leaves the segment base pointer as the program's last-popped value.
 pub fn synthetic_output_segment_bytecode(cells: &[i64]) -> Bytecode {
     let mut instructions = Instructions::new();
-    // SegmentNew -> stash base in global 0.
-    instructions.extend_from_bytes(&encode(Opcode::SegmentNew, &[]));
+    let mut constants: Vec<Constant> = Vec::with_capacity(cells.len() * 2 + 1);
+
+    let pubmem_base_idx = constants.len();
+    constants.push(Constant::Relocatable(Relocatable::new(
+        SEG_PUBLIC_OUTPUT,
+        0,
+    )));
+    instructions.extend_from_bytes(&encode(Opcode::Constant, &[pubmem_base_idx]));
     instructions.extend_from_bytes(&encode(Opcode::SetGlobal, &[0]));
 
-    let mut constants: Vec<Value> = Vec::with_capacity(cells.len() * 2);
     for (off, &val) in cells.iter().enumerate() {
         // Push the cell address: `base` for offset 0, `base + off` otherwise.
         instructions.extend_from_bytes(&encode(Opcode::GetGlobal, &[0]));
         if off > 0 {
             let off_const_idx = constants.len();
-            constants.push(Value::Integer(Integer::I64(off as i64)));
+            constants.push(Constant::Integer(Integer::I64(off as i64)));
             instructions.extend_from_bytes(&encode(Opcode::Constant, &[off_const_idx]));
             instructions.extend_from_bytes(&encode(Opcode::Add, &[]));
         }
         // Push the cell value, then HeapWrite.
         let val_const_idx = constants.len();
-        constants.push(Value::Integer(Integer::I64(val)));
+        constants.push(Constant::Integer(Integer::I64(val)));
         instructions.extend_from_bytes(&encode(Opcode::Constant, &[val_const_idx]));
         instructions.extend_from_bytes(&encode(Opcode::HeapWrite, &[]));
     }
@@ -306,13 +316,13 @@ pub fn synthetic_output_segment_bytecode(cells: &[i64]) -> Bytecode {
     }
 }
 
-/// Runs the bytecode against the public-output segment `seg_id`,
-/// builds `MaatPublicInputs::with_output_segment`, and
-/// verifies the proof end-to-end.
-pub fn prove_and_verify_pubmem(bytecode: Bytecode, seg_id: u32) {
-    let artifacts = maat_trace::run_with_output(bytecode.clone(), Some(seg_id))
-        .expect("trace with public output failed");
-    let output_felt = BaseElement::new(u64::from(artifacts.output_base));
+/// Runs the bytecode, extracts the public-output segment from the reserved
+/// [`SEG_PUBLIC_OUTPUT`] slot, builds `MaatPublicInputs::with_output_segment`,
+/// and verifies the proof end-to-end.
+pub fn prove_and_verify_pubmem(bytecode: Bytecode) {
+    let artifacts =
+        maat_trace::run_with_output(bytecode.clone()).expect("trace with public output failed");
+    let output_felt = trace_stamped_output(&artifacts.trace);
     let program_hash = compute_program_hash(&bytecode).expect("program hash failed");
     let public_inputs = MaatPublicInputs::with_output_segment(
         program_hash,
@@ -369,7 +379,7 @@ pub fn synthetic_arena_alloc_finalize_bytecode(payloads: &[i64]) -> Bytecode {
     instructions.extend_from_bytes(&encode(Opcode::SegmentNew, &[]));
     instructions.extend_from_bytes(&encode(Opcode::SetGlobal, &[0]));
 
-    let mut constants: Vec<Value> = Vec::with_capacity(payloads.len());
+    let mut constants: Vec<Constant> = Vec::with_capacity(payloads.len());
 
     for (i, &payload) in payloads.iter().enumerate() {
         let alloc_slot = i + 1;
@@ -379,7 +389,7 @@ pub fn synthetic_arena_alloc_finalize_bytecode(payloads: &[i64]) -> Bytecode {
 
         instructions.extend_from_bytes(&encode(Opcode::GetGlobal, &[alloc_slot]));
         let const_idx = constants.len();
-        constants.push(Value::Integer(Integer::I64(payload)));
+        constants.push(Constant::Integer(Integer::I64(payload)));
         instructions.extend_from_bytes(&encode(Opcode::Constant, &[const_idx]));
         instructions.extend_from_bytes(&encode(Opcode::HeapWrite, &[]));
     }
@@ -406,13 +416,11 @@ pub fn synthetic_arena_alloc_finalize_bytecode(payloads: &[i64]) -> Bytecode {
 /// Prove honestly, then verify against a tampered public input.
 pub fn honest_prover_dishonest_verifier(
     bytecode: Bytecode,
-    seg_id: u32,
     tamper: impl FnOnce(&mut MaatPublicInputs),
     label: &str,
 ) {
-    let artifacts =
-        maat_trace::run_with_output(bytecode.clone(), Some(seg_id)).expect("trace failed");
-    let output_felt = BaseElement::new(u64::from(artifacts.output_base));
+    let artifacts = maat_trace::run_with_output(bytecode.clone()).expect("trace failed");
+    let output_felt = trace_stamped_output(&artifacts.trace);
     let program_hash = compute_program_hash(&bytecode).expect("hash");
     let honest_inputs = MaatPublicInputs::with_output_segment(
         program_hash,

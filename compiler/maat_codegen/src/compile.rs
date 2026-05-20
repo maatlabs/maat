@@ -10,9 +10,11 @@ use std::collections::HashMap;
 use std::mem;
 
 use maat_ast::*;
-use maat_bytecode::{Bytecode, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, Opcode, encode};
+use maat_bytecode::{
+    Bytecode, Constant, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, Opcode, encode,
+};
 use maat_errors::{CompileError, CompileErrorKind, Error, Result};
-use maat_runtime::{TypeDef, Value};
+use maat_runtime::{Integer, Relocatable, SEG_PUBLIC_OUTPUT, TypeDef};
 use maat_span::{SourceMap, Span};
 
 use crate::registry::{self, VariantEntry};
@@ -20,7 +22,7 @@ use crate::symbol::{Symbol, SymbolScope, SymbolsTable};
 
 #[derive(Debug, Clone)]
 pub struct Compiler {
-    pub(crate) constants: Vec<Value>,
+    pub(crate) constants: Vec<Constant>,
     pub(crate) symbols_table: SymbolsTable,
     pub(crate) scopes: Vec<CompilationScope>,
     pub(crate) scope_index: usize,
@@ -87,7 +89,7 @@ impl Compiler {
         }
     }
 
-    pub fn with_state(mut symbols_table: SymbolsTable, constants: Vec<Value>) -> Self {
+    pub fn with_state(mut symbols_table: SymbolsTable, constants: Vec<Constant>) -> Self {
         registry::register_builtins(&mut symbols_table);
         let type_registry = registry::builtin_type_registry();
         let variant_index = registry::build_variant_index(&type_registry);
@@ -162,19 +164,78 @@ impl Compiler {
                 }
             }
         }
-        for stmt in &program.statements {
-            self.compile_statement(stmt)?;
+        let last_idx = program.statements.len().checked_sub(1);
+        for (idx, stmt) in program.statements.iter().enumerate() {
+            if Some(idx) == last_idx
+                && program.publishes_main_vector
+                && let Stmt::Expr(expr_stmt) = stmt
+            {
+                self.compile_main_vector_publication(expr_stmt)?;
+            } else {
+                self.compile_statement(stmt)?;
+            }
         }
         Ok(())
     }
 
-    pub(crate) fn compile_numeric_constant(&mut self, val: Value, span: Span) -> Result<()> {
-        let index = self.add_constant(val)?;
+    fn compile_main_vector_publication(&mut self, expr_stmt: &ExprStmt) -> Result<()> {
+        let span = expr_stmt.span;
+        self.compile_expression(&expr_stmt.value)?;
+        let iter_sym = self.define_and_set("__main_publish_iter", false, span)?;
+
+        let len_builtin = self.resolve_or_error("Vector::len", span)?;
+        self.load_symbol(&len_builtin, span);
+        self.load_symbol(&iter_sym, span);
+        self.emit(Opcode::Call, &[1], span);
+        let len_sym = self.define_and_set("__main_publish_len", false, span)?;
+
+        let zero_idx = self.add_constant(Constant::Integer(Integer::I64(0)))?;
+        self.emit(Opcode::Constant, &[zero_idx], span);
+        let i_sym = self.define_and_set("__main_publish_i", true, span)?;
+
+        let output_base_idx = self.add_constant(Constant::Relocatable(Relocatable::new(
+            SEG_PUBLIC_OUTPUT,
+            0,
+        )))?;
+        let one_idx = self.add_constant(Constant::Integer(Integer::I64(1)))?;
+
+        let loop_start = self.current_instructions().len();
+        self.load_symbol(&i_sym, span);
+        self.load_symbol(&len_sym, span);
+        self.emit(Opcode::LessThan, &[], span);
+        let exit_jump = self.emit(Opcode::CondJump, &[Self::JUMP], span);
+
+        self.emit(Opcode::Constant, &[output_base_idx], span);
+        self.load_symbol(&i_sym, span);
+        self.emit(Opcode::Add, &[], span);
+
+        self.load_symbol(&iter_sym, span);
+        self.load_symbol(&i_sym, span);
+        self.emit(Opcode::Index, &[], span);
+
+        self.emit(Opcode::HeapWrite, &[], span);
+
+        self.load_symbol(&i_sym, span);
+        self.emit(Opcode::Constant, &[one_idx], span);
+        self.emit(Opcode::Add, &[], span);
+        self.emit_set_symbol(&i_sym, span);
+
+        self.emit(Opcode::Jump, &[loop_start], span);
+        let loop_exit = self.current_instructions().len();
+        self.replace_operand(exit_jump, loop_exit)?;
+
+        self.load_symbol(&iter_sym, span);
+        self.emit(Opcode::Pop, &[], span);
+        Ok(())
+    }
+
+    pub(crate) fn compile_numeric_constant(&mut self, entry: Constant, span: Span) -> Result<()> {
+        let index = self.add_constant(entry)?;
         self.emit(Opcode::Constant, &[index], span);
         Ok(())
     }
 
-    pub(crate) fn add_constant(&mut self, val: Value) -> Result<usize> {
+    pub(crate) fn add_constant(&mut self, entry: Constant) -> Result<usize> {
         let index = self.constants.len();
         if index > MAX_CONSTANT_POOL_SIZE {
             return Err(CompileError::new(CompileErrorKind::ConstantPoolOverflow {
@@ -183,14 +244,14 @@ impl Compiler {
             })
             .into());
         }
-        self.constants.push(val);
+        self.constants.push(entry);
         Ok(index)
     }
 
     pub(crate) fn emit_builtin_call(
         &mut self,
         name: &str,
-        const_args: &[Value],
+        const_args: &[Constant],
         span: Span,
     ) -> Result<()> {
         let builtin_idx = registry::resolve_builtin_index(name);

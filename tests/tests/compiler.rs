@@ -1,5 +1,5 @@
-use maat_bytecode::{Bytecode, Instructions, Opcode, encode};
-use maat_runtime::{Integer, Value};
+use maat_bytecode::{Bytecode, Constant as ConstantPoolEntry, Instructions, Opcode, encode};
+use maat_runtime::Integer;
 
 /// A constant expectation that can be either an integer or a compiled function's instructions.
 enum Constant {
@@ -17,13 +17,13 @@ fn assert_constants(bytecode: &Bytecode, expected: &[Constant], input: &str) {
     );
     for (i, expected_const) in expected.iter().enumerate() {
         match (expected_const, &bytecode.constants[i]) {
-            (Constant::Int(expected_val), Value::Integer(Integer::I64(actual_val))) => {
+            (Constant::Int(expected_val), ConstantPoolEntry::Integer(Integer::I64(actual_val))) => {
                 assert_eq!(
                     actual_val, expected_val,
                     "constant {i} wrong for input: {input}"
                 );
             }
-            (Constant::Fn(expected_insts), Value::CompiledFn(cf)) => {
+            (Constant::Fn(expected_insts), ConstantPoolEntry::CompiledFn(cf)) => {
                 let expected_ins = concat_instructions(expected_insts);
                 let actual_ins = Instructions::from_bytes(cf.instructions.to_vec());
                 assert_eq!(
@@ -58,7 +58,7 @@ fn assert_integer_constants(bytecode: &Bytecode, expected: &[i64], input: &str) 
     );
     for (i, expected_val) in expected.iter().enumerate() {
         match &bytecode.constants[i] {
-            Value::Integer(Integer::I64(value)) => {
+            ConstantPoolEntry::Integer(Integer::I64(value)) => {
                 assert_eq!(
                     *value, *expected_val,
                     "constant {i} wrong for input: {input}"
@@ -344,7 +344,7 @@ fn compile_strings() {
         );
         for (i, expected) in expected_constants.iter().enumerate() {
             match &bytecode.constants[i] {
-                Value::Str(value) => {
+                ConstantPoolEntry::Str(value) => {
                     assert_eq!(value, expected, "constant {i} wrong for input: {input}")
                 }
                 _ => panic!("expected string constant at index {i}"),
@@ -359,16 +359,22 @@ fn compile_arrays() {
         (
             "[]",
             vec![],
-            vec![encode(Opcode::Vector, &[0]), encode(Opcode::Pop, &[])],
+            vec![encode(Opcode::VectorNew, &[]), encode(Opcode::Pop, &[])],
         ),
         (
             "[1, 2, 3]",
             vec![1, 2, 3],
             vec![
+                encode(Opcode::VectorNew, &[]),
                 encode(Opcode::Constant, &[0]),
+                encode(Opcode::VectorPush, &[]),
+                encode(Opcode::Pop, &[]),
                 encode(Opcode::Constant, &[1]),
+                encode(Opcode::VectorPush, &[]),
+                encode(Opcode::Pop, &[]),
                 encode(Opcode::Constant, &[2]),
-                encode(Opcode::Vector, &[3]),
+                encode(Opcode::VectorPush, &[]),
+                encode(Opcode::Pop, &[]),
                 encode(Opcode::Pop, &[]),
             ],
         ),
@@ -376,16 +382,22 @@ fn compile_arrays() {
             "[1 + 2, 3 - 4, 5 * 6]",
             vec![1, 2, 3, 4, 5, 6],
             vec![
+                encode(Opcode::VectorNew, &[]),
                 encode(Opcode::Constant, &[0]),
                 encode(Opcode::Constant, &[1]),
                 encode(Opcode::Add, &[]),
+                encode(Opcode::VectorPush, &[]),
+                encode(Opcode::Pop, &[]),
                 encode(Opcode::Constant, &[2]),
                 encode(Opcode::Constant, &[3]),
                 encode(Opcode::Sub, &[]),
+                encode(Opcode::VectorPush, &[]),
+                encode(Opcode::Pop, &[]),
                 encode(Opcode::Constant, &[4]),
                 encode(Opcode::Constant, &[5]),
                 encode(Opcode::Mul, &[]),
-                encode(Opcode::Vector, &[3]),
+                encode(Opcode::VectorPush, &[]),
+                encode(Opcode::Pop, &[]),
                 encode(Opcode::Pop, &[]),
             ],
         ),
@@ -450,10 +462,16 @@ fn compile_index_expressions() {
             "[1, 2, 3][1 + 1]",
             vec![1, 2, 3, 1, 1],
             vec![
+                encode(Opcode::VectorNew, &[]),
                 encode(Opcode::Constant, &[0]),
+                encode(Opcode::VectorPush, &[]),
+                encode(Opcode::Pop, &[]),
                 encode(Opcode::Constant, &[1]),
+                encode(Opcode::VectorPush, &[]),
+                encode(Opcode::Pop, &[]),
                 encode(Opcode::Constant, &[2]),
-                encode(Opcode::Vector, &[3]),
+                encode(Opcode::VectorPush, &[]),
+                encode(Opcode::Pop, &[]),
                 encode(Opcode::Constant, &[3]),
                 encode(Opcode::Constant, &[4]),
                 encode(Opcode::Add, &[]),
@@ -704,20 +722,19 @@ fn compile_builtins() {
             vec![],
             vec![
                 encode(Opcode::GetBuiltin, &[5]),
-                encode(Opcode::Vector, &[0]),
+                encode(Opcode::VectorNew, &[]),
                 encode(Opcode::Call, &[1]),
                 encode(Opcode::Pop, &[]),
             ],
         ),
-        // Method calls: Vector::push (builtin index 9)
         (
             "[].push(1);",
             vec![Constant::Int(1)],
             vec![
-                encode(Opcode::GetBuiltin, &[9]),
-                encode(Opcode::Vector, &[0]),
+                encode(Opcode::VectorNew, &[]),
                 encode(Opcode::Constant, &[0]),
-                encode(Opcode::Call, &[2]),
+                encode(Opcode::VectorPush, &[]),
+                encode(Opcode::Pop, &[]),
                 encode(Opcode::Pop, &[]),
             ],
         ),

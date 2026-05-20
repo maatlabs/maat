@@ -11,13 +11,14 @@
 use std::borrow::Cow;
 
 use maat_ast::{MaatAst, Stmt, fold_constants};
+use maat_bytecode::Constant;
 use maat_codegen::{Compiler, SymbolsTable};
 use maat_errors::Error;
-use maat_eval::{expand_macros, extract_macros};
+use maat_eval::{EvalEnv, expand_macros, extract_macros};
 use maat_lexer::{KEYWORDS, MaatLexer};
 use maat_parser::MaatParser;
 use maat_parser::reserved::{RESERVED_KEYWORDS, RESERVED_TYPE_NAMES};
-use maat_runtime::{Env, Value};
+use maat_runtime::Value;
 use maat_types::TypeChecker;
 use maat_vm::VM;
 use rustyline::completion::Completer;
@@ -293,9 +294,9 @@ pub fn start_interactive() {
     let _ = editor.load_history(history_file);
 
     let mut symbols_table = SymbolsTable::new();
-    let mut constants: Vec<Value> = Vec::new();
+    let mut constants: Vec<Constant> = Vec::new();
     let mut globals: Vec<Value> = Vec::new();
-    let macro_env = Env::default();
+    let macro_env = EvalEnv::default();
     let mut type_checker = TypeChecker::new();
 
     loop {
@@ -391,9 +392,10 @@ pub fn start_interactive() {
         symbols_table = next_symbols;
         constants = next_constants;
 
-        match vm.last_popped_stack_elem() {
+        match vm.last_popped_stack_elem().cloned() {
             Some(val) if !only_let_stmts && !matches!(val, Value::Unit) => {
-                println!("{val}");
+                let display = vm.materialize_for_inspection(&val).unwrap_or(val);
+                println!("{display}");
             }
             _ => println!(),
         }
@@ -421,9 +423,9 @@ mod tests {
     fn start<R: BufRead, W: Write>(mut reader: R, writer: &mut W) -> io::Result<()> {
         let mut source = String::new();
         let mut symbols_table = SymbolsTable::new();
-        let mut constants: Vec<Value> = Vec::new();
+        let mut constants: Vec<Constant> = Vec::new();
         let mut globals: Vec<Value> = Vec::new();
-        let macro_env = Env::default();
+        let macro_env = EvalEnv::default();
         let mut type_checker = TypeChecker::new();
 
         loop {
@@ -504,9 +506,10 @@ mod tests {
             globals = vm.globals().to_vec();
             symbols_table = next_symbols;
             constants = next_constants;
-            match vm.last_popped_stack_elem() {
+            match vm.last_popped_stack_elem().cloned() {
                 Some(val) if !only_let_stmts && !matches!(val, Value::Unit) => {
-                    writeln!(writer, "{val}")?;
+                    let display = vm.materialize_for_inspection(&val).unwrap_or(val);
+                    writeln!(writer, "{display}")?;
                 }
                 _ => writeln!(writer)?,
             }

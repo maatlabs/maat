@@ -5,14 +5,14 @@
 //! from source code to cryptographic soundness.
 
 use maat_air::MaatPublicInputs;
-use maat_field::{BaseElement, Felt};
+use maat_field::{BaseElement, Felt, FieldElement};
 use maat_prover::{
     MaatProver, compute_program_hash, compute_program_hash_bytes, deserialize_proof,
     development_options, production_options, serialize_proof, verify, verify_with_inputs,
 };
 use maat_tests::prover::*;
 use maat_trace::selector::*;
-use maat_trace::table::{COL_MEM_ADDR, COL_MEM_VAL, TraceTable};
+use maat_trace::table::{COL_MEM_ADDR, COL_MEM_VAL, COL_SUB_SEL_BASE, TraceTable};
 
 #[test]
 fn prove_and_verify_arithmetic() {
@@ -187,6 +187,35 @@ fn prove_and_verify_fixed_size_array_function_param_and_return() {
         dot(v1, v2)
         ",
     );
+}
+
+#[test]
+fn vector_element_tamper_rejected() {
+    let source = "
+        let mut v = Vector::new();
+        v = v.push(11);
+        v = v.push(22);
+        v = v.push(33);
+        v[0] + v[1] + v[2]
+    ";
+    let (bytecode, mut trace, output) = compile_and_trace(source);
+    // Each push writes one cell via VectorPush, which records the value into
+    // the unified memory permutation. Corrupt the trace row carrying the
+    // middle value to break single-value consistency on the matching read.
+    let n = trace.num_rows();
+    let mut tampered = false;
+    for i in 0..n {
+        if trace.row(i)[COL_MEM_VAL].as_int() == 22 {
+            trace.row_mut(i)[COL_MEM_VAL] = Felt::new(999);
+            tampered = true;
+            break;
+        }
+    }
+    assert!(
+        tampered,
+        "expected at least one memory row carrying vector element value 22"
+    );
+    assert_tampered_trace_rejected(bytecode, trace, output, "vector element");
 }
 
 #[test]
@@ -1069,20 +1098,196 @@ fn tampered_gt_output_rejected() {
 }
 
 #[test]
+fn vector_main_returns_segment_published_to_pubmem() {
+    let source = "
+        let mut v = Vector::new();
+        v = v.push(7);
+        v = v.push(13);
+        v
+    ";
+    let bytecode = maat_tests::compile(source);
+    let artifacts = maat_trace::run_with_output(bytecode.clone()).expect("trace failed");
+    assert_eq!(
+        artifacts.output_segment.len(),
+        2,
+        "main-return Vector must publish its cells to SEG_PUBLIC_OUTPUT"
+    );
+    assert_eq!(artifacts.output_segment[0], Felt::new(7));
+    assert_eq!(artifacts.output_segment[1], Felt::new(13));
+    prove_and_verify_pubmem(bytecode);
+}
+
+#[test]
+fn vector_main_returns_segment_tampered_cell_rejected() {
+    let source = "
+        let mut v = Vector::new();
+        v = v.push(7);
+        v = v.push(13);
+        v
+    ";
+    let bytecode = maat_tests::compile(source);
+    honest_prover_dishonest_verifier(
+        bytecode,
+        |inputs| inputs.output_segment[1] = Felt::new(999),
+        "main-return Vector cell",
+    );
+}
+
+#[test]
+fn vector_builtin_cells_in_heap_permutation() {
+    let source = "
+        let mut v = Vector::new();
+        v = v.push(7);
+        v = v.push(13);
+        v.rev()
+    ";
+    let bytecode = maat_tests::compile(source);
+    let artifacts = maat_trace::run_with_output(bytecode.clone()).expect("trace failed");
+    assert_eq!(
+        artifacts.output_segment.len(),
+        2,
+        "builtin-allocated trailing Vector must publish its cells"
+    );
+    assert_eq!(artifacts.output_segment[0], Felt::new(13));
+    assert_eq!(artifacts.output_segment[1], Felt::new(7));
+    prove_and_verify_pubmem(bytecode);
+}
+
+#[test]
+fn bounded_loop_with_residual_iterations_proves_and_verifies() {
+    prove_and_verify(
+        "
+        let mut val: u64 = 1023;
+        #[bounded(12)]
+        while val != 0 {
+            val = val >> 1;
+        }
+        val
+        ",
+    );
+}
+
+#[test]
+fn match_tag_jump_proves_and_verifies() {
+    prove_and_verify(
+        "
+        let x: Option<i64> = None;
+        match x {
+            Some(v) => v,
+            None => -1,
+        }
+        ",
+    );
+}
+
+#[test]
+fn match_tag_jump_some_arm_proves_and_verifies() {
+    prove_and_verify(
+        "
+        let x: Option<i64> = Some(42);
+        match x {
+            Some(v) => v,
+            None => -1,
+        }
+        ",
+    );
+}
+
+#[test]
+fn match_tag_jump_marker_tampered_rejected() {
+    let source = "
+        let x: Option<i64> = None;
+        match x {
+            Some(v) => v,
+            None => -1,
+        }
+    ";
+    let (bytecode, mut trace, output) = compile_and_trace(source);
+    let mut cleared = false;
+    for i in 0..trace.num_rows() {
+        if trace.row(i)[COL_SUB_SEL_BASE + SUB_SEL_MATCH_TAG_JUMP] == Felt::ONE {
+            trace.row_mut(i)[COL_SUB_SEL_BASE + SUB_SEL_MATCH_TAG_JUMP] = Felt::ZERO;
+            cleared = true;
+            break;
+        }
+    }
+    assert!(
+        cleared,
+        "expected at least one MatchTag-jump row in the trace",
+    );
+    assert_tampered_trace_rejected(bytecode, trace, output, "match-tag-jump marker");
+}
+
+#[test]
+fn closure_capture_proves_and_verifies() {
+    prove_and_verify(
+        "
+        let make_adder = fn(x: i64) -> fn(i64) -> i64 {
+            fn(y: i64) -> i64 { x + y; }
+        };
+        let add5 = make_adder(5);
+        let add10 = make_adder(10);
+        add5(3) + add10(7)
+        ",
+    );
+}
+
+#[test]
+fn closure_capture_tampered_cell_rejected() {
+    let source = "
+        let make_id = fn(x: i64) {
+            fn() -> i64 { x; }
+        };
+        let f = make_id(42);
+        f()
+    ";
+    let (bytecode, mut trace, output) = compile_and_trace(source);
+    let mut tampered = false;
+    for i in 0..trace.num_rows() {
+        if trace.row(i)[COL_SUB_SEL_BASE + SUB_SEL_SYNTHETIC_HEAP] == Felt::ONE {
+            trace.row_mut(i)[COL_MEM_VAL] = Felt::new(999);
+            tampered = true;
+            break;
+        }
+    }
+    assert!(
+        tampered,
+        "expected at least one synthetic-heap-write row in the trace",
+    );
+    assert_tampered_trace_rejected(bytecode, trace, output, "closure capture cell");
+}
+
+#[test]
+fn vector_builtin_cells_tampered_rejected() {
+    let source = "
+        let mut v = Vector::new();
+        v = v.push(7);
+        v = v.push(13);
+        v.rev()
+    ";
+    let bytecode = maat_tests::compile(source);
+    honest_prover_dishonest_verifier(
+        bytecode,
+        |inputs| inputs.output_segment[0] = Felt::new(999),
+        "builtin-allocated cell",
+    );
+}
+
+#[test]
 fn pubmem_three_cell_output_proves_and_verifies() {
     let bytecode = synthetic_output_segment_bytecode(&[10, 20, 30]);
-    let artifacts = maat_trace::run_with_output(bytecode.clone(), Some(0)).expect("trace failed");
+    let artifacts = maat_trace::run_with_output(bytecode.clone()).expect("trace failed");
     assert_eq!(artifacts.output_segment.len(), 3);
     assert_eq!(artifacts.output_segment[0], Felt::new(10));
     assert_eq!(artifacts.output_segment[1], Felt::new(20));
     assert_eq!(artifacts.output_segment[2], Felt::new(30));
-    prove_and_verify_pubmem(bytecode, 0);
+    prove_and_verify_pubmem(bytecode);
 }
 
 #[test]
 fn pubmem_two_cell_struct_shaped_output_proves_and_verifies() {
     let bytecode = synthetic_output_segment_bytecode(&[1, 2]);
-    prove_and_verify_pubmem(bytecode, 0);
+    prove_and_verify_pubmem(bytecode);
 }
 
 #[test]
@@ -1090,7 +1295,6 @@ fn pubmem_tampered_output_cell_value_rejected() {
     let bytecode = synthetic_output_segment_bytecode(&[10, 20, 30]);
     honest_prover_dishonest_verifier(
         bytecode,
-        0,
         |inputs| inputs.output_segment[1] = Felt::new(999),
         "output cell value",
     );
@@ -1101,7 +1305,6 @@ fn pubmem_tampered_output_base_rejected() {
     let bytecode = synthetic_output_segment_bytecode(&[10, 20, 30]);
     honest_prover_dishonest_verifier(
         bytecode,
-        0,
         |inputs| inputs.output_base = inputs.output_base.wrapping_add(17),
         "output base",
     );
@@ -1112,7 +1315,6 @@ fn pubmem_tampered_segment_length_shorter_rejected() {
     let bytecode = synthetic_output_segment_bytecode(&[10, 20, 30]);
     honest_prover_dishonest_verifier(
         bytecode,
-        0,
         |inputs| {
             inputs.output_segment.pop();
         },
@@ -1125,7 +1327,6 @@ fn pubmem_tampered_segment_length_longer_rejected() {
     let bytecode = synthetic_output_segment_bytecode(&[10, 20, 30]);
     honest_prover_dishonest_verifier(
         bytecode,
-        0,
         |inputs| inputs.output_segment.push(Felt::new(40)),
         "segment length (longer)",
     );

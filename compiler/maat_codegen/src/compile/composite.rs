@@ -1,9 +1,9 @@
 use std::rc::Rc;
 
 use maat_ast::*;
-use maat_bytecode::Opcode;
+use maat_bytecode::{Constant, Opcode};
 use maat_errors::{CompileErrorKind, Result};
-use maat_runtime::{CompiledFn, TypeDef, Value};
+use maat_runtime::{CompiledFn, TypeDef};
 use maat_span::Span;
 
 use super::Compiler;
@@ -117,7 +117,7 @@ impl Compiler {
 
             let num_locals = self.symbols_table.max_definitions();
             let (instructions, inner_source_map) = self.leave_scope()?;
-            let compiled_fn = Value::CompiledFn(CompiledFn {
+            let compiled_fn = Constant::CompiledFn(CompiledFn {
                 instructions: Rc::from(instructions.as_bytes()),
                 num_locals,
                 num_parameters: field_count,

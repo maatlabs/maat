@@ -47,6 +47,19 @@ pub trait Tracer {
     ) {
     }
 
+    /// Emits a synthetic heap-write row for a cell materialised inside the
+    /// current dispatch but not lowered to its own opcode (typically a
+    /// builtin-allocated vector cell).
+    #[inline(always)]
+    fn emit_synthetic_heap_write(&mut self, _segment: u32, _offset: u32, _value: MaybeRelocatable) {
+    }
+
+    /// Records that the active `MatchTag` row dispatched its non-fall-through branch.
+    /// Marks the row with `SUB_SEL_MATCH_TAG_JUMP` so the AIR's
+    /// `pc_uniform_gate` can exclude it from the linear pc-progression rule.
+    #[inline(always)]
+    fn record_match_tag_jump(&mut self) {}
+
     /// Records entry into a closure frame.
     #[inline(always)]
     fn record_call_closure(&mut self, _ctx: CallCtx<'_>) -> Result<()> {

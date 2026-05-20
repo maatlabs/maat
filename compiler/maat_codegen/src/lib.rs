@@ -16,9 +16,9 @@ pub use symbol::{Symbol, SymbolScope, SymbolsTable};
 #[cfg(test)]
 mod tests {
     use maat_ast::{Expr, ExprStmt, MaatAst, NumKind, Number, PrefixExpr, Program, Radix, Stmt};
-    use maat_bytecode::{MAX_CONSTANT_POOL_SIZE, Opcode};
+    use maat_bytecode::{Constant, MAX_CONSTANT_POOL_SIZE, Opcode};
     use maat_errors::{CompileError, CompileErrorKind, Error};
-    use maat_runtime::{Integer, Value};
+    use maat_runtime::Integer;
     use maat_span::Span;
 
     use super::Compiler;
@@ -27,10 +27,10 @@ mod tests {
     fn constant_pool_overflow() {
         let mut compiler = Compiler::new();
         for i in 0..=MAX_CONSTANT_POOL_SIZE as i64 {
-            let result = compiler.add_constant(Value::Integer(Integer::I64(i)));
+            let result = compiler.add_constant(Constant::Integer(Integer::I64(i)));
             assert!(result.is_ok(), "should succeed for index {i}");
         }
-        let result = compiler.add_constant(Value::Integer(Integer::I64(999)));
+        let result = compiler.add_constant(Constant::Integer(Integer::I64(999)));
         assert!(
             result.is_err(),
             "should fail when exceeding MAX_CONSTANT_POOL_SIZE"
@@ -64,6 +64,7 @@ mod tests {
                 value: expr,
                 span: Span::ZERO,
             })],
+            ..Default::default()
         };
         let mut compiler = Compiler::new();
         let result = compiler.compile(&MaatAst::Program(program));

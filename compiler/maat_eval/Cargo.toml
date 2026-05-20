@@ -15,4 +15,6 @@ indexmap.workspace = true
 
 maat_errors.workspace = true
 maat_ast.workspace = true
+maat_field.workspace = true
 maat_runtime.workspace = true
+maat_span.workspace = true

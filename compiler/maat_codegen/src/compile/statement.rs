@@ -1,9 +1,9 @@
 use std::rc::Rc;
 
 use maat_ast::*;
-use maat_bytecode::{MAX_ENUM_VARIANTS, Opcode};
+use maat_bytecode::{Constant, MAX_ENUM_VARIANTS, Opcode};
 use maat_errors::{CompileErrorKind, Error, Result};
-use maat_runtime::{CompiledFn, TypeDef, Value, VariantInfo};
+use maat_runtime::{CompiledFn, TypeDef, VariantInfo};
 use maat_span::Span;
 
 use super::Compiler;
@@ -196,7 +196,7 @@ impl Compiler {
         for sym in &free_vars {
             self.load_symbol(sym, span);
         }
-        let compiled_fn = Value::CompiledFn(CompiledFn {
+        let compiled_fn = Constant::CompiledFn(CompiledFn {
             instructions: Rc::from(instructions.as_bytes()),
             num_locals,
             num_parameters: num_params,

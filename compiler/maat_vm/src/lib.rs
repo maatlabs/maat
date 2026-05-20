@@ -12,12 +12,13 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use indexmap::IndexMap;
-use maat_bytecode::{Bytecode, MAX_FRAMES, MAX_GLOBALS, MAX_STACK_SIZE, Opcode, TypeTag};
+use maat_bytecode::{Bytecode, Constant, MAX_FRAMES, MAX_GLOBALS, MAX_STACK_SIZE, Opcode, TypeTag};
 use maat_errors::{Result, VmError};
 use maat_field::{Felt, FieldElement, from_i64, try_inv};
 use maat_runtime::{
-    BUILTINS, Closure, CompiledFn, EnumVariantVal, FALSE, Hashable, Integer, Map, MaybeRelocatable,
-    MemorySegmentManager, Relocatable, StructVal, TRUE, TypeDef, UNIT, Value, WideInt,
+    BUILTINS, BuiltinArg, BuiltinFn, BuiltinReturn, Closure, CompiledFn, EnumVariantVal, FALSE,
+    Hashable, Integer, Map, MaybeRelocatable, MemorySegmentManager, Relocatable, Set, StructVal,
+    TRUE, TypeDef, UNIT, Value, WideInt,
 };
 use maat_span::{SourceMap, Span};
 
@@ -50,7 +51,7 @@ impl Frame {
 
 #[derive(Debug)]
 pub struct VM {
-    constants: Vec<Value>,
+    constants: Vec<Constant>,
     stack: Vec<Value>,
     sp: usize,
     globals: Vec<Value>,
@@ -78,7 +79,8 @@ impl VM {
                 num_parameters: 0,
                 source_map: SourceMap::new(),
             },
-            free_vars: vec![],
+            base: None,
+            num_free: 0,
         };
         let main_frame = Frame::new(main_closure, 0);
         Self {
@@ -89,7 +91,7 @@ impl VM {
             frames: vec![main_frame],
             source_map,
             type_registry,
-            segments: MemorySegmentManager::new(),
+            segments: MemorySegmentManager::with_reserved_segments(),
             heap_values: HashMap::new(),
             current_segment: None,
             default_segment: None,
@@ -109,6 +111,26 @@ impl VM {
             Some(&self.stack[self.sp])
         } else {
             None
+        }
+    }
+
+    /// Reads the elements of a segment-backed `Value::Vector { base, len }`
+    /// out of the heap and returns them as a `Vec<Value>`. Returns `None`
+    /// for non-Vector values.
+    pub fn inspect_vector(&self, value: &Value) -> Result<Option<Vec<Value>>> {
+        match value {
+            Value::Vector { base, len } => self.read_vector_cells(*base, *len).map(Some),
+            _ => Ok(None),
+        }
+    }
+
+    pub fn materialize_for_inspection(&self, value: &Value) -> Result<Value> {
+        match value {
+            Value::Vector { base, len } => {
+                let cells = self.read_vector_cells(*base, *len)?;
+                Ok(Value::Array(cells))
+            }
+            other => Ok(other.clone()),
         }
     }
 
@@ -177,13 +199,14 @@ impl VM {
             Opcode::Constant => {
                 let index = self.read_u16_operand(ip + 1)?;
                 self.current_frame_mut()?.ip += 2;
-                let constant = self.constants.get(index).cloned().ok_or_else(|| {
+                let entry = self.constants.get(index).cloned().ok_or_else(|| {
                     self.vm_error(format!(
                         "constant pool access out of bounds at index {index}"
                     ))
                 })?;
-                recorder.record_out(constant.to_maybe_relocatable());
-                self.push_stack(constant)?;
+                let value = self.materialize_constant(entry, recorder)?;
+                recorder.record_out(value.to_maybe_relocatable());
+                self.push_stack(value)?;
             }
             Opcode::Pop => {
                 self.pop_stack()?;
@@ -271,7 +294,7 @@ impl VM {
             Opcode::Vector => {
                 let n = self.read_u16_operand(ip + 1)?;
                 self.current_frame_mut()?.ip += 2;
-                let v = self.build_collection(n, Value::Vector)?;
+                let v = self.build_vector_segment(n, recorder)?;
                 self.push_stack(v)?;
             }
             Opcode::Tuple => {
@@ -295,7 +318,17 @@ impl VM {
             Opcode::Index => {
                 let index = self.pop_stack()?;
                 let container = self.pop_stack()?;
-                self.execute_index_expression(container, index)?;
+                if let Value::Vector { base, len } = container {
+                    let addr = self.index_vector_seg(base, len, &index)?;
+                    let value = self.heap_values.get(&addr).cloned().ok_or_else(|| {
+                        self.vm_error(format!("vector cell {addr} is unallocated"))
+                    })?;
+                    let value_mr = value.to_maybe_relocatable();
+                    recorder.record_heap_access(addr.segment_index, addr.offset, value_mr, true);
+                    self.push_stack(value)?;
+                } else {
+                    self.execute_index_expression(container, index)?;
+                }
                 recorder.record_out(self.peek_top_maybe_reloc());
             }
             Opcode::Call => {
@@ -316,41 +349,44 @@ impl VM {
                 let num_free = self.read_u8_operand(ip + 3)?;
                 self.current_frame_mut()?.ip += 3;
                 let func = match self.constants.get(const_index) {
-                    Some(Value::CompiledFn(f)) => f.clone(),
+                    Some(Constant::CompiledFn(f)) => f.clone(),
                     _ => {
                         return Err(self.vm_error(format!(
                             "expected CompiledFn at constant pool index {const_index}"
                         )));
                     }
                 };
-                let base = self
+                let stack_base = self
                     .sp
                     .checked_sub(num_free)
                     .ok_or_else(|| self.vm_error("stack underflow reading free variables"))?;
-                let free_vars = (0..num_free)
-                    .map(|i| {
-                        self.stack
-                            .get(base + i)
-                            .cloned()
-                            .ok_or_else(|| self.vm_error("stack underflow reading free variables"))
-                    })
-                    .collect::<Result<Vec<_>>>()?;
-                self.sp = base;
-                self.push_stack(Value::Closure(Closure { func, free_vars }))?;
+                let captures = self.stack[stack_base..self.sp].to_vec();
+                self.sp = stack_base;
+                let closure_value = self.allocate_closure(func, captures, recorder)?;
+                self.push_stack(closure_value)?;
             }
             Opcode::GetFree => {
                 let index = self.read_u8_operand(ip + 1)?;
                 self.current_frame_mut()?.ip += 1;
-                let value = self
-                    .current_frame()?
-                    .closure
-                    .free_vars
-                    .get(index)
-                    .cloned()
-                    .ok_or_else(|| {
+                let closure = &self.current_frame()?.closure;
+                let num_free = closure.num_free;
+                let index_u32 = u32::try_from(index)
+                    .map_err(|_| self.vm_error("free variable index exceeds u32"))?;
+                if index_u32 >= num_free {
+                    return Err(
                         self.vm_error(format!("free variable index out of bounds: {index}"))
-                    })?;
-                recorder.record_out(value.to_maybe_relocatable());
+                    );
+                }
+                let base = closure.base.ok_or_else(|| {
+                    self.vm_error("GetFree on a closure that captures no variables")
+                })?;
+                let addr = Relocatable::new(base.segment_index, index_u32);
+                let value = self.heap_values.get(&addr).cloned().ok_or_else(|| {
+                    self.vm_error(format!("closure capture cell {addr} is unallocated"))
+                })?;
+                let value_mr = value.to_maybe_relocatable();
+                recorder.record_out(value_mr);
+                recorder.record_heap_access(addr.segment_index, addr.offset, value_mr, true);
                 self.push_stack(value)?;
             }
             Opcode::CurrentClosure => {
@@ -382,7 +418,9 @@ impl VM {
                 let expected_tag = self.read_u16_operand(ip + 1)?;
                 let jump_target = self.read_u16_operand(ip + 3)?;
                 self.current_frame_mut()?.ip += 4;
-                self.execute_match_tag(expected_tag, jump_target)?;
+                if self.execute_match_tag(expected_tag, jump_target)? {
+                    recorder.record_match_tag_jump();
+                }
             }
             Opcode::ReturnValue => {
                 let return_value = self.pop_stack()?;
@@ -526,6 +564,47 @@ impl VM {
                     false,
                 );
             }
+            Opcode::VectorNew => {
+                let base = self
+                    .segments
+                    .add()
+                    .map_err(|e| self.vm_error(format!("VectorNew: {e}")))?;
+                self.current_segment = Some(base.segment_index);
+                self.push_stack(Value::Vector { base, len: 0 })?;
+                recorder.record_out(MaybeRelocatable::Relocatable(base));
+            }
+            Opcode::VectorPush => {
+                let val = self.pop_stack()?;
+                let vec = self.pop_stack()?;
+                match vec {
+                    Value::Vector { base, len } => {
+                        let val_mr = val.to_maybe_relocatable();
+                        let cell_addr = Relocatable::new(base.segment_index, len);
+                        self.segments
+                            .write(cell_addr, val_mr)
+                            .map_err(|e| self.vm_error(format!("VectorPush: {e}")))?;
+                        self.heap_values.insert(cell_addr, val);
+                        let new_len = len
+                            .checked_add(1)
+                            .ok_or_else(|| self.vm_error("VectorPush: vector length overflow"))?;
+                        self.push_stack(Value::Vector { base, len: new_len })?;
+                        self.push_stack(Value::Relocatable(cell_addr))?;
+                        recorder.record_out(MaybeRelocatable::Relocatable(cell_addr));
+                        recorder.record_heap_access(
+                            cell_addr.segment_index,
+                            cell_addr.offset,
+                            val_mr,
+                            false,
+                        );
+                    }
+                    other => {
+                        return Err(self.vm_error(format!(
+                            "VectorPush: receiver must be a Vector, got {}",
+                            other.type_name()
+                        )));
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -625,18 +704,243 @@ impl VM {
 
     fn call_builtin_fn<R: Tracer>(
         &mut self,
-        func: fn(&[Value]) -> Result<Value>,
+        func: BuiltinFn,
         num_args: usize,
         recorder: &mut R,
     ) -> Result<()> {
         let args_start = self.sp - num_args;
-        let args = self.stack[args_start..self.sp].to_vec();
-        let result = func(&args)?;
+        let raw_args: Vec<Value> = self.stack[args_start..self.sp].to_vec();
+
+        let base_vals: Vec<Vec<Value>> = raw_args
+            .iter()
+            .map(|v| match v {
+                Value::Vector { base, len } => self.read_vector_cells(*base, *len),
+                _ => Ok(Vec::new()),
+            })
+            .collect::<Result<_>>()?;
+
+        let args: Vec<BuiltinArg<'_>> = raw_args
+            .iter()
+            .zip(base_vals.iter())
+            .map(|(v, b)| Self::value_to_builtin_arg(v, b))
+            .collect();
+
+        let ret = func(&args)?;
+        drop(args);
+        drop(base_vals);
+        drop(raw_args);
+
+        let value = self.segment_allocate_return(ret, recorder)?;
 
         self.sp = args_start - 1;
-        self.push_stack(result)?;
+        self.push_stack(value)?;
         recorder.record_call_builtin();
         Ok(())
+    }
+
+    fn value_to_builtin_arg<'a>(value: &'a Value, base_vals: &'a [Value]) -> BuiltinArg<'a> {
+        match value {
+            Value::Unit => BuiltinArg::Unit,
+            Value::Integer(i) => BuiltinArg::Integer(*i),
+            Value::Felt(f) => BuiltinArg::Felt(*f),
+            Value::Bool(b) => BuiltinArg::Bool(*b),
+            Value::Char(c) => BuiltinArg::Char(*c),
+            Value::Str(s) => BuiltinArg::Str(s.as_str()),
+            Value::Tuple(t) => BuiltinArg::Tuple(t.as_slice()),
+            Value::Array(a) => BuiltinArg::Array(a.as_slice()),
+            Value::Map(m) => BuiltinArg::Map(m),
+            Value::Builtin(f) => BuiltinArg::Builtin(*f),
+            Value::CompiledFn(f) => BuiltinArg::CompiledFn(f),
+            Value::Closure(c) => BuiltinArg::Closure(c),
+            Value::Struct(s) => BuiltinArg::Struct(s),
+            Value::EnumVariant(ev) => BuiltinArg::EnumVariant(ev),
+            Value::Set(s) => BuiltinArg::Set(s),
+            Value::Range(s, e) => BuiltinArg::Range(*s, *e),
+            Value::RangeInclusive(s, e) => BuiltinArg::RangeInclusive(*s, *e),
+            Value::Relocatable(r) => BuiltinArg::Relocatable(*r),
+            Value::Vector { .. } => BuiltinArg::Vector(base_vals),
+        }
+    }
+
+    /// Recursively converts a [`BuiltinReturn`] tree into a runtime [`Value`].
+    fn segment_allocate_return<R: Tracer>(
+        &mut self,
+        ret: BuiltinReturn,
+        recorder: &mut R,
+    ) -> Result<Value> {
+        match ret {
+            BuiltinReturn::Value(v) => Ok(v),
+            BuiltinReturn::Str(s) => Ok(Value::Str(s)),
+            BuiltinReturn::Vector(entries) => {
+                let values = entries
+                    .into_iter()
+                    .map(|e| self.segment_allocate_return(e, recorder))
+                    .collect::<Result<Vec<_>>>()?;
+                self.allocate_vector_segment(values, recorder)
+            }
+        }
+    }
+
+    fn read_vector_cells(&self, base: Relocatable, len: u32) -> Result<Vec<Value>> {
+        let mut cells = Vec::with_capacity(len as usize);
+        for off in 0..len {
+            let addr = Relocatable::new(base.segment_index, off);
+            let cell = self.heap_values.get(&addr).cloned().ok_or_else(|| {
+                self.vm_error(format!(
+                    "Vector materialization: cell {addr} is unallocated"
+                ))
+            })?;
+            cells.push(cell);
+        }
+        Ok(cells)
+    }
+
+    /// Materializes a [`Constant`] into a runtime [`Value`].
+    fn materialize_constant<R: Tracer>(
+        &mut self,
+        entry: Constant,
+        recorder: &mut R,
+    ) -> Result<Value> {
+        match entry {
+            Constant::Unit => Ok(Value::Unit),
+            Constant::Integer(i) => Ok(Value::Integer(i)),
+            Constant::Felt(f) => Ok(Value::Felt(Felt::new(f))),
+            Constant::Bool(b) => Ok(Value::Bool(b)),
+            Constant::Char(c) => Ok(Value::Char(c)),
+            Constant::Str(s) => Ok(Value::Str(s)),
+            Constant::Tuple(entries) => {
+                let values = entries
+                    .into_iter()
+                    .map(|e| self.materialize_constant(e, recorder))
+                    .collect::<Result<_>>()?;
+                Ok(Value::Tuple(values))
+            }
+            Constant::Vector(entries) => {
+                let values = entries
+                    .into_iter()
+                    .map(|e| self.materialize_constant(e, recorder))
+                    .collect::<Result<Vec<_>>>()?;
+                self.allocate_vector_segment(values, recorder)
+            }
+            Constant::Array(entries) => {
+                let values = entries
+                    .into_iter()
+                    .map(|e| self.materialize_constant(e, recorder))
+                    .collect::<Result<_>>()?;
+                Ok(Value::Array(values))
+            }
+            Constant::Map(map) => {
+                let mut pairs = IndexMap::with_capacity(map.len());
+                for (k, v) in map {
+                    let v = self.materialize_constant(v, recorder)?;
+                    pairs.insert(k, v);
+                }
+                Ok(Value::Map(Map { pairs }))
+            }
+            Constant::Set(set) => Ok(Value::Set(Set(set))),
+            Constant::CompiledFn(f) => Ok(Value::CompiledFn(f)),
+            Constant::Struct { type_index, fields } => {
+                let fields = fields
+                    .into_iter()
+                    .map(|e| self.materialize_constant(e, recorder))
+                    .collect::<Result<_>>()?;
+                Ok(Value::Struct(StructVal { type_index, fields }))
+            }
+            Constant::EnumVariant {
+                type_index,
+                tag,
+                fields,
+            } => {
+                let fields = fields
+                    .into_iter()
+                    .map(|e| self.materialize_constant(e, recorder))
+                    .collect::<Result<_>>()?;
+                Ok(Value::EnumVariant(EnumVariantVal {
+                    type_index,
+                    tag,
+                    fields,
+                }))
+            }
+            Constant::Range(s, e) => Ok(Value::Range(s, e)),
+            Constant::RangeInclusive(s, e) => Ok(Value::RangeInclusive(s, e)),
+            Constant::Relocatable(r) => Ok(Value::Relocatable(r)),
+        }
+    }
+
+    fn allocate_closure<R: Tracer>(
+        &mut self,
+        func: CompiledFn,
+        captures: Vec<Value>,
+        recorder: &mut R,
+    ) -> Result<Value> {
+        let num_free = u32::try_from(captures.len())
+            .map_err(|_| self.vm_error("closure capture count exceeds u32 representable range"))?;
+        if num_free == 0 {
+            return Ok(Value::Closure(Closure {
+                func,
+                base: None,
+                num_free: 0,
+            }));
+        }
+        let base = self
+            .segments
+            .add()
+            .map_err(|e| self.vm_error(format!("Closure segment allocation: {e}")))?;
+        for (offset, capture) in captures.into_iter().enumerate() {
+            let offset = u32::try_from(offset).map_err(|_| {
+                self.vm_error("Closure capture offset exceeds u32 representable range")
+            })?;
+            let addr = Relocatable::new(base.segment_index, offset);
+            let value_mr = capture.to_maybe_relocatable();
+            self.segments
+                .write(addr, value_mr)
+                .map_err(|e| self.vm_error(format!("Closure capture write: {e}")))?;
+            self.heap_values.insert(addr, capture);
+            recorder.emit_synthetic_heap_write(addr.segment_index, addr.offset, value_mr);
+        }
+        Ok(Value::Closure(Closure {
+            func,
+            base: Some(base),
+            num_free,
+        }))
+    }
+
+    fn allocate_vector_segment<R: Tracer>(
+        &mut self,
+        elements: Vec<Value>,
+        recorder: &mut R,
+    ) -> Result<Value> {
+        let base = self
+            .segments
+            .add()
+            .map_err(|e| self.vm_error(format!("Vector segment allocation: {e}")))?;
+        let len = u32::try_from(elements.len())
+            .map_err(|_| self.vm_error("Vector length exceeds u32 representable range"))?;
+        for (offset, element) in elements.into_iter().enumerate() {
+            let offset = u32::try_from(offset)
+                .map_err(|_| self.vm_error("Vector offset exceeds u32 representable range"))?;
+            let addr = Relocatable::new(base.segment_index, offset);
+            let value_mr = element.to_maybe_relocatable();
+            self.segments
+                .write(addr, value_mr)
+                .map_err(|e| self.vm_error(format!("Vector segment write: {e}")))?;
+            self.heap_values.insert(addr, element);
+            recorder.emit_synthetic_heap_write(addr.segment_index, addr.offset, value_mr);
+        }
+        Ok(Value::Vector { base, len })
+    }
+
+    fn build_vector_segment<R: Tracer>(&mut self, n: usize, recorder: &mut R) -> Result<Value> {
+        if n > self.sp {
+            return Err(self.vm_error(format!(
+                "stack underflow in vector construction: need {n} elements, stack has {}",
+                self.sp
+            )));
+        }
+        let start = self.sp - n;
+        let elements = self.stack[start..self.sp].to_vec();
+        self.sp = start;
+        self.allocate_vector_segment(elements, recorder)
     }
 
     fn current_span(&self) -> Option<Span> {
@@ -810,6 +1114,18 @@ impl VM {
             let next = addr
                 .add_offset(addend)
                 .map_err(|e| self.vm_error(format!("Relocatable arithmetic: {e}")))?;
+            return self.push_stack(Value::Relocatable(next));
+        }
+
+        if op == Opcode::Add
+            && let (Value::Vector { base, .. }, Value::Integer(idx)) = (&left, &right)
+        {
+            let addend = idx.to_felt().ok_or_else(|| {
+                self.vm_error("Vector index addend does not fit in the base field")
+            })?;
+            let next = base
+                .add_offset(addend)
+                .map_err(|e| self.vm_error(format!("Vector index arithmetic: {e}")))?;
             return self.push_stack(Value::Relocatable(next));
         }
 
@@ -1115,15 +1431,38 @@ impl VM {
 
     fn execute_index_expression(&mut self, container: Value, index: Value) -> Result<()> {
         match (&container, &index) {
-            (Value::Vector(elements) | Value::Array(elements), _) => {
-                self.execute_vector_index(elements, &index)
-            }
+            (Value::Array(elements), _) => self.execute_vector_index(elements, &index),
             (Value::Map(map), _) => self.execute_map_index(map, index),
             _ => Err(self.vm_error(format!(
                 "index operator not supported: {}",
                 container.type_name()
             ))),
         }
+    }
+
+    fn index_vector_seg(&self, base: Relocatable, len: u32, index: &Value) -> Result<Relocatable> {
+        if !index.is_integer() {
+            return Err(self.vm_error(format!(
+                "vector index must be an integer, got {}",
+                index.type_name()
+            )));
+        }
+        let idx = index.to_vector_index().ok_or_else(|| {
+            self.vm_error(format!(
+                "index out of bounds: index is {index}, length is {len}"
+            ))
+        })?;
+        let idx_u32 = u32::try_from(idx).map_err(|_| {
+            self.vm_error(format!(
+                "index out of bounds: index {idx} exceeds u32 representable range"
+            ))
+        })?;
+        if idx_u32 >= len {
+            return Err(self.vm_error(format!(
+                "index out of bounds: index is {idx_u32}, length is {len}"
+            )));
+        }
+        Ok(Relocatable::new(base.segment_index, idx_u32))
     }
 
     fn execute_vector_index(&mut self, elements: &[Value], index: &Value) -> Result<()> {
@@ -1200,7 +1539,7 @@ impl VM {
         self.push_stack(value)
     }
 
-    fn execute_match_tag(&mut self, expected_tag: usize, jump_target: usize) -> Result<()> {
+    fn execute_match_tag(&mut self, expected_tag: usize, jump_target: usize) -> Result<bool> {
         let val = self
             .stack
             .get(self.sp - 1)
@@ -1216,7 +1555,8 @@ impl VM {
         };
         if actual_tag != expected_tag {
             self.current_frame_mut()?.ip = jump_target as isize - 1;
+            return Ok(true);
         }
-        Ok(())
+        Ok(false)
     }
 }

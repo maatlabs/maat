@@ -84,8 +84,17 @@ impl TypeChecker {
                 _ => {}
             }
         }
-        for stmt in &mut program.statements {
-            self.check_statement(stmt);
+        let last_idx = program.statements.len().checked_sub(1);
+        for (idx, stmt) in program.statements.iter_mut().enumerate() {
+            if Some(idx) == last_idx
+                && let Stmt::Expr(expr_stmt) = stmt
+            {
+                let ty = self.infer_expression(&mut expr_stmt.value);
+                let resolved = self.subst.apply(&ty);
+                program.publishes_main_vector = matches!(resolved, Type::Vector(_));
+            } else {
+                self.check_statement(stmt);
+            }
         }
         self.subst.resolve_inferred_literals(program);
         self.validate_bitwise_ops();
@@ -233,6 +242,7 @@ impl TypeChecker {
         match stmt {
             Stmt::Let(let_stmt) => self.check_let(let_stmt),
             Stmt::ReAssign(assign_stmt) => {
+                self.check_reassign_push_receiver(assign_stmt);
                 self.infer_expression(&mut assign_stmt.value);
             }
             Stmt::Return(ret_stmt) => {
@@ -288,6 +298,29 @@ impl TypeChecker {
         }
     }
 
+    fn check_reassign_push_receiver(&mut self, stmt: &ReAssignStmt) {
+        let Expr::MethodCall(mc) = &stmt.value else {
+            return;
+        };
+        if mc.method != "push" {
+            return;
+        }
+        let Expr::Ident(receiver) = mc.object.as_ref() else {
+            return;
+        };
+        if receiver.value != stmt.ident {
+            return;
+        }
+        if let Some(false) = self.env.is_binding_mutable(&stmt.ident) {
+            self.errors.push(
+                TypeErrorKind::VectorPushRequiresMutReceiver {
+                    binding: stmt.ident.clone(),
+                }
+                .at(stmt.span),
+            );
+        }
+    }
+
     fn check_let(&mut self, let_stmt: &mut LetStmt) {
         let inferred = self.infer_expression(&mut let_stmt.value);
         let ty = if let Some(ann) = &let_stmt.type_annotation {
@@ -317,7 +350,8 @@ impl TypeChecker {
             self.check_pattern(pattern, &ty);
         } else {
             let scheme = self.env.generalize(&ty, &self.subst);
-            self.env.define_scheme(&let_stmt.ident, scheme);
+            self.env
+                .define_scheme_with_mutability(&let_stmt.ident, scheme, let_stmt.mutable);
         }
     }
 

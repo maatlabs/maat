@@ -11,12 +11,10 @@ homepage.workspace = true
 readme = "README.md"
 
 [dependencies]
+indexmap.workspace = true
 postcard = { version = "1", features = ["alloc"] }
 serde.workspace = true
 
 maat_span.workspace = true
 maat_errors.workspace = true
 maat_runtime.workspace = true
-
-[dev-dependencies]
-indexmap.workspace = true

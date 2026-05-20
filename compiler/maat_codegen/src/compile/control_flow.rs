@@ -1,7 +1,7 @@
 use maat_ast::*;
-use maat_bytecode::Opcode;
+use maat_bytecode::{Constant, Opcode};
 use maat_errors::{CompileErrorKind, Result};
-use maat_runtime::{Integer, Value};
+use maat_runtime::Integer;
 use maat_span::Span;
 
 use super::{Compiler, LoopContext};
@@ -17,11 +17,11 @@ impl Compiler {
         let counter_name = format!("__bound_{id}");
         let bound_name = format!("__blimit_{id}");
 
-        let bound_idx = self.add_constant(Value::Integer(Integer::I64(bound as i64)))?;
+        let bound_idx = self.add_constant(Constant::Integer(Integer::I64(bound as i64)))?;
         self.emit(Opcode::Constant, &[bound_idx], span);
         let bound_sym = self.define_and_set(&bound_name, false, span)?;
 
-        let zero_idx = self.add_constant(Value::Integer(Integer::I64(0)))?;
+        let zero_idx = self.add_constant(Constant::Integer(Integer::I64(0)))?;
         self.emit(Opcode::Constant, &[zero_idx], span);
         let counter_sym = self.define_and_set(&counter_name, false, span)?;
 
@@ -41,7 +41,7 @@ impl Compiler {
 
         let continue_target = self.current_instructions().len();
         self.load_symbol(&counter_sym, span);
-        let one_idx = self.add_constant(Value::Integer(Integer::I64(1)))?;
+        let one_idx = self.add_constant(Constant::Integer(Integer::I64(1)))?;
         self.emit(Opcode::Constant, &[one_idx], span);
         self.emit(Opcode::Add, &[], span);
         self.emit_set_symbol(&counter_sym, span);
@@ -71,11 +71,11 @@ impl Compiler {
         let counter_name = format!("__bound_{id}");
         let bound_name = format!("__blimit_{id}");
 
-        let bound_idx = self.add_constant(Value::Integer(Integer::I64(bound as i64)))?;
+        let bound_idx = self.add_constant(Constant::Integer(Integer::I64(bound as i64)))?;
         self.emit(Opcode::Constant, &[bound_idx], span);
         let bound_sym = self.define_and_set(&bound_name, false, span)?;
 
-        let zero_idx = self.add_constant(Value::Integer(Integer::I64(0)))?;
+        let zero_idx = self.add_constant(Constant::Integer(Integer::I64(0)))?;
         self.emit(Opcode::Constant, &[zero_idx], span);
         let counter_sym = self.define_and_set(&counter_name, false, span)?;
 
@@ -99,7 +99,7 @@ impl Compiler {
 
         let continue_target = self.current_instructions().len();
         self.load_symbol(&counter_sym, span);
-        let one_idx = self.add_constant(Value::Integer(Integer::I64(1)))?;
+        let one_idx = self.add_constant(Constant::Integer(Integer::I64(1)))?;
         self.emit(Opcode::Constant, &[one_idx], span);
         self.emit(Opcode::Add, &[], span);
         self.emit_set_symbol(&counter_sym, span);
@@ -183,7 +183,7 @@ impl Compiler {
         self.emit(Opcode::Call, &[1], span);
         let len_sym = self.define_and_set(&len_name, false, span)?;
 
-        let zero_idx = self.add_constant(Value::Integer(Integer::I64(0)))?;
+        let zero_idx = self.add_constant(Constant::Integer(Integer::I64(0)))?;
         self.emit(Opcode::Constant, &[zero_idx], span);
         let i_sym = self.define_and_set(&i_name, false, span)?;
 
@@ -236,7 +236,7 @@ impl Compiler {
         self.emit(Opcode::Call, &[1], span);
         let len_sym = self.define_and_set(&len_name, false, span)?;
 
-        let zero_idx = self.add_constant(Value::Integer(Integer::I64(0)))?;
+        let zero_idx = self.add_constant(Constant::Integer(Integer::I64(0)))?;
         self.emit(Opcode::Constant, &[zero_idx], span);
         let i_sym = self.define_and_set(&i_name, false, span)?;
 
@@ -291,7 +291,7 @@ impl Compiler {
         let one = elem_kind
             .map(Integer::one_of_kind)
             .unwrap_or(Integer::I64(1));
-        let one_idx = self.add_constant(Value::Integer(one))?;
+        let one_idx = self.add_constant(Constant::Integer(one))?;
         self.emit(Opcode::Constant, &[one_idx], span);
         self.emit(Opcode::Add, &[], span);
         self.emit_set_symbol(i_sym, span);

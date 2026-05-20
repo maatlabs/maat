@@ -11,9 +11,11 @@ pub mod table;
 use maat_bytecode::Bytecode;
 use maat_errors::{Result, VmError};
 use maat_field::{Felt, FieldElement};
-use maat_runtime::{MaybeRelocatable, MemorySegmentManager, Relocatable, Value};
+use maat_runtime::{MaybeRelocatable, MemorySegmentManager, Relocatable, SEG_PUBLIC_OUTPUT, Value};
 use maat_vm::VM;
-pub use mem::{Relocator, append_pubmem_dummies, fill_memory_holes, relocate_trace};
+pub use mem::{
+    Relocator, append_pubmem_dummies, fill_memory_holes, fill_range_check_gaps, relocate_trace,
+};
 pub use recorder::TraceRecorder;
 use table::TraceTable;
 
@@ -28,17 +30,14 @@ pub struct TraceArtifacts {
 /// Executes bytecode and returns the padded, relocated execution trace
 /// alongside the program's result value (if any).
 pub fn run(bytecode: Bytecode) -> Result<(TraceTable, Option<Value>)> {
-    let artifacts = run_with_output(bytecode, None)?;
+    let artifacts = run_with_output(bytecode)?;
     Ok((artifacts.trace, artifacts.result))
 }
 
 /// Variant of [`run`] that also extracts the public-output segment cells
-/// and appends `l = output_segment.len()` `(0, 0)` dummy rows to the trace
-/// for the AIR's public-memory accumulator.
-pub fn run_with_output(
-    bytecode: Bytecode,
-    output_segment_id: Option<u32>,
-) -> Result<TraceArtifacts> {
+/// from [`SEG_PUBLIC_OUTPUT`] and appends `l = output_segment.len()` `(0, 0)`
+/// dummy rows to the trace for the AIR's public-memory accumulator.
+pub fn run_with_output(bytecode: Bytecode) -> Result<TraceArtifacts> {
     let mut recorder = TraceRecorder::new();
     let mut vm = VM::new(bytecode);
     vm.run_with_recorder(&mut recorder)?;
@@ -53,10 +52,7 @@ pub fn run_with_output(
         .map_err(|e| VmError::new(format!("relocation table build failed: {e}")))?;
     relocate_trace(&mut trace, &plans, &relocator)?;
 
-    let (output_base, output_segment) = match output_segment_id {
-        Some(seg_id) => extract_output_segment(vm.segments(), &relocator, seg_id)?,
-        None => (0, Vec::new()),
-    };
+    let (output_base, output_segment) = extract_output_segment(vm.segments(), &relocator)?;
 
     let output_felt = match result.as_ref() {
         Some(Value::Relocatable(r)) => relocator
@@ -68,6 +64,7 @@ pub fn run_with_output(
     trace.stamp_output(output_felt);
     fill_memory_holes(&mut trace, vm.segments(), &relocator)?;
     append_pubmem_dummies(&mut trace, output_segment.len())?;
+    fill_range_check_gaps(&mut trace)?;
     trace.pad_to_power_of_two();
     Ok(TraceArtifacts {
         trace,
@@ -80,18 +77,17 @@ pub fn run_with_output(
 fn extract_output_segment(
     segments: &MemorySegmentManager,
     relocator: &Relocator,
-    seg_id: u32,
 ) -> Result<(u32, Vec<Felt>)> {
     let sizes = segments
         .compute_sizes()
         .map_err(|e| VmError::new(format!("output segment sizing failed: {e}")))?;
-    let size = usize::try_from(*sizes.get(seg_id as usize).unwrap_or(&0))
+    let size = usize::try_from(*sizes.get(SEG_PUBLIC_OUTPUT as usize).unwrap_or(&0))
         .map_err(|_| VmError::new("output segment size exceeds usize"))?;
     if size == 0 {
         return Ok((0, Vec::new()));
     }
     let output_base_felt = relocator
-        .flatten(Relocatable::new(seg_id, 0))
+        .flatten(Relocatable::new(SEG_PUBLIC_OUTPUT, 0))
         .map_err(|e| VmError::new(format!("output segment relocation failed: {e}")))?;
     let output_base = u32::try_from(output_base_felt.as_int())
         .map_err(|_| VmError::new("output segment base exceeds u32"))?;
@@ -100,7 +96,7 @@ fn extract_output_segment(
         .map(|off| {
             let off_u32 = u32::try_from(off)
                 .map_err(|_| VmError::new("output segment offset exceeds u32"))?;
-            let addr = Relocatable::new(seg_id, off_u32);
+            let addr = Relocatable::new(SEG_PUBLIC_OUTPUT, off_u32);
             let cell = segments
                 .read(addr)
                 .unwrap_or(MaybeRelocatable::Felt(Felt::ZERO));

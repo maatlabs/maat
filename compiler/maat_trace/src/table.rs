@@ -127,6 +127,8 @@ pub const COLUMN_NAMES: [&str; TRACE_WIDTH] = [
     "sub_sel_shr",
     "sub_sel_lt",
     "sub_sel_gt",
+    "sub_sel_synthetic_heap",
+    "sub_sel_match_tag_jump",
 ];
 
 pub type TraceRow = [Felt; TRACE_WIDTH];
@@ -316,7 +318,7 @@ mod tests {
         let cols = header.split(',').collect::<Vec<_>>();
         assert_eq!(cols.len(), TRACE_WIDTH);
         assert_eq!(cols[0], "pc");
-        assert_eq!(cols[TRACE_WIDTH - 1], "sub_sel_gt");
+        assert_eq!(cols[TRACE_WIDTH - 1], "sub_sel_match_tag_jump");
     }
 
     #[test]

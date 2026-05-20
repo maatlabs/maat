@@ -21,9 +21,10 @@ pub enum MaatAst {
     Expr(Expr),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct Program {
     pub statements: Vec<Stmt>,
+    pub publishes_main_vector: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

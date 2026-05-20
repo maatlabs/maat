@@ -365,7 +365,10 @@ fn path_expr(segments: Vec<&str>) -> Expr {
 
 /// Run the type checker on a program and return errors.
 fn check(stmts: Vec<Stmt>) -> Vec<String> {
-    let mut program = Program { statements: stmts };
+    let mut program = Program {
+        statements: stmts,
+        ..Default::default()
+    };
     TypeChecker::new()
         .check_program(&mut program)
         .into_iter()
@@ -960,6 +963,7 @@ fn mixed_integer_no_cast_insertion() {
             infix(int_expr(1, NumKind::I8), "+", int_expr(2, NumKind::I16)),
             None,
         )],
+        ..Default::default()
     };
     let errs = TypeChecker::new().check_program(&mut program);
     assert!(!errs.is_empty(), "expected type errors for i8 + i16");
