@@ -1154,6 +1154,20 @@ fn vector_builtin_cells_in_heap_permutation() {
 }
 
 #[test]
+fn bounded_loop_with_residual_iterations_proves_and_verifies() {
+    prove_and_verify(
+        "
+        let mut val: u64 = 1023;
+        #[bounded(12)]
+        while val != 0 {
+            val = val >> 1;
+        }
+        val
+        ",
+    );
+}
+
+#[test]
 fn closure_capture_proves_and_verifies() {
     prove_and_verify(
         "
