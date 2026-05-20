@@ -29,7 +29,7 @@ pub(crate) const SEL_HEAP_WRITE: usize = 19;
 pub(crate) const NUM_SELECTORS: usize = 20;
 
 /// Number of transition constraints enforced by the AIR.
-pub const NUM_CONSTRAINTS: usize = 82;
+pub const NUM_CONSTRAINTS: usize = 83;
 
 /// Degree of each transition constraint, indexed by constraint number.
 pub const CONSTRAINT_DEGREES: [usize; NUM_CONSTRAINTS] = [
@@ -60,6 +60,7 @@ pub const CONSTRAINT_DEGREES: [usize; NUM_CONSTRAINTS] = [
     2, 2, // 78-79: ordering output correctness via range-checked slack
     3, 3, // 80: comparison sub-selectors sum to sel_cmp
     1, // 81: synthetic-heap sub-selector structural (binary + ⊆ sel_heap_alloc)
+    2, // 82: match-tag-jump sub-selector structural (binary + ⊆ sel_construct)
     2,
 ];
 
@@ -151,8 +152,15 @@ pub fn evaluate<E: FieldElement>(current: &[E], next: &[E], result: &mut [E]) {
     result[25] = sel_load * (sp_next - sp - one);
 
     let sub_synthetic_heap = sub(current, SUB_SEL_SYNTHETIC_HEAP);
-    let pc_uniform_gate =
-        one - sel_jump - sel_cond_jump - sel_call - sel_return - sel_nop - sub_synthetic_heap;
+    let sub_match_tag_jump = sub(current, SUB_SEL_MATCH_TAG_JUMP);
+    let pc_uniform_gate = one
+        - sel_jump
+        - sel_cond_jump
+        - sel_call
+        - sel_return
+        - sel_nop
+        - sub_synthetic_heap
+        - sub_match_tag_jump;
     result[26] = pc_uniform_gate * (pc_next - pc - op_width);
 
     let width_one_gate = sel_arith
@@ -274,6 +282,9 @@ pub fn evaluate<E: FieldElement>(current: &[E], next: &[E], result: &mut [E]) {
     result[79] = sub_gt * (rc_val - two_out_minus_one * (s1 - s0) + out);
     result[80] = sub_eq + sub_neq + sub_lt + sub_gt - sel_cmp;
     result[81] = sub_synthetic_heap * (sub_synthetic_heap - sel_heap_alloc);
+
+    let sel_construct = sel(current, SEL_CONSTRUCT);
+    result[82] = sub_match_tag_jump * (sub_match_tag_jump - sel_construct);
 }
 
 #[cfg(test)]

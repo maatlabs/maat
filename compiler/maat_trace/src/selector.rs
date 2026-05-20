@@ -60,7 +60,7 @@ pub const SEL_HEAP_READ: usize = 18;
 pub const SEL_HEAP_WRITE: usize = 19;
 
 /// Number of per-opcode sub-selector flags.
-pub const NUM_SUB_SELECTORS: usize = 17;
+pub const NUM_SUB_SELECTORS: usize = 18;
 
 /// Sub-selector index: `Add` (parent [`SEL_ARITH`]).
 pub const SUB_SEL_ADD: usize = 0;
@@ -97,6 +97,9 @@ pub const SUB_SEL_GT: usize = 15;
 /// Sub-selector index: synthetic heap-write emitted by builtin allocation
 /// helpers (parent [`SEL_HEAP_ALLOC`]).
 pub const SUB_SEL_SYNTHETIC_HEAP: usize = 16;
+/// Sub-selector index: a `MatchTag` row whose dispatched arm jumped past the
+/// expected variant (parent [`SEL_CONSTRUCT`]).
+pub const SUB_SEL_MATCH_TAG_JUMP: usize = 17;
 
 #[derive(Debug, Clone, Copy)]
 pub struct OpcodeMeta {

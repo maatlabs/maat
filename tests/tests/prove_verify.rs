@@ -1168,6 +1168,57 @@ fn bounded_loop_with_residual_iterations_proves_and_verifies() {
 }
 
 #[test]
+fn match_tag_jump_proves_and_verifies() {
+    prove_and_verify(
+        "
+        let x: Option<i64> = None;
+        match x {
+            Some(v) => v,
+            None => -1,
+        }
+        ",
+    );
+}
+
+#[test]
+fn match_tag_jump_some_arm_proves_and_verifies() {
+    prove_and_verify(
+        "
+        let x: Option<i64> = Some(42);
+        match x {
+            Some(v) => v,
+            None => -1,
+        }
+        ",
+    );
+}
+
+#[test]
+fn match_tag_jump_marker_tampered_rejected() {
+    let source = "
+        let x: Option<i64> = None;
+        match x {
+            Some(v) => v,
+            None => -1,
+        }
+    ";
+    let (bytecode, mut trace, output) = compile_and_trace(source);
+    let mut cleared = false;
+    for i in 0..trace.num_rows() {
+        if trace.row(i)[COL_SUB_SEL_BASE + SUB_SEL_MATCH_TAG_JUMP] == Felt::ONE {
+            trace.row_mut(i)[COL_SUB_SEL_BASE + SUB_SEL_MATCH_TAG_JUMP] = Felt::ZERO;
+            cleared = true;
+            break;
+        }
+    }
+    assert!(
+        cleared,
+        "expected at least one MatchTag-jump row in the trace",
+    );
+    assert_tampered_trace_rejected(bytecode, trace, output, "match-tag-jump marker");
+}
+
+#[test]
 fn closure_capture_proves_and_verifies() {
     prove_and_verify(
         "

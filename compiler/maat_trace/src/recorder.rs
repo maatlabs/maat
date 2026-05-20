@@ -9,7 +9,9 @@ use maat_field::{Felt, FieldElement, try_inv};
 use maat_runtime::{MaybeRelocatable, Relocatable};
 use maat_vm::trace::{CallCtx, DispatchCtx, Tracer};
 
-use crate::selector::{OpcodeMeta, SEL_HEAP_ALLOC, SEL_NOP, SUB_SEL_SYNTHETIC_HEAP};
+use crate::selector::{
+    OpcodeMeta, SEL_HEAP_ALLOC, SEL_NOP, SUB_SEL_MATCH_TAG_JUMP, SUB_SEL_SYNTHETIC_HEAP,
+};
 use crate::table::*;
 
 /// Decomposes a 64-bit value into four 16-bit limbs `[l0, l1, l2, l3]` such
@@ -322,6 +324,10 @@ impl Tracer for TraceRecorder {
 
         self.trace.push_row(row);
         self.plans.push(plan);
+    }
+
+    fn record_match_tag_jump(&mut self) {
+        self.current[COL_SUB_SEL_BASE + SUB_SEL_MATCH_TAG_JUMP] = Felt::ONE;
     }
 
     fn record_call_closure(&mut self, ctx: CallCtx<'_>) -> Result<()> {

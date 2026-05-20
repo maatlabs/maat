@@ -418,7 +418,9 @@ impl VM {
                 let expected_tag = self.read_u16_operand(ip + 1)?;
                 let jump_target = self.read_u16_operand(ip + 3)?;
                 self.current_frame_mut()?.ip += 4;
-                self.execute_match_tag(expected_tag, jump_target)?;
+                if self.execute_match_tag(expected_tag, jump_target)? {
+                    recorder.record_match_tag_jump();
+                }
             }
             Opcode::ReturnValue => {
                 let return_value = self.pop_stack()?;
@@ -1537,7 +1539,7 @@ impl VM {
         self.push_stack(value)
     }
 
-    fn execute_match_tag(&mut self, expected_tag: usize, jump_target: usize) -> Result<()> {
+    fn execute_match_tag(&mut self, expected_tag: usize, jump_target: usize) -> Result<bool> {
         let val = self
             .stack
             .get(self.sp - 1)
@@ -1553,7 +1555,8 @@ impl VM {
         };
         if actual_tag != expected_tag {
             self.current_frame_mut()?.ip = jump_target as isize - 1;
+            return Ok(true);
         }
-        Ok(())
+        Ok(false)
     }
 }
