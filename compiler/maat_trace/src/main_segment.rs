@@ -29,7 +29,7 @@ pub(crate) const SEL_HEAP_WRITE: usize = 19;
 pub(crate) const NUM_SELECTORS: usize = 20;
 
 /// Number of transition constraints enforced by the AIR.
-pub const NUM_CONSTRAINTS: usize = 83;
+pub const NUM_CONSTRAINTS: usize = 81;
 
 /// Degree of each transition constraint, indexed by constraint number.
 pub const CONSTRAINT_DEGREES: [usize; NUM_CONSTRAINTS] = [
@@ -56,11 +56,10 @@ pub const CONSTRAINT_DEGREES: [usize; NUM_CONSTRAINTS] = [
     2, // 68-72: bitwise sub-selector structural (binary + ⊆ sel_bitwise)
     2, 2, 2, 2, 2, // 73: bitwise sub-selectors sum to sel_bitwise
     1, // 74-75: ordering sub-selector structural (binary + ⊆ sel_cmp)
-    2, 2, // 76-77: cmp_diff slack fits in 2^32 on LT/GT rows
-    2, 2, // 78-79: ordering output correctness via range-checked slack
-    3, 3, // 80: comparison sub-selectors sum to sel_cmp
-    1, // 81: synthetic-heap sub-selector structural (binary + ⊆ sel_heap_alloc)
-    2, // 82: match-tag-jump sub-selector structural (binary + ⊆ sel_construct)
+    2, 2, // 76-77: ordering output correctness via range-checked slack
+    3, 3, // 78: comparison sub-selectors sum to sel_cmp
+    1, // 79: synthetic-heap sub-selector structural (binary + ⊆ sel_heap_alloc)
+    2, // 80: match-tag-jump sub-selector structural (binary + ⊆ sel_construct)
     2,
 ];
 
@@ -272,19 +271,16 @@ pub fn evaluate<E: FieldElement>(current: &[E], next: &[E], result: &mut [E]) {
     result[72] = sub_shr * (sub_shr - sel_bitwise);
     result[73] = sub_and + sub_or + sub_xor + sub_shl + sub_shr - sel_bitwise;
 
-    let sub_cmp_class = sub_lt + sub_gt;
     let two_out_minus_one = out + out - one;
     result[74] = sub_lt * (sub_lt - sel_cmp);
     result[75] = sub_gt * (sub_gt - sel_cmp);
-    result[76] = sub_cmp_class * l2;
-    result[77] = sub_cmp_class * l3;
-    result[78] = sub_lt * (rc_val - two_out_minus_one * (s0 - s1) + out);
-    result[79] = sub_gt * (rc_val - two_out_minus_one * (s1 - s0) + out);
-    result[80] = sub_eq + sub_neq + sub_lt + sub_gt - sel_cmp;
-    result[81] = sub_synthetic_heap * (sub_synthetic_heap - sel_heap_alloc);
+    result[76] = sub_lt * (rc_val - two_out_minus_one * (s0 - s1) + out);
+    result[77] = sub_gt * (rc_val - two_out_minus_one * (s1 - s0) + out);
+    result[78] = sub_eq + sub_neq + sub_lt + sub_gt - sel_cmp;
+    result[79] = sub_synthetic_heap * (sub_synthetic_heap - sel_heap_alloc);
 
     let sel_construct = sel(current, SEL_CONSTRUCT);
-    result[82] = sub_match_tag_jump * (sub_match_tag_jump - sel_construct);
+    result[80] = sub_match_tag_jump * (sub_match_tag_jump - sel_construct);
 }
 
 #[cfg(test)]

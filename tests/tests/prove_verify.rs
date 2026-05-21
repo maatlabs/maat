@@ -1074,6 +1074,109 @@ fn prove_and_verify_ordering_signed_negatives() {
 }
 
 #[test]
+fn prove_and_verify_ordering_u64_diff_exceeds_u32() {
+    prove_and_verify(
+        "
+        let a: u64 = 1234567890u64;
+        let b: u64 = 9876543210u64;
+        if a < b { 1i64 } else { 0i64 }
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_ordering_u64_ge_large_values() {
+    prove_and_verify(
+        "
+        let a: u64 = 18000000000000000000u64;
+        let b: u64 = 17000000000000000000u64;
+        if a >= b { 1i64 } else { 0i64 }
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_ordering_usize_lt() {
+    prove_and_verify(
+        "
+        let a: usize = 0usize;
+        let b: usize = 65535usize;
+        if a < b { 1i64 } else { 0i64 }
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_ordering_usize_le_boundary() {
+    prove_and_verify(
+        "
+        let a: usize = 42usize;
+        if a <= a { 1i64 } else { 0i64 }
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_ordering_i64_across_zero() {
+    prove_and_verify(
+        "
+        let a: i64 = -9223372036854775807i64;
+        let b: i64 = 9223372036854775807i64;
+        if a < b { 1i64 } else { 0i64 }
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_ordering_i64_both_negative() {
+    prove_and_verify(
+        "
+        let a: i64 = -42i64;
+        let b: i64 = -7i64;
+        if a < b { 1i64 } else { 0i64 }
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_ordering_i64_gt_extremes() {
+    prove_and_verify(
+        "
+        let a: i64 = 9223372036854775807i64;
+        let b: i64 = -9223372036854775807i64;
+        if a > b { 1i64 } else { 0i64 }
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_ordering_isize_neg_vs_pos() {
+    prove_and_verify(
+        "
+        let a: isize = -1isize;
+        let b: isize = 1isize;
+        if a < b { 1i64 } else { 0i64 }
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_ordering_chained_widths() {
+    prove_and_verify(
+        "
+        let a: u64 = 100u64;
+        let b: u64 = 200u64;
+        let c: u64 = 300u64;
+        if a < b {
+            if b < c { 1i64 } else { 0i64 }
+        } else {
+            0i64
+        }
+        ",
+    );
+}
+
+#[test]
 fn tampered_lt_output_rejected() {
     let source = "
         let a: u32 = 7u32;
@@ -1095,6 +1198,18 @@ fn tampered_gt_output_rejected() {
     let (bytecode, mut trace, output) = compile_and_trace(source);
     tamper_output_on_sub_sel(&mut trace, SUB_SEL_GT);
     assert_tampered_trace_rejected(bytecode, trace, output, "ordering gt");
+}
+
+#[test]
+fn tampered_lt_u64_wide_diff_output_rejected() {
+    let source = "
+        let a: u64 = 1234567890u64;
+        let b: u64 = 9876543210u64;
+        if a < b { 1i64 } else { 0i64 }
+    ";
+    let (bytecode, mut trace, output) = compile_and_trace(source);
+    tamper_output_on_sub_sel(&mut trace, SUB_SEL_LT);
+    assert_tampered_trace_rejected(bytecode, trace, output, "ordering lt (u64 wide)");
 }
 
 #[test]
