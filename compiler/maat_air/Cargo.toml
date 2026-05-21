@@ -11,6 +11,7 @@ homepage.workspace = true
 readme = "README.md"
 
 [dependencies]
+maat_errors.workspace = true
 maat_field.workspace = true
 maat_bytecode.workspace = true
 maat_trace.workspace = true

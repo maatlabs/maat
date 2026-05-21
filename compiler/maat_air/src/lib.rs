@@ -16,7 +16,10 @@ pub use aux_segment::{AUX_WIDTH, NUM_AUX_RANDS, build_aux_columns};
 use aux_segment::{
     NUM_AUX_ASSERTIONS, NUM_AUX_CONSTRAINTS, aux_assertions, aux_constraint_degrees,
 };
-pub use builtin::{BitwiseBuiltin, Builtin, BuiltinSet, IdentityBuiltin, RangeCheckBuiltin};
+pub use builtin::{
+    BitwiseBuiltin, Builtin, BuiltinSet, IdentityBuiltin, LogUpBuiltin, LogUpColumns, LookupTable,
+    RangeCheckBuiltin, TableId, evaluate_transition_step,
+};
 use maat_field::{BaseElement, ExtensionOf, FieldElement};
 use maat_trace::main_segment::{self, CONSTRAINT_DEGREES};
 use maat_trace::table::{COL_OUT, COL_PC, COL_SP};

@@ -24,10 +24,12 @@
 
 pub mod bitwise;
 pub mod identity;
+pub mod logup;
 pub mod range_check;
 
 pub use bitwise::BitwiseBuiltin;
 pub use identity::IdentityBuiltin;
+pub use logup::{LogUpBuiltin, LogUpColumns, LookupTable, TableId, evaluate_transition_step};
 use maat_field::{BaseElement, ExtensionOf, FieldElement};
 pub use range_check::RangeCheckBuiltin;
 use winter_air::Assertion;

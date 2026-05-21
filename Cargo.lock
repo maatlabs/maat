@@ -739,6 +739,7 @@ name = "maat_air"
 version = "0.15.0"
 dependencies = [
  "maat_bytecode",
+ "maat_errors",
  "maat_field",
  "maat_trace",
  "winter-air",
