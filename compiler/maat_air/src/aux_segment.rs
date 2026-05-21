@@ -255,13 +255,9 @@ mod tests {
     use maat_trace::table::{COL_RC_L0, COL_RC_L1, COL_RC_L2, COL_RC_L3, TRACE_WIDTH};
 
     use super::*;
-    use crate::builtin::range_check::{RC_ACC, RC_SORTED_0, RC_SORTED_1, RC_SORTED_2, RC_SORTED_3};
+    use crate::builtin::range_check::RangeCheckBuiltin;
 
     type F = BaseElement;
-
-    fn rc_aux_col(builtin_offset: usize) -> usize {
-        BuiltinSet::RANGE_CHECK_AUX_BASE + builtin_offset
-    }
 
     /// Creates a column-major main trace with the given memory access pairs.
     fn mock_main_trace(mem_pairs: &[(u64, u64)]) -> Vec<Vec<F>> {
@@ -296,36 +292,24 @@ mod tests {
         columns.iter().map(|c| c.as_slice()).collect()
     }
 
-    fn make_aux_row(
-        l2_addr: u64,
-        l2_val: u64,
-        mem_acc: F,
-        sorted: [u64; 4],
-        rc_acc: F,
-        identity: F,
-    ) -> Vec<F> {
+    fn make_aux_row(l2_addr: u64, l2_val: u64, mem_acc: F, identity: F) -> Vec<F> {
         let mut row = vec![F::ZERO; AUX_WIDTH];
         row[AUX_COL_L2_ADDR] = F::new(l2_addr);
         row[AUX_COL_L2_VAL] = F::new(l2_val);
         row[AUX_COL_MEM_ACC] = mem_acc;
-        row[rc_aux_col(RC_SORTED_0)] = F::new(sorted[0]);
-        row[rc_aux_col(RC_SORTED_1)] = F::new(sorted[1]);
-        row[rc_aux_col(RC_SORTED_2)] = F::new(sorted[2]);
-        row[rc_aux_col(RC_SORTED_3)] = F::new(sorted[3]);
-        row[rc_aux_col(RC_ACC)] = rc_acc;
         row[BuiltinSet::IDENTITY_AUX_BASE] = identity;
         row
     }
 
-    fn rands(z: F, alpha: F, z_rc: F) -> Vec<F> {
-        vec![z, alpha, z_rc]
+    fn rands(z: F, alpha: F, alpha_rc: F) -> Vec<F> {
+        vec![z, alpha, alpha_rc]
     }
 
     #[test]
     fn address_continuity_same_addr_passes() {
         let main = vec![F::ZERO; TRACE_WIDTH];
-        let aux_curr = make_aux_row(5, 10, F::ONE, [0, 0, 0, 0], F::ONE, F::ONE);
-        let aux_next = make_aux_row(5, 10, F::ONE, [0, 0, 0, 0], F::ONE, F::ONE);
+        let aux_curr = make_aux_row(5, 10, F::ONE, F::ONE);
+        let aux_next = make_aux_row(5, 10, F::ONE, F::ONE);
         let mut result = vec![F::ZERO; NUM_AUX_CONSTRAINTS];
         evaluate(
             &main,
@@ -341,8 +325,8 @@ mod tests {
     #[test]
     fn address_continuity_increment_by_two_fails() {
         let main = vec![F::ZERO; TRACE_WIDTH];
-        let aux_curr = make_aux_row(5, 10, F::ONE, [0, 0, 0, 0], F::ONE, F::ONE);
-        let aux_next = make_aux_row(7, 20, F::ONE, [0, 0, 0, 0], F::ONE, F::ONE);
+        let aux_curr = make_aux_row(5, 10, F::ONE, F::ONE);
+        let aux_next = make_aux_row(7, 20, F::ONE, F::ONE);
         let mut result = vec![F::ZERO; NUM_AUX_CONSTRAINTS];
         evaluate(
             &main,
@@ -358,8 +342,8 @@ mod tests {
     #[test]
     fn single_value_same_addr_different_val_fails() {
         let main = vec![F::ZERO; TRACE_WIDTH];
-        let aux_curr = make_aux_row(5, 42, F::ONE, [0, 0, 0, 0], F::ONE, F::ONE);
-        let aux_next = make_aux_row(5, 99, F::ONE, [0, 0, 0, 0], F::ONE, F::ONE);
+        let aux_curr = make_aux_row(5, 42, F::ONE, F::ONE);
+        let aux_next = make_aux_row(5, 99, F::ONE, F::ONE);
         let mut result = vec![F::ZERO; NUM_AUX_CONSTRAINTS];
         evaluate(
             &main,
@@ -373,49 +357,10 @@ mod tests {
     }
 
     #[test]
-    fn rc_sorted_continuity_valid() {
-        let main = vec![F::ZERO; TRACE_WIDTH];
-        let aux_curr = make_aux_row(0, 0, F::ONE, [0, 0, 1, 1], F::ONE, F::ONE);
-        let aux_next = make_aux_row(0, 0, F::ONE, [2, 2, 3, 3], F::ONE, F::ONE);
-        let mut result = vec![F::ZERO; NUM_AUX_CONSTRAINTS];
-        evaluate(
-            &main,
-            &main,
-            &aux_curr,
-            &aux_next,
-            &rands(F::new(7), F::new(3), F::new(11)),
-            &mut result,
-        );
-        // Memory: 3 constraints; range-check builtin: 5 constraints;
-        // identity builtin: 1 constraint. Sorted continuity 0-->3 is at indices 3..6.
-        assert_eq!(result[3], F::ZERO);
-        assert_eq!(result[4], F::ZERO);
-        assert_eq!(result[5], F::ZERO);
-        assert_eq!(result[6], F::ZERO);
-    }
-
-    #[test]
-    fn rc_sorted_continuity_gap_fails() {
-        let main = vec![F::ZERO; TRACE_WIDTH];
-        let aux_curr = make_aux_row(0, 0, F::ONE, [0, 5, 5, 5], F::ONE, F::ONE);
-        let aux_next = make_aux_row(0, 0, F::ONE, [5, 5, 5, 5], F::ONE, F::ONE);
-        let mut result = vec![F::ZERO; NUM_AUX_CONSTRAINTS];
-        evaluate(
-            &main,
-            &main,
-            &aux_curr,
-            &aux_next,
-            &rands(F::new(7), F::new(3), F::new(11)),
-            &mut result,
-        );
-        assert_ne!(result[3], F::ZERO);
-    }
-
-    #[test]
     fn identity_builtin_frozen_passes() {
         let main = vec![F::ZERO; TRACE_WIDTH];
-        let aux_curr = make_aux_row(0, 0, F::ONE, [0, 0, 0, 0], F::ONE, F::ONE);
-        let aux_next = make_aux_row(0, 0, F::ONE, [0, 0, 0, 0], F::ONE, F::ONE);
+        let aux_curr = make_aux_row(0, 0, F::ONE, F::ONE);
+        let aux_next = make_aux_row(0, 0, F::ONE, F::ONE);
         let mut result = vec![F::ZERO; NUM_AUX_CONSTRAINTS];
         evaluate(
             &main,
@@ -425,15 +370,14 @@ mod tests {
             &rands(F::new(7), F::new(3), F::new(11)),
             &mut result,
         );
-        // Identity constraint is the last entry.
         assert_eq!(result[NUM_AUX_CONSTRAINTS - 1], F::ZERO);
     }
 
     #[test]
     fn identity_builtin_drift_fails() {
         let main = vec![F::ZERO; TRACE_WIDTH];
-        let aux_curr = make_aux_row(0, 0, F::ONE, [0, 0, 0, 0], F::ONE, F::ONE);
-        let aux_next = make_aux_row(0, 0, F::ONE, [0, 0, 0, 0], F::ONE, F::new(2));
+        let aux_curr = make_aux_row(0, 0, F::ONE, F::ONE);
+        let aux_next = make_aux_row(0, 0, F::ONE, F::new(2));
         let mut result = vec![F::ZERO; NUM_AUX_CONSTRAINTS];
         evaluate(
             &main,
@@ -448,16 +392,14 @@ mod tests {
 
     #[test]
     fn build_aux_columns_identity_permutation() {
-        let main = mock_main_trace(&[(0, 0); 8]);
+        let n = RangeCheckBuiltin::MIN_TRACE_LEN.next_power_of_two();
+        let main = mock_main_trace(&vec![(0, 0); n]);
         let rand_elements = rands(F::new(9999), F::new(13), F::new(7777));
         let aux = build_aux_columns(&column_slices(&main), &rand_elements, 0, &[]);
 
         assert_eq!(aux.len(), AUX_WIDTH);
         assert_eq!(aux[AUX_COL_MEM_ACC][0], F::ONE);
-        assert_eq!(aux[AUX_COL_MEM_ACC][7], F::ONE);
-        assert_eq!(aux[rc_aux_col(RC_ACC)][0], F::ONE);
-        assert_eq!(aux[rc_aux_col(RC_ACC)][7], F::ONE);
-        // Identity column is constant one.
+        assert_eq!(aux[AUX_COL_MEM_ACC][n - 1], F::ONE);
         for v in &aux[BuiltinSet::IDENTITY_AUX_BASE] {
             assert_eq!(*v, F::ONE);
         }
@@ -465,32 +407,20 @@ mod tests {
 
     #[test]
     fn build_aux_columns_nontrivial_permutation_satisfies_all_constraints() {
-        let mem = [
-            (0, 0),
-            (2, 20),
-            (1, 10),
-            (0, 0),
-            (1, 10),
-            (2, 20),
-            (0, 0),
-            (0, 0),
-        ];
-        let limbs: [[u64; 4]; 8] = [
-            [0, 0, 0, 0],
-            [4, 3, 2, 1],
-            [0, 0, 0, 0],
-            [0, 0, 0, 0],
-            [0, 0, 0, 0],
-            [0, 0, 0, 0],
-            [0, 0, 0, 0],
-            [0, 0, 0, 0],
-        ];
+        let n = RangeCheckBuiltin::MIN_TRACE_LEN.next_power_of_two();
+        let mut mem = vec![(0u64, 0u64); n];
+        mem[1] = (2, 20);
+        mem[2] = (1, 10);
+        mem[4] = (1, 10);
+        mem[5] = (2, 20);
+
+        let mut limbs = vec![[0u64; 4]; n];
+        limbs[1] = [4, 3, 2, 1];
         let main = mock_main_trace_with_limbs(&mem, &limbs);
         let rand_elements = rands(F::new(7777), F::new(31), F::new(5555));
         let slices = column_slices(&main);
         let aux = build_aux_columns(&slices, &rand_elements, 0, &[]);
 
-        let n = 8;
         for i in 0..n - 1 {
             let main_curr: Vec<F> = (0..TRACE_WIDTH).map(|c| main[c][i]).collect();
             let main_next: Vec<F> = (0..TRACE_WIDTH).map(|c| main[c][i + 1]).collect();

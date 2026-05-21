@@ -13,9 +13,7 @@ use maat_errors::{Result, VmError};
 use maat_field::{Felt, FieldElement};
 use maat_runtime::{MaybeRelocatable, MemorySegmentManager, Relocatable, SEG_PUBLIC_OUTPUT, Value};
 use maat_vm::VM;
-pub use mem::{
-    Relocator, append_pubmem_dummies, fill_memory_holes, fill_range_check_gaps, relocate_trace,
-};
+pub use mem::{Relocator, append_pubmem_dummies, fill_memory_holes, relocate_trace};
 pub use recorder::TraceRecorder;
 use table::TraceTable;
 
@@ -64,7 +62,6 @@ pub fn run_with_output(bytecode: Bytecode) -> Result<TraceArtifacts> {
     trace.stamp_output(output_felt);
     fill_memory_holes(&mut trace, vm.segments(), &relocator)?;
     append_pubmem_dummies(&mut trace, output_segment.len())?;
-    fill_range_check_gaps(&mut trace)?;
     trace.pad_to_power_of_two();
     Ok(TraceArtifacts {
         trace,

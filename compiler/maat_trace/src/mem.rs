@@ -8,9 +8,8 @@ use maat_runtime::{MemorySegmentManager, Relocatable};
 use crate::recorder::RowRelocPlan;
 use crate::selector::SEL_NOP;
 use crate::table::{
-    COL_FP, COL_IS_READ, COL_MEM_ADDR, COL_MEM_VAL, COL_OUT, COL_PC, COL_RC_L0, COL_RC_L1,
-    COL_RC_L2, COL_RC_L3, COL_RC_VAL, COL_S0, COL_S1, COL_S2, COL_SEL_BASE, COL_SP, TRACE_WIDTH,
-    TraceRow, TraceTable,
+    COL_FP, COL_IS_READ, COL_MEM_ADDR, COL_MEM_VAL, COL_OUT, COL_PC, COL_S0, COL_S1, COL_S2,
+    COL_SEL_BASE, COL_SP, TRACE_WIDTH, TraceRow, TraceTable,
 };
 
 type Result<T> = std::result::Result<T, MemoryError>;
@@ -119,51 +118,6 @@ pub fn fill_memory_holes(
     Ok(total)
 }
 
-/// Appends NOP rows whose 16-bit limb slots collectively cover the range
-/// `1..=max_observed_limb` so the range-check builtin's sorted limb pool has
-/// no gaps.
-pub fn fill_range_check_gaps(trace: &mut TraceTable) -> maat_errors::Result<usize> {
-    let n = trace.num_rows();
-    if n == 0 {
-        return Ok(0);
-    }
-    let mut max_limb: u64 = 0;
-    for i in 0..n {
-        let row = trace.row(i);
-        for col in [COL_RC_L0, COL_RC_L1, COL_RC_L2, COL_RC_L3] {
-            let v = row[col].as_int();
-            if v > max_limb {
-                max_limb = v;
-            }
-        }
-    }
-    if max_limb == 0 {
-        return Ok(0);
-    }
-    let limb_count = usize::try_from(max_limb)
-        .map_err(|_| VmError::new("range-check max limb exceeds usize"))?;
-    let num_rows = limb_count.div_ceil(4);
-    let template = base_template(trace).ok_or_else(|| {
-        VmError::new("cannot fill range-check gaps: trace has no rows to inherit from")
-    })?;
-    let mut next_value: u64 = 1;
-    for _ in 0..num_rows {
-        let mut limbs = [0u64; 4];
-        for slot in limbs.iter_mut() {
-            if next_value <= max_limb {
-                *slot = next_value;
-                next_value += 1;
-            }
-        }
-        let rc_val = limbs[0]
-            .wrapping_add(limbs[1] << 16)
-            .wrapping_add(limbs[2] << 32)
-            .wrapping_add(limbs[3] << 48);
-        trace.push_row(make_range_check_row(&template, &limbs, rc_val));
-    }
-    Ok(num_rows)
-}
-
 /// Appends `count` `(0, 0)` public-memory dummy rows.
 /// No-op when `count` is zero.
 pub fn append_pubmem_dummies(trace: &mut TraceTable, count: usize) -> maat_errors::Result<()> {
@@ -222,24 +176,6 @@ fn make_dummy_row(template: &BaseState) -> TraceRow {
     row[COL_MEM_VAL] = Felt::ZERO;
     row[COL_IS_READ] = Felt::ONE;
     row[COL_SEL_BASE + SEL_NOP] = Felt::ONE;
-    row
-}
-
-fn make_range_check_row(template: &BaseState, limbs: &[u64; 4], rc_val: u64) -> TraceRow {
-    let mut row = [Felt::ZERO; TRACE_WIDTH];
-    row[COL_PC] = template.pc;
-    row[COL_SP] = template.sp;
-    row[COL_FP] = template.fp;
-    row[COL_OUT] = template.out;
-    row[COL_MEM_ADDR] = Felt::ZERO;
-    row[COL_MEM_VAL] = Felt::ZERO;
-    row[COL_IS_READ] = Felt::ONE;
-    row[COL_SEL_BASE + SEL_NOP] = Felt::ONE;
-    row[COL_RC_VAL] = Felt::new(rc_val);
-    row[COL_RC_L0] = Felt::new(limbs[0]);
-    row[COL_RC_L1] = Felt::new(limbs[1]);
-    row[COL_RC_L2] = Felt::new(limbs[2]);
-    row[COL_RC_L3] = Felt::new(limbs[3]);
     row
 }
 

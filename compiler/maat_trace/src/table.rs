@@ -138,7 +138,7 @@ pub struct TraceTable {
 }
 
 impl TraceTable {
-    const MIN_ROWS: usize = 8;
+    const MIN_ROWS: usize = 512;
 
     pub fn new() -> Self {
         Self { rows: Vec::new() }
