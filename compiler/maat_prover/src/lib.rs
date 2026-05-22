@@ -39,8 +39,8 @@ mod verifier;
 pub use gadgets::hasher::{compute_program_hash, compute_program_hash_bytes};
 pub use gadgets::proof_serializer::{ProofPublicInputs, deserialize_proof, serialize_proof};
 use maat_air::{
-    AUX_WIDTH, AuxRandElements, BatchingMethod, EvaluationFrame, FieldExtension, MaatAir,
-    MaatPublicInputs, NUM_AUX_RANDS, PartitionOptions, ProofOptions, TraceInfo,
+    AuxRandElements, BatchingMethod, EvaluationFrame, FieldExtension, MaatAir, MaatPublicInputs,
+    PartitionOptions, ProofOptions, TraceInfo, aux_width, num_aux_rands,
 };
 use maat_errors::ProverError;
 use maat_field::{BaseElement, FieldElement};
@@ -114,8 +114,8 @@ impl MaatTrace {
         let trace_length = columns[0].len();
         let info = TraceInfo::new_multi_segment(
             TRACE_WIDTH,
-            AUX_WIDTH,
-            NUM_AUX_RANDS,
+            aux_width(),
+            num_aux_rands(),
             trace_length,
             Vec::new(),
         );

@@ -2,7 +2,7 @@ use core::time::Duration;
 use std::hint::black_box;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use maat_air::{MaatPublicInputs, NUM_AUX_RANDS, ProofOptions, build_aux_columns};
+use maat_air::{MaatPublicInputs, ProofOptions, build_aux_columns, num_aux_rands};
 use maat_ast::{MaatAst, fold_constants};
 use maat_bytecode::Bytecode;
 use maat_codegen::Compiler;
@@ -353,7 +353,7 @@ fn bench_verify(c: &mut Criterion) {
 }
 
 fn bench_aux_columns(c: &mut Criterion) {
-    let rands = (0..NUM_AUX_RANDS)
+    let rands = (0..num_aux_rands())
         .map(|i| BaseElement::new((i as u64).wrapping_add(1)))
         .collect::<Vec<BaseElement>>();
 

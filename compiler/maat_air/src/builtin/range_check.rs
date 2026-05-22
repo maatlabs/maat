@@ -66,19 +66,18 @@ pub struct RangeCheckBuiltin;
 impl RangeCheckBuiltin {
     pub const NAME: &'static str = "range_check";
 
-    pub const AUX_WIDTH: usize = RC_BAL + 1;
+    const AUX_WIDTH: usize = RC_BAL + 1;
 
-    pub const NUM_AUX_RANDS: usize = 1;
+    const NUM_AUX_RANDS: usize = 1;
 
     /// 4 limb-decomposition (degree 1) + 8 channel transitions (degree 2) +
     /// 1 m-side transition (degree 2) + 1 balance-witness binding (degree 1).
-    pub const NUM_AUX_CONSTRAINTS: usize = 4 + NUM_CHANNELS + 1 + 1;
+    const NUM_AUX_CONSTRAINTS: usize = 4 + NUM_CHANNELS + 1 + 1;
 
     /// 8 channel zero-starts + 1 m-side zero-start + 1 final-balance check.
-    pub const NUM_AUX_ASSERTIONS: usize = NUM_CHANNELS + 1 + 1;
+    const NUM_AUX_ASSERTIONS: usize = NUM_CHANNELS + 1 + 1;
 
-    pub const AUX_CONSTRAINT_DEGREES: &'static [usize] =
-        &[1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1];
+    const AUX_CONSTRAINT_DEGREES: &'static [usize] = &[1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1];
 
     pub const RESERVED_ADDRESS_RANGE: (u64, u64) = (1u64 << 33, (1u64 << 34) - 1);
 
@@ -101,16 +100,20 @@ impl Builtin for RangeCheckBuiltin {
         Self::NUM_AUX_RANDS
     }
 
+    fn num_aux_constraints(&self) -> usize {
+        Self::NUM_AUX_CONSTRAINTS
+    }
+
+    fn num_aux_assertions(&self) -> usize {
+        Self::NUM_AUX_ASSERTIONS
+    }
+
     fn aux_constraint_degrees(&self) -> &'static [usize] {
         Self::AUX_CONSTRAINT_DEGREES
     }
 
     fn reserved_address_range(&self) -> (u64, u64) {
         Self::RESERVED_ADDRESS_RANGE
-    }
-
-    fn num_aux_assertions(&self) -> usize {
-        Self::NUM_AUX_ASSERTIONS
     }
 
     fn evaluate_aux_transition<F, E>(

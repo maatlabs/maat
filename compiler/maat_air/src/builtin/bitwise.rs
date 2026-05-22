@@ -23,15 +23,15 @@ pub struct BitwiseBuiltin;
 impl BitwiseBuiltin {
     pub const NAME: &'static str = "bitwise";
 
-    pub const AUX_WIDTH: usize = 2 * NUM_BITS;
+    const AUX_WIDTH: usize = 2 * NUM_BITS;
 
-    pub const NUM_AUX_RANDS: usize = 0;
+    const NUM_AUX_RANDS: usize = 0;
 
-    pub const NUM_AUX_CONSTRAINTS: usize = 11;
+    const NUM_AUX_CONSTRAINTS: usize = 11;
 
-    pub const NUM_AUX_ASSERTIONS: usize = 0;
+    const NUM_AUX_ASSERTIONS: usize = 0;
 
-    pub const AUX_CONSTRAINT_DEGREES: &'static [usize] = &[2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3];
+    const AUX_CONSTRAINT_DEGREES: &'static [usize] = &[2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3];
 
     pub const RESERVED_ADDRESS_RANGE: (u64, u64) = (1u64 << 35, (1u64 << 36) - 1);
 }
@@ -89,16 +89,20 @@ impl Builtin for BitwiseBuiltin {
         Self::NUM_AUX_RANDS
     }
 
+    fn num_aux_constraints(&self) -> usize {
+        Self::NUM_AUX_CONSTRAINTS
+    }
+
+    fn num_aux_assertions(&self) -> usize {
+        Self::NUM_AUX_ASSERTIONS
+    }
+
     fn aux_constraint_degrees(&self) -> &'static [usize] {
         Self::AUX_CONSTRAINT_DEGREES
     }
 
     fn reserved_address_range(&self) -> (u64, u64) {
         Self::RESERVED_ADDRESS_RANGE
-    }
-
-    fn num_aux_assertions(&self) -> usize {
-        Self::NUM_AUX_ASSERTIONS
     }
 
     fn evaluate_aux_transition<F, E>(

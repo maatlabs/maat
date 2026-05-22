@@ -19,15 +19,15 @@ pub struct IdentityBuiltin;
 impl IdentityBuiltin {
     pub const NAME: &'static str = "identity";
 
-    pub const AUX_WIDTH: usize = 1;
+    const AUX_WIDTH: usize = 1;
 
-    pub const NUM_AUX_RANDS: usize = 0;
+    const NUM_AUX_RANDS: usize = 0;
 
-    pub const NUM_AUX_CONSTRAINTS: usize = 1;
+    const NUM_AUX_CONSTRAINTS: usize = 1;
 
-    pub const NUM_AUX_ASSERTIONS: usize = 2;
+    const NUM_AUX_ASSERTIONS: usize = 2;
 
-    pub const AUX_CONSTRAINT_DEGREES: &'static [usize] = &[1];
+    const AUX_CONSTRAINT_DEGREES: &'static [usize] = &[1];
 
     pub const RESERVED_ADDRESS_RANGE: (u64, u64) = (1u64 << 34, (1u64 << 35) - 1);
 }
@@ -45,16 +45,20 @@ impl Builtin for IdentityBuiltin {
         Self::NUM_AUX_RANDS
     }
 
+    fn num_aux_constraints(&self) -> usize {
+        Self::NUM_AUX_CONSTRAINTS
+    }
+
+    fn num_aux_assertions(&self) -> usize {
+        Self::NUM_AUX_ASSERTIONS
+    }
+
     fn aux_constraint_degrees(&self) -> &'static [usize] {
         Self::AUX_CONSTRAINT_DEGREES
     }
 
     fn reserved_address_range(&self) -> (u64, u64) {
         Self::RESERVED_ADDRESS_RANGE
-    }
-
-    fn num_aux_assertions(&self) -> usize {
-        Self::NUM_AUX_ASSERTIONS
     }
 
     fn evaluate_aux_transition<F, E>(

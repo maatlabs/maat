@@ -77,15 +77,15 @@ pub struct LogUpBuiltin {
 impl LogUpBuiltin {
     pub const NAME: &'static str = "logup";
 
-    pub const AUX_WIDTH: usize = 0;
+    const AUX_WIDTH: usize = 0;
 
-    pub const NUM_AUX_RANDS: usize = 0;
+    const NUM_AUX_RANDS: usize = 0;
 
-    pub const NUM_AUX_CONSTRAINTS: usize = 0;
+    const NUM_AUX_CONSTRAINTS: usize = 0;
 
-    pub const NUM_AUX_ASSERTIONS: usize = 0;
+    const NUM_AUX_ASSERTIONS: usize = 0;
 
-    pub const AUX_CONSTRAINT_DEGREES: &'static [usize] = &[];
+    const AUX_CONSTRAINT_DEGREES: &'static [usize] = &[];
 
     /// Reserved memory-segment range for the LogUp builtin, sitting
     /// directly above [`BitwiseBuiltin`](super::BitwiseBuiltin).
@@ -273,16 +273,20 @@ impl Builtin for LogUpBuiltin {
         Self::NUM_AUX_RANDS
     }
 
+    fn num_aux_constraints(&self) -> usize {
+        Self::NUM_AUX_CONSTRAINTS
+    }
+
+    fn num_aux_assertions(&self) -> usize {
+        Self::NUM_AUX_ASSERTIONS
+    }
+
     fn aux_constraint_degrees(&self) -> &'static [usize] {
         Self::AUX_CONSTRAINT_DEGREES
     }
 
     fn reserved_address_range(&self) -> (u64, u64) {
         Self::RESERVED_ADDRESS_RANGE
-    }
-
-    fn num_aux_assertions(&self) -> usize {
-        Self::NUM_AUX_ASSERTIONS
     }
 
     fn evaluate_aux_transition<F, E>(
