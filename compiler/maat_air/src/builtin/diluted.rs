@@ -1,9 +1,7 @@
 //! Diluted-form encoding primitive for the LogUp-backed bitwise builtin.
 
-use maat_field::{BaseElement, ExtensionOf, FieldElement};
-use winter_air::Assertion;
+use maat_field::{BaseElement, FieldElement};
 
-use super::Builtin;
 use super::logup::TableId;
 
 /// Number of bits per native chunk.
@@ -129,83 +127,6 @@ pub fn bitwise_identity_residuals<E: FieldElement>(
     let r_or = d_or - (d_a + d_b - d_and);
     let r_xor = d_xor - (d_a + d_b - two * d_and);
     [r_or, r_xor]
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-pub struct DilutedBuiltin;
-
-impl DilutedBuiltin {
-    pub const NAME: &'static str = "diluted";
-
-    pub const AUX_WIDTH: usize = 0;
-
-    pub const NUM_AUX_RANDS: usize = 0;
-
-    pub const NUM_AUX_CONSTRAINTS: usize = 0;
-
-    pub const NUM_AUX_ASSERTIONS: usize = 0;
-
-    pub const AUX_CONSTRAINT_DEGREES: &'static [usize] = &[];
-
-    /// Reserved memory-segment range, sitting directly above
-    /// [`LogUpBuiltin`](super::LogUpBuiltin).
-    pub const RESERVED_ADDRESS_RANGE: (u64, u64) = (1u64 << 37, (1u64 << 38) - 1);
-}
-
-impl Builtin for DilutedBuiltin {
-    fn name(&self) -> &'static str {
-        Self::NAME
-    }
-
-    fn aux_width(&self) -> usize {
-        Self::AUX_WIDTH
-    }
-
-    fn num_aux_rands(&self) -> usize {
-        Self::NUM_AUX_RANDS
-    }
-
-    fn aux_constraint_degrees(&self) -> &'static [usize] {
-        Self::AUX_CONSTRAINT_DEGREES
-    }
-
-    fn reserved_address_range(&self) -> (u64, u64) {
-        Self::RESERVED_ADDRESS_RANGE
-    }
-
-    fn num_aux_assertions(&self) -> usize {
-        Self::NUM_AUX_ASSERTIONS
-    }
-
-    fn evaluate_aux_transition<F, E>(
-        &self,
-        _main_curr: &[F],
-        _main_next: &[F],
-        _aux_curr: &[E],
-        _aux_next: &[E],
-        _rand_elements: &[E],
-        _result: &mut [E],
-    ) where
-        F: FieldElement<BaseField = BaseElement>,
-        E: FieldElement<BaseField = BaseElement> + ExtensionOf<F>,
-    {
-    }
-
-    fn build_aux_columns<E: FieldElement<BaseField = BaseElement>>(
-        &self,
-        _main_columns: &[&[BaseElement]],
-        _rand_elements: &[E],
-    ) -> Vec<Vec<E>> {
-        Vec::new()
-    }
-
-    fn aux_assertions<E: FieldElement<BaseField = BaseElement>>(
-        &self,
-        _column_base: usize,
-        _last_step: usize,
-    ) -> Vec<Assertion<E>> {
-        Vec::new()
-    }
 }
 
 #[cfg(test)]
@@ -423,30 +344,5 @@ mod tests {
             .register_lookup(POOL_TABLE_ID, off_spread)
             .expect_err("off-spread value must be rejected at lookup registration");
         let _ = err;
-    }
-
-    #[test]
-    fn builtin_trait_impl_is_no_op() {
-        let b = DilutedBuiltin;
-        assert_eq!(b.name(), "diluted");
-        assert_eq!(b.aux_width(), 0);
-        assert_eq!(b.num_aux_rands(), 0);
-        assert_eq!(b.num_aux_assertions(), 0);
-        assert!(b.aux_constraint_degrees().is_empty());
-        assert_eq!(b.reserved_address_range(), (1u64 << 37, (1u64 << 38) - 1));
-
-        let main = vec![F::ZERO; 4];
-        let aux = vec![F::ZERO; 0];
-        let rands = vec![F::ZERO; 0];
-        let mut result = vec![F::ZERO; 0];
-        b.evaluate_aux_transition::<F, F>(&main, &main, &aux, &aux, &rands, &mut result);
-        assert!(result.is_empty());
-
-        let main_slices: Vec<&[F]> = Vec::new();
-        let cols = b.build_aux_columns::<F>(&main_slices, &rands);
-        assert!(cols.is_empty());
-
-        let assertions: Vec<Assertion<F>> = b.aux_assertions::<F>(0, 7);
-        assert!(assertions.is_empty());
     }
 }

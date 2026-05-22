@@ -30,9 +30,9 @@ pub mod range_check;
 
 pub use bitwise::BitwiseBuiltin;
 pub use diluted::{
-    CHUNKS_PER_OPERAND, ChunkBitwiseWitness, DILUTED_BITS, DilutedBuiltin, NATIVE_BITS, POOL_SIZE,
-    POOL_TABLE_ID, SPREAD_MASK, STRIDE, bitwise_identity_residuals, chunk_decompose,
-    chunk_recompose, chunk_weight, chunk_witness, dilute, is_in_pool, pool_entries, undilute,
+    CHUNKS_PER_OPERAND, ChunkBitwiseWitness, DILUTED_BITS, NATIVE_BITS, POOL_SIZE, POOL_TABLE_ID,
+    SPREAD_MASK, STRIDE, bitwise_identity_residuals, chunk_decompose, chunk_recompose,
+    chunk_weight, chunk_witness, dilute, is_in_pool, pool_entries, undilute,
 };
 pub use identity::IdentityBuiltin;
 pub use logup::{LogUpBuiltin, LogUpColumns, LookupTable, TableId, evaluate_transition_step};
@@ -308,7 +308,6 @@ mod tests {
             BitwiseBuiltin::RESERVED_ADDRESS_RANGE,
             IdentityBuiltin::RESERVED_ADDRESS_RANGE,
             LogUpBuiltin::RESERVED_ADDRESS_RANGE,
-            DilutedBuiltin::RESERVED_ADDRESS_RANGE,
         ];
         for (lo, hi) in ranges {
             assert!(lo <= hi);
