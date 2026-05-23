@@ -48,6 +48,7 @@ pub use range_check::RangeCheckBuiltin;
 use winter_air::Assertion;
 
 use crate::aux_segment::{MEMORY_AUX_WIDTH, MEMORY_NUM_AUX_RANDS};
+use crate::builtin::bitwise::POW_K_OFFSET;
 use crate::builtin::range_check::{
     RC_B0_HI, RC_B0_LO, RC_B1_HI, RC_B1_LO, RC_B2_HI, RC_B2_LO, RC_B3_HI, RC_B3_LO, TABLE_SIZE,
 };
@@ -86,6 +87,7 @@ fn build_air_pool_for_range_check(rc_aux_base: usize) -> AirPool {
         .map(|(source, local_off)| Channel {
             source,
             aux_column: rc_aux_base + local_off,
+            gate_main_cols: Vec::new(),
         })
         .collect();
 
@@ -96,13 +98,29 @@ fn build_air_pool_for_range_check(rc_aux_base: usize) -> AirPool {
     }
 }
 
-fn build_air_pool_pow2() -> AirPool {
+/// Builds the pow2-paired [`AirPool`] consumed by [`BitwiseBuiltin`]'s
+/// SHL/SHR rows.
+fn build_air_pool_pow2(bitwise_aux_base: usize) -> AirPool {
+    use maat_trace::selector::{SUB_SEL_SHL, SUB_SEL_SHR};
+    use maat_trace::table::{COL_S0, COL_SUB_SEL_BASE};
+
+    let pow_k_col = bitwise_aux_base + POW_K_OFFSET;
     AirPool {
         table_id: POW2_TABLE_ID,
         spec: TableSpec::Pow2Paired {
             num_entries: NUM_POW2_ENTRIES,
         },
-        channels: Vec::new(),
+        channels: vec![Channel {
+            source: ChannelSource::Pow2Paired {
+                main_col: COL_S0,
+                aux_col: pow_k_col,
+            },
+            aux_column: pow_k_col,
+            gate_main_cols: vec![
+                COL_SUB_SEL_BASE + SUB_SEL_SHL,
+                COL_SUB_SEL_BASE + SUB_SEL_SHR,
+            ],
+        }],
     }
 }
 
@@ -238,7 +256,7 @@ impl BuiltinSet {
         let rc_base = layout_without_logup.range_check_aux_base;
 
         let byte_table_pool = build_air_pool_for_range_check(rc_base);
-        let pow2_pool = build_air_pool_pow2();
+        let pow2_pool = build_air_pool_pow2(layout_without_logup.bitwise_aux_base);
         let logup = LogUpBuiltin::with_pools(vec![byte_table_pool, pow2_pool]);
 
         let layout = Layout::compute(&range_check, &bitwise, &identity, &logup);

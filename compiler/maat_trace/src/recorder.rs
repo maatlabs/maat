@@ -439,6 +439,38 @@ impl Tracer for TraceRecorder {
         self.current[COL_RC_L3] = limbs[3];
     }
 
+    fn record_shift_witness(&mut self, op: Opcode, operand: Felt, shift: u32, _result: Felt) {
+        let operand_int = operand.as_int();
+        let extra = match op {
+            Opcode::Shl => {
+                if shift == 0 {
+                    0u64
+                } else if shift < 64 {
+                    operand_int >> (64 - shift)
+                } else {
+                    operand_int
+                }
+            }
+            Opcode::Shr => {
+                if shift == 0 {
+                    0u64
+                } else if shift < 64 {
+                    operand_int & ((1u64 << shift) - 1)
+                } else {
+                    operand_int
+                }
+            }
+            _ => return,
+        };
+        let extra_felt = Felt::new(extra);
+        self.current[COL_RC_VAL] = extra_felt;
+        let limbs = decompose_limbs(extra);
+        self.current[COL_RC_L0] = limbs[0];
+        self.current[COL_RC_L1] = limbs[1];
+        self.current[COL_RC_L2] = limbs[2];
+        self.current[COL_RC_L3] = limbs[3];
+    }
+
     fn end_row(&mut self) {
         let row = std::mem::replace(&mut self.current, [Felt::ZERO; TRACE_WIDTH]);
         let plan = std::mem::take(&mut self.current_plan);

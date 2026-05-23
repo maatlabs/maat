@@ -1,10 +1,13 @@
 //! Bitwise builtin segment.
+//!
+//! Owns the per-row bit-decomposition witnesses for logical bitwise ops
+//! (AND/OR/XOR) and a single `pow_k` aux cell for shifts (SHL/SHR).
 
 use maat_field::{BaseElement, ExtensionOf, FieldElement};
 use maat_trace::selector::{
     SEL_BITWISE, SUB_SEL_AND, SUB_SEL_OR, SUB_SEL_SHL, SUB_SEL_SHR, SUB_SEL_XOR,
 };
-use maat_trace::table::{COL_OUT, COL_S0, COL_S1, COL_SEL_BASE, COL_SUB_SEL_BASE};
+use maat_trace::table::{COL_OUT, COL_RC_VAL, COL_S0, COL_S1, COL_SEL_BASE, COL_SUB_SEL_BASE};
 use winter_air::Assertion;
 
 use super::Builtin;
@@ -13,9 +16,11 @@ use super::Builtin;
 const NUM_BITS: usize = 64;
 
 /// Aux column offset (within this builtin): first column of the bit-`a` slice.
-const BIT_A_BASE: usize = 0;
+pub const BIT_A_BASE: usize = 0;
 /// Aux column offset: first column of the bit-`b` slice.
-const BIT_B_BASE: usize = NUM_BITS;
+pub const BIT_B_BASE: usize = NUM_BITS;
+/// Aux column offset: the `pow_k` witness for SHL/SHR rows.
+pub const POW_K_OFFSET: usize = 2 * NUM_BITS;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct BitwiseBuiltin;
@@ -23,15 +28,18 @@ pub struct BitwiseBuiltin;
 impl BitwiseBuiltin {
     pub const NAME: &'static str = "bitwise";
 
-    const AUX_WIDTH: usize = 2 * NUM_BITS;
+    const AUX_WIDTH: usize = 2 * NUM_BITS + 1;
 
     const NUM_AUX_RANDS: usize = 0;
 
-    const NUM_AUX_CONSTRAINTS: usize = 11;
+    /// 2 bit-boolean + 2 reconstruction (s1, s0) + 3 AND/OR/XOR identity +
+    /// 2 SHL/SHR identity = 9.
+    const NUM_AUX_CONSTRAINTS: usize = 9;
 
     const NUM_AUX_ASSERTIONS: usize = 0;
 
-    const AUX_CONSTRAINT_DEGREES: &'static [usize] = &[2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3];
+    /// Degrees: [bool_a, bool_b, recon_a, recon_b, and, or, xor, shl, shr].
+    const AUX_CONSTRAINT_DEGREES: &'static [usize] = &[2, 2, 2, 2, 3, 3, 3, 2, 2];
 
     pub const RESERVED_ADDRESS_RANGE: (u64, u64) = (1u64 << 35, (1u64 << 36) - 1);
 }
@@ -51,17 +59,6 @@ fn sub<F: FieldElement>(main: &[F], offset: usize) -> F {
 /// Decomposes `x` into [`NUM_BITS`] little-endian boolean bits.
 fn bits_of(x: u64) -> [BaseElement; NUM_BITS] {
     std::array::from_fn(|i| BaseElement::new((x >> i) & 1))
-}
-
-/// Returns a one-hot encoding of `index` of length [`NUM_BITS`].
-fn encode(index: u64) -> [BaseElement; NUM_BITS] {
-    std::array::from_fn(|i| {
-        if i as u64 == index {
-            BaseElement::ONE
-        } else {
-            BaseElement::ZERO
-        }
-    })
 }
 
 /// Computes `2^i` for `i in 0..NUM_BITS` as field elements.
@@ -127,10 +124,12 @@ impl Builtin for BitwiseBuiltin {
 
         let bit_a: [E; NUM_BITS] = std::array::from_fn(|i| local_curr[BIT_A_BASE + i]);
         let bit_b: [E; NUM_BITS] = std::array::from_fn(|i| local_curr[BIT_B_BASE + i]);
+        let pow_k = local_curr[POW_K_OFFSET];
 
         let s0 = E::from(main_curr[COL_S0]);
         let s1 = E::from(main_curr[COL_S1]);
         let out = E::from(main_curr[COL_OUT]);
+        let rc_val = E::from(main_curr[COL_RC_VAL]);
         let sel_bw = E::from(sel(main_curr, SEL_BITWISE));
         let sub_and = E::from(sub(main_curr, SUB_SEL_AND));
         let sub_or = E::from(sub(main_curr, SUB_SEL_OR));
@@ -138,7 +137,6 @@ impl Builtin for BitwiseBuiltin {
         let sub_shl = E::from(sub(main_curr, SUB_SEL_SHL));
         let sub_shr = E::from(sub(main_curr, SUB_SEL_SHR));
         let sub_logical = sub_and + sub_or + sub_xor;
-        let sub_shift = sub_shl + sub_shr;
 
         let mut bool_a = E::ZERO;
         for i in 0..NUM_BITS {
@@ -164,53 +162,29 @@ impl Builtin for BitwiseBuiltin {
         }
         result[3] = sub_logical * (s0 - recon_b);
 
-        let one_hot_sum = bit_b.iter().copied().fold(E::ZERO, |acc, b| acc + b);
-        result[4] = sub_shift * (one_hot_sum - one);
-
-        let mut one_hot_index = E::ZERO;
-        for (i, &b) in bit_b.iter().enumerate() {
-            one_hot_index += E::from(BaseElement::new(i as u64)) * b;
-        }
-        result[5] = sub_shift * (s0 - one_hot_index);
-
         let mut and_out = E::ZERO;
         for i in 0..NUM_BITS {
             and_out += pow2[i] * bit_a[i] * bit_b[i];
         }
-        result[6] = sub_and * (out - and_out);
+        result[4] = sub_and * (out - and_out);
 
         let mut or_out = E::ZERO;
         for i in 0..NUM_BITS {
             or_out += pow2[i] * (bit_a[i] + bit_b[i] - bit_a[i] * bit_b[i]);
         }
-        result[7] = sub_or * (out - or_out);
+        result[5] = sub_or * (out - or_out);
 
         let two = one + one;
         let mut xor_out = E::ZERO;
         for i in 0..NUM_BITS {
             xor_out += pow2[i] * (bit_a[i] + bit_b[i] - two * bit_a[i] * bit_b[i]);
         }
-        result[8] = sub_xor * (out - xor_out);
+        result[6] = sub_xor * (out - xor_out);
 
-        let mut shl_out = E::ZERO;
-        for k in 0..NUM_BITS {
-            let mut partial = E::ZERO;
-            for i in 0..(NUM_BITS - k) {
-                partial += pow2[i + k] * bit_a[i];
-            }
-            shl_out += bit_b[k] * partial;
-        }
-        result[9] = sub_shl * (out - shl_out);
+        let two_32_minus_1 = E::from(BaseElement::new((1u64 << 32) - 1));
+        result[7] = sub_shl * (s1 * pow_k - out - rc_val * two_32_minus_1);
 
-        let mut shr_out = E::ZERO;
-        for k in 0..NUM_BITS {
-            let mut partial = E::ZERO;
-            for i in k..NUM_BITS {
-                partial += pow2[i - k] * bit_a[i];
-            }
-            shr_out += bit_b[k] * partial;
-        }
-        result[10] = sub_shr * (out - shr_out);
+        result[8] = sub_shr * (s1 - out * pow_k - rc_val);
     }
 
     fn build_aux_columns<E: FieldElement<BaseField = BaseElement>>(
@@ -240,12 +214,21 @@ impl Builtin for BitwiseBuiltin {
                 [BaseElement::ZERO; NUM_BITS]
             };
 
-            let bit_b = if !is_bitwise {
-                [BaseElement::ZERO; NUM_BITS]
-            } else if is_shift {
-                encode(s0_col[row].as_int())
-            } else {
+            let bit_b = if is_bitwise && !is_shift {
                 bits_of(s0_col[row].as_int())
+            } else {
+                [BaseElement::ZERO; NUM_BITS]
+            };
+
+            let pow_k = if is_shift {
+                let s0 = s0_col[row].as_int();
+                if s0 < 64 {
+                    BaseElement::new(1u64 << s0)
+                } else {
+                    BaseElement::ZERO
+                }
+            } else {
+                BaseElement::ZERO
             };
 
             for (i, b) in bit_a.iter().enumerate() {
@@ -254,6 +237,7 @@ impl Builtin for BitwiseBuiltin {
             for (i, b) in bit_b.iter().enumerate() {
                 cols[BIT_B_BASE + i].push(E::from(*b));
             }
+            cols[POW_K_OFFSET].push(E::from(pow_k));
         }
 
         cols
@@ -325,15 +309,36 @@ mod tests {
         main[COL_S0] = F::new(b);
         main[COL_OUT] = F::new(out);
 
+        let extra = match sub_offset {
+            x if x == SUB_SEL_SHL => {
+                if b == 0 {
+                    0u64
+                } else if b < 64 {
+                    a >> (64 - b)
+                } else {
+                    a
+                }
+            }
+            x if x == SUB_SEL_SHR => {
+                if b == 0 {
+                    0u64
+                } else if b < 64 {
+                    a & ((1u64 << b) - 1)
+                } else {
+                    a
+                }
+            }
+            _ => 0,
+        };
+        main[COL_RC_VAL] = F::new(extra);
+
         let mut aux = vec![F::ZERO; BitwiseBuiltin::AUX_WIDTH];
         let bit_a = bits_of(a);
-        let encoded_b = encode(b);
         for (i, v) in bit_a.iter().enumerate() {
             aux[BIT_A_BASE + i] = *v;
         }
-        for (i, v) in encoded_b.iter().enumerate() {
-            aux[BIT_B_BASE + i] = *v;
-        }
+        let pow_k = if b < 64 { 1u64 << b } else { 0 };
+        aux[POW_K_OFFSET] = F::new(pow_k);
         (main, aux)
     }
 
@@ -355,7 +360,7 @@ mod tests {
         let (mut main, aux) = populate_logical_row(a, b, a & b, SUB_SEL_AND);
         main[COL_OUT] = F::new((a & b).wrapping_add(1));
         let result = evaluate_row(&main, &aux);
-        assert_ne!(result[6], F::ZERO);
+        assert_ne!(result[4], F::ZERO);
     }
 
     #[test]
@@ -387,7 +392,7 @@ mod tests {
         let (mut main, aux) = populate_logical_row(a, b, a ^ b, SUB_SEL_XOR);
         main[COL_OUT] = F::new(0xFE);
         let result = evaluate_row(&main, &aux);
-        assert_ne!(result[8], F::ZERO);
+        assert_ne!(result[6], F::ZERO);
     }
 
     #[test]
@@ -422,7 +427,7 @@ mod tests {
         let (mut main, aux) = populate_shift_row(a, b, out, SUB_SEL_SHL);
         main[COL_OUT] = F::new(out.wrapping_add(1));
         let result = evaluate_row(&main, &aux);
-        assert_ne!(result[9], F::ZERO);
+        assert_ne!(result[7], F::ZERO);
     }
 
     #[test]
@@ -445,7 +450,7 @@ mod tests {
         let (mut main, aux) = populate_shift_row(a, b, out, SUB_SEL_SHR);
         main[COL_OUT] = F::new(out.wrapping_add(1));
         let result = evaluate_row(&main, &aux);
-        assert_ne!(result[10], F::ZERO);
+        assert_ne!(result[8], F::ZERO);
     }
 
     #[test]

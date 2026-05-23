@@ -127,12 +127,19 @@ impl TableSpec {
 }
 
 /// One LogUp channel: the consumer-side witness column (`aux_column`)
-/// plus a recipe for recomputing the same value from the main trace
-/// (`source`) at witness-build time.
-#[derive(Clone, Copy, Debug)]
+/// plus a recipe for recomputing the same value from the main trace.
+#[derive(Clone, Debug)]
 pub struct Channel {
     pub source: ChannelSource,
     pub aux_column: usize,
+    pub gate_main_cols: Vec<usize>,
+}
+
+impl Channel {
+    /// Returns true if this channel is unconditionally active.
+    pub fn is_ungated(&self) -> bool {
+        self.gate_main_cols.is_empty()
+    }
 }
 
 /// One AIR-active LogUp pool: a pinned lookup table plus the channels
@@ -162,8 +169,13 @@ impl AirPool {
     }
 
     pub fn aux_constraint_degrees(&self) -> Vec<usize> {
-        let mut out = vec![2usize; self.channels.len() + 1];
-        out.push(1);
+        let mut out: Vec<usize> = self
+            .channels
+            .iter()
+            .map(|ch| if ch.is_ungated() { 2 } else { 3 })
+            .collect();
+        out.push(2); // m-side transition
+        out.push(1); // balance binding
         out
     }
 
@@ -403,6 +415,26 @@ where
         .collect()
 }
 
+/// Computes a per-row mask indicating whether a gated channel is active
+/// on each row. Ungated channels are always active.
+fn compute_gate_activity(
+    channel: &Channel,
+    main_columns: &[&[BaseElement]],
+    trace_len: usize,
+) -> Vec<bool> {
+    if channel.is_ungated() {
+        return vec![true; trace_len];
+    }
+    (0..trace_len)
+        .map(|row| {
+            channel
+                .gate_main_cols
+                .iter()
+                .any(|&col| main_columns[col][row] != BaseElement::ZERO)
+        })
+        .collect()
+}
+
 fn position_in_fixed_table<E>(spec: &TableSpec, value: E) -> Option<usize>
 where
     E: FieldElement<BaseField = BaseElement>,
@@ -515,7 +547,17 @@ impl Builtin for LogUpBuiltin {
                         delta * E::from(main_next[main_col]) + aux_next[aux_col]
                     }
                 };
-                result[res_off + k] = (s_next - s_curr) * (alpha - b_next) - one;
+                let s_delta = s_next - s_curr;
+                if channel.is_ungated() {
+                    result[res_off + k] = s_delta * (alpha - b_next) - one;
+                } else {
+                    let gate = channel
+                        .gate_main_cols
+                        .iter()
+                        .fold(E::ZERO, |acc, &col| acc + E::from(main_next[col]));
+                    result[res_off + k] =
+                        gate * (s_delta * (alpha - b_next) - one) + (one - gate) * s_delta;
+                }
             }
 
             let m_idx = res_off + pool.channels.len();
@@ -554,27 +596,31 @@ impl Builtin for LogUpBuiltin {
             let alpha = pool_rands[0];
             let table_entries: Vec<E> = pool.spec.entries(pool_rands);
 
-            let channel_values: Vec<Vec<E>> = pool
+            let channel_values = pool
                 .channels
                 .iter()
                 .map(|ch| compute_channel_values(ch, main_columns, pool_rands, n))
-                .collect();
+                .collect::<Vec<Vec<E>>>();
+
+            let gate_active = pool
+                .channels
+                .iter()
+                .map(|ch| compute_gate_activity(ch, main_columns, n))
+                .collect::<Vec<Vec<bool>>>();
 
             let mut counts = vec![0u64; table_size];
-            if !pool.spec.is_paired() {
-                for channel in &channel_values {
-                    for v in channel.iter().skip(1) {
-                        if let Some(idx) = position_in_fixed_table(&pool.spec, *v) {
-                            counts[idx] += 1;
-                        }
+            for (k, channel) in channel_values.iter().enumerate() {
+                for (i, v) in channel.iter().enumerate().skip(1) {
+                    if !gate_active[k][i] {
+                        continue;
                     }
-                }
-            } else {
-                for channel in &channel_values {
-                    for v in channel.iter().skip(1) {
-                        if let Some(idx) = position_in_paired_table(&table_entries, *v) {
-                            counts[idx] += 1;
-                        }
+                    let idx = if pool.spec.is_paired() {
+                        position_in_paired_table(&table_entries, *v)
+                    } else {
+                        position_in_fixed_table(&pool.spec, *v)
+                    };
+                    if let Some(idx) = idx {
+                        counts[idx] += 1;
                     }
                 }
             }
@@ -586,11 +632,19 @@ impl Builtin for LogUpBuiltin {
                 m_col[1 + v] = E::from(BaseElement::new(counts[v]));
             }
 
-            let mut s_cols: Vec<Vec<E>> = pool.channels.iter().map(|_| vec![E::ZERO; n]).collect();
+            let mut s_cols = pool
+                .channels
+                .iter()
+                .map(|_| vec![E::ZERO; n])
+                .collect::<Vec<Vec<E>>>();
             for (k, channel_vals) in channel_values.iter().enumerate() {
                 for i in 1..n {
-                    let b = channel_vals[i];
-                    s_cols[k][i] = s_cols[k][i - 1] + (alpha - b).inv();
+                    s_cols[k][i] = if gate_active[k][i] {
+                        let b = channel_vals[i];
+                        s_cols[k][i - 1] + (alpha - b).inv()
+                    } else {
+                        s_cols[k][i - 1]
+                    };
                 }
             }
 
@@ -599,14 +653,14 @@ impl Builtin for LogUpBuiltin {
                 sm_col[i] = sm_col[i - 1] + m_col[i] * (alpha - t_col[i]).inv();
             }
 
-            let bal_col: Vec<E> = (0..n)
+            let bal_col = (0..n)
                 .map(|i| {
                     let sum_s = (0..pool.channels.len())
                         .map(|k| s_cols[k][i])
                         .fold(E::ZERO, |acc, v| acc + v);
                     sum_s - sm_col[i]
                 })
-                .collect();
+                .collect::<Vec<E>>();
 
             cols.push(t_col);
             cols.push(m_col);
@@ -1001,6 +1055,7 @@ mod tests {
                     aux_col: 0,
                 },
                 aux_column: 0,
+                gate_main_cols: Vec::new(),
             }],
         };
         let pool_width = pool_with_no_aux_yet.aux_width();
@@ -1013,6 +1068,7 @@ mod tests {
                     aux_col: pool_width,
                 },
                 aux_column: pool_width,
+                gate_main_cols: Vec::new(),
             }],
         };
 
@@ -1055,6 +1111,7 @@ mod tests {
                     aux_col: pool_width,
                 },
                 aux_column: pool_width,
+                gate_main_cols: Vec::new(),
             }],
         };
 

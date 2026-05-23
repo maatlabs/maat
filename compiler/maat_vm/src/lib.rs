@@ -220,7 +220,13 @@ impl VM {
             | Opcode::Shl
             | Opcode::Shr => {
                 self.execute_binary_operation(op)?;
-                recorder.record_out(self.peek_top_maybe_reloc());
+                let result = self.peek_top_maybe_reloc();
+                let result_felt = result.as_felt().unwrap_or(Felt::ZERO);
+                recorder.record_out(result);
+                if matches!(op, Opcode::Shl | Opcode::Shr) {
+                    let shift = s0_pre.as_int() as u32;
+                    recorder.record_shift_witness(op, s1_pre, shift, result_felt);
+                }
             }
             Opcode::Div | Opcode::Mod => {
                 self.execute_binary_operation(op)?;

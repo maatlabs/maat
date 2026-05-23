@@ -93,6 +93,10 @@ pub trait Tracer {
     #[inline(always)]
     fn record_convert_witness(&mut self, _result: Felt) {}
 
+    /// Supplies the witness data needed by the bitwise-shift AIR rule.
+    #[inline(always)]
+    fn record_shift_witness(&mut self, _op: Opcode, _operand: Felt, _shift: u32, _result: Felt) {}
+
     /// Marks the current row complete; the recorder commits it to its buffer.
     #[inline(always)]
     fn end_row(&mut self) {}
