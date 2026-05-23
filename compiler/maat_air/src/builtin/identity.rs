@@ -53,8 +53,8 @@ impl Builtin for IdentityBuiltin {
         Self::NUM_AUX_ASSERTIONS
     }
 
-    fn aux_constraint_degrees(&self) -> &'static [usize] {
-        Self::AUX_CONSTRAINT_DEGREES
+    fn aux_constraint_degrees(&self) -> Vec<usize> {
+        Self::AUX_CONSTRAINT_DEGREES.to_vec()
     }
 
     fn reserved_address_range(&self) -> (u64, u64) {
@@ -67,16 +67,18 @@ impl Builtin for IdentityBuiltin {
         _main_next: &[F],
         aux_curr: &[E],
         aux_next: &[E],
+        base_offset: usize,
         _rand_elements: &[E],
         result: &mut [E],
     ) where
         F: FieldElement<BaseField = BaseElement>,
         E: FieldElement<BaseField = BaseElement> + ExtensionOf<F>,
     {
-        debug_assert_eq!(aux_curr.len(), Self::AUX_WIDTH);
-        debug_assert_eq!(aux_next.len(), Self::AUX_WIDTH);
+        let local_curr = &aux_curr[base_offset..base_offset + Self::AUX_WIDTH];
+        let local_next = &aux_next[base_offset..base_offset + Self::AUX_WIDTH];
+
         debug_assert_eq!(result.len(), Self::NUM_AUX_CONSTRAINTS);
-        result[0] = aux_next[IDENTITY_COL] - aux_curr[IDENTITY_COL];
+        result[0] = local_next[IDENTITY_COL] - local_curr[IDENTITY_COL];
     }
 
     fn build_aux_columns<E: FieldElement<BaseField = BaseElement>>(

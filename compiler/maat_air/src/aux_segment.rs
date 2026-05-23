@@ -5,7 +5,7 @@ use maat_field::{BaseElement, ExtensionOf, FieldElement};
 use maat_trace::table::{COL_MEM_ADDR, COL_MEM_VAL};
 use winter_air::Assertion;
 
-use crate::builtin::BuiltinSet;
+use crate::builtin::BUILTIN_SET;
 
 /// Aux column index: sorted memory address (L2 address column).
 pub const AUX_COL_L2_ADDR: usize = 0;
@@ -39,22 +39,22 @@ const RAND_ALPHA: usize = 1;
 
 /// Total width of the auxiliary trace segment (memory + every registered builtin).
 pub fn aux_width() -> usize {
-    MEMORY_AUX_WIDTH + BuiltinSet::new().total_aux_width()
+    MEMORY_AUX_WIDTH + BUILTIN_SET.total_aux_width()
 }
 
 /// Total verifier challenges drawn for auxiliary column construction.
 pub fn num_aux_rands() -> usize {
-    MEMORY_NUM_AUX_RANDS + BuiltinSet::new().total_num_aux_rands()
+    MEMORY_NUM_AUX_RANDS + BUILTIN_SET.total_num_aux_rands()
 }
 
 /// Total auxiliary transition-constraint count.
 pub fn num_aux_constraints() -> usize {
-    MEMORY_NUM_CONSTRAINTS + BuiltinSet::new().total_num_aux_constraints()
+    MEMORY_NUM_CONSTRAINTS + BUILTIN_SET.total_num_aux_constraints()
 }
 
 /// Total auxiliary boundary-assertion count.
 pub fn num_aux_assertions() -> usize {
-    MEMORY_NUM_ASSERTIONS + BuiltinSet::new().total_num_aux_assertions()
+    MEMORY_NUM_ASSERTIONS + BUILTIN_SET.total_num_aux_assertions()
 }
 
 pub fn evaluate<F, E>(
@@ -74,7 +74,7 @@ pub fn evaluate<F, E>(
     let (memory_rands, _) = rand_elements.split_at(MEMORY_NUM_AUX_RANDS);
     evaluate_memory::<F, E>(main_next, aux_current, aux_next, memory_rands, mem_result);
 
-    BuiltinSet::new().evaluate_aux_transition::<F, E>(
+    BUILTIN_SET.evaluate_aux_transition::<F, E>(
         main_current,
         main_next,
         aux_current,
@@ -87,7 +87,7 @@ pub fn evaluate<F, E>(
 pub fn aux_constraint_degrees() -> Vec<usize> {
     let mut out = Vec::with_capacity(num_aux_constraints());
     out.extend_from_slice(&MEMORY_AUX_CONSTRAINT_DEGREES);
-    out.extend(BuiltinSet::new().aux_constraint_degrees());
+    out.extend(BUILTIN_SET.aux_constraint_degrees());
     out
 }
 
@@ -104,7 +104,7 @@ pub fn aux_assertions<E: FieldElement<BaseField = BaseElement>>(
         output_base,
         output_segment,
     ));
-    out.extend(BuiltinSet::new().aux_assertions::<E>(last_step));
+    out.extend(BUILTIN_SET.aux_assertions::<E>(last_step));
     out
 }
 
@@ -159,7 +159,7 @@ pub fn build_aux_columns<E: FieldElement<BaseField = BaseElement>>(
         output_base,
         output_segment,
     ));
-    columns.extend(BuiltinSet::new().build_aux_columns(main_columns, rand_elements));
+    columns.extend(BUILTIN_SET.build_aux_columns(main_columns, rand_elements));
     columns
 }
 
@@ -262,6 +262,7 @@ mod tests {
     use maat_trace::table::{COL_RC_L0, COL_RC_L1, COL_RC_L2, COL_RC_L3, TRACE_WIDTH};
 
     use super::*;
+    use crate::builtin::Builtin;
     use crate::builtin::range_check::RangeCheckBuiltin;
 
     type F = BaseElement;
@@ -304,12 +305,18 @@ mod tests {
         row[AUX_COL_L2_ADDR] = F::new(l2_addr);
         row[AUX_COL_L2_VAL] = F::new(l2_val);
         row[AUX_COL_MEM_ACC] = mem_acc;
-        row[BuiltinSet::new().identity_aux_base()] = identity;
+        row[BUILTIN_SET.identity_aux_base()] = identity;
         row
     }
 
     fn rands(z: F, alpha: F, alpha_rc: F) -> Vec<F> {
         vec![z, alpha, alpha_rc]
+    }
+
+    fn identity_constraint_offset() -> usize {
+        MEMORY_NUM_CONSTRAINTS
+            + BUILTIN_SET.range_check.num_aux_constraints()
+            + BUILTIN_SET.bitwise.num_aux_constraints()
     }
 
     #[test]
@@ -377,7 +384,7 @@ mod tests {
             &rands(F::new(7), F::new(3), F::new(11)),
             &mut result,
         );
-        assert_eq!(result[num_aux_constraints() - 1], F::ZERO);
+        assert_eq!(result[identity_constraint_offset()], F::ZERO);
     }
 
     #[test]
@@ -394,7 +401,7 @@ mod tests {
             &rands(F::new(7), F::new(3), F::new(11)),
             &mut result,
         );
-        assert_ne!(result[num_aux_constraints() - 1], F::ZERO);
+        assert_ne!(result[identity_constraint_offset()], F::ZERO);
     }
 
     #[test]
@@ -407,7 +414,7 @@ mod tests {
         assert_eq!(aux.len(), aux_width());
         assert_eq!(aux[AUX_COL_MEM_ACC][0], F::ONE);
         assert_eq!(aux[AUX_COL_MEM_ACC][n - 1], F::ONE);
-        for v in &aux[BuiltinSet::new().identity_aux_base()] {
+        for v in &aux[BUILTIN_SET.identity_aux_base()] {
             assert_eq!(*v, F::ONE);
         }
     }

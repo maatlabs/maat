@@ -97,8 +97,8 @@ impl Builtin for BitwiseBuiltin {
         Self::NUM_AUX_ASSERTIONS
     }
 
-    fn aux_constraint_degrees(&self) -> &'static [usize] {
-        Self::AUX_CONSTRAINT_DEGREES
+    fn aux_constraint_degrees(&self) -> Vec<usize> {
+        Self::AUX_CONSTRAINT_DEGREES.to_vec()
     }
 
     fn reserved_address_range(&self) -> (u64, u64) {
@@ -111,20 +111,22 @@ impl Builtin for BitwiseBuiltin {
         _main_next: &[F],
         aux_curr: &[E],
         _aux_next: &[E],
+        base_offset: usize,
         _rand_elements: &[E],
         result: &mut [E],
     ) where
         F: FieldElement<BaseField = BaseElement>,
         E: FieldElement<BaseField = BaseElement> + ExtensionOf<F>,
     {
-        debug_assert_eq!(aux_curr.len(), Self::AUX_WIDTH);
+        let local_curr = &aux_curr[base_offset..base_offset + Self::AUX_WIDTH];
+
         debug_assert_eq!(result.len(), Self::NUM_AUX_CONSTRAINTS);
 
         let one = E::ONE;
         let pow2: [E; NUM_BITS] = pow2_table();
 
-        let bit_a: [E; NUM_BITS] = std::array::from_fn(|i| aux_curr[BIT_A_BASE + i]);
-        let bit_b: [E; NUM_BITS] = std::array::from_fn(|i| aux_curr[BIT_B_BASE + i]);
+        let bit_a: [E; NUM_BITS] = std::array::from_fn(|i| local_curr[BIT_A_BASE + i]);
+        let bit_b: [E; NUM_BITS] = std::array::from_fn(|i| local_curr[BIT_B_BASE + i]);
 
         let s0 = E::from(main_curr[COL_S0]);
         let s1 = E::from(main_curr[COL_S1]);
@@ -288,6 +290,7 @@ mod tests {
             &next,
             aux,
             &aux_next,
+            0,
             &[],
             &mut result,
         );

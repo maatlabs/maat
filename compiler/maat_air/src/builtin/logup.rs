@@ -59,33 +59,102 @@ pub struct LogUpColumns<E: FieldElement<BaseField = BaseElement>> {
     pub grand_sum: Vec<E>,
 }
 
-/// LogUp lookup-argument engine.
-///
-/// Holds a set of pre-pinned tables and the lookup queries registered
-/// against each. Tables are pinned at construction time; lookups are
-/// streamed in via [`Self::register_lookup`]. At witness-build time
-/// [`Self::build_columns`] emits, per table, the multiplicity and
-/// grand-sum columns whose AIR identity is checked by
-/// [`evaluate_transition_step`].
+/// Describes how a channel's per-row value is derived from the main trace.
+#[derive(Clone, Copy, Debug)]
+pub enum ChannelSource {
+    /// High byte of a main-trace column (`(col >> 8) & 0xff`).
+    HighByte(usize),
+    /// Low byte of a main-trace column (`col & 0xff`).
+    LowByte(usize),
+}
+
+impl ChannelSource {
+    /// Extracts the channel value at `row` from `main_cols`.
+    pub fn extract(&self, main_cols: &[&[BaseElement]], row: usize) -> u64 {
+        match *self {
+            ChannelSource::HighByte(col) => (main_cols[col][row].as_int() >> 8) & 0xff,
+            ChannelSource::LowByte(col) => main_cols[col][row].as_int() & 0xff,
+        }
+    }
+}
+
+/// One LogUp channel: the consumer-side witness column (`aux_column`)
+/// plus a recipe for recomputing the same value from the main trace
+/// (`source`) at witness-build time.
+#[derive(Clone, Copy, Debug)]
+pub struct Channel {
+    pub source: ChannelSource,
+    pub aux_column: usize,
+}
+
+/// One AIR-active LogUp pool: a pinned lookup table plus the channels
+/// that consume from it.
+#[derive(Clone, Debug)]
+pub struct AirPool {
+    pub table_id: TableId,
+    pub table_entries: Vec<BaseElement>,
+    pub channels: Vec<Channel>,
+}
+
+impl AirPool {
+    pub fn aux_width(&self) -> usize {
+        4 + self.channels.len()
+    }
+
+    pub fn num_aux_rands(&self) -> usize {
+        1
+    }
+
+    pub fn num_aux_constraints(&self) -> usize {
+        self.channels.len() + 2
+    }
+
+    pub fn num_aux_assertions(&self) -> usize {
+        self.channels.len() + 2
+    }
+
+    pub fn aux_constraint_degrees(&self) -> Vec<usize> {
+        let mut out = vec![2usize; self.channels.len() + 1];
+        out.push(1);
+        out
+    }
+
+    pub fn min_trace_len(&self) -> usize {
+        self.table_entries.len() + 1
+    }
+
+    fn t_offset(&self) -> usize {
+        0
+    }
+
+    fn m_offset(&self) -> usize {
+        1
+    }
+
+    fn s_base(&self) -> usize {
+        2
+    }
+
+    fn sm_offset(&self) -> usize {
+        2 + self.channels.len()
+    }
+
+    fn bal_offset(&self) -> usize {
+        3 + self.channels.len()
+    }
+}
+
+/// LogUp lookup-argument engine and shared-pool aux-state owner.
 #[derive(Clone, Debug, Default)]
 pub struct LogUpBuiltin {
     tables: Vec<LookupTable>,
     table_index: HashMap<TableId, usize>,
     lookups: HashMap<TableId, Vec<BaseElement>>,
+    pools: Vec<AirPool>,
 }
 
 impl LogUpBuiltin {
     pub const NAME: &'static str = "logup";
-
-    const AUX_WIDTH: usize = 0;
-
-    const NUM_AUX_RANDS: usize = 0;
-
-    const NUM_AUX_CONSTRAINTS: usize = 0;
-
-    const NUM_AUX_ASSERTIONS: usize = 0;
-
-    const AUX_CONSTRAINT_DEGREES: &'static [usize] = &[];
 
     /// Reserved memory-segment range for the LogUp builtin, sitting
     /// directly above [`BitwiseBuiltin`](super::BitwiseBuiltin).
@@ -93,6 +162,23 @@ impl LogUpBuiltin {
 
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn with_pools(pools: Vec<AirPool>) -> Self {
+        Self {
+            pools,
+            ..Self::default()
+        }
+    }
+
+    pub fn pools(&self) -> &[AirPool] {
+        &self.pools
+    }
+
+    /// Returns the offset of the `idx`-th pool's slice within this
+    /// builtin's aux footprint (i.e. relative to `base_offset`).
+    fn pool_local_offset(&self, idx: usize) -> usize {
+        self.pools[..idx].iter().map(AirPool::aux_width).sum()
     }
 
     pub fn register_table(
@@ -266,23 +352,26 @@ impl Builtin for LogUpBuiltin {
     }
 
     fn aux_width(&self) -> usize {
-        Self::AUX_WIDTH
+        self.pools.iter().map(AirPool::aux_width).sum()
     }
 
     fn num_aux_rands(&self) -> usize {
-        Self::NUM_AUX_RANDS
+        self.pools.iter().map(AirPool::num_aux_rands).sum()
     }
 
     fn num_aux_constraints(&self) -> usize {
-        Self::NUM_AUX_CONSTRAINTS
+        self.pools.iter().map(AirPool::num_aux_constraints).sum()
     }
 
     fn num_aux_assertions(&self) -> usize {
-        Self::NUM_AUX_ASSERTIONS
+        self.pools.iter().map(AirPool::num_aux_assertions).sum()
     }
 
-    fn aux_constraint_degrees(&self) -> &'static [usize] {
-        Self::AUX_CONSTRAINT_DEGREES
+    fn aux_constraint_degrees(&self) -> Vec<usize> {
+        self.pools
+            .iter()
+            .flat_map(AirPool::aux_constraint_degrees)
+            .collect()
     }
 
     fn reserved_address_range(&self) -> (u64, u64) {
@@ -293,30 +382,147 @@ impl Builtin for LogUpBuiltin {
         &self,
         _main_curr: &[F],
         _main_next: &[F],
-        _aux_curr: &[E],
-        _aux_next: &[E],
-        _rand_elements: &[E],
-        _result: &mut [E],
+        aux_curr: &[E],
+        aux_next: &[E],
+        base_offset: usize,
+        rand_elements: &[E],
+        result: &mut [E],
     ) where
         F: FieldElement<BaseField = BaseElement>,
         E: FieldElement<BaseField = BaseElement> + ExtensionOf<F>,
     {
+        let one = E::ONE;
+        let mut rand_off = 0usize;
+        let mut res_off = 0usize;
+
+        for (idx, pool) in self.pools.iter().enumerate() {
+            let pool_base = base_offset + self.pool_local_offset(idx);
+            let local_curr = &aux_curr[pool_base..pool_base + pool.aux_width()];
+            let local_next = &aux_next[pool_base..pool_base + pool.aux_width()];
+            let alpha = rand_elements[rand_off];
+
+            for (k, channel) in pool.channels.iter().enumerate() {
+                let s_curr = local_curr[pool.s_base() + k];
+                let s_next = local_next[pool.s_base() + k];
+                let b_next = aux_next[channel.aux_column];
+                result[res_off + k] = (s_next - s_curr) * (alpha - b_next) - one;
+            }
+
+            let m_idx = res_off + pool.channels.len();
+            let sm_curr = local_curr[pool.sm_offset()];
+            let sm_next = local_next[pool.sm_offset()];
+            let t_next = local_next[pool.t_offset()];
+            let m_next = local_next[pool.m_offset()];
+            result[m_idx] = (sm_next - sm_curr) * (alpha - t_next) - m_next;
+
+            let bal_idx = m_idx + 1;
+            let bal_next = local_next[pool.bal_offset()];
+            let sum_s_next = (0..pool.channels.len())
+                .map(|k| local_next[pool.s_base() + k])
+                .fold(E::ZERO, |acc, v| acc + v);
+            result[bal_idx] = bal_next - (sum_s_next - sm_next);
+
+            rand_off += pool.num_aux_rands();
+            res_off += pool.num_aux_constraints();
+        }
     }
 
     fn build_aux_columns<E: FieldElement<BaseField = BaseElement>>(
         &self,
-        _main_columns: &[&[BaseElement]],
-        _rand_elements: &[E],
+        main_columns: &[&[BaseElement]],
+        rand_elements: &[E],
     ) -> Vec<Vec<E>> {
-        Vec::new()
+        let mut cols: Vec<Vec<E>> = Vec::with_capacity(self.aux_width());
+        let mut rand_off = 0usize;
+
+        for pool in &self.pools {
+            let n = main_columns[0].len();
+            let alpha = rand_elements[rand_off];
+            let active = n.saturating_sub(1);
+            let table_size = pool.table_entries.len();
+            let embedding_rows = table_size.min(active);
+
+            let channel_values: Vec<Vec<u64>> = pool
+                .channels
+                .iter()
+                .map(|ch| {
+                    (0..n)
+                        .map(|row| ch.source.extract(main_columns, row))
+                        .collect()
+                })
+                .collect();
+
+            let mut counts = vec![0u64; table_size];
+            for channel in &channel_values {
+                for &v in channel.iter().skip(1) {
+                    if (v as usize) < table_size {
+                        counts[v as usize] += 1;
+                    }
+                }
+            }
+
+            let mut t_col = vec![E::ZERO; n];
+            let mut m_col = vec![E::ZERO; n];
+            for v in 0..embedding_rows {
+                t_col[1 + v] = E::from(pool.table_entries[v]);
+                m_col[1 + v] = E::from(BaseElement::new(counts[v]));
+            }
+
+            let mut s_cols: Vec<Vec<E>> = pool.channels.iter().map(|_| vec![E::ZERO; n]).collect();
+            for (k, channel_vals) in channel_values.iter().enumerate() {
+                for i in 1..n {
+                    let b = E::from(BaseElement::new(channel_vals[i]));
+                    s_cols[k][i] = s_cols[k][i - 1] + (alpha - b).inv();
+                }
+            }
+
+            let mut sm_col = vec![E::ZERO; n];
+            for i in 1..n {
+                sm_col[i] = sm_col[i - 1] + m_col[i] * (alpha - t_col[i]).inv();
+            }
+
+            let bal_col: Vec<E> = (0..n)
+                .map(|i| {
+                    let sum_s = (0..pool.channels.len())
+                        .map(|k| s_cols[k][i])
+                        .fold(E::ZERO, |acc, v| acc + v);
+                    sum_s - sm_col[i]
+                })
+                .collect();
+
+            cols.push(t_col);
+            cols.push(m_col);
+            cols.extend(s_cols);
+            cols.push(sm_col);
+            cols.push(bal_col);
+
+            rand_off += pool.num_aux_rands();
+        }
+
+        cols
     }
 
     fn aux_assertions<E: FieldElement<BaseField = BaseElement>>(
         &self,
-        _column_base: usize,
-        _last_step: usize,
+        column_base: usize,
+        last_step: usize,
     ) -> Vec<Assertion<E>> {
-        Vec::new()
+        let mut out = Vec::with_capacity(self.num_aux_assertions());
+
+        for (idx, pool) in self.pools.iter().enumerate() {
+            let pool_base = column_base + self.pool_local_offset(idx);
+            for k in 0..pool.channels.len() {
+                out.push(Assertion::single(pool_base + pool.s_base() + k, 0, E::ZERO));
+            }
+            out.push(Assertion::single(pool_base + pool.sm_offset(), 0, E::ZERO));
+            out.push(Assertion::single(
+                pool_base + pool.bal_offset(),
+                last_step,
+                E::ZERO,
+            ));
+        }
+
+        out
     }
 }
 
@@ -567,7 +773,7 @@ mod tests {
         assert!(builtin.aux_assertions::<F>(0, 7).is_empty());
 
         let mut result: Vec<F> = Vec::new();
-        builtin.evaluate_aux_transition::<F, F>(&[], &[], &[], &[], &[], &mut result);
+        builtin.evaluate_aux_transition::<F, F>(&[], &[], &[], &[], 0, &[], &mut result);
         assert!(result.is_empty());
     }
 
