@@ -40,7 +40,7 @@ pub use diluted::{
 };
 pub use identity::IdentityBuiltin;
 pub use logup::{
-    AirPool, Channel, ChannelSource, LogUpBuiltin, LogUpColumns, LookupTable, TableId,
+    AirPool, Channel, ChannelSource, LogUpBuiltin, LogUpColumns, LookupTable, TableId, TableSpec,
     evaluate_transition_step,
 };
 use maat_field::{BaseElement, ExtensionOf, FieldElement};
@@ -54,6 +54,15 @@ use crate::builtin::range_check::{
 
 /// Byte-table LogUp pool ID consumed by [`RangeCheckBuiltin`].
 pub const BYTE_TABLE_ID: TableId = 0;
+
+/// Pow2-paired LogUp pool ID. Pinned table entries are
+/// `{delta * k + 2^k : k = 0..NUM_POW2_ENTRIES}` where `delta` is the
+/// pool's Fiat-Shamir compression challenge.
+pub const POW2_TABLE_ID: TableId = 2;
+
+/// Number of pow2 table entries: `{1, 2, 4, ..., 2^63}` covers every
+/// 64-bit shift amount.
+pub const NUM_POW2_ENTRIES: usize = 64;
 
 /// Builds the byte-table [`AirPool`] consumed by [`RangeCheckBuiltin`].
 fn build_air_pool_for_range_check(rc_aux_base: usize) -> AirPool {
@@ -82,8 +91,18 @@ fn build_air_pool_for_range_check(rc_aux_base: usize) -> AirPool {
 
     AirPool {
         table_id: BYTE_TABLE_ID,
-        table_entries,
+        spec: TableSpec::Fixed(table_entries),
         channels,
+    }
+}
+
+fn build_air_pool_pow2() -> AirPool {
+    AirPool {
+        table_id: POW2_TABLE_ID,
+        spec: TableSpec::Pow2Paired {
+            num_entries: NUM_POW2_ENTRIES,
+        },
+        channels: Vec::new(),
     }
 }
 
@@ -219,7 +238,8 @@ impl BuiltinSet {
         let rc_base = layout_without_logup.range_check_aux_base;
 
         let byte_table_pool = build_air_pool_for_range_check(rc_base);
-        let logup = LogUpBuiltin::with_pools(vec![byte_table_pool]);
+        let pow2_pool = build_air_pool_pow2();
+        let logup = LogUpBuiltin::with_pools(vec![byte_table_pool, pow2_pool]);
 
         let layout = Layout::compute(&range_check, &bitwise, &identity, &logup);
 
@@ -422,7 +442,7 @@ mod tests {
                 + set.identity.aux_width()
                 + set.logup.aux_width()
         );
-        assert_eq!(set.total_num_aux_rands(), 1);
+        assert_eq!(set.total_num_aux_rands(), 3);
         assert_eq!(
             set.total_num_aux_constraints(),
             set.range_check.num_aux_constraints()

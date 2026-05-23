@@ -59,21 +59,69 @@ pub struct LogUpColumns<E: FieldElement<BaseField = BaseElement>> {
     pub grand_sum: Vec<E>,
 }
 
-/// Describes how a channel's per-row value is derived from the main trace.
+/// Describes how a channel's per-row value is derived from the trace.
 #[derive(Clone, Copy, Debug)]
 pub enum ChannelSource {
     /// High byte of a main-trace column (`(col >> 8) & 0xff`).
     HighByte(usize),
     /// Low byte of a main-trace column (`col & 0xff`).
     LowByte(usize),
+    /// Pow2-paired key: `(s0, 2^s0)` where `s0` lives in `main[main_col]`
+    /// and `2^s0` lives in `aux[aux_col]` as a witness. Compressed by
+    /// the pool's `delta` challenge.
+    Pow2Paired { main_col: usize, aux_col: usize },
 }
 
 impl ChannelSource {
-    /// Extracts the channel value at `row` from `main_cols`.
-    pub fn extract(&self, main_cols: &[&[BaseElement]], row: usize) -> u64 {
-        match *self {
-            ChannelSource::HighByte(col) => (main_cols[col][row].as_int() >> 8) & 0xff,
-            ChannelSource::LowByte(col) => main_cols[col][row].as_int() & 0xff,
+    pub fn is_paired(&self) -> bool {
+        matches!(self, ChannelSource::Pow2Paired { .. })
+    }
+}
+
+/// Describes the pinned lookup table associated with an [`AirPool`].
+///
+/// `Fixed` carries precomputed entries (used by the 8-bit byte table).
+/// `Pow2Paired` derives entries from the pool's `delta` Fiat-Shamir
+/// challenge at witness-build time: `t[k] = delta * k + 2^k` for
+/// `k = 0..num_entries`.
+#[derive(Clone, Debug)]
+pub enum TableSpec {
+    Fixed(Vec<BaseElement>),
+    Pow2Paired { num_entries: usize },
+}
+
+impl TableSpec {
+    pub fn len(&self) -> usize {
+        match self {
+            TableSpec::Fixed(v) => v.len(),
+            TableSpec::Pow2Paired { num_entries } => *num_entries,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn is_paired(&self) -> bool {
+        matches!(self, TableSpec::Pow2Paired { .. })
+    }
+
+    pub fn entries<E>(&self, rand_elements: &[E]) -> Vec<E>
+    where
+        E: FieldElement<BaseField = BaseElement>,
+    {
+        match self {
+            TableSpec::Fixed(v) => v.iter().copied().map(E::from).collect(),
+            TableSpec::Pow2Paired { num_entries } => {
+                let delta = rand_elements[1];
+                (0..*num_entries)
+                    .map(|k| {
+                        let k_e = E::from(BaseElement::new(k as u64));
+                        let pow = E::from(BaseElement::new(1u64 << k));
+                        delta * k_e + pow
+                    })
+                    .collect()
+            }
         }
     }
 }
@@ -92,7 +140,7 @@ pub struct Channel {
 #[derive(Clone, Debug)]
 pub struct AirPool {
     pub table_id: TableId,
-    pub table_entries: Vec<BaseElement>,
+    pub spec: TableSpec,
     pub channels: Vec<Channel>,
 }
 
@@ -102,7 +150,7 @@ impl AirPool {
     }
 
     pub fn num_aux_rands(&self) -> usize {
-        1
+        if self.spec.is_paired() { 2 } else { 1 }
     }
 
     pub fn num_aux_constraints(&self) -> usize {
@@ -120,7 +168,7 @@ impl AirPool {
     }
 
     pub fn min_trace_len(&self) -> usize {
-        self.table_entries.len() + 1
+        self.spec.len() + 1
     }
 
     fn t_offset(&self) -> usize {
@@ -322,6 +370,56 @@ where
     })
 }
 
+fn compute_channel_values<E>(
+    channel: &Channel,
+    main_columns: &[&[BaseElement]],
+    pool_rands: &[E],
+    trace_len: usize,
+) -> Vec<E>
+where
+    E: FieldElement<BaseField = BaseElement>,
+{
+    let delta = if pool_rands.len() > 1 {
+        pool_rands[1]
+    } else {
+        E::ZERO
+    };
+    (0..trace_len)
+        .map(|row| match channel.source {
+            ChannelSource::HighByte(col) => {
+                let byte = (main_columns[col][row].as_int() >> 8) & 0xff;
+                E::from(BaseElement::new(byte))
+            }
+            ChannelSource::LowByte(col) => {
+                let byte = main_columns[col][row].as_int() & 0xff;
+                E::from(BaseElement::new(byte))
+            }
+            ChannelSource::Pow2Paired { main_col, .. } => {
+                let s0 = main_columns[main_col][row].as_int();
+                let pow_k = if s0 < 64 { 1u64 << s0 } else { 0 };
+                delta * E::from(BaseElement::new(s0)) + E::from(BaseElement::new(pow_k))
+            }
+        })
+        .collect()
+}
+
+fn position_in_fixed_table<E>(spec: &TableSpec, value: E) -> Option<usize>
+where
+    E: FieldElement<BaseField = BaseElement>,
+{
+    let TableSpec::Fixed(entries) = spec else {
+        return None;
+    };
+    entries.iter().position(|e| E::from(*e) == value)
+}
+
+fn position_in_paired_table<E>(table_entries: &[E], value: E) -> Option<usize>
+where
+    E: FieldElement<BaseField = BaseElement>,
+{
+    table_entries.iter().position(|e| *e == value)
+}
+
 /// Evaluates the LogUp cross-multiplied transition residual at one step.
 ///
 /// The returned value is `LHS − RHS`; a satisfied transition yields
@@ -381,7 +479,7 @@ impl Builtin for LogUpBuiltin {
     fn evaluate_aux_transition<F, E>(
         &self,
         _main_curr: &[F],
-        _main_next: &[F],
+        main_next: &[F],
         aux_curr: &[E],
         aux_next: &[E],
         base_offset: usize,
@@ -400,11 +498,23 @@ impl Builtin for LogUpBuiltin {
             let local_curr = &aux_curr[pool_base..pool_base + pool.aux_width()];
             let local_next = &aux_next[pool_base..pool_base + pool.aux_width()];
             let alpha = rand_elements[rand_off];
+            let delta = if pool.spec.is_paired() {
+                rand_elements[rand_off + 1]
+            } else {
+                E::ZERO
+            };
 
             for (k, channel) in pool.channels.iter().enumerate() {
                 let s_curr = local_curr[pool.s_base() + k];
                 let s_next = local_next[pool.s_base() + k];
-                let b_next = aux_next[channel.aux_column];
+                let b_next = match channel.source {
+                    ChannelSource::HighByte(_) | ChannelSource::LowByte(_) => {
+                        aux_next[channel.aux_column]
+                    }
+                    ChannelSource::Pow2Paired { main_col, aux_col } => {
+                        delta * E::from(main_next[main_col]) + aux_next[aux_col]
+                    }
+                };
                 result[res_off + k] = (s_next - s_curr) * (alpha - b_next) - one;
             }
 
@@ -437,26 +547,34 @@ impl Builtin for LogUpBuiltin {
 
         for pool in &self.pools {
             let n = main_columns[0].len();
-            let alpha = rand_elements[rand_off];
             let active = n.saturating_sub(1);
-            let table_size = pool.table_entries.len();
+            let table_size = pool.spec.len();
             let embedding_rows = table_size.min(active);
+            let pool_rands = &rand_elements[rand_off..rand_off + pool.num_aux_rands()];
+            let alpha = pool_rands[0];
+            let table_entries: Vec<E> = pool.spec.entries(pool_rands);
 
-            let channel_values: Vec<Vec<u64>> = pool
+            let channel_values: Vec<Vec<E>> = pool
                 .channels
                 .iter()
-                .map(|ch| {
-                    (0..n)
-                        .map(|row| ch.source.extract(main_columns, row))
-                        .collect()
-                })
+                .map(|ch| compute_channel_values(ch, main_columns, pool_rands, n))
                 .collect();
 
             let mut counts = vec![0u64; table_size];
-            for channel in &channel_values {
-                for &v in channel.iter().skip(1) {
-                    if (v as usize) < table_size {
-                        counts[v as usize] += 1;
+            if !pool.spec.is_paired() {
+                for channel in &channel_values {
+                    for v in channel.iter().skip(1) {
+                        if let Some(idx) = position_in_fixed_table(&pool.spec, *v) {
+                            counts[idx] += 1;
+                        }
+                    }
+                }
+            } else {
+                for channel in &channel_values {
+                    for v in channel.iter().skip(1) {
+                        if let Some(idx) = position_in_paired_table(&table_entries, *v) {
+                            counts[idx] += 1;
+                        }
                     }
                 }
             }
@@ -464,14 +582,14 @@ impl Builtin for LogUpBuiltin {
             let mut t_col = vec![E::ZERO; n];
             let mut m_col = vec![E::ZERO; n];
             for v in 0..embedding_rows {
-                t_col[1 + v] = E::from(pool.table_entries[v]);
+                t_col[1 + v] = table_entries[v];
                 m_col[1 + v] = E::from(BaseElement::new(counts[v]));
             }
 
             let mut s_cols: Vec<Vec<E>> = pool.channels.iter().map(|_| vec![E::ZERO; n]).collect();
             for (k, channel_vals) in channel_values.iter().enumerate() {
                 for i in 1..n {
-                    let b = E::from(BaseElement::new(channel_vals[i]));
+                    let b = channel_vals[i];
                     s_cols[k][i] = s_cols[k][i - 1] + (alpha - b).inv();
                 }
             }
@@ -570,6 +688,61 @@ mod tests {
                 "LogUp transition residual non-zero at step {i}",
             );
         }
+    }
+
+    fn run_air_pool(
+        pool: AirPool,
+        main_columns: Vec<Vec<F>>,
+        rand_elements: &[F],
+        s1_witness: Option<Vec<u64>>,
+    ) -> Vec<Vec<F>> {
+        let n = main_columns[0].len();
+        let pool_width = pool.aux_width();
+        let extra_aux_cols = pool
+            .channels
+            .iter()
+            .filter(|ch| ch.source.is_paired())
+            .count();
+        let total_aux = pool_width + extra_aux_cols;
+
+        let main_slices = main_columns
+            .iter()
+            .map(|c| c.as_slice())
+            .collect::<Vec<&[F]>>();
+
+        let logup = LogUpBuiltin::with_pools(vec![pool.clone()]);
+        let pool_cols = logup.build_aux_columns::<F>(&main_slices, rand_elements);
+
+        let mut aux: Vec<Vec<F>> = pool_cols;
+        if let Some(witness) = s1_witness {
+            assert_eq!(witness.len(), n);
+            let witness_col = witness.into_iter().map(F::new).collect::<Vec<F>>();
+            aux.push(witness_col);
+        }
+        assert_eq!(aux.len(), total_aux);
+
+        // Sanity-check the AIR at every row transition.
+        for i in 0..n - 1 {
+            let main_curr = main_columns.iter().map(|c| c[i]).collect::<Vec<F>>();
+            let main_next = main_columns.iter().map(|c| c[i + 1]).collect::<Vec<F>>();
+            let aux_curr = aux.iter().map(|c| c[i]).collect::<Vec<F>>();
+            let aux_next = aux.iter().map(|c| c[i + 1]).collect::<Vec<F>>();
+            let mut result = vec![F::ZERO; logup.num_aux_constraints()];
+            logup.evaluate_aux_transition::<F, F>(
+                &main_curr,
+                &main_next,
+                &aux_curr,
+                &aux_next,
+                0,
+                rand_elements,
+                &mut result,
+            );
+            for (j, &r) in result.iter().enumerate() {
+                assert_eq!(r, F::ZERO, "paired-pool constraint {j} violated at row {i}");
+            }
+        }
+
+        aux
     }
 
     #[test]
@@ -775,6 +948,157 @@ mod tests {
         let mut result: Vec<F> = Vec::new();
         builtin.evaluate_aux_transition::<F, F>(&[], &[], &[], &[], 0, &[], &mut result);
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn pow2_paired_table_entries_match_delta_times_k_plus_two_pow_k() {
+        let spec = TableSpec::Pow2Paired { num_entries: 8 };
+        let alpha_v = F::new(7919);
+        let delta_v = F::new(31);
+        let entries = spec.entries::<F>(&[alpha_v, delta_v]);
+        assert_eq!(entries.len(), 8);
+        for (k, &entry) in entries.iter().enumerate() {
+            let expected = delta_v * F::new(k as u64) + F::new(1u64 << k);
+            assert_eq!(entry, expected, "pow2 paired entry {k} mismatch");
+        }
+    }
+
+    #[test]
+    fn paired_pool_with_no_channels_closes_balance() {
+        use maat_trace::table::TRACE_WIDTH;
+
+        let pool = AirPool {
+            table_id: 99,
+            spec: TableSpec::Pow2Paired { num_entries: 64 },
+            channels: Vec::new(),
+        };
+        let n = 128usize;
+        let main = (0..TRACE_WIDTH)
+            .map(|_| vec![F::ZERO; n])
+            .collect::<Vec<Vec<F>>>();
+        let rands = vec![F::new(7919), F::new(31)];
+
+        let aux = run_air_pool(pool, main, &rands, None);
+        // Width = 4 (t, m, sm, bal) with zero channels.
+        assert_eq!(aux.len(), 4);
+        assert_eq!(
+            aux[3][n - 1],
+            F::ZERO,
+            "no-channel paired pool balance must close to zero",
+        );
+    }
+
+    #[test]
+    fn paired_pool_with_synthetic_pow2_channel_closes_balance() {
+        use maat_trace::table::{COL_S0, TRACE_WIDTH};
+
+        let pool_with_no_aux_yet = AirPool {
+            table_id: 99,
+            spec: TableSpec::Pow2Paired { num_entries: 64 },
+            channels: vec![Channel {
+                source: ChannelSource::Pow2Paired {
+                    main_col: COL_S0,
+                    aux_col: 0,
+                },
+                aux_column: 0,
+            }],
+        };
+        let pool_width = pool_with_no_aux_yet.aux_width();
+        let pool = AirPool {
+            table_id: 99,
+            spec: TableSpec::Pow2Paired { num_entries: 64 },
+            channels: vec![Channel {
+                source: ChannelSource::Pow2Paired {
+                    main_col: COL_S0,
+                    aux_col: pool_width,
+                },
+                aux_column: pool_width,
+            }],
+        };
+
+        let n = 128usize;
+        let mut main = (0..TRACE_WIDTH)
+            .map(|_| vec![F::ZERO; n])
+            .collect::<Vec<Vec<F>>>();
+        for (i, cell) in main[COL_S0].iter_mut().enumerate().take(n).skip(1) {
+            *cell = F::new(((i - 1) % 64) as u64);
+        }
+
+        let mut pow_k_witness = vec![0u64; n];
+        for (i, cell) in pow_k_witness.iter_mut().enumerate().take(n).skip(1) {
+            *cell = 1u64 << main[COL_S0][i].as_int();
+        }
+
+        let rands = vec![F::new(7919), F::new(31)];
+        let aux = run_air_pool(pool, main, &rands, Some(pow_k_witness));
+
+        assert_eq!(aux.len(), 6);
+        let bal_col_idx = 4; // sm at offset 3, bal at offset 4 within pool slice
+        assert_eq!(
+            aux[bal_col_idx][n - 1],
+            F::ZERO,
+            "paired-channel balance must close to zero on correct witness",
+        );
+    }
+
+    #[test]
+    fn paired_pool_tampered_aux_witness_breaks_channel_transition() {
+        use maat_trace::table::{COL_S0, TRACE_WIDTH};
+
+        let pool_width = 5usize;
+        let pool = AirPool {
+            table_id: 99,
+            spec: TableSpec::Pow2Paired { num_entries: 64 },
+            channels: vec![Channel {
+                source: ChannelSource::Pow2Paired {
+                    main_col: COL_S0,
+                    aux_col: pool_width,
+                },
+                aux_column: pool_width,
+            }],
+        };
+
+        let n = 128usize;
+        let mut main = (0..TRACE_WIDTH)
+            .map(|_| vec![F::ZERO; n])
+            .collect::<Vec<Vec<F>>>();
+        for (i, cell) in main[COL_S0].iter_mut().enumerate().take(n).skip(1) {
+            *cell = F::new(((i - 1) % 64) as u64);
+        }
+
+        let mut pow_k_witness = vec![0u64; n];
+        for (i, cell) in pow_k_witness.iter_mut().enumerate().take(n).skip(1) {
+            *cell = 1u64 << main[COL_S0][i].as_int();
+        }
+        let tamper_row = 5usize;
+        pow_k_witness[tamper_row] = pow_k_witness[tamper_row].wrapping_add(1);
+
+        let rands = vec![F::new(7919), F::new(31)];
+        let logup = LogUpBuiltin::with_pools(vec![pool.clone()]);
+        let main_slices = main.iter().map(|c| c.as_slice()).collect::<Vec<&[F]>>();
+        let pool_cols = logup.build_aux_columns::<F>(&main_slices, &rands);
+        let mut aux: Vec<Vec<F>> = pool_cols;
+        aux.push(pow_k_witness.into_iter().map(F::new).collect());
+
+        let main_curr = main.iter().map(|c| c[tamper_row - 1]).collect::<Vec<F>>();
+        let main_next = main.iter().map(|c| c[tamper_row]).collect::<Vec<F>>();
+        let aux_curr = aux.iter().map(|c| c[tamper_row - 1]).collect::<Vec<F>>();
+        let aux_next = aux.iter().map(|c| c[tamper_row]).collect::<Vec<F>>();
+        let mut result = vec![F::ZERO; logup.num_aux_constraints()];
+        logup.evaluate_aux_transition::<F, F>(
+            &main_curr,
+            &main_next,
+            &aux_curr,
+            &aux_next,
+            0,
+            &rands,
+            &mut result,
+        );
+        assert_ne!(
+            result[0],
+            F::ZERO,
+            "tampered paired aux witness must fire the channel transition at the tampered row",
+        );
     }
 
     #[test]

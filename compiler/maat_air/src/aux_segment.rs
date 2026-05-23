@@ -310,7 +310,7 @@ mod tests {
     }
 
     fn rands(z: F, alpha: F, alpha_rc: F) -> Vec<F> {
-        vec![z, alpha, alpha_rc]
+        vec![z, alpha, alpha_rc, F::new(0x7f00_0001), F::new(0x7f00_0002)]
     }
 
     fn identity_constraint_offset() -> usize {
