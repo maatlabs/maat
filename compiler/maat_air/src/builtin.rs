@@ -48,7 +48,7 @@ pub use range_check::RangeCheckBuiltin;
 use winter_air::Assertion;
 
 use crate::aux_segment::{MEMORY_AUX_WIDTH, MEMORY_NUM_AUX_RANDS};
-use crate::builtin::bitwise::POW_K_OFFSET;
+use crate::builtin::bitwise::{D_A_OFFSET, D_AND_OFFSET, D_B_OFFSET, D_OUT_OFFSET, POW_K_OFFSET};
 use crate::builtin::range_check::{
     RC_B0_HI, RC_B0_LO, RC_B1_HI, RC_B1_LO, RC_B2_HI, RC_B2_LO, RC_B3_HI, RC_B3_LO, TABLE_SIZE,
 };
@@ -64,6 +64,12 @@ pub const POW2_TABLE_ID: TableId = 2;
 /// Number of pow2 table entries: `{1, 2, 4, ..., 2^63}` covers every
 /// 64-bit shift amount.
 pub const NUM_POW2_ENTRIES: usize = 64;
+
+/// Diluted-paired LogUp pool ID.
+pub const DILUTED_TABLE_ID: TableId = 3;
+
+/// Number of diluted-paired table entries: one per 8-bit chunk value.
+pub const NUM_DILUTED_ENTRIES: usize = 256;
 
 /// Builds the byte-table [`AirPool`] consumed by [`RangeCheckBuiltin`].
 fn build_air_pool_for_range_check(rc_aux_base: usize) -> AirPool {
@@ -121,6 +127,44 @@ fn build_air_pool_pow2(bitwise_aux_base: usize) -> AirPool {
                 COL_SUB_SEL_BASE + SUB_SEL_SHR,
             ],
         }],
+    }
+}
+
+/// Builds the diluted-paired [`AirPool`] consumed by the chunked AND/OR/XOR rows.
+fn build_air_pool_diluted(bitwise_aux_base: usize) -> AirPool {
+    use maat_trace::selector::{SUB_SEL_AND, SUB_SEL_OR, SUB_SEL_XOR};
+    use maat_trace::table::{
+        COL_CHUNK_A, COL_CHUNK_AND, COL_CHUNK_B, COL_CHUNK_OUT, COL_SUB_SEL_BASE,
+    };
+
+    let gate = vec![
+        COL_SUB_SEL_BASE + SUB_SEL_AND,
+        COL_SUB_SEL_BASE + SUB_SEL_OR,
+        COL_SUB_SEL_BASE + SUB_SEL_XOR,
+    ];
+
+    let channel_specs = [
+        (COL_CHUNK_A, bitwise_aux_base + D_A_OFFSET),
+        (COL_CHUNK_B, bitwise_aux_base + D_B_OFFSET),
+        (COL_CHUNK_AND, bitwise_aux_base + D_AND_OFFSET),
+        (COL_CHUNK_OUT, bitwise_aux_base + D_OUT_OFFSET),
+    ];
+
+    let channels = channel_specs
+        .into_iter()
+        .map(|(main_col, aux_col)| Channel {
+            source: ChannelSource::DilutedPaired { main_col, aux_col },
+            aux_column: aux_col,
+            gate_main_cols: gate.clone(),
+        })
+        .collect();
+
+    AirPool {
+        table_id: DILUTED_TABLE_ID,
+        spec: TableSpec::DilutedPaired {
+            num_entries: NUM_DILUTED_ENTRIES,
+        },
+        channels,
     }
 }
 
@@ -257,7 +301,8 @@ impl BuiltinSet {
 
         let byte_table_pool = build_air_pool_for_range_check(rc_base);
         let pow2_pool = build_air_pool_pow2(layout_without_logup.bitwise_aux_base);
-        let logup = LogUpBuiltin::with_pools(vec![byte_table_pool, pow2_pool]);
+        let diluted_pool = build_air_pool_diluted(layout_without_logup.bitwise_aux_base);
+        let logup = LogUpBuiltin::with_pools(vec![byte_table_pool, pow2_pool, diluted_pool]);
 
         let layout = Layout::compute(&range_check, &bitwise, &identity, &logup);
 
@@ -460,7 +505,9 @@ mod tests {
                 + set.identity.aux_width()
                 + set.logup.aux_width()
         );
-        assert_eq!(set.total_num_aux_rands(), 3);
+        // Byte-table pool draws 1 rand (alpha); pow2 paired pool draws 2
+        // (alpha, delta); diluted paired pool draws 2 (alpha, gamma).
+        assert_eq!(set.total_num_aux_rands(), 5);
         assert_eq!(
             set.total_num_aux_constraints(),
             set.range_check.num_aux_constraints()

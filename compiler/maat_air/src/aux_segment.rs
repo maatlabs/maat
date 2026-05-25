@@ -310,7 +310,18 @@ mod tests {
     }
 
     fn rands(z: F, alpha: F, alpha_rc: F) -> Vec<F> {
-        vec![z, alpha, alpha_rc, F::new(0x7f00_0001), F::new(0x7f00_0002)]
+        // Memory permutation (2) + byte-pool alpha (1) + pow2-paired
+        // pool [alpha, delta] (2) + diluted-paired pool [alpha, gamma]
+        // (2) = 7 rands.
+        vec![
+            z,
+            alpha,
+            alpha_rc,
+            F::new(0x7f00_0001),
+            F::new(0x7f00_0002),
+            F::new(0x7f00_0003),
+            F::new(0x7f00_0004),
+        ]
     }
 
     fn identity_constraint_offset() -> usize {

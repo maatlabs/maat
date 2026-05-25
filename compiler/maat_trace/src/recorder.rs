@@ -10,7 +10,8 @@ use maat_runtime::{MaybeRelocatable, Relocatable};
 use maat_vm::trace::{CallCtx, DispatchCtx, Tracer};
 
 use crate::selector::{
-    OpcodeMeta, SEL_HEAP_ALLOC, SEL_NOP, SUB_SEL_MATCH_TAG_JUMP, SUB_SEL_SYNTHETIC_HEAP,
+    OpcodeMeta, SEL_HEAP_ALLOC, SEL_NOP, SUB_SEL_AND, SUB_SEL_CHUNK_ROW, SUB_SEL_MATCH_TAG_JUMP,
+    SUB_SEL_OR, SUB_SEL_SYNTHETIC_HEAP, SUB_SEL_XOR,
 };
 use crate::table::*;
 
@@ -161,6 +162,62 @@ impl TraceRecorder {
         self.last_mem_addr_reloc = Some(addr_reloc);
         self.last_mem_val_reloc = value.as_relocatable();
         Ok(())
+    }
+
+    /// Emits 7 continuation rows immediately before the primary AND/OR/XOR
+    /// row, one per high-to-low 8-bit chunk of the 64-bit operands.
+    fn fan_out_chunk_rows(&mut self) {
+        let s1 = self.current[COL_S1].as_int();
+        let s0 = self.current[COL_S0].as_int();
+        let pc = self.current[COL_PC];
+        let sp = self.current[COL_SP];
+        let fp = self.current[COL_FP];
+        let out_felt = self.current[COL_OUT];
+        let sub_and = self.current[COL_SUB_SEL_BASE + SUB_SEL_AND];
+        let sub_or = self.current[COL_SUB_SEL_BASE + SUB_SEL_OR];
+        let sub_xor = self.current[COL_SUB_SEL_BASE + SUB_SEL_XOR];
+
+        let out = if sub_and == Felt::ONE {
+            s1 & s0
+        } else if sub_or == Felt::ONE {
+            s1 | s0
+        } else {
+            s1 ^ s0
+        };
+        let s1_and_s0 = s1 & s0;
+
+        for k in (1..=7).rev() {
+            let shift = k * 8;
+            let mut row = [Felt::ZERO; TRACE_WIDTH];
+            row[COL_PC] = pc;
+            row[COL_SP] = sp;
+            row[COL_FP] = fp;
+            row[COL_OUT] = out_felt;
+            row[COL_SEL_BASE + SEL_NOP] = Felt::ONE;
+            row[COL_SUB_SEL_BASE + SUB_SEL_CHUNK_ROW] = Felt::ONE;
+            row[COL_SUB_SEL_BASE + SUB_SEL_AND] = sub_and;
+            row[COL_SUB_SEL_BASE + SUB_SEL_OR] = sub_or;
+            row[COL_SUB_SEL_BASE + SUB_SEL_XOR] = sub_xor;
+            row[COL_CHUNK_A] = Felt::new((s1 >> shift) & 0xff);
+            row[COL_CHUNK_B] = Felt::new((s0 >> shift) & 0xff);
+            row[COL_CHUNK_AND] = Felt::new((s1_and_s0 >> shift) & 0xff);
+            row[COL_CHUNK_OUT] = Felt::new((out >> shift) & 0xff);
+            row[COL_MEM_ADDR] = self.last_mem_addr;
+            row[COL_MEM_VAL] = self.last_mem_val;
+            row[COL_IS_READ] = Felt::ONE;
+
+            self.trace.push_row(row);
+            self.plans.push(RowRelocPlan {
+                mem_addr: self.last_mem_addr_reloc,
+                mem_val: self.last_mem_val_reloc,
+                ..RowRelocPlan::default()
+            });
+        }
+
+        self.current[COL_CHUNK_A] = Felt::new(s1 & 0xff);
+        self.current[COL_CHUNK_B] = Felt::new(s0 & 0xff);
+        self.current[COL_CHUNK_AND] = Felt::new(s1_and_s0 & 0xff);
+        self.current[COL_CHUNK_OUT] = Felt::new(out & 0xff);
     }
 
     fn emit_parameter_writes(
@@ -472,6 +529,12 @@ impl Tracer for TraceRecorder {
     }
 
     fn end_row(&mut self) {
+        if self.current[COL_SUB_SEL_BASE + SUB_SEL_AND] == Felt::ONE
+            || self.current[COL_SUB_SEL_BASE + SUB_SEL_OR] == Felt::ONE
+            || self.current[COL_SUB_SEL_BASE + SUB_SEL_XOR] == Felt::ONE
+        {
+            self.fan_out_chunk_rows();
+        }
         let row = std::mem::replace(&mut self.current, [Felt::ZERO; TRACE_WIDTH]);
         let plan = std::mem::take(&mut self.current_plan);
         self.trace.push_row(row);

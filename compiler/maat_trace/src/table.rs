@@ -63,8 +63,17 @@ pub const COL_CMP_INV: usize = COL_OP_WIDTH + 1;
 /// Auxiliary witness for the division/modulo identity.
 pub const COL_DIV_AUX: usize = COL_CMP_INV + 1;
 
+/// 8-bit chunk of `s1` (operand `a`) at this row's chunk position.
+pub const COL_CHUNK_A: usize = COL_DIV_AUX + 1;
+/// 8-bit chunk of `s0` (operand `b`) at this row's chunk position.
+pub const COL_CHUNK_B: usize = COL_CHUNK_A + 1;
+/// 8-bit chunk of `s1 & s0` (bytewise AND) at this row's chunk position.
+pub const COL_CHUNK_AND: usize = COL_CHUNK_B + 1;
+/// 8-bit chunk of `out` (operation result) at this row's chunk position.
+pub const COL_CHUNK_OUT: usize = COL_CHUNK_AND + 1;
+
 /// Base column index for the per-opcode sub-selector flags.
-pub const COL_SUB_SEL_BASE: usize = COL_DIV_AUX + 1;
+pub const COL_SUB_SEL_BASE: usize = COL_CHUNK_OUT + 1;
 
 /// Total number of columns in the main execution trace.
 pub const TRACE_WIDTH: usize = COL_SUB_SEL_BASE + NUM_SUB_SELECTORS;
@@ -111,6 +120,10 @@ pub const COLUMN_NAMES: [&str; TRACE_WIDTH] = [
     "op_width",
     "cmp_inv",
     "div_aux",
+    "chunk_a",
+    "chunk_b",
+    "chunk_and",
+    "chunk_out",
     "sub_sel_add",
     "sub_sel_sub",
     "sub_sel_div",
@@ -129,6 +142,7 @@ pub const COLUMN_NAMES: [&str; TRACE_WIDTH] = [
     "sub_sel_gt",
     "sub_sel_synthetic_heap",
     "sub_sel_match_tag_jump",
+    "sub_sel_chunk_row",
 ];
 
 pub type TraceRow = [Felt; TRACE_WIDTH];
@@ -318,7 +332,7 @@ mod tests {
         let cols = header.split(',').collect::<Vec<_>>();
         assert_eq!(cols.len(), TRACE_WIDTH);
         assert_eq!(cols[0], "pc");
-        assert_eq!(cols[TRACE_WIDTH - 1], "sub_sel_match_tag_jump");
+        assert_eq!(cols[TRACE_WIDTH - 1], "sub_sel_chunk_row");
     }
 
     #[test]

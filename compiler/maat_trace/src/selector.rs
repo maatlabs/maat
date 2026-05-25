@@ -60,7 +60,7 @@ pub const SEL_HEAP_READ: usize = 18;
 pub const SEL_HEAP_WRITE: usize = 19;
 
 /// Number of per-opcode sub-selector flags.
-pub const NUM_SUB_SELECTORS: usize = 18;
+pub const NUM_SUB_SELECTORS: usize = 19;
 
 /// Sub-selector index: `Add` (parent [`SEL_ARITH`]).
 pub const SUB_SEL_ADD: usize = 0;
@@ -100,6 +100,9 @@ pub const SUB_SEL_SYNTHETIC_HEAP: usize = 16;
 /// Sub-selector index: a `MatchTag` row whose dispatched arm jumped past the
 /// expected variant (parent [`SEL_CONSTRUCT`]).
 pub const SUB_SEL_MATCH_TAG_JUMP: usize = 17;
+/// Sub-selector index: a chunk-decomposition continuation row emitted by the
+/// trace recorder after each `BitAnd`/`BitOr`/`BitXor` opcode.
+pub const SUB_SEL_CHUNK_ROW: usize = 18;
 
 #[derive(Debug, Clone, Copy)]
 pub struct OpcodeMeta {

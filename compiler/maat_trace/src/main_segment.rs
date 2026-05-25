@@ -29,7 +29,7 @@ pub(crate) const SEL_HEAP_WRITE: usize = 19;
 pub(crate) const NUM_SELECTORS: usize = 20;
 
 /// Number of transition constraints enforced by the AIR.
-pub const NUM_CONSTRAINTS: usize = 81;
+pub const NUM_CONSTRAINTS: usize = 89;
 
 /// Degree of each transition constraint, indexed by constraint number.
 pub const CONSTRAINT_DEGREES: [usize; NUM_CONSTRAINTS] = [
@@ -53,14 +53,20 @@ pub const CONSTRAINT_DEGREES: [usize; NUM_CONSTRAINTS] = [
     2, 2, 2, 2, 2, // 60-63: output correctness (arith, div_mod, unary, felt)
     3, 3, 3, 3, // 64-66: comparison correctness (binary, equal-path, not-equal-path)
     3, 3, 4, // 67: SP heap write
-    2, // 68-72: bitwise sub-selector structural (binary + ⊆ sel_bitwise)
-    2, 2, 2, 2, 2, // 73: bitwise sub-selectors sum to sel_bitwise
-    1, // 74-75: ordering sub-selector structural (binary + ⊆ sel_cmp)
+    2, // 68-70: AND/OR/XOR sub-selector structural (relaxed for chunk rows, degree 3)
+    3, 3, 3, // 71-72: SHL/SHR sub-selector structural
+    2, 2, // 73: bitwise sub-selectors sum to sel_bitwise (gated by ¬sub_chunk_row, degree 2)
+    2, // 74-75: ordering sub-selector structural (binary + ⊆ sel_cmp)
     2, 2, // 76-77: ordering output correctness via range-checked slack
     3, 3, // 78: comparison sub-selectors sum to sel_cmp
     1, // 79: synthetic-heap sub-selector structural (binary + ⊆ sel_heap_alloc)
     2, // 80: match-tag-jump sub-selector structural (binary + ⊆ sel_construct)
-    2,
+    2, // 81: sub_chunk_row binary
+    2, // 82: sub_chunk_row ⊆ (sel_bitwise + sel_nop)
+    2, // 83: on chunk rows, exactly one of sub_and/or/xor is set
+    2, // 84: on chunk rows, no shift sub-selector is set
+    2, // 85-88: chunk columns must be zero on non-chunk rows (degree 3)
+    3, 3, 3, 3,
 ];
 
 /// Reads a selector flag from the current row.
@@ -263,13 +269,15 @@ pub fn evaluate<E: FieldElement>(current: &[E], next: &[E], result: &mut [E]) {
     let sub_xor = sub(current, SUB_SEL_XOR);
     let sub_shl = sub(current, SUB_SEL_SHL);
     let sub_shr = sub(current, SUB_SEL_SHR);
+    let sub_chunk_row = sub(current, SUB_SEL_CHUNK_ROW);
+    let one_minus_chunk = one - sub_chunk_row;
 
-    result[68] = sub_and * (sub_and - sel_bitwise);
-    result[69] = sub_or * (sub_or - sel_bitwise);
-    result[70] = sub_xor * (sub_xor - sel_bitwise);
+    result[68] = sub_and * (sub_and - sel_bitwise) * one_minus_chunk;
+    result[69] = sub_or * (sub_or - sel_bitwise) * one_minus_chunk;
+    result[70] = sub_xor * (sub_xor - sel_bitwise) * one_minus_chunk;
     result[71] = sub_shl * (sub_shl - sel_bitwise);
     result[72] = sub_shr * (sub_shr - sel_bitwise);
-    result[73] = sub_and + sub_or + sub_xor + sub_shl + sub_shr - sel_bitwise;
+    result[73] = one_minus_chunk * (sub_and + sub_or + sub_xor + sub_shl + sub_shr - sel_bitwise);
 
     let two_out_minus_one = out + out - one;
     result[74] = sub_lt * (sub_lt - sel_cmp);
@@ -281,6 +289,22 @@ pub fn evaluate<E: FieldElement>(current: &[E], next: &[E], result: &mut [E]) {
 
     let sel_construct = sel(current, SEL_CONSTRUCT);
     result[80] = sub_match_tag_jump * (sub_match_tag_jump - sel_construct);
+
+    result[81] = sub_chunk_row * (sub_chunk_row - one);
+    result[82] = sub_chunk_row * (sub_chunk_row - sel_bitwise - sel_nop);
+    result[83] = sub_chunk_row * (sub_and + sub_or + sub_xor - one);
+    result[84] = sub_chunk_row * (sub_shl + sub_shr);
+
+    let chunk_a = current[COL_CHUNK_A];
+    let chunk_b = current[COL_CHUNK_B];
+    let chunk_and = current[COL_CHUNK_AND];
+    let chunk_out = current[COL_CHUNK_OUT];
+
+    let chunk_zero_gate = one_minus_chunk * (one - sub_and - sub_or - sub_xor);
+    result[85] = chunk_zero_gate * chunk_a;
+    result[86] = chunk_zero_gate * chunk_b;
+    result[87] = chunk_zero_gate * chunk_and;
+    result[88] = chunk_zero_gate * chunk_out;
 }
 
 #[cfg(test)]
