@@ -4,6 +4,86 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2026-05-26
+
+AIR refactor centered on a shared-pool LogUp argument; the bitwise builtin moves to a multi-row chunked encoding and the bytecode is pinned cell-by-cell into the AIR's public-memory accumulator. The release breaks the proof wire format and the `MaatPublicInputs` shape but does not change the bytecode wire format. All `examples/*.maat` programs prove and verify end-to-end under `development_options`.
+
+### Migrating from v0.15.0
+
+- **Proof wire v4 -> v5.** The 32-byte Blake3 `PROGRAM_HASH` field is gone; the post-inputs header is now `OUTPUT_BASE u32 BE + OUTPUT_SEG_LEN u32 BE + OUTPUT_SEG [u64; L] LE + PROGRAM_BASE u32 BE + PROGRAM_SEG_LEN u32 BE + PROGRAM_SEG [u64; P] LE`. Re-prove from source; v0.15.0 proofs are not verifiable.
+- **`MaatPublicInputs::new(program_hash, inputs, output)` -> `MaatPublicInputs::new(inputs, output)`.** Construct with `with_segments(inputs, output, output_base, output_segment, program_base, program_segment)` when the trace artifacts carry public-memory cells (the common case for `maat_trace::run_with_output`).
+- **`compute_program_hash` / `compute_program_hash_bytes` / `hash_bytes_to_field_elements` deleted.** Replace any caller-side hash plumbing with the `program_base` / `program_segment` fields surfaced by `maat_trace::run_with_output`.
+- **`Builtin` trait reshape.** `AUX_WIDTH` / `NUM_AUX_RANDS` / `NUM_AUX_CONSTRAINTS` / `NUM_AUX_ASSERTIONS` / `AUX_CONSTRAINT_DEGREES` move from per-impl `pub const` to module-private constants exposed through `&self` trait methods. `aux_segment::aux_width` / `num_aux_rands` / `num_aux_constraints` / `num_aux_assertions` are now functions, not constants.
+- **`VM::pin_program(bytes)`** must be called before `run_with_recorder` if you want SEG_PROGRAM populated (the trace pipeline does this automatically). Interpreter / REPL paths skip it because the program-memory commitment only matters when generating a proof.
+
+### Added
+
+#### LogUp primitive and shared-pool architecture
+
+- **`LogUpBuiltin`** -- log-derivative lookup argument. Owns a `Vec<AirPool>` (one per pinned lookup table); each pool carries the `{t, m, s_m, balance}` bookkeeping plus one channel-grand-sum cell per consumer-registered channel. Consumer slices reference the pool via absolute aux-column indices stored in `Channel::aux_column`; cross-multiplied degree-3 transition `(s[i+1] - s[i]) * (alpha - f[i]) * (alpha - t[i]) = m[i] * (alpha - f[i]) - (alpha - t[i])`. Promoted into `BuiltinSet` as the fourth active builtin owner.
+- **`TableSpec`** -- `Fixed(Vec<BaseElement>)` for the byte table `{0..255}`; `Pow2Paired { num_entries }` derives `{δ·k + 2^k : k=0..63}` at build time from the pool's `delta` rand; `DilutedPaired { num_entries }` derives `{γ·v + dilute(v) : v=0..255}` at build time from the pool's `gamma` rand. `ChannelSource::Pow2Paired` / `DilutedPaired` recompute the paired-key witness from the main trace at build time.
+- **`Channel::gate_main_cols: Vec<usize>`** -- list of main-column indices whose sum gates whether the channel contributes on a row. Degree-3 gated transition: `gate · ((s_next − s_curr)(α − b_next) − 1) + (1 − gate) · (s_next − s_curr) = 0`.
+- **`BUILTIN_SET: LazyLock<BuiltinSet>`** -- process-lifetime registry. Two-stage construction: layout without LogUp first to compute consumer aux bases; then `byte_table_pool_for_range_check(rc_base)` builds the absolute-offset channel sources; then layout with the configured LogUp. Replaces per-row allocation of the 256-element byte table inside `aux_segment::evaluate`.
+- **Diluted-form encoding utilities** (`compiler/maat_air/src/builtin/diluted.rs`) -- pure functions `dilute` / `undilute` / `pool_entries` / `is_in_pool` / `chunk_decompose` / `chunk_recompose` / `chunk_weight` / `chunk_witness` / `bitwise_identity_residuals` / `ChunkBitwiseWitness`. Constants `NATIVE_BITS=8`, `STRIDE=4`, `DILUTED_BITS=29`, `POOL_SIZE=256`.
+
+#### Range-check migration to LogUp
+
+- **`RangeCheckBuiltin` byte-decomposition.** Each 16-bit main-trace limb decomposes in the aux trace into a high and a low byte (`l = 256·hi + lo`); both bytes are looked up against the fixed table `{0..255}` via the shared LogUp pool. Replaces the sorted-pool grand-product. Aux offsets renumber `RC_B0_HI = 0..RC_B3_LO = 7`. Max constraint degree drops from 5 (old grand-product) to 2 (degree-1 decomposition + degree-2 LogUp transitions).
+
+#### Wider / signed ordering
+
+- **Full-width ordering for `u64`/`i64`/`usize`/`isize`** across `<`/`>`/`<=`/`>=`. The 32-bit comparison-witness ceiling lived in AIR main-segment constraints 76/77 (`sub_cmp_class * l2 = 0`, `sub_cmp_class * l3 = 0`) and is sound to drop now because the byte LogUp constrains every limb to `[0, 2^16)` on every row, so `rc_val = l0 + 2^16·l1 + 2^32·l2 + 2^48·l3 ∈ [0, 2^64)` by construction. Signed forms reuse the existing field-difference witness without an explicit sign-bit column. New `examples/orderings.maat` exercises `u32`/`u64`/`usize`/`i32`/`i64`/`isize` across boundary, across-zero, and full-width pairs.
+
+#### Chunked-bitwise AIR (AND / OR / XOR)
+
+- **8-bit per-row chunked encoding.** The trace recorder fans out each `BitAnd`/`BitOr`/`BitXor` into 7 continuation rows emitted MSB-first BEFORE the primary row (chunk position 7 first, primary carries LSB position 0). Continuation rows carry `sel_nop + SUB_SEL_CHUNK_ROW = 1` plus a copy of the primary's `sub_and|or|xor` so the per-chunk dilute identity fires uniformly.
+- **New main columns:** `COL_CHUNK_A`, `COL_CHUNK_B`, `COL_CHUNK_AND`, `COL_CHUNK_OUT`. New sub-selector `SUB_SEL_CHUNK_ROW` (index 18; `NUM_SUB_SELECTORS` 18 -> 19; `TRACE_WIDTH +5` including the new sub-sel column).
+- **Diluted-paired pool (table id 3).** Four paired channels gated on `sub_and + sub_or + sub_xor`: `(CHUNK_A, D_A)`, `(CHUNK_B, D_B)`, `(CHUNK_AND, D_AND)`, `(CHUNK_OUT, D_OUT)`. Each lookup pins the byte to its 29-bit spread-form witness in `BitwiseBuiltin`'s aux slice.
+- **8 new main-segment AIR constraints** (`NUM_CONSTRAINTS` 81 -> 89): `sub_chunk_row` binary, `sub_chunk_row ⊆ sel_bitwise + sel_nop`, exactly-one op flag on chunk rows, no shift sub-sel on chunk rows, and 4 zero-pin constraints forcing the chunk columns to zero on non-AND/OR/XOR-chunk rows.
+
+#### Pow2 lookup pool and SHL/SHR migration
+
+- **`Pow2Paired` LogUp pool (table id 2)** -- 64-entry pool derives entries at build time from the pool's `delta` rand. The `(s0, pow_k)` channel is gated on `[sub_shl, sub_shr]`.
+- **`Tracer::record_shift_witness(op, operand, shift, result)`** -- VM dispatch calls it after `Shl`/`Shr`; the recorder writes the carry (`operand >> (64 - shift)` for SHL) or the remainder (`operand & ((1 << shift) - 1)` for SHR) into `COL_RC_VAL` and decomposes to `COL_RC_L0..L3` for automatic range-check.
+- **Single-equation SHL/SHR identities** (degree 2): `sub_shl · (s1 · pow_k − COL_OUT − COL_RC_VAL · (2^32 − 1))` and `sub_shr · (s1 − COL_OUT · pow_k − COL_RC_VAL)`. Retires the prior triple-nested-loop shift identities and the two one-hot validity constraints.
+
+#### Program-memory pinning
+
+- **`VM::pin_program(bytes)`** -- writes each byte of `Bytecode::serialize()` into `SEG_PROGRAM` (segment 0) at runner startup, one byte per cell. Called from `maat_trace::run_with_output`; interpreter / REPL paths skip it.
+- **`MaatPublicInputs::with_segments(inputs, output, output_base, output_segment, program_base, program_segment)`** -- unified constructor for the public-memory shape; `MaatPublicInputs::with_output_segment` retired alongside the program-hash field.
+- **`aux_segment::public_memory_endpoint` / `build_memory_columns` extension.** Endpoint `z^(L_out+L_prog) / ∏(z - addr - α·val)` over both `(output_base, output_segment)` and `(program_base, program_segment)`. The L2 multiset swap removes `output_segment.len() + program_segment.len()` (0,0) rows and inserts the merged public-memory cells in sorted order.
+- **`maat_trace::TraceArtifacts.program_base` / `program_segment`** -- surfaced alongside `output_base` / `output_segment`. `run_with_output` extracts both segments after relocation and appends `output_segment.len() + program_segment.len()` (0,0) dummy rows so the L2 swap can replace them.
+
+### Changed
+
+- **`Builtin` trait surface (breaking).** `AUX_WIDTH` / `NUM_AUX_RANDS` / `NUM_AUX_CONSTRAINTS` / `NUM_AUX_ASSERTIONS` / `AUX_CONSTRAINT_DEGREES` demoted from `pub const` to module-private constants exposed through `&self` trait methods (added `num_aux_constraints(&self) -> usize`; trait method order normalized). `aux_constraint_degrees` flips from `&'static [usize]` to `Vec<usize>` so runtime-shaped builtins (pool count and per-pool channel count both runtime-configurable) report their actual degree pattern. `evaluate_aux_transition` gains a `base_offset: usize` parameter and `aux_curr` / `aux_next` switch to the full aux segment so every builtin can index any absolute aux column when it needs to; private-slice builtins recover their local view via `&aux_curr[base_offset..base_offset + self.aux_width()]`.
+- **`BuiltinSet` layout (breaking).** `pub const` layout ladder (`RANGE_CHECK_AUX_BASE`, `BITWISE_AUX_BASE`, `IDENTITY_AUX_BASE`, `*_RAND_BASE`, `TOTAL_*` totals) replaced with a memoized `Layout` struct computed at construction time via `Layout::compute(&rc, &bw, &id)` walking the builtins' trait methods. `evaluate_aux_transition`, `build_aux_columns`, and `aux_assertions` become `&self` methods that index into `self.layout`.
+- **`aux_segment::aux_width` / `num_aux_rands` / `num_aux_constraints` / `num_aux_assertions` (breaking).** Were `pub const`; now `pub fn`. Re-exports in `maat_air::lib` and external imports in `maat_prover` + `tests/benches/benchmarks.rs` updated.
+- **`MaatPublicInputs` shape (breaking).** Drops `program_hash: [BaseElement; 4]`; gains `program_base: u32` + `program_segment: Vec<BaseElement>`. `new` no longer takes a hash argument; `with_output_segment` is renamed `with_segments` with the new program-base / program-segment trailing args. `ToElements` emits `inputs ++ output ++ output_base ++ output_segment ++ program_base ++ program_segment` (no hash cells).
+- **Proof wire envelope v4 -> v5.** Drops the 32-byte `PROGRAM_HASH` field; adds `OUTPUT_BASE u32 BE + OUTPUT_SEG_LEN u32 BE + OUTPUT_SEG [u64; L] LE + PROGRAM_BASE u32 BE + PROGRAM_SEG_LEN u32 BE + PROGRAM_SEG [u64; P] LE`. Minimum header drops from 48 -> 32 bytes; output and program segments capped at `MAX_PUBLIC_SEGMENT_CELLS = 2^20` cells each. `ProofPublicInputs` carries the matching fields; `maat_prover::verify` rebuilds `MaatPublicInputs::with_segments` from them.
+- **`BitwiseBuiltin` aux layout (breaking).** `AUX_WIDTH` 128 -> 8 (drops the 128-bit decomposition cells, adds 7 chunked cells + keeps `POW_K`). New aux: `D_A, D_B, D_AND, D_OUT, ACC_S1, ACC_S0, ACC_OUT, POW_K`. 12 aux constraints: 1 per-chunk dilute identity, 3 Horner accumulators × 2 transitions, 3 primary-row equality checks, 2 SHL/SHR.
+- **`RangeCheckBuiltin` aux layout (breaking).** `AUX_WIDTH` 20 -> 8 (just the 8 byte witnesses); `NUM_AUX_CONSTRAINTS` 14 -> 4 (only limb-decomposition gates remain); `NUM_AUX_ASSERTIONS` 10 -> 0 (LogUp owns the boundary checks); `NUM_AUX_RANDS` 1 -> 0 (alpha moved to LogUp). Max constraint degree drops 5 -> 2.
+- **`TraceTable::MIN_ROWS` bumped 8 -> 512** to fit the 8-bit table embedding inside the aux trace.
+- **`aux_segment::aux_assertions` signature (breaking).** Now accepts both `(output_base, &output_segment)` and `(program_base, &program_segment)` so the boundary endpoint integrates both public-memory regions.
+- **`MaatAir::get_aux_assertions`** forwards both segments from `public_inputs` to `aux_assertions`.
+- **CLI `prove` command** -- rewires through `maat_trace::run_with_output` and `MaatPublicInputs::with_segments`; the `--input` / `--inputs-file` flags are unchanged.
+
+### Fixed
+
+- **Constraint-degree audits across the chunked migration.** Adding `(1 − sub_chunk_row)` gating raised the degree of constraints 68--70 to degree 3; `CONSTRAINT_DEGREES` was updated to track. Chunk zero-pin constraints (85--88) carry the degree-3 gate `(1 − sub_chunk_row) · (1 − sub_and − sub_or − sub_xor)` that catches primary AND/OR/XOR rows carrying the LSB chunk.
+- **u64 / Goldilocks reconciliation in the bitwise recorder.** The recorder recomputes the op result from raw `u64` operands (`s1 & s0` / `s1 | s0` / `s1 ^ s0`) rather than reading `COL_OUT`. `COL_OUT` is Goldilocks-reduced (`u64::MAX | 0` would otherwise produce wrong byte chunks); the Horner sum of u64 chunks is congruent mod p to the Felt-reduced `COL_OUT`, so reconstruction still verifies in-field.
+
+### Removed
+
+- **`compute_program_hash` / `compute_program_hash_bytes` / `hash_bytes_to_field_elements`** -- the entire `maat_prover::gadgets::hasher` module is deleted alongside `maat_prover`'s `blake3` direct dep and its `maat_bytecode` workspace dep (Winterfell's internal Blake3 transcript is unrelated and stays). The program-identity commitment now lives in the AIR via the public-memory accumulator.
+- **`fill_range_check_gaps`** -- the sortedness-pool padding pass is unnecessary under the LogUp byte argument (the multiplicity column absorbs unused table entries directly). Pass removed from `maat_trace::mem`.
+- **`MaatPublicInputs::with_output_segment`** -- subsumed by `with_segments` carrying both public-memory regions.
+- **`ProofPublicInputs.program_hash` field** -- replaced by `program_base` + `program_segment`.
+- **Bit-decomposition aux cells `BitwiseBuiltin::BIT_A_OFFSET..BIT_B_OFFSET+63` (128 cells)** -- dropped in favor of the chunked diluted-form encoding.
+- **Range-check sorted-pool aux cells (`RC_*` grand-product machinery)** -- replaced by the 8 byte witnesses plus the LogUp pool's channel-grand-sum cells.
+
+---
+
 ## [0.15.0] - 2026-05-20
 
 Extensions on top of v0.14.0's memory-segment work. `Vector<T>` and `Closure` migrate to segment-backed runtime forms; the entire builtin signature surface is redesigned around `BuiltinArg` / `BuiltinReturn`; two pre-existing AIR soundness gaps close (range-check limb-pool padding, `MatchTag` pc-progression). All twelve `examples/*.maat` programs prove and verify end-to-end under `development_options`. Composite-type tracing for `struct` / `enum` / `Map` / `Set` is intentionally deferred--their inline runtime forms continue to prove and verify, so the segment-backed migration provides no functional unlock in this release.
@@ -1319,6 +1399,7 @@ When adding entries to this changelog for future releases:
 3. **Audience**: Write for users, not developers (focus on impact, not implementation)
 4. **Links**: Add comparison links at the bottom: `[0.2.0]: https://github.com/maatlabs/maat/compare/v0.1.0...v0.2.0`
 
+[0.16.0]: https://github.com/maatlabs/maat/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/maatlabs/maat/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/maatlabs/maat/compare/v0.13.1...v0.14.0
 [0.13.1]: https://github.com/maatlabs/maat/compare/v0.13.0...v0.13.1
