@@ -125,6 +125,8 @@ impl Air for MaatAir {
             aux_rand_elements.rand_elements(),
             self.public_inputs.output_base,
             &self.public_inputs.output_segment,
+            self.public_inputs.program_base,
+            &self.public_inputs.program_segment,
         )
     }
 }

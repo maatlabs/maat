@@ -9,10 +9,7 @@ use maat_codegen::Compiler;
 use maat_field::BaseElement;
 use maat_lexer::{MaatLexer, TokenKind};
 use maat_parser::MaatParser;
-use maat_prover::{
-    MaatProver, compute_program_hash, compute_program_hash_bytes, development_options,
-    production_options, serialize_proof, verify,
-};
+use maat_prover::{MaatProver, development_options, production_options, serialize_proof, verify};
 use maat_tests::benchmark_programs::*;
 use maat_tests::compile;
 use maat_trace::table::COL_OUT;
@@ -271,14 +268,29 @@ fn bench_baseline(c: &mut Criterion) {
 }
 
 fn prove_bytecode(bytecode: &Bytecode, options: ProofOptions) -> Vec<u8> {
-    let (trace, _) = maat_trace::run(bytecode.clone()).expect("trace failed");
-    let output = trace.row(trace.num_rows() - 1)[COL_OUT];
-    let program_hash = compute_program_hash(bytecode).expect("hash failed");
-    let hash_bytes = compute_program_hash_bytes(bytecode).expect("hash bytes failed");
-    let public_inputs = MaatPublicInputs::new(program_hash, vec![], output);
+    let artifacts = maat_trace::run_with_output(bytecode.clone()).expect("trace failed");
+    let output = artifacts.trace.row(artifacts.trace.num_rows() - 1)[COL_OUT];
+    let public_inputs = MaatPublicInputs::with_segments(
+        vec![],
+        output,
+        artifacts.output_base,
+        artifacts.output_segment.clone(),
+        artifacts.program_base,
+        artifacts.program_segment.clone(),
+    );
     let prover = MaatProver::new(options, public_inputs);
-    let proof = prover.generate_proof(trace).expect("prove failed");
-    serialize_proof(&proof, &hash_bytes, output, &[])
+    let proof = prover
+        .generate_proof(artifacts.trace)
+        .expect("prove failed");
+    serialize_proof(
+        &proof,
+        output,
+        &[],
+        artifacts.output_base,
+        &artifacts.output_segment,
+        artifacts.program_base,
+        &artifacts.program_segment,
+    )
 }
 
 fn bench_prove(c: &mut Criterion) {
@@ -376,8 +388,14 @@ fn bench_aux_columns(c: &mut Criterion) {
                     .iter()
                     .map(Vec::as_slice)
                     .collect::<Vec<&[BaseElement]>>();
-                let result =
-                    build_aux_columns(black_box(&slices), black_box(&rands), 0, black_box(&[]));
+                let result = build_aux_columns(
+                    black_box(&slices),
+                    black_box(&rands),
+                    0,
+                    black_box(&[]),
+                    0,
+                    black_box(&[]),
+                );
                 black_box(result);
             });
         });

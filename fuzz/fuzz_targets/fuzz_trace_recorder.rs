@@ -6,7 +6,7 @@ use maat_ast::{fold_constants, MaatAst};
 use maat_codegen::Compiler;
 use maat_lexer::MaatLexer;
 use maat_parser::MaatParser;
-use maat_prover::{compute_program_hash, development_options, verify_with_inputs, MaatProver};
+use maat_prover::{development_options, verify_with_inputs, MaatProver};
 use maat_trace::table::COL_OUT;
 use maat_types::TypeChecker;
 
@@ -39,20 +39,24 @@ fuzz_target!(|data: &[u8]| {
         return;
     };
 
-    let Ok((trace, _)) = maat_trace::run(bytecode.clone()) else {
+    let Ok(artifacts) = maat_trace::run_with_output(bytecode) else {
         return;
     };
-    let output = trace.row(trace.num_rows() - 1)[COL_OUT];
-    let Ok(program_hash) = compute_program_hash(&bytecode) else {
-        return;
-    };
-    let public_inputs = MaatPublicInputs::new(program_hash, vec![], output);
+    let output = artifacts.trace.row(artifacts.trace.num_rows() - 1)[COL_OUT];
+    let public_inputs = MaatPublicInputs::with_segments(
+        vec![],
+        output,
+        artifacts.output_base,
+        artifacts.output_segment.clone(),
+        artifacts.program_base,
+        artifacts.program_segment.clone(),
+    );
     let prover = MaatProver::new(development_options(), public_inputs.clone());
 
     let libfuzzer_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
     let prove_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        prover.generate_proof(trace)
+        prover.generate_proof(artifacts.trace)
     }));
     std::panic::set_hook(libfuzzer_hook);
 

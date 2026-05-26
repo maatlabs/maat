@@ -96,6 +96,8 @@ pub fn aux_assertions<E: FieldElement<BaseField = BaseElement>>(
     rand_elements: &[E],
     output_base: u32,
     output_segment: &[BaseElement],
+    program_base: u32,
+    program_segment: &[BaseElement],
 ) -> Vec<Assertion<E>> {
     let mut out = Vec::with_capacity(num_aux_assertions());
     out.extend(memory_aux_assertions::<E>(
@@ -103,6 +105,8 @@ pub fn aux_assertions<E: FieldElement<BaseField = BaseElement>>(
         rand_elements,
         output_base,
         output_segment,
+        program_base,
+        program_segment,
     ));
     out.extend(BUILTIN_SET.aux_assertions::<E>(last_step));
     out
@@ -113,9 +117,17 @@ fn memory_aux_assertions<E: FieldElement<BaseField = BaseElement>>(
     rand_elements: &[E],
     output_base: u32,
     output_segment: &[BaseElement],
+    program_base: u32,
+    program_segment: &[BaseElement],
 ) -> Vec<Assertion<E>> {
     let memory_rands = &rand_elements[..MEMORY_NUM_AUX_RANDS];
-    let endpoint = public_memory_endpoint::<E>(memory_rands, output_base, output_segment);
+    let endpoint = public_memory_endpoint::<E>(
+        memory_rands,
+        output_base,
+        output_segment,
+        program_base,
+        program_segment,
+    );
     vec![
         Assertion::single(AUX_COL_MEM_ACC, 0, E::ONE),
         Assertion::single(AUX_COL_MEM_ACC, last_step, endpoint),
@@ -126,21 +138,29 @@ pub fn public_memory_endpoint<E: FieldElement<BaseField = BaseElement>>(
     memory_rands: &[E],
     output_base: u32,
     output_segment: &[BaseElement],
+    program_base: u32,
+    program_segment: &[BaseElement],
 ) -> E {
-    if output_segment.is_empty() {
+    let total_cells = output_segment.len() + program_segment.len();
+    if total_cells == 0 {
         return E::ONE;
     }
     let z = memory_rands[RAND_Z];
     let alpha = memory_rands[RAND_ALPHA];
     let mut prod = E::ONE;
-    for (off, &val) in output_segment.iter().enumerate() {
-        let off_u32 = u32::try_from(off).expect("output segment longer than u32::MAX");
-        let addr_u64 = u64::from(output_base) + u64::from(off_u32);
-        let addr = E::from(BaseElement::new(addr_u64));
-        let val_e = E::from(val);
-        prod *= z - (addr + alpha * val_e);
+    for (base, segment) in [
+        (output_base, output_segment),
+        (program_base, program_segment),
+    ] {
+        for (off, &val) in segment.iter().enumerate() {
+            let off_u32 = u32::try_from(off).expect("public segment longer than u32::MAX");
+            let addr_u64 = u64::from(base) + u64::from(off_u32);
+            let addr = E::from(BaseElement::new(addr_u64));
+            let val_e = E::from(val);
+            prod *= z - (addr + alpha * val_e);
+        }
     }
-    let z_pow_l = z.exp((output_segment.len() as u64).into());
+    let z_pow_l = z.exp((total_cells as u64).into());
     z_pow_l * prod.inv()
 }
 
@@ -149,6 +169,8 @@ pub fn build_aux_columns<E: FieldElement<BaseField = BaseElement>>(
     rand_elements: &[E],
     output_base: u32,
     output_segment: &[BaseElement],
+    program_base: u32,
+    program_segment: &[BaseElement],
 ) -> Vec<Vec<E>> {
     let memory_rands = &rand_elements[..MEMORY_NUM_AUX_RANDS];
 
@@ -158,6 +180,8 @@ pub fn build_aux_columns<E: FieldElement<BaseField = BaseElement>>(
         memory_rands,
         output_base,
         output_segment,
+        program_base,
+        program_segment,
     ));
     columns.extend(BUILTIN_SET.build_aux_columns(main_columns, rand_elements));
     columns
@@ -204,14 +228,16 @@ fn build_memory_columns<E: FieldElement<BaseField = BaseElement>>(
     rand_elements: &[E],
     output_base: u32,
     output_segment: &[BaseElement],
+    program_base: u32,
+    program_segment: &[BaseElement],
 ) -> Vec<Vec<E>> {
     let n = main_columns[COL_MEM_ADDR].len();
     let z = rand_elements[RAND_Z];
     let alpha = rand_elements[RAND_ALPHA];
 
-    let l = output_segment.len();
+    let total_pub_cells = output_segment.len() + program_segment.len();
     let mut pairs: Vec<(BaseElement, BaseElement)> = Vec::with_capacity(n);
-    let mut zeros_to_remove = l;
+    let mut zeros_to_remove = total_pub_cells;
     for (&addr, &val) in main_columns[COL_MEM_ADDR]
         .iter()
         .zip(main_columns[COL_MEM_VAL].iter())
@@ -222,10 +248,15 @@ fn build_memory_columns<E: FieldElement<BaseField = BaseElement>>(
         }
         pairs.push((addr, val));
     }
-    for (off, &val) in output_segment.iter().enumerate() {
-        let off_u32 = u32::try_from(off).expect("public-output segment longer than u32::MAX cells");
-        let addr_u64 = u64::from(output_base) + u64::from(off_u32);
-        pairs.push((BaseElement::new(addr_u64), val));
+    for (base, segment) in [
+        (output_base, output_segment),
+        (program_base, program_segment),
+    ] {
+        for (off, &val) in segment.iter().enumerate() {
+            let off_u32 = u32::try_from(off).expect("public segment longer than u32::MAX cells");
+            let addr_u64 = u64::from(base) + u64::from(off_u32);
+            pairs.push((BaseElement::new(addr_u64), val));
+        }
     }
     debug_assert_eq!(
         pairs.len(),
@@ -420,7 +451,7 @@ mod tests {
         let n = RangeCheckBuiltin::MIN_TRACE_LEN.next_power_of_two();
         let main = mock_main_trace(&vec![(0, 0); n]);
         let rand_elements = rands(F::new(9999), F::new(13), F::new(7777));
-        let aux = build_aux_columns(&column_slices(&main), &rand_elements, 0, &[]);
+        let aux = build_aux_columns(&column_slices(&main), &rand_elements, 0, &[], 0, &[]);
 
         assert_eq!(aux.len(), aux_width());
         assert_eq!(aux[AUX_COL_MEM_ACC][0], F::ONE);
@@ -444,13 +475,13 @@ mod tests {
         let main = mock_main_trace_with_limbs(&mem, &limbs);
         let rand_elements = rands(F::new(7777), F::new(31), F::new(5555));
         let slices = column_slices(&main);
-        let aux = build_aux_columns(&slices, &rand_elements, 0, &[]);
+        let aux = build_aux_columns(&slices, &rand_elements, 0, &[], 0, &[]);
 
         for i in 0..n - 1 {
-            let main_curr: Vec<F> = (0..TRACE_WIDTH).map(|c| main[c][i]).collect();
-            let main_next: Vec<F> = (0..TRACE_WIDTH).map(|c| main[c][i + 1]).collect();
-            let aux_curr: Vec<F> = (0..aux_width()).map(|c| aux[c][i]).collect();
-            let aux_next: Vec<F> = (0..aux_width()).map(|c| aux[c][i + 1]).collect();
+            let main_curr = (0..TRACE_WIDTH).map(|c| main[c][i]).collect::<Vec<F>>();
+            let main_next = (0..TRACE_WIDTH).map(|c| main[c][i + 1]).collect::<Vec<F>>();
+            let aux_curr = (0..aux_width()).map(|c| aux[c][i]).collect::<Vec<F>>();
+            let aux_next = (0..aux_width()).map(|c| aux[c][i + 1]).collect::<Vec<F>>();
 
             let mut result = vec![F::ZERO; num_aux_constraints()];
             evaluate(

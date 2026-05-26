@@ -847,9 +847,7 @@ dependencies = [
 name = "maat_prover"
 version = "0.15.0"
 dependencies = [
- "blake3",
  "maat_air",
- "maat_bytecode",
  "maat_errors",
  "maat_field",
  "maat_trace",
