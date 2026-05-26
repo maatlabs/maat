@@ -11,11 +11,11 @@ pub mod table;
 use maat_bytecode::Bytecode;
 use maat_errors::{Result, VmError};
 use maat_field::{Felt, FieldElement};
-use maat_runtime::{MaybeRelocatable, MemorySegmentManager, Relocatable, SEG_PUBLIC_OUTPUT, Value};
-use maat_vm::VM;
-pub use mem::{
-    Relocator, append_pubmem_dummies, fill_memory_holes, fill_range_check_gaps, relocate_trace,
+use maat_runtime::{
+    MaybeRelocatable, MemorySegmentManager, Relocatable, SEG_PROGRAM, SEG_PUBLIC_OUTPUT, Value,
 };
+use maat_vm::VM;
+pub use mem::{Relocator, append_pubmem_dummies, fill_memory_holes, relocate_trace};
 pub use recorder::TraceRecorder;
 use table::TraceTable;
 
@@ -25,6 +25,8 @@ pub struct TraceArtifacts {
     pub result: Option<Value>,
     pub output_base: u32,
     pub output_segment: Vec<Felt>,
+    pub program_base: u32,
+    pub program_segment: Vec<Felt>,
 }
 
 /// Executes bytecode and returns the padded, relocated execution trace
@@ -38,8 +40,13 @@ pub fn run(bytecode: Bytecode) -> Result<(TraceTable, Option<Value>)> {
 /// from [`SEG_PUBLIC_OUTPUT`] and appends `l = output_segment.len()` `(0, 0)`
 /// dummy rows to the trace for the AIR's public-memory accumulator.
 pub fn run_with_output(bytecode: Bytecode) -> Result<TraceArtifacts> {
+    let program_bytes = bytecode
+        .serialize()
+        .map_err(|e| VmError::new(format!("bytecode serialization failed: {e}")))?;
+
     let mut recorder = TraceRecorder::new();
     let mut vm = VM::new(bytecode);
+    vm.pin_program(&program_bytes)?;
     vm.run_with_recorder(&mut recorder)?;
     let result = vm.last_popped_stack_elem().cloned();
 
@@ -53,6 +60,7 @@ pub fn run_with_output(bytecode: Bytecode) -> Result<TraceArtifacts> {
     relocate_trace(&mut trace, &plans, &relocator)?;
 
     let (output_base, output_segment) = extract_output_segment(vm.segments(), &relocator)?;
+    let (program_base, program_segment) = extract_program_segment(vm.segments(), &relocator)?;
 
     let output_felt = match result.as_ref() {
         Some(Value::Relocatable(r)) => relocator
@@ -63,14 +71,15 @@ pub fn run_with_output(bytecode: Bytecode) -> Result<TraceArtifacts> {
     };
     trace.stamp_output(output_felt);
     fill_memory_holes(&mut trace, vm.segments(), &relocator)?;
-    append_pubmem_dummies(&mut trace, output_segment.len())?;
-    fill_range_check_gaps(&mut trace)?;
+    append_pubmem_dummies(&mut trace, output_segment.len() + program_segment.len())?;
     trace.pad_to_power_of_two();
     Ok(TraceArtifacts {
         trace,
         result,
         output_base,
         output_segment,
+        program_base,
+        program_segment,
     })
 }
 
@@ -111,4 +120,43 @@ fn extract_output_segment(
         .collect::<Result<Vec<Felt>>>()?;
 
     Ok((output_base, cells))
+}
+
+fn extract_program_segment(
+    segments: &MemorySegmentManager,
+    relocator: &Relocator,
+) -> Result<(u32, Vec<Felt>)> {
+    let sizes = segments
+        .compute_sizes()
+        .map_err(|e| VmError::new(format!("program segment sizing failed: {e}")))?;
+    let size = usize::try_from(*sizes.get(SEG_PROGRAM as usize).unwrap_or(&0))
+        .map_err(|_| VmError::new("program segment size exceeds usize"))?;
+    if size == 0 {
+        return Ok((0, Vec::new()));
+    }
+    let program_base_felt = relocator
+        .flatten(Relocatable::new(SEG_PROGRAM, 0))
+        .map_err(|e| VmError::new(format!("program segment relocation failed: {e}")))?;
+    let program_base = u32::try_from(program_base_felt.as_int())
+        .map_err(|_| VmError::new("program segment base exceeds u32"))?;
+
+    let cells = (0..size)
+        .map(|off| {
+            let off_u32 = u32::try_from(off)
+                .map_err(|_| VmError::new("program segment offset exceeds u32"))?;
+            let addr = Relocatable::new(SEG_PROGRAM, off_u32);
+            let cell = segments
+                .read(addr)
+                .unwrap_or(MaybeRelocatable::Felt(Felt::ZERO));
+            let felt = match cell {
+                MaybeRelocatable::Felt(f) => f,
+                MaybeRelocatable::Relocatable(r) => relocator
+                    .flatten(r)
+                    .map_err(|e| VmError::new(format!("program cell relocation failed: {e}")))?,
+            };
+            Ok::<Felt, maat_errors::Error>(felt)
+        })
+        .collect::<Result<Vec<Felt>>>()?;
+
+    Ok((program_base, cells))
 }

@@ -6,10 +6,7 @@ use maat_bytecode::Bytecode;
 use maat_codegen::Compiler;
 use maat_lexer::{MaatLexer, TokenKind};
 use maat_parser::MaatParser;
-use maat_prover::{
-    MaatProver, compute_program_hash, compute_program_hash_bytes, development_options,
-    serialize_proof, verify,
-};
+use maat_prover::{MaatProver, development_options, serialize_proof, verify};
 use maat_trace::table::COL_OUT;
 use maat_types::TypeChecker;
 use maat_vm::VM;
@@ -130,21 +127,34 @@ fn compile_and_prove(source: &str) -> Option<Vec<u8>> {
     compiler.compile(&MaatAst::Program(program)).ok()?;
     let bytecode = compiler.bytecode().ok()?;
 
-    let (trace, _) = maat_trace::run(bytecode.clone()).ok()?;
-    let output = trace.row(trace.num_rows() - 1)[COL_OUT];
+    let artifacts = maat_trace::run_with_output(bytecode).ok()?;
+    let output = artifacts.trace.row(artifacts.trace.num_rows() - 1)[COL_OUT];
 
-    let program_hash = compute_program_hash(&bytecode).ok()?;
-    let program_hash_bytes = compute_program_hash_bytes(&bytecode).ok()?;
-    let public_inputs = MaatPublicInputs::new(program_hash, vec![], output);
+    let public_inputs = MaatPublicInputs::with_segments(
+        vec![],
+        output,
+        artifacts.output_base,
+        artifacts.output_segment.clone(),
+        artifacts.program_base,
+        artifacts.program_segment.clone(),
+    );
     let prover = MaatProver::new(development_options(), public_inputs);
 
     // Winterfell fires debug-mode `assert!` on degenerate traces; catch it.
     let prove_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        prover.generate_proof(trace)
+        prover.generate_proof(artifacts.trace)
     }));
     let proof = prove_result.ok()?.ok()?;
 
-    Some(serialize_proof(&proof, &program_hash_bytes, output, &[]))
+    Some(serialize_proof(
+        &proof,
+        output,
+        &[],
+        artifacts.output_base,
+        &artifacts.output_segment,
+        artifacts.program_base,
+        &artifacts.program_segment,
+    ))
 }
 
 // Property: Lexer never panics on arbitrary UTF-8
@@ -408,30 +418,6 @@ proptest! {
         prop_assert!(
             verify(&proof_bytes).is_ok(),
             "completeness failure: relaxed-continuity proof rejected for '{source}'"
-        );
-    }
-}
-
-proptest! {
-    #![proptest_config(ProptestConfig::with_cases(500))]
-
-    #[test]
-    fn program_hash_no_collisions(
-        s1 in arb_provable_main(),
-        s2 in arb_provable_main(),
-    ) {
-        let Some(b1) = type_check_and_compile(&s1) else { return Ok(()); };
-        let Some(b2) = type_check_and_compile(&s2) else { return Ok(()); };
-        if b1 == b2 {
-            return Ok(());
-        }
-        let h1 = compute_program_hash(&b1).expect("hashing must not fail");
-        let h2 = compute_program_hash(&b2).expect("hashing must not fail");
-        prop_assert_ne!(
-            h1, h2,
-            "program hash collision: '{}' and '{}' produced identical hashes",
-            s1,
-            s2
         );
     }
 }

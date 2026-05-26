@@ -19,10 +19,7 @@ use maat_ast::{MaatAst, fold_constants};
 use maat_codegen::Compiler;
 use maat_lexer::MaatLexer;
 use maat_parser::MaatParser;
-use maat_prover::{
-    MaatProver, compute_program_hash, compute_program_hash_bytes, development_options,
-    serialize_proof,
-};
+use maat_prover::{MaatProver, development_options, serialize_proof};
 use maat_trace::table::COL_OUT;
 use maat_types::TypeChecker;
 
@@ -116,20 +113,31 @@ fn compile_and_prove(source: &str) -> Vec<u8> {
         .bytecode()
         .expect("seed program failed to produce bytecode");
 
-    let (trace, _) = maat_trace::run(bytecode.clone()).expect("seed program failed to trace");
-    let output = trace.row(trace.num_rows() - 1)[COL_OUT];
+    let artifacts = maat_trace::run_with_output(bytecode).expect("seed program failed to trace");
+    let output = artifacts.trace.row(artifacts.trace.num_rows() - 1)[COL_OUT];
 
-    let program_hash = compute_program_hash(&bytecode).expect("seed program failed to hash");
-    let program_hash_bytes =
-        compute_program_hash_bytes(&bytecode).expect("seed program failed to hash bytes");
-
-    let public_inputs = MaatPublicInputs::new(program_hash, vec![], output);
+    let public_inputs = MaatPublicInputs::with_segments(
+        vec![],
+        output,
+        artifacts.output_base,
+        artifacts.output_segment.clone(),
+        artifacts.program_base,
+        artifacts.program_segment.clone(),
+    );
     let prover = MaatProver::new(development_options(), public_inputs);
     let proof = prover
-        .generate_proof(trace)
+        .generate_proof(artifacts.trace)
         .expect("seed program failed to prove");
 
-    serialize_proof(&proof, &program_hash_bytes, output, &[])
+    serialize_proof(
+        &proof,
+        output,
+        &[],
+        artifacts.output_base,
+        &artifacts.output_segment,
+        artifacts.program_base,
+        &artifacts.program_segment,
+    )
 }
 
 fn ensure_dir(path: &Path) {

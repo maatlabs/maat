@@ -10,14 +10,19 @@ use winter_crypto::hashers::Blake3_256;
 use winter_crypto::{DefaultRandomCoin, MerkleTree};
 use winter_verifier::AcceptableOptions;
 
-use crate::gadgets::hasher::hash_bytes_to_field_elements;
 use crate::gadgets::proof_serializer::deserialize_proof;
 use crate::{development_options, production_options};
 
 pub fn verify(proof_bytes: &[u8]) -> Result<(), VerificationError> {
     let (proof, embedded) = deserialize_proof(proof_bytes)?;
-    let program_hash = hash_bytes_to_field_elements(&embedded.program_hash);
-    let public_inputs = MaatPublicInputs::new(program_hash, embedded.inputs, embedded.output);
+    let public_inputs = MaatPublicInputs::with_segments(
+        embedded.inputs,
+        embedded.output,
+        embedded.output_base,
+        embedded.output_segment,
+        embedded.program_base,
+        embedded.program_segment,
+    );
     verify_with_inputs(proof, public_inputs)
 }
 

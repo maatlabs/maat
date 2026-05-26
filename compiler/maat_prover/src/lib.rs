@@ -18,9 +18,12 @@
 //!
 //! # Proof generation flow
 //!
-//! 1. Compile source to [`Bytecode`](maat_bytecode::Bytecode).
-//! 2. Run `maat_trace::run(bytecode)` to obtain the execution trace.
-//! 3. Construct [`MaatPublicInputs`] from the program hash, inputs, and output.
+//! 1. Compile source to `Bytecode`.
+//! 2. Run `maat_trace::run_with_output(bytecode)` to obtain the execution
+//!    trace alongside the program-segment and public-output cells that the
+//!    AIR's public-memory accumulator pins.
+//! 3. Construct [`MaatPublicInputs`] from the inputs, output, output base /
+//!    segment, and program base / segment exposed in the trace artifacts.
 //! 4. Construct `MaatProver::new(options, public_inputs)`.
 //! 5. Call [`MaatProver::generate_proof`] to produce a Winterfell [`Proof`].
 //!
@@ -36,11 +39,10 @@
 mod gadgets;
 mod verifier;
 
-pub use gadgets::hasher::{compute_program_hash, compute_program_hash_bytes};
 pub use gadgets::proof_serializer::{ProofPublicInputs, deserialize_proof, serialize_proof};
 use maat_air::{
-    AUX_WIDTH, AuxRandElements, BatchingMethod, EvaluationFrame, FieldExtension, MaatAir,
-    MaatPublicInputs, NUM_AUX_RANDS, PartitionOptions, ProofOptions, TraceInfo,
+    AuxRandElements, BatchingMethod, EvaluationFrame, FieldExtension, MaatAir, MaatPublicInputs,
+    PartitionOptions, ProofOptions, TraceInfo, aux_width, num_aux_rands,
 };
 use maat_errors::ProverError;
 use maat_field::{BaseElement, FieldElement};
@@ -114,8 +116,8 @@ impl MaatTrace {
         let trace_length = columns[0].len();
         let info = TraceInfo::new_multi_segment(
             TRACE_WIDTH,
-            AUX_WIDTH,
-            NUM_AUX_RANDS,
+            aux_width(),
+            num_aux_rands(),
             trace_length,
             Vec::new(),
         );
@@ -213,6 +215,8 @@ impl Prover for MaatProver {
             aux_rand_elements.rand_elements(),
             self.inputs.output_base,
             &self.inputs.output_segment,
+            self.inputs.program_base,
+            &self.inputs.program_segment,
         );
         ColMatrix::new(aux_columns)
     }

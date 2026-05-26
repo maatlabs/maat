@@ -1,114 +1,84 @@
 //! Utilities for STARK proof generation and verification.
 
-pub mod hasher {
-    //! Program identity hash for binding proofs to specific bytecode.
-    //!
-    //! The program hash is a 32-byte Blake3 digest of the serialized bytecode,
-    //! split into four Goldilocks field elements. This binds every proof to the
-    //! exact program that produced the execution trace.
-
-    use maat_bytecode::Bytecode;
-    use maat_errors::ProverError;
-    use maat_field::{BaseElement, FieldElement, StarkField};
-
-    pub fn compute_program_hash(bytecode: &Bytecode) -> Result<[BaseElement; 4], ProverError> {
-        let bytes = bytecode.serialize()?;
-        let hash = blake3::hash(&bytes);
-        Ok(hash_bytes_to_field_elements(hash.as_bytes()))
-    }
-
-    pub fn compute_program_hash_bytes(bytecode: &Bytecode) -> Result<[u8; 32], ProverError> {
-        let bytes = bytecode.serialize()?;
-        Ok(*blake3::hash(&bytes).as_bytes())
-    }
-
-    pub fn hash_bytes_to_field_elements(hash: &[u8; 32]) -> [BaseElement; 4] {
-        let mut elements = [BaseElement::ZERO; 4];
-        for (i, chunk) in hash.chunks_exact(8).enumerate() {
-            let limb = u64::from_le_bytes(chunk.try_into().expect("chunk is exactly 8 bytes"));
-            elements[i] = BaseElement::new(limb % BaseElement::MODULUS);
-        }
-        elements
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        #[test]
-        fn program_hash_compute_deterministic() {
-            let bytecode = Bytecode::default();
-            let h1 = compute_program_hash(&bytecode).unwrap();
-            let h2 = compute_program_hash(&bytecode).unwrap();
-            assert_eq!(h1, h2);
-        }
-
-        #[test]
-        fn hash_bytes_to_elements_splits_correctly() {
-            let mut hash = [0u8; 32];
-            hash[0] = 1; // limb 0 = 1
-            hash[8] = 2; // limb 1 = 2
-            let elements = hash_bytes_to_field_elements(&hash);
-            assert_eq!(elements[0], BaseElement::new(1));
-            assert_eq!(elements[1], BaseElement::new(2));
-            assert_eq!(elements[2], BaseElement::ZERO);
-            assert_eq!(elements[3], BaseElement::ZERO);
-        }
-    }
-}
-
 pub mod proof_serializer {
     //! Proof serialization and deserialization.
     //!
-    //! Wire format (version 3):
+    //! Wire format (version 5):
     //!
     //! ```text
     //! PROOF_MAGIC:        b"MATP"       (4 bytes)
-    //! PROOF_VERSION:      u16 BE        (2 bytes, currently 3)
-    //! PROGRAM_HASH:       [u8; 32]      (32 bytes, raw Blake3 digest)
+    //! PROOF_VERSION:      u16 BE        (2 bytes, currently 5)
     //! OUTPUT:             u64 LE        (8 bytes, claimed program output)
     //! INPUT_COUNT:        u16 BE        (2 bytes, number of public inputs)
     //! INPUTS:             [u64; N] LE   (8 * N bytes, public input values)
+    //! OUTPUT_BASE:        u32 BE        (4 bytes, flat base of the output segment)
+    //! OUTPUT_SEG_LEN:     u32 BE        (4 bytes, number of public-output cells)
+    //! OUTPUT_SEG:         [u64; L] LE   (8 * L bytes, public-output cell values)
+    //! PROGRAM_BASE:       u32 BE        (4 bytes, flat base of the program segment)
+    //! PROGRAM_SEG_LEN:    u32 BE        (4 bytes, number of program-memory cells)
+    //! PROGRAM_SEG:        [u64; P] LE   (8 * P bytes, program-memory cell values)
     //! PAYLOAD:            Winterfell    (variable, Winterfell's native Proof encoding)
     //! ```
     //!
-    //! Minimum header: 48 bytes (with zero inputs).
+    //! Minimum header (zero inputs, zero output cells, zero program cells): 32 bytes.
 
     use maat_air::Proof;
     use maat_errors::SerializationError;
     use maat_field::BaseElement;
 
     const PROOF_MAGIC: [u8; 4] = *b"MATP";
-    const PROOF_VERSION: u16 = 3;
-    // Minimum header size: 4 (magic) + 2 (version) + 32 (hash) + 8 (output) + 2 (input count).
-    const MIN_HEADER_SIZE: usize = 48;
+    const PROOF_VERSION: u16 = 5;
+    // Minimum header size with zero inputs / output cells / program cells:
+    // 4 (magic) + 2 (version) + 8 (output) + 2 (input count)
+    //   + 4 (output_base) + 4 (output_seg_len) + 4 (program_base) + 4 (program_seg_len).
+    const MIN_HEADER_SIZE: usize = 32;
     const MAX_INPUT_COUNT: usize = 1024;
+    const MAX_PUBLIC_SEGMENT_CELLS: usize = 1 << 20;
 
     #[derive(Debug, Clone)]
     pub struct ProofPublicInputs {
-        pub program_hash: [u8; 32],
         pub output: BaseElement,
         pub inputs: Vec<BaseElement>,
+        pub output_base: u32,
+        pub output_segment: Vec<BaseElement>,
+        pub program_base: u32,
+        pub program_segment: Vec<BaseElement>,
     }
 
     pub fn serialize_proof(
         proof: &Proof,
-        program_hash_bytes: &[u8; 32],
         output: BaseElement,
         inputs: &[BaseElement],
+        output_base: u32,
+        output_segment: &[BaseElement],
+        program_base: u32,
+        program_segment: &[BaseElement],
     ) -> Vec<u8> {
         let payload = proof.to_bytes();
         let input_count = inputs.len() as u16;
-        let total_size = MIN_HEADER_SIZE + (inputs.len() * 8) + payload.len();
+        let total_size = MIN_HEADER_SIZE
+            + inputs.len() * 8
+            + output_segment.len() * 8
+            + program_segment.len() * 8
+            + payload.len();
 
         let mut buf = Vec::with_capacity(total_size);
         buf.extend_from_slice(&PROOF_MAGIC);
         buf.extend_from_slice(&PROOF_VERSION.to_be_bytes());
-        buf.extend_from_slice(program_hash_bytes);
         buf.extend_from_slice(&output.as_int().to_le_bytes());
         buf.extend_from_slice(&input_count.to_be_bytes());
         for input in inputs {
             buf.extend_from_slice(&input.as_int().to_le_bytes());
+        }
+        buf.extend_from_slice(&output_base.to_be_bytes());
+        buf.extend_from_slice(&(output_segment.len() as u32).to_be_bytes());
+        for cell in output_segment {
+            buf.extend_from_slice(&cell.as_int().to_le_bytes());
+        }
+        buf.extend_from_slice(&program_base.to_be_bytes());
+        buf.extend_from_slice(&(program_segment.len() as u32).to_be_bytes());
+        for cell in program_segment {
+            buf.extend_from_slice(&cell.as_int().to_le_bytes());
         }
         buf.extend_from_slice(&payload);
         buf
@@ -117,39 +87,22 @@ pub mod proof_serializer {
     pub fn deserialize_proof(
         bytes: &[u8],
     ) -> Result<(Proof, ProofPublicInputs), SerializationError> {
-        if bytes.len() < 4 {
-            return Err(SerializationError::UnexpectedEof {
-                offset: 0,
-                needed: 4,
-            });
-        }
-        if bytes[..4] != PROOF_MAGIC {
+        let mut cursor = 0usize;
+        let magic = read_slice(bytes, &mut cursor, 4)?;
+        if magic != PROOF_MAGIC {
             return Err(SerializationError::InvalidMagic { expected: "MATP" });
         }
-        if bytes.len() < 6 {
-            return Err(SerializationError::UnexpectedEof {
-                offset: 4,
-                needed: 2,
-            });
-        }
-        let version = u16::from_be_bytes([bytes[4], bytes[5]]);
+        let version_bytes = read_slice(bytes, &mut cursor, 2)?;
+        let version = u16::from_be_bytes([version_bytes[0], version_bytes[1]]);
         if version != PROOF_VERSION {
             return Err(SerializationError::UnsupportedVersion(version as u64));
         }
-        if bytes.len() < MIN_HEADER_SIZE {
-            return Err(SerializationError::UnexpectedEof {
-                offset: 6,
-                needed: MIN_HEADER_SIZE - 6,
-            });
-        }
 
-        let mut program_hash = [0u8; 32];
-        program_hash.copy_from_slice(&bytes[6..38]);
+        let output_bytes = read_slice(bytes, &mut cursor, 8)?;
+        let output = BaseElement::new(u64::from_le_bytes(output_bytes.try_into().unwrap()));
 
-        let output_bytes: [u8; 8] = bytes[38..46].try_into().expect("slice is exactly 8 bytes");
-        let output = BaseElement::new(u64::from_le_bytes(output_bytes));
-
-        let input_count = u16::from_be_bytes([bytes[46], bytes[47]]) as usize;
+        let input_count_bytes = read_slice(bytes, &mut cursor, 2)?;
+        let input_count = u16::from_be_bytes([input_count_bytes[0], input_count_bytes[1]]) as usize;
         if input_count > MAX_INPUT_COUNT {
             return Err(SerializationError::ResourceLimitExceeded {
                 field: "input_count",
@@ -157,26 +110,19 @@ pub mod proof_serializer {
                 limit: MAX_INPUT_COUNT,
             });
         }
+        let inputs = read_felt_vec(bytes, &mut cursor, input_count)?;
 
-        let inputs_size = input_count * 8;
-        let payload_offset = MIN_HEADER_SIZE + inputs_size;
-        if bytes.len() < payload_offset {
-            return Err(SerializationError::UnexpectedEof {
-                offset: MIN_HEADER_SIZE,
-                needed: inputs_size,
-            });
-        }
+        let output_base = read_u32_be(bytes, &mut cursor)?;
+        let output_seg_len = read_u32_be(bytes, &mut cursor)? as usize;
+        check_segment_limit("output_segment_cells", output_seg_len)?;
+        let output_segment = read_felt_vec(bytes, &mut cursor, output_seg_len)?;
 
-        let mut inputs = Vec::with_capacity(input_count);
-        for i in 0..input_count {
-            let start = MIN_HEADER_SIZE + i * 8;
-            let input_bytes: [u8; 8] = bytes[start..start + 8]
-                .try_into()
-                .expect("slice is exactly 8 bytes");
-            inputs.push(BaseElement::new(u64::from_le_bytes(input_bytes)));
-        }
+        let program_base = read_u32_be(bytes, &mut cursor)?;
+        let program_seg_len = read_u32_be(bytes, &mut cursor)? as usize;
+        check_segment_limit("program_segment_cells", program_seg_len)?;
+        let program_segment = read_felt_vec(bytes, &mut cursor, program_seg_len)?;
 
-        let payload = &bytes[payload_offset..];
+        let payload = &bytes[cursor..];
         let proof = std::panic::catch_unwind(|| Proof::from_bytes(payload))
             .map_err(|_| {
                 SerializationError::WinterfellDecode(
@@ -188,12 +134,62 @@ pub mod proof_serializer {
             .map_err(|e| SerializationError::WinterfellDecode(e.to_string()))?;
 
         let public_inputs = ProofPublicInputs {
-            program_hash,
             output,
             inputs,
+            output_base,
+            output_segment,
+            program_base,
+            program_segment,
         };
 
         Ok((proof, public_inputs))
+    }
+
+    fn read_slice<'a>(
+        bytes: &'a [u8],
+        cursor: &mut usize,
+        len: usize,
+    ) -> Result<&'a [u8], SerializationError> {
+        if bytes.len() < cursor.saturating_add(len) {
+            return Err(SerializationError::UnexpectedEof {
+                offset: *cursor,
+                needed: len,
+            });
+        }
+        let slice = &bytes[*cursor..*cursor + len];
+        *cursor += len;
+        Ok(slice)
+    }
+
+    fn read_u32_be(bytes: &[u8], cursor: &mut usize) -> Result<u32, SerializationError> {
+        let slice = read_slice(bytes, cursor, 4)?;
+        Ok(u32::from_be_bytes(slice.try_into().unwrap()))
+    }
+
+    fn read_felt_vec(
+        bytes: &[u8],
+        cursor: &mut usize,
+        count: usize,
+    ) -> Result<Vec<BaseElement>, SerializationError> {
+        let mut out = Vec::with_capacity(count);
+        for _ in 0..count {
+            let slice = read_slice(bytes, cursor, 8)?;
+            out.push(BaseElement::new(u64::from_le_bytes(
+                slice.try_into().unwrap(),
+            )));
+        }
+        Ok(out)
+    }
+
+    fn check_segment_limit(field: &'static str, size: usize) -> Result<(), SerializationError> {
+        if size > MAX_PUBLIC_SEGMENT_CELLS {
+            return Err(SerializationError::ResourceLimitExceeded {
+                field,
+                size,
+                limit: MAX_PUBLIC_SEGMENT_CELLS,
+            });
+        }
+        Ok(())
     }
 
     #[cfg(test)]
@@ -215,7 +211,7 @@ pub mod proof_serializer {
             let mut bytes = Vec::new();
             bytes.extend_from_slice(&PROOF_MAGIC);
             bytes.extend_from_slice(&99u16.to_be_bytes());
-            bytes.extend_from_slice(&[0u8; 42]); // Fill rest of min header
+            bytes.extend_from_slice(&[0u8; 26]); // pad past min header
             let err = deserialize_proof(&bytes).unwrap_err();
             assert!(matches!(err, SerializationError::UnsupportedVersion(99)));
         }
@@ -225,7 +221,7 @@ pub mod proof_serializer {
             let mut bytes = Vec::new();
             bytes.extend_from_slice(&PROOF_MAGIC);
             bytes.extend_from_slice(&PROOF_VERSION.to_be_bytes());
-            bytes.extend_from_slice(&[0u8; 20]); // Incomplete header
+            bytes.extend_from_slice(&[0u8; 8]); // partial header
             let err = deserialize_proof(&bytes).unwrap_err();
             assert!(matches!(err, SerializationError::UnexpectedEof { .. }));
         }
@@ -235,9 +231,9 @@ pub mod proof_serializer {
             let mut bytes = Vec::new();
             bytes.extend_from_slice(&PROOF_MAGIC);
             bytes.extend_from_slice(&PROOF_VERSION.to_be_bytes());
-            bytes.extend_from_slice(&[0u8; 32]); // Program hash
-            bytes.extend_from_slice(&0u64.to_le_bytes()); // Output
-            bytes.extend_from_slice(&10000u16.to_be_bytes()); // Excessive input count
+            bytes.extend_from_slice(&0u64.to_le_bytes()); // output
+            bytes.extend_from_slice(&10_000u16.to_be_bytes()); // input count
+            bytes.extend_from_slice(&[0u8; 16]); // rest of min header
             let err = deserialize_proof(&bytes).unwrap_err();
             assert!(matches!(
                 err,

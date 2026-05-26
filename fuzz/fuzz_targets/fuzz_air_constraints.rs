@@ -10,7 +10,7 @@ use maat_codegen::Compiler;
 use maat_field::{Felt, MODULUS};
 use maat_lexer::MaatLexer;
 use maat_parser::MaatParser;
-use maat_prover::{compute_program_hash, development_options, verify_with_inputs, MaatProver};
+use maat_prover::{development_options, verify_with_inputs, MaatProver};
 use maat_trace::table::{COL_OUT, TRACE_WIDTH};
 use maat_types::TypeChecker;
 
@@ -50,11 +50,18 @@ fn seed() -> &'static SeedState {
             .bytecode()
             .expect("seed program must produce bytecode");
 
-        let (trace, _) = maat_trace::run(bytecode.clone()).expect("seed program must trace");
-        let output = trace.row(trace.num_rows() - 1)[COL_OUT];
+        let artifacts =
+            maat_trace::run_with_output(bytecode.clone()).expect("seed program must trace");
+        let output = artifacts.trace.row(artifacts.trace.num_rows() - 1)[COL_OUT];
 
-        let program_hash = compute_program_hash(&bytecode).expect("seed program hash must compute");
-        let public_inputs = MaatPublicInputs::new(program_hash, vec![], output);
+        let public_inputs = MaatPublicInputs::with_segments(
+            vec![],
+            output,
+            artifacts.output_base,
+            artifacts.output_segment.clone(),
+            artifacts.program_base,
+            artifacts.program_segment.clone(),
+        );
 
         let bytecode_bytes = bytecode.serialize().expect("seed bytecode must serialize");
         SeedState {
@@ -82,10 +89,11 @@ fuzz_target!(|data: &[u8]| {
         Ok(b) => b,
         Err(_) => return,
     };
-    let (mut trace, _) = match maat_trace::run(bytecode) {
-        Ok(t) => t,
+    let artifacts = match maat_trace::run_with_output(bytecode) {
+        Ok(a) => a,
         Err(_) => return,
     };
+    let mut trace = artifacts.trace;
 
     let num_rows = trace.num_rows();
     let row_idx = row_idx % num_rows;

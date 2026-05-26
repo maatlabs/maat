@@ -258,10 +258,9 @@ maat prove program.maat --inputs-file inputs.json
 
 #### Current Limitations
 
-The STARK proof system is functional for **primitive-typed** programs (`i8`..`i64`, `u8`..`u64`, `usize`, `bool`, `Felt`), **fixed-size arrays** `[T; N]` over primitive `T`, **`Vector<T>`** for primitive `T` (segment-backed, with builtin-allocated cells covered by the memory permutation argument), **closures** (segment-backed captures, tamper-detected via aux constraint 1), and user-defined functions over those types--including parameters, return values, nested calls, bounded recursion, `Option<T>` / `Result<T, E>` pattern matching, and `#[bounded(N)]` loops. All twelve `examples/*.maat` programs prove and verify end-to-end under `development_options`. The following remain planned for future releases:
+The STARK proof system is functional for **primitive-typed** programs (`i8`..`i64`, `u8`..`u64`, `usize`, `bool`, `Felt`), **fixed-size arrays** `[T; N]` over primitive `T`, **`Vector<T>`** for primitive `T` (segment-backed, with builtin-allocated cells covered by the memory permutation argument), **closures** (segment-backed captures, tamper-detected via aux constraint 1), and user-defined functions over those types--including parameters, return values, nested calls, bounded recursion, `Option<T>` / `Result<T, E>` pattern matching, and `#[bounded(N)]` loops. `<`, `>`, `<=`, `>=` are proven for every integer width up through `u64`/`i64`/`usize`/`isize`. All `examples/*.maat` programs prove and verify end-to-end under `development_options`. The following remain planned for future releases:
 
 - **Segment-backed migration for remaining composites**: `Map<K, V>`, `Set<T>`, `str`, `struct`, and `enum` continue to execute via inline `Value` variants. Their inline forms prove and verify cleanly for current programs (their cells never enter the heap), but the cells are not yet covered by the AIR's memory permutation argument. Segment-backed migration is deferred until a real consumer (recursive proofs, STARK-to-SNARK wrapping, in-AIR composite-cell content) demonstrates that AIR-level cell coverage is load-bearing.
-- **Ordering for `u64`/`i64` and signed types**: `<`, `>`, `<=`, `>=` are proven for `u8`/`u16`/`u32`/`usize`/`char` in v0.15.0; full-width 64-bit and signed ordering require a tighter range primitive and are deferred.
 - **STARK-to-SNARK wrapping**: STARK proofs ship today; succinct on-chain verification via Groth16 over BN254 is planned.
 
 Note that I/O side effects (`println!`) are not captured in the proof--the proof attests to correct computation of the return value.
@@ -433,11 +432,11 @@ Maat's development follows a phased milestone plan.
 
 ## Status
 
-Maat is currently at version `0.15.0`. The compiler frontend, type system, module system, bytecode VM, and CLI toolchain are functional and tested. The ZK backend proves and verifies user-defined function calls with parameters, return values, nested calls, bounded recursion, arithmetic, bitwise operations, unsigned ordering comparisons, fixed-size arrays `[T; N]` over primitive `T`, segment-backed `Vector<T>`, and segment-backed closure captures. All twelve `examples/*.maat` programs prove and verify end-to-end. See the [current limitations](#current-limitations) for gaps deferred to future releases.
+Maat is currently at version `0.16.0`. The compiler frontend, type system, module system, bytecode VM, and CLI toolchain are functional and tested. The ZK backend proves and verifies user-defined function calls with parameters, return values, nested calls, bounded recursion, arithmetic, bitwise operations (AND / OR / XOR / SHL / SHR over a chunked-LogUp argument), ordering comparisons across every integer width up through `u64`/`i64`/`usize`/`isize`, fixed-size arrays `[T; N]` over primitive `T`, segment-backed `Vector<T>`, and segment-backed closure captures. The bytecode is pinned cell-by-cell into the AIR's public-memory accumulator so the proof binds the exact program that produced the trace without a separate hash-outside-the-AIR. All `examples/*.maat` programs prove and verify end-to-end. See the [current limitations](#current-limitations) for gaps deferred to future releases.
 
 ## Disclaimer
 
-Early adopters should be aware that Maat `0.15.0` is a step toward Maat 1.0, for which a formal audit process is expected. In the meantime, we invite you to explore and experiment with Maat, but we do not recommend using it to build mission-critical systems.
+Early adopters should be aware that Maat `0.16.0` is a step toward Maat 1.0, for which a formal audit process is expected. In the meantime, we invite you to explore and experiment with Maat, but we do not recommend using it to build mission-critical systems.
 
 ## Acknowledgments
 

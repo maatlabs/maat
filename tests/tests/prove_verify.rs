@@ -7,8 +7,8 @@
 use maat_air::MaatPublicInputs;
 use maat_field::{BaseElement, Felt, FieldElement};
 use maat_prover::{
-    MaatProver, compute_program_hash, compute_program_hash_bytes, deserialize_proof,
-    development_options, production_options, serialize_proof, verify, verify_with_inputs,
+    MaatProver, deserialize_proof, development_options, production_options, serialize_proof,
+    verify, verify_with_inputs,
 };
 use maat_tests::prover::*;
 use maat_trace::selector::*;
@@ -198,15 +198,15 @@ fn vector_element_tamper_rejected() {
         v = v.push(33);
         v[0] + v[1] + v[2]
     ";
-    let (bytecode, mut trace, output) = compile_and_trace(source);
+    let mut bundle = compile_and_trace(source);
     // Each push writes one cell via VectorPush, which records the value into
     // the unified memory permutation. Corrupt the trace row carrying the
     // middle value to break single-value consistency on the matching read.
-    let n = trace.num_rows();
+    let n = bundle.trace.num_rows();
     let mut tampered = false;
     for i in 0..n {
-        if trace.row(i)[COL_MEM_VAL].as_int() == 22 {
-            trace.row_mut(i)[COL_MEM_VAL] = Felt::new(999);
+        if bundle.trace.row(i)[COL_MEM_VAL].as_int() == 22 {
+            bundle.trace.row_mut(i)[COL_MEM_VAL] = Felt::new(999);
             tampered = true;
             break;
         }
@@ -215,7 +215,7 @@ fn vector_element_tamper_rejected() {
         tampered,
         "expected at least one memory row carrying vector element value 22"
     );
-    assert_tampered_trace_rejected(bytecode, trace, output, "vector element");
+    assert_tampered_trace_rejected(bundle, "vector element");
 }
 
 #[test]
@@ -224,17 +224,17 @@ fn fixed_size_array_element_tamper_rejected() {
         let a: [i64; 3] = [10, 20, 30];
         a[0] + a[1] + a[2]
     ";
-    let (bytecode, mut trace, output) = compile_and_trace(source);
+    let mut bundle = compile_and_trace(source);
 
     // Find the first row that records value 10 (the first allocated array
     // element) on a heap-allocation memory write and corrupt it. Heap accesses
     // share the unified memory permutation argument, so flipping a value
     // breaks single-value consistency on subsequent dummy reads.
-    let n = trace.num_rows();
+    let n = bundle.trace.num_rows();
     let mut tampered = false;
     for i in 0..n {
-        if trace.row(i)[COL_MEM_VAL].as_int() == 10 {
-            trace.row_mut(i)[COL_MEM_VAL] = Felt::new(99);
+        if bundle.trace.row(i)[COL_MEM_VAL].as_int() == 10 {
+            bundle.trace.row_mut(i)[COL_MEM_VAL] = Felt::new(99);
             tampered = true;
             break;
         }
@@ -243,7 +243,7 @@ fn fixed_size_array_element_tamper_rejected() {
         tampered,
         "expected at least one memory row carrying value 10"
     );
-    assert_tampered_trace_rejected(bytecode, trace, output, "array element");
+    assert_tampered_trace_rejected(bundle, "array element");
 }
 
 #[test]
@@ -444,15 +444,25 @@ fn prove_and_verify_division_and_modulo() {
 #[test]
 fn wrong_output_rejected() {
     let source = "let x: i64 = 42;";
-    let (bytecode, trace, output) = compile_and_trace(source);
+    let bundle = compile_and_trace(source);
+    let output_base = bundle.output_base;
+    let output_segment = bundle.output_segment.clone();
+    let program_base = bundle.program_base;
+    let program_segment = bundle.program_segment.clone();
 
     // Generate a valid proof with the correct output.
-    let (proof, _correct_inputs) = prove(&bytecode, trace, output);
+    let (proof, _correct_inputs) = prove(bundle);
 
     // Attempt to verify with wrong public inputs (different output).
-    let program_hash = compute_program_hash(&bytecode).expect("program hash failed");
     let wrong_output = BaseElement::new(999);
-    let wrong_inputs = MaatPublicInputs::new(program_hash, vec![], wrong_output);
+    let wrong_inputs = MaatPublicInputs::with_segments(
+        vec![],
+        wrong_output,
+        output_base,
+        output_segment,
+        program_base,
+        program_segment,
+    );
 
     assert!(
         verify_with_inputs(proof, wrong_inputs).is_err(),
@@ -461,71 +471,113 @@ fn wrong_output_rejected() {
 }
 
 #[test]
-fn wrong_program_hash_rejected() {
+fn wrong_program_segment_rejected() {
     let source = "let x: i64 = 42;";
-    let (bytecode, trace, output) = compile_and_trace(source);
+    let bundle = compile_and_trace(source);
+    let output = bundle.output;
+    let output_base = bundle.output_base;
+    let output_segment = bundle.output_segment.clone();
+    let program_base = bundle.program_base;
+    let mut tampered_program = bundle.program_segment.clone();
 
-    // Use a valid proof but with tampered program hash.
-    let mut wrong_hash = compute_program_hash(&bytecode).expect("hash failed");
-    wrong_hash[0] = BaseElement::new(wrong_hash[0].as_int().wrapping_add(1));
+    let (proof, _honest_inputs) = prove(bundle);
 
-    let real_hash = compute_program_hash(&bytecode).expect("hash failed");
-    let real_inputs = MaatPublicInputs::new(real_hash, vec![], output);
-    let prover = MaatProver::new(development_options(), real_inputs);
-    let proof = prover
-        .generate_proof(trace)
-        .expect("proof generation failed");
-
-    let tampered_inputs = MaatPublicInputs::new(wrong_hash, vec![], output);
+    // Flip a single program-segment byte; the verifier's recomputed
+    // public-memory endpoint diverges from the trace-derived accumulator.
+    tampered_program[0] = BaseElement::new(tampered_program[0].as_int().wrapping_add(1));
+    let tampered_inputs = MaatPublicInputs::with_segments(
+        vec![],
+        output,
+        output_base,
+        output_segment,
+        program_base,
+        tampered_program,
+    );
     assert!(
         verify_with_inputs(proof, tampered_inputs).is_err(),
-        "tampered program hash must be rejected"
+        "tampered program segment must be rejected"
     );
 }
 
 #[test]
 fn proof_file_round_trip() {
     let source = "let x: i64 = 7; x";
-    let (bytecode, trace, output) = compile_and_trace(source);
-    let program_hash_bytes =
-        compute_program_hash_bytes(&bytecode).expect("program hash bytes failed");
-    let (proof, _public_inputs) = prove(&bytecode, trace, output);
+    let bundle = compile_and_trace(source);
+    let output = bundle.output;
+    let output_base = bundle.output_base;
+    let output_segment = bundle.output_segment.clone();
+    let program_base = bundle.program_base;
+    let program_segment = bundle.program_segment.clone();
+    let (proof, _public_inputs) = prove(bundle);
 
-    let serialized = serialize_proof(&proof, &program_hash_bytes, output, &[]);
+    let serialized = serialize_proof(
+        &proof,
+        output,
+        &[],
+        output_base,
+        &output_segment,
+        program_base,
+        &program_segment,
+    );
     let (decoded_proof, embedded) = deserialize_proof(&serialized).expect("deserialization failed");
 
-    assert_eq!(embedded.program_hash, program_hash_bytes);
     assert_eq!(embedded.output, output);
     assert!(embedded.inputs.is_empty());
+    assert_eq!(embedded.output_base, output_base);
+    assert_eq!(embedded.output_segment, output_segment);
+    assert_eq!(embedded.program_base, program_base);
+    assert_eq!(embedded.program_segment, program_segment);
     assert_eq!(decoded_proof.to_bytes(), proof.to_bytes());
 }
 
 #[test]
 fn verify_serialized_proof_end_to_end() {
     let source = "let x: i64 = 7; x";
-    let (bytecode, trace, output) = compile_and_trace(source);
-    let program_hash_bytes =
-        compute_program_hash_bytes(&bytecode).expect("program hash bytes failed");
-    let (proof, _public_inputs) = prove(&bytecode, trace, output);
+    let bundle = compile_and_trace(source);
+    let output = bundle.output;
+    let output_base = bundle.output_base;
+    let output_segment = bundle.output_segment.clone();
+    let program_base = bundle.program_base;
+    let program_segment = bundle.program_segment.clone();
+    let (proof, _public_inputs) = prove(bundle);
 
-    let serialized = serialize_proof(&proof, &program_hash_bytes, output, &[]);
+    let serialized = serialize_proof(
+        &proof,
+        output,
+        &[],
+        output_base,
+        &output_segment,
+        program_base,
+        &program_segment,
+    );
     verify(&serialized).expect("proof file verification failed");
 }
 
 #[test]
 fn proof_file_with_inputs_round_trip() {
     let source = "let x: i64 = 7; x";
-    let (bytecode, trace, output) = compile_and_trace(source);
-    let program_hash_bytes =
-        compute_program_hash_bytes(&bytecode).expect("program hash bytes failed");
-    let (proof, _public_inputs) = prove(&bytecode, trace, output);
+    let bundle = compile_and_trace(source);
+    let output = bundle.output;
+    let output_base = bundle.output_base;
+    let output_segment = bundle.output_segment.clone();
+    let program_base = bundle.program_base;
+    let program_segment = bundle.program_segment.clone();
+    let (proof, _public_inputs) = prove(bundle);
 
     let inputs = vec![
         BaseElement::new(1),
         BaseElement::new(2),
         BaseElement::new(3),
     ];
-    let serialized = serialize_proof(&proof, &program_hash_bytes, output, &inputs);
+    let serialized = serialize_proof(
+        &proof,
+        output,
+        &inputs,
+        output_base,
+        &output_segment,
+        program_base,
+        &program_segment,
+    );
     let (_, embedded) = deserialize_proof(&serialized).expect("deserialization failed");
 
     assert_eq!(embedded.inputs.len(), 3);
@@ -605,12 +657,21 @@ fn wrong_function_output_rejected() {
         fn square(x: i64) -> i64 { x * x }
         square(9)
     ";
-    let (bytecode, trace, output) = compile_and_trace(source);
-    let (proof, _correct_inputs) = prove(&bytecode, trace, output);
+    let bundle = compile_and_trace(source);
+    let output_base = bundle.output_base;
+    let output_segment = bundle.output_segment.clone();
+    let program_base = bundle.program_base;
+    let program_segment = bundle.program_segment.clone();
+    let (proof, _correct_inputs) = prove(bundle);
 
-    let program_hash = compute_program_hash(&bytecode).expect("program hash failed");
-    let wrong_output = BaseElement::new(80);
-    let wrong_inputs = MaatPublicInputs::new(program_hash, vec![], wrong_output);
+    let wrong_inputs = MaatPublicInputs::with_segments(
+        vec![],
+        BaseElement::new(80),
+        output_base,
+        output_segment,
+        program_base,
+        program_segment,
+    );
 
     assert!(
         verify_with_inputs(proof, wrong_inputs).is_err(),
@@ -621,12 +682,18 @@ fn wrong_function_output_rejected() {
 #[test]
 fn prove_and_verify_production_options() {
     let source = "let x: i64 = 42; x";
-    let (bytecode, trace, output) = compile_and_trace(source);
-    let program_hash = compute_program_hash(&bytecode).expect("program hash failed");
-    let public_inputs = MaatPublicInputs::new(program_hash, vec![], output);
+    let bundle = compile_and_trace(source);
+    let public_inputs = MaatPublicInputs::with_segments(
+        vec![],
+        bundle.output,
+        bundle.output_base,
+        bundle.output_segment.clone(),
+        bundle.program_base,
+        bundle.program_segment.clone(),
+    );
     let prover = MaatProver::new(production_options(), public_inputs.clone());
     let proof = prover
-        .generate_proof(trace)
+        .generate_proof(bundle.trace)
         .expect("proof generation with production options failed");
     verify_with_inputs(proof, public_inputs).expect("verification with production options failed");
 }
@@ -634,17 +701,17 @@ fn prove_and_verify_production_options() {
 #[test]
 fn tampered_arithmetic_add_output_rejected() {
     let source = "let a: i64 = 10; let b: i64 = 20; a + b";
-    let (bytecode, mut trace, output) = compile_and_trace(source);
-    tamper_output_on_sub_sel(&mut trace, SUB_SEL_ADD);
-    assert_tampered_trace_rejected(bytecode, trace, output, "add");
+    let mut bundle = compile_and_trace(source);
+    tamper_output_on_sub_sel(&mut bundle.trace, SUB_SEL_ADD);
+    assert_tampered_trace_rejected(bundle, "add");
 }
 
 #[test]
 fn tampered_arithmetic_neg_output_rejected() {
     let source = "let a: i64 = 7; -a";
-    let (bytecode, mut trace, output) = compile_and_trace(source);
-    tamper_output_on_sub_sel(&mut trace, SUB_SEL_NEG);
-    assert_tampered_trace_rejected(bytecode, trace, output, "neg");
+    let mut bundle = compile_and_trace(source);
+    tamper_output_on_sub_sel(&mut bundle.trace, SUB_SEL_NEG);
+    assert_tampered_trace_rejected(bundle, "neg");
 }
 
 #[test]
@@ -654,9 +721,9 @@ fn tampered_felt_add_output_rejected() {
         let b: Felt = 3_fe;
         a + b
     ";
-    let (bytecode, mut trace, output) = compile_and_trace(source);
-    tamper_output_on_sub_sel(&mut trace, SUB_SEL_FELT_ADD);
-    assert_tampered_trace_rejected(bytecode, trace, output, "felt add");
+    let mut bundle = compile_and_trace(source);
+    tamper_output_on_sub_sel(&mut bundle.trace, SUB_SEL_FELT_ADD);
+    assert_tampered_trace_rejected(bundle, "felt add");
 }
 
 #[test]
@@ -666,9 +733,9 @@ fn tampered_equality_output_rejected() {
         let b: i64 = 5;
         if a == b { 1i64 } else { 0i64 }
     ";
-    let (bytecode, mut trace, output) = compile_and_trace(source);
-    tamper_output_on_sub_sel(&mut trace, SUB_SEL_EQ);
-    assert_tampered_trace_rejected(bytecode, trace, output, "equality");
+    let mut bundle = compile_and_trace(source);
+    tamper_output_on_sub_sel(&mut bundle.trace, SUB_SEL_EQ);
+    assert_tampered_trace_rejected(bundle, "equality");
 }
 
 #[test]
@@ -709,7 +776,8 @@ fn heap_synthetic_write_once_violation_rejected() {
 #[test]
 fn heap_synthetic_single_value_tampered_rejected() {
     let bytecode = synthetic_segment_alloc_read_bytecode(42);
-    let (mut trace, _) = maat_trace::run(bytecode.clone()).expect("heap trace failed");
+    let artifacts = maat_trace::run_with_output(bytecode).expect("heap trace failed");
+    let mut trace = artifacts.trace;
 
     // Find the first row that records the heap-allocated value 42 in the
     // unified memory column and corrupt it. The memory permutation argument
@@ -727,8 +795,14 @@ fn heap_synthetic_single_value_tampered_rejected() {
     }
     assert!(tampered, "expected at least one heap row carrying value 42");
 
-    let program_hash = compute_program_hash(&bytecode).expect("hash failed");
-    let public_inputs = MaatPublicInputs::new(program_hash, vec![], BaseElement::new(42));
+    let public_inputs = MaatPublicInputs::with_segments(
+        vec![],
+        BaseElement::new(42),
+        artifacts.output_base,
+        artifacts.output_segment,
+        artifacts.program_base,
+        artifacts.program_segment,
+    );
     let prover = MaatProver::new(development_options(), public_inputs.clone());
 
     let prove_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -749,15 +823,16 @@ fn heap_synthetic_single_value_tampered_rejected() {
 #[test]
 fn heap_synthetic_intra_segment_holes_filled() {
     let bytecode = synthetic_sparse_segment_bytecode(17, 42);
-    let (trace_before, _) = maat_trace::run(bytecode.clone()).expect("sparse heap trace failed");
-    let n = trace_before.num_rows();
+    let artifacts =
+        maat_trace::run_with_output(bytecode.clone()).expect("sparse heap trace failed");
+    let program_end = u64::from(artifacts.program_base) + artifacts.program_segment.len() as u64;
 
     let mut unique_addrs = std::collections::HashSet::new();
-    for i in 0..n {
-        unique_addrs.insert(trace_before.row(i)[COL_MEM_ADDR].as_int());
+    for i in 0..artifacts.trace.num_rows() {
+        unique_addrs.insert(artifacts.trace.row(i)[COL_MEM_ADDR].as_int());
     }
     let max = unique_addrs.iter().copied().max().unwrap_or(0);
-    for addr in 1..=max {
+    for addr in program_end..=max {
         assert!(
             unique_addrs.contains(&addr),
             "flat address {addr} missing after hole filling (max = {max})",
@@ -775,14 +850,15 @@ fn heap_synthetic_intra_segment_holes_filled_production() {
 #[test]
 fn heap_synthetic_cross_segment_holes_filled() {
     let bytecode = synthetic_cross_segment_sparse_bytecode(11, 23);
-    let (trace, _) = maat_trace::run(bytecode.clone()).expect("cross-segment trace failed");
-    let n = trace.num_rows();
+    let artifacts =
+        maat_trace::run_with_output(bytecode.clone()).expect("cross-segment trace failed");
+    let program_end = u64::from(artifacts.program_base) + artifacts.program_segment.len() as u64;
     let mut unique_addrs = std::collections::HashSet::new();
-    for i in 0..n {
-        unique_addrs.insert(trace.row(i)[COL_MEM_ADDR].as_int());
+    for i in 0..artifacts.trace.num_rows() {
+        unique_addrs.insert(artifacts.trace.row(i)[COL_MEM_ADDR].as_int());
     }
     let max = unique_addrs.iter().copied().max().unwrap_or(0);
-    for addr in 1..=max {
+    for addr in program_end..=max {
         assert!(
             unique_addrs.contains(&addr),
             "flat address {addr} missing across two sparse segments",
@@ -794,7 +870,8 @@ fn heap_synthetic_cross_segment_holes_filled() {
 #[test]
 fn heap_synthetic_hole_row_removed_rejected() {
     let bytecode = synthetic_sparse_segment_bytecode(17, 42);
-    let (mut trace, _) = maat_trace::run(bytecode.clone()).expect("sparse heap trace failed");
+    let artifacts = maat_trace::run_with_output(bytecode).expect("sparse heap trace failed");
+    let mut trace = artifacts.trace;
 
     let mut addrs: Vec<u64> = (0..trace.num_rows())
         .map(|i| trace.row(i)[COL_MEM_ADDR].as_int())
@@ -815,8 +892,14 @@ fn heap_synthetic_hole_row_removed_rejected() {
     }
     trace = rebuilt;
 
-    let program_hash = compute_program_hash(&bytecode).expect("hash failed");
-    let public_inputs = MaatPublicInputs::new(program_hash, vec![], BaseElement::new(17));
+    let public_inputs = MaatPublicInputs::with_segments(
+        vec![],
+        BaseElement::new(17),
+        artifacts.output_base,
+        artifacts.output_segment,
+        artifacts.program_base,
+        artifacts.program_segment,
+    );
     let prover = MaatProver::new(development_options(), public_inputs.clone());
 
     let prove_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -837,26 +920,32 @@ fn heap_synthetic_hole_row_removed_rejected() {
 #[test]
 fn physical_address_gap_rejected() {
     let source = "let a: i64 = 5; a";
-    let (bytecode, mut trace, _) = compile_and_trace(source);
+    let mut bundle = compile_and_trace(source);
 
     // Shift every non-sentinel address up by 1 so address 1 is skipped,
     // leaving the unique sorted address set as {0, 2, ...} instead of {0, 1, ...}.
-    let n = trace.num_rows();
+    let n = bundle.trace.num_rows();
     for i in 0..n {
-        let addr = trace.row(i)[COL_MEM_ADDR].as_int();
+        let addr = bundle.trace.row(i)[COL_MEM_ADDR].as_int();
         if addr > 0 {
-            trace.row_mut(i)[COL_MEM_ADDR] = Felt::new(addr + 1);
+            bundle.trace.row_mut(i)[COL_MEM_ADDR] = Felt::new(addr + 1);
         }
     }
 
-    let program_hash = compute_program_hash(&bytecode).expect("hash failed");
-    let public_inputs = MaatPublicInputs::new(program_hash, vec![], BaseElement::new(5));
+    let public_inputs = MaatPublicInputs::with_segments(
+        vec![],
+        BaseElement::new(5),
+        bundle.output_base,
+        bundle.output_segment.clone(),
+        bundle.program_base,
+        bundle.program_segment.clone(),
+    );
     let prover = MaatProver::new(development_options(), public_inputs.clone());
 
     // The AIR address-continuity constraint (aux constraint 0:
     // addr_delta * (addr_delta - 1) = 0) rejects the proof on the gap.
     let prove_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        prover.generate_proof(trace)
+        prover.generate_proof(bundle.trace)
     }));
     match prove_result {
         Err(_) => {}
@@ -888,9 +977,9 @@ fn tampered_bitwise_and_output_rejected() {
         let b: u64 = 0x0F0F0F0F0F0F0F0F;
         a & b
     ";
-    let (bytecode, mut trace, output) = compile_and_trace(source);
-    tamper_output_on_sub_sel(&mut trace, SUB_SEL_AND);
-    assert_tampered_trace_rejected(bytecode, trace, output, "bitwise and");
+    let mut bundle = compile_and_trace(source);
+    tamper_output_on_sub_sel(&mut bundle.trace, SUB_SEL_AND);
+    assert_tampered_trace_rejected(bundle, "bitwise and");
 }
 
 #[test]
@@ -911,9 +1000,9 @@ fn tampered_bitwise_or_output_rejected() {
         let b: u64 = 0x5555555555555555;
         a | b
     ";
-    let (bytecode, mut trace, output) = compile_and_trace(source);
-    tamper_output_on_sub_sel(&mut trace, SUB_SEL_OR);
-    assert_tampered_trace_rejected(bytecode, trace, output, "bitwise or");
+    let mut bundle = compile_and_trace(source);
+    tamper_output_on_sub_sel(&mut bundle.trace, SUB_SEL_OR);
+    assert_tampered_trace_rejected(bundle, "bitwise or");
 }
 
 #[test]
@@ -934,9 +1023,9 @@ fn tampered_bitwise_xor_output_rejected() {
         let b: u64 = 0xFEDCBA9876543210;
         a ^ b
     ";
-    let (bytecode, mut trace, output) = compile_and_trace(source);
-    tamper_output_on_sub_sel(&mut trace, SUB_SEL_XOR);
-    assert_tampered_trace_rejected(bytecode, trace, output, "bitwise xor");
+    let mut bundle = compile_and_trace(source);
+    tamper_output_on_sub_sel(&mut bundle.trace, SUB_SEL_XOR);
+    assert_tampered_trace_rejected(bundle, "bitwise xor");
 }
 
 #[test]
@@ -957,9 +1046,9 @@ fn tampered_bitwise_shl_output_rejected() {
         let b: u64 = 16;
         a << b
     ";
-    let (bytecode, mut trace, output) = compile_and_trace(source);
-    tamper_output_on_sub_sel(&mut trace, SUB_SEL_SHL);
-    assert_tampered_trace_rejected(bytecode, trace, output, "bitwise shl");
+    let mut bundle = compile_and_trace(source);
+    tamper_output_on_sub_sel(&mut bundle.trace, SUB_SEL_SHL);
+    assert_tampered_trace_rejected(bundle, "bitwise shl");
 }
 
 #[test]
@@ -980,9 +1069,9 @@ fn tampered_bitwise_shr_output_rejected() {
         let b: u64 = 32;
         a >> b
     ";
-    let (bytecode, mut trace, output) = compile_and_trace(source);
-    tamper_output_on_sub_sel(&mut trace, SUB_SEL_SHR);
-    assert_tampered_trace_rejected(bytecode, trace, output, "bitwise shr");
+    let mut bundle = compile_and_trace(source);
+    tamper_output_on_sub_sel(&mut bundle.trace, SUB_SEL_SHR);
+    assert_tampered_trace_rejected(bundle, "bitwise shr");
 }
 
 #[test]
@@ -1074,15 +1163,118 @@ fn prove_and_verify_ordering_signed_negatives() {
 }
 
 #[test]
+fn prove_and_verify_ordering_u64_diff_exceeds_u32() {
+    prove_and_verify(
+        "
+        let a: u64 = 1234567890u64;
+        let b: u64 = 9876543210u64;
+        if a < b { 1i64 } else { 0i64 }
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_ordering_u64_ge_large_values() {
+    prove_and_verify(
+        "
+        let a: u64 = 18000000000000000000u64;
+        let b: u64 = 17000000000000000000u64;
+        if a >= b { 1i64 } else { 0i64 }
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_ordering_usize_lt() {
+    prove_and_verify(
+        "
+        let a: usize = 0usize;
+        let b: usize = 65535usize;
+        if a < b { 1i64 } else { 0i64 }
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_ordering_usize_le_boundary() {
+    prove_and_verify(
+        "
+        let a: usize = 42usize;
+        if a <= a { 1i64 } else { 0i64 }
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_ordering_i64_across_zero() {
+    prove_and_verify(
+        "
+        let a: i64 = -9223372036854775807i64;
+        let b: i64 = 9223372036854775807i64;
+        if a < b { 1i64 } else { 0i64 }
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_ordering_i64_both_negative() {
+    prove_and_verify(
+        "
+        let a: i64 = -42i64;
+        let b: i64 = -7i64;
+        if a < b { 1i64 } else { 0i64 }
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_ordering_i64_gt_extremes() {
+    prove_and_verify(
+        "
+        let a: i64 = 9223372036854775807i64;
+        let b: i64 = -9223372036854775807i64;
+        if a > b { 1i64 } else { 0i64 }
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_ordering_isize_neg_vs_pos() {
+    prove_and_verify(
+        "
+        let a: isize = -1isize;
+        let b: isize = 1isize;
+        if a < b { 1i64 } else { 0i64 }
+        ",
+    );
+}
+
+#[test]
+fn prove_and_verify_ordering_chained_widths() {
+    prove_and_verify(
+        "
+        let a: u64 = 100u64;
+        let b: u64 = 200u64;
+        let c: u64 = 300u64;
+        if a < b {
+            if b < c { 1i64 } else { 0i64 }
+        } else {
+            0i64
+        }
+        ",
+    );
+}
+
+#[test]
 fn tampered_lt_output_rejected() {
     let source = "
         let a: u32 = 7u32;
         let b: u32 = 42u32;
         if a < b { 1i64 } else { 0i64 }
     ";
-    let (bytecode, mut trace, output) = compile_and_trace(source);
-    tamper_output_on_sub_sel(&mut trace, SUB_SEL_LT);
-    assert_tampered_trace_rejected(bytecode, trace, output, "ordering lt");
+    let mut bundle = compile_and_trace(source);
+    tamper_output_on_sub_sel(&mut bundle.trace, SUB_SEL_LT);
+    assert_tampered_trace_rejected(bundle, "ordering lt");
 }
 
 #[test]
@@ -1092,9 +1284,21 @@ fn tampered_gt_output_rejected() {
         let b: u32 = 42u32;
         if a > b { 1i64 } else { 0i64 }
     ";
-    let (bytecode, mut trace, output) = compile_and_trace(source);
-    tamper_output_on_sub_sel(&mut trace, SUB_SEL_GT);
-    assert_tampered_trace_rejected(bytecode, trace, output, "ordering gt");
+    let mut bundle = compile_and_trace(source);
+    tamper_output_on_sub_sel(&mut bundle.trace, SUB_SEL_GT);
+    assert_tampered_trace_rejected(bundle, "ordering gt");
+}
+
+#[test]
+fn tampered_lt_u64_wide_diff_output_rejected() {
+    let source = "
+        let a: u64 = 1234567890u64;
+        let b: u64 = 9876543210u64;
+        if a < b { 1i64 } else { 0i64 }
+    ";
+    let mut bundle = compile_and_trace(source);
+    tamper_output_on_sub_sel(&mut bundle.trace, SUB_SEL_LT);
+    assert_tampered_trace_rejected(bundle, "ordering lt (u64 wide)");
 }
 
 #[test]
@@ -1202,11 +1406,11 @@ fn match_tag_jump_marker_tampered_rejected() {
             None => -1,
         }
     ";
-    let (bytecode, mut trace, output) = compile_and_trace(source);
+    let mut bundle = compile_and_trace(source);
     let mut cleared = false;
-    for i in 0..trace.num_rows() {
-        if trace.row(i)[COL_SUB_SEL_BASE + SUB_SEL_MATCH_TAG_JUMP] == Felt::ONE {
-            trace.row_mut(i)[COL_SUB_SEL_BASE + SUB_SEL_MATCH_TAG_JUMP] = Felt::ZERO;
+    for i in 0..bundle.trace.num_rows() {
+        if bundle.trace.row(i)[COL_SUB_SEL_BASE + SUB_SEL_MATCH_TAG_JUMP] == Felt::ONE {
+            bundle.trace.row_mut(i)[COL_SUB_SEL_BASE + SUB_SEL_MATCH_TAG_JUMP] = Felt::ZERO;
             cleared = true;
             break;
         }
@@ -1215,7 +1419,7 @@ fn match_tag_jump_marker_tampered_rejected() {
         cleared,
         "expected at least one MatchTag-jump row in the trace",
     );
-    assert_tampered_trace_rejected(bytecode, trace, output, "match-tag-jump marker");
+    assert_tampered_trace_rejected(bundle, "match-tag-jump marker");
 }
 
 #[test]
@@ -1241,11 +1445,11 @@ fn closure_capture_tampered_cell_rejected() {
         let f = make_id(42);
         f()
     ";
-    let (bytecode, mut trace, output) = compile_and_trace(source);
+    let mut bundle = compile_and_trace(source);
     let mut tampered = false;
-    for i in 0..trace.num_rows() {
-        if trace.row(i)[COL_SUB_SEL_BASE + SUB_SEL_SYNTHETIC_HEAP] == Felt::ONE {
-            trace.row_mut(i)[COL_MEM_VAL] = Felt::new(999);
+    for i in 0..bundle.trace.num_rows() {
+        if bundle.trace.row(i)[COL_SUB_SEL_BASE + SUB_SEL_SYNTHETIC_HEAP] == Felt::ONE {
+            bundle.trace.row_mut(i)[COL_MEM_VAL] = Felt::new(999);
             tampered = true;
             break;
         }
@@ -1254,7 +1458,7 @@ fn closure_capture_tampered_cell_rejected() {
         tampered,
         "expected at least one synthetic-heap-write row in the trace",
     );
-    assert_tampered_trace_rejected(bytecode, trace, output, "closure capture cell");
+    assert_tampered_trace_rejected(bundle, "closure capture cell");
 }
 
 #[test]
@@ -1368,27 +1572,34 @@ fn arena_assigns_distinct_segment_ids() {
 }
 
 #[test]
-fn arena_tampered_id_value_rejected() {
+fn arena_tampered_payload_value_rejected() {
     let bytecode = synthetic_arena_alloc_finalize_bytecode(&[7, 13, 21]);
-    let (mut trace, _) = maat_trace::run(bytecode.clone()).expect("arena trace failed");
+    let artifacts = maat_trace::run_with_output(bytecode).expect("arena trace failed");
+    let mut trace = artifacts.trace;
 
+    // Tamper the first heap write that carries the program's payload value 7.
     let n = trace.num_rows();
     let mut tampered = false;
     for i in 0..n {
-        let val = trace.row(i)[COL_MEM_VAL].as_int();
         if trace.row(i)[maat_trace::table::COL_IS_READ].as_int() == 0
-            && (1..=10).contains(&val)
+            && trace.row(i)[COL_MEM_VAL].as_int() == 7
             && trace.row(i)[COL_MEM_ADDR].as_int() != 0
         {
-            trace.row_mut(i)[COL_MEM_VAL] = Felt::new(val + 100);
+            trace.row_mut(i)[COL_MEM_VAL] = Felt::new(107);
             tampered = true;
             break;
         }
     }
-    assert!(tampered, "expected at least one arena-id write to tamper");
+    assert!(tampered, "expected at least one payload-7 write to tamper");
 
-    let program_hash = compute_program_hash(&bytecode).expect("hash failed");
-    let public_inputs = MaatPublicInputs::new(program_hash, vec![], BaseElement::new(7));
+    let public_inputs = MaatPublicInputs::with_segments(
+        vec![],
+        BaseElement::new(7),
+        artifacts.output_base,
+        artifacts.output_segment,
+        artifacts.program_base,
+        artifacts.program_segment,
+    );
     let prover = MaatProver::new(development_options(), public_inputs.clone());
 
     let prove_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1400,7 +1611,7 @@ fn arena_tampered_id_value_rejected() {
             let proof = proof.expect("proof generation failed");
             assert!(
                 verify_with_inputs(proof, public_inputs).is_err(),
-                "tampered arena id must be rejected by the verifier",
+                "tampered arena payload must be rejected by the verifier",
             );
         }
     }
@@ -1409,15 +1620,15 @@ fn arena_tampered_id_value_rejected() {
 #[test]
 fn arena_segments_relocate_into_distinct_flat_ranges() {
     let bytecode = synthetic_arena_alloc_finalize_bytecode(&[100, 200, 300]);
-    let (trace, _) = maat_trace::run(bytecode).expect("arena trace failed");
+    let artifacts = maat_trace::run_with_output(bytecode).expect("arena trace failed");
+    let program_end = u64::from(artifacts.program_base) + artifacts.program_segment.len() as u64;
 
-    let n = trace.num_rows();
     let mut unique_addrs = std::collections::HashSet::new();
-    for i in 0..n {
-        unique_addrs.insert(trace.row(i)[COL_MEM_ADDR].as_int());
+    for i in 0..artifacts.trace.num_rows() {
+        unique_addrs.insert(artifacts.trace.row(i)[COL_MEM_ADDR].as_int());
     }
     let max = unique_addrs.iter().copied().max().unwrap_or(0);
-    for addr in 1..=max {
+    for addr in program_end..=max {
         assert!(
             unique_addrs.contains(&addr),
             "flat address {addr} missing after arena relocation (max = {max})",

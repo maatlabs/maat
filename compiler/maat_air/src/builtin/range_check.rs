@@ -1,8 +1,7 @@
 //! Range-check builtin segment.
 //!
-//! Owns five auxiliary columns (a four-column sorted limb pool and a
-//! permutation accumulator) and proves that every 16-bit limb emitted on a
-//! range-check trigger row lies in `[0, 2^16)`.
+//! Owns the per-row byte witnesses that decompose `COL_RC_L0..COL_RC_L3`
+//! and the four degree-1 limb-decomposition constraints `limb_k = 256*hi + lo`.
 
 use maat_field::{BaseElement, ExtensionOf, FieldElement};
 use maat_trace::table::{COL_RC_L0, COL_RC_L1, COL_RC_L2, COL_RC_L3};
@@ -10,19 +9,37 @@ use winter_air::Assertion;
 
 use super::Builtin;
 
-/// Aux column offset (within this builtin): sorted limb pool, column 0.
-pub const RC_SORTED_0: usize = 0;
-/// Aux column offset: sorted limb pool, column 1.
-pub const RC_SORTED_1: usize = 1;
-/// Aux column offset: sorted limb pool, column 2.
-pub const RC_SORTED_2: usize = 2;
-/// Aux column offset: sorted limb pool, column 3.
-pub const RC_SORTED_3: usize = 3;
-/// Aux column offset: permutation accumulator.
-pub const RC_ACC: usize = 4;
+/// LogUp lookup table size (8-bit byte table `{0, ..., 255}`).
+pub const TABLE_SIZE: usize = 256;
 
-/// Verifier-challenge offset (within this builtin's slice).
-const RAND_Z_RC: usize = 0;
+/// Number of byte channels per row (4 main-trace limbs x 2 bytes each).
+pub const NUM_CHANNELS: usize = 8;
+
+/// Aux column offset (within this builtin's slice): limb-0 high byte.
+pub const RC_B0_HI: usize = 0;
+/// Aux column offset: limb-0 low byte.
+pub const RC_B0_LO: usize = 1;
+/// Aux column offset: limb-1 high byte.
+pub const RC_B1_HI: usize = 2;
+/// Aux column offset: limb-1 low byte.
+pub const RC_B1_LO: usize = 3;
+/// Aux column offset: limb-2 high byte.
+pub const RC_B2_HI: usize = 4;
+/// Aux column offset: limb-2 low byte.
+pub const RC_B2_LO: usize = 5;
+/// Aux column offset: limb-3 high byte.
+pub const RC_B3_HI: usize = 6;
+/// Aux column offset: limb-3 low byte.
+pub const RC_B3_LO: usize = 7;
+
+const LIMB_COLS: [usize; 4] = [COL_RC_L0, COL_RC_L1, COL_RC_L2, COL_RC_L3];
+
+const LIMB_BYTE_PAIRS: [(usize, usize); 4] = [
+    (RC_B0_HI, RC_B0_LO),
+    (RC_B1_HI, RC_B1_LO),
+    (RC_B2_HI, RC_B2_LO),
+    (RC_B3_HI, RC_B3_LO),
+];
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RangeCheckBuiltin;
@@ -30,17 +47,24 @@ pub struct RangeCheckBuiltin;
 impl RangeCheckBuiltin {
     pub const NAME: &'static str = "range_check";
 
-    pub const AUX_WIDTH: usize = 5;
+    /// 8 byte witness columns, one per `(hi, lo)` pair across 4 limbs.
+    const AUX_WIDTH: usize = 2 * 4;
 
-    pub const NUM_AUX_RANDS: usize = 1;
+    const NUM_AUX_RANDS: usize = 0;
 
-    pub const NUM_AUX_CONSTRAINTS: usize = 5;
+    /// 4 limb-decomposition (degree 1)
+    const NUM_AUX_CONSTRAINTS: usize = 4;
 
-    pub const NUM_AUX_ASSERTIONS: usize = 2;
+    const NUM_AUX_ASSERTIONS: usize = 0;
 
-    pub const AUX_CONSTRAINT_DEGREES: &'static [usize] = &[2, 2, 2, 2, 5];
+    const AUX_CONSTRAINT_DEGREES: &'static [usize] = &[1, 1, 1, 1];
 
     pub const RESERVED_ADDRESS_RANGE: (u64, u64) = (1u64 << 33, (1u64 << 34) - 1);
+
+    /// Minimum trace length required to embed the full 8-bit table.
+    /// One row reserved for boundary placeholder; the remaining `active`
+    /// rows must hold all `TABLE_SIZE` entries.
+    pub const MIN_TRACE_LEN: usize = TABLE_SIZE + 1;
 }
 
 impl Builtin for RangeCheckBuiltin {
@@ -56,126 +80,190 @@ impl Builtin for RangeCheckBuiltin {
         Self::NUM_AUX_RANDS
     }
 
-    fn aux_constraint_degrees(&self) -> &'static [usize] {
-        Self::AUX_CONSTRAINT_DEGREES
-    }
-
-    fn reserved_address_range(&self) -> (u64, u64) {
-        Self::RESERVED_ADDRESS_RANGE
+    fn num_aux_constraints(&self) -> usize {
+        Self::NUM_AUX_CONSTRAINTS
     }
 
     fn num_aux_assertions(&self) -> usize {
         Self::NUM_AUX_ASSERTIONS
     }
 
+    fn aux_constraint_degrees(&self) -> Vec<usize> {
+        Self::AUX_CONSTRAINT_DEGREES.to_vec()
+    }
+
+    fn reserved_address_range(&self) -> (u64, u64) {
+        Self::RESERVED_ADDRESS_RANGE
+    }
+
     fn evaluate_aux_transition<F, E>(
         &self,
         _main_curr: &[F],
         main_next: &[F],
-        aux_curr: &[E],
+        _aux_curr: &[E],
         aux_next: &[E],
-        rand_elements: &[E],
+        base_offset: usize,
+        _rand_elements: &[E],
         result: &mut [E],
     ) where
         F: FieldElement<BaseField = BaseElement>,
         E: FieldElement<BaseField = BaseElement> + ExtensionOf<F>,
     {
-        debug_assert_eq!(aux_curr.len(), Self::AUX_WIDTH);
-        debug_assert_eq!(aux_next.len(), Self::AUX_WIDTH);
-        debug_assert_eq!(rand_elements.len(), Self::NUM_AUX_RANDS);
+        let local_next = &aux_next[base_offset..base_offset + Self::AUX_WIDTH];
+
         debug_assert_eq!(result.len(), Self::NUM_AUX_CONSTRAINTS);
 
-        let one = E::ONE;
+        let byte_base = E::from(BaseElement::new(256));
 
-        let s0 = aux_curr[RC_SORTED_0];
-        let s1 = aux_curr[RC_SORTED_1];
-        let s2 = aux_curr[RC_SORTED_2];
-        let s3 = aux_curr[RC_SORTED_3];
-        let s0_next = aux_next[RC_SORTED_0];
-        let s1_next = aux_next[RC_SORTED_1];
-        let s2_next = aux_next[RC_SORTED_2];
-        let s3_next = aux_next[RC_SORTED_3];
-
-        let rc_acc = aux_curr[RC_ACC];
-        let rc_acc_next = aux_next[RC_ACC];
-        let z_rc = rand_elements[RAND_Z_RC];
-
-        let d01 = s1 - s0;
-        result[0] = d01 * (d01 - one);
-        let d12 = s2 - s1;
-        result[1] = d12 * (d12 - one);
-        let d23 = s3 - s2;
-        result[2] = d23 * (d23 - one);
-        let d30 = s0_next - s3;
-        result[3] = d30 * (d30 - one);
-
-        let l0_next = E::from(main_next[COL_RC_L0]);
-        let l1_next = E::from(main_next[COL_RC_L1]);
-        let l2_next = E::from(main_next[COL_RC_L2]);
-        let l3_next = E::from(main_next[COL_RC_L3]);
-
-        let sorted_prod = (z_rc - s0_next) * (z_rc - s1_next) * (z_rc - s2_next) * (z_rc - s3_next);
-        let limb_prod = (z_rc - l0_next) * (z_rc - l1_next) * (z_rc - l2_next) * (z_rc - l3_next);
-        result[4] = sorted_prod * rc_acc_next - limb_prod * rc_acc;
+        for (k, &(hi_off, lo_off)) in LIMB_BYTE_PAIRS.iter().enumerate() {
+            let limb = E::from(main_next[LIMB_COLS[k]]);
+            let hi = local_next[hi_off];
+            let lo = local_next[lo_off];
+            result[k] = limb - (byte_base * hi + lo);
+        }
     }
 
     fn build_aux_columns<E: FieldElement<BaseField = BaseElement>>(
         &self,
         main_columns: &[&[BaseElement]],
-        rand_elements: &[E],
+        _rand_elements: &[E],
     ) -> Vec<Vec<E>> {
         let n = main_columns[COL_RC_L0].len();
-        let z_rc = rand_elements[RAND_Z_RC];
 
-        let mut limb_pool: Vec<u64> = Vec::with_capacity(4 * n);
-        for (((l0, l1), l2), l3) in main_columns[COL_RC_L0]
-            .iter()
-            .zip(main_columns[COL_RC_L1])
-            .zip(main_columns[COL_RC_L2])
-            .zip(main_columns[COL_RC_L3])
-        {
-            limb_pool.push(l0.as_int());
-            limb_pool.push(l1.as_int());
-            limb_pool.push(l2.as_int());
-            limb_pool.push(l3.as_int());
-        }
-        limb_pool.sort_unstable();
+        let byte_cols: Vec<Vec<E>> = (0..NUM_CHANNELS)
+            .map(|channel| {
+                let limb_col = LIMB_COLS[channel / 2];
+                let is_high = channel % 2 == 0;
+                (0..n)
+                    .map(|row| {
+                        let limb = main_columns[limb_col][row].as_int();
+                        let byte = if is_high {
+                            (limb >> 8) & 0xff
+                        } else {
+                            limb & 0xff
+                        };
+                        E::from(BaseElement::new(byte))
+                    })
+                    .collect()
+            })
+            .collect();
 
-        let mut sorted: [Vec<E>; 4] = std::array::from_fn(|_| Vec::with_capacity(n));
-        for i in 0..n {
-            sorted[0].push(E::from(BaseElement::new(limb_pool[4 * i])));
-            sorted[1].push(E::from(BaseElement::new(limb_pool[4 * i + 1])));
-            sorted[2].push(E::from(BaseElement::new(limb_pool[4 * i + 2])));
-            sorted[3].push(E::from(BaseElement::new(limb_pool[4 * i + 3])));
-        }
-
-        let mut acc = Vec::with_capacity(n);
-        acc.push(E::ONE);
-        for i in 1..n {
-            let l0 = E::from(main_columns[COL_RC_L0][i]);
-            let l1 = E::from(main_columns[COL_RC_L1][i]);
-            let l2 = E::from(main_columns[COL_RC_L2][i]);
-            let l3 = E::from(main_columns[COL_RC_L3][i]);
-            let limb_prod = (z_rc - l0) * (z_rc - l1) * (z_rc - l2) * (z_rc - l3);
-            let sorted_prod = (z_rc - sorted[0][i])
-                * (z_rc - sorted[1][i])
-                * (z_rc - sorted[2][i])
-                * (z_rc - sorted[3][i]);
-            acc.push(acc[i - 1] * limb_prod * sorted_prod.inv());
-        }
-
-        let [s0, s1, s2, s3] = sorted;
-        vec![s0, s1, s2, s3, acc]
+        byte_cols
     }
 
     fn aux_assertions<E: FieldElement<BaseField = BaseElement>>(
         &self,
-        column_base: usize,
-        last_step: usize,
+        _column_base: usize,
+        _last_step: usize,
     ) -> Vec<Assertion<E>> {
-        vec![
-            Assertion::single(column_base + RC_ACC, 0, E::ONE),
-            Assertion::single(column_base + RC_ACC, last_step, E::ONE),
-        ]
+        Vec::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    type F = BaseElement;
+
+    fn mock_main_with_limbs(limbs: &[[u64; 4]]) -> Vec<Vec<F>> {
+        use maat_trace::table::TRACE_WIDTH;
+
+        let n = limbs.len();
+        let mut cols = vec![vec![F::ZERO; n]; TRACE_WIDTH];
+        for (i, ls) in limbs.iter().enumerate() {
+            cols[COL_RC_L0][i] = F::new(ls[0]);
+            cols[COL_RC_L1][i] = F::new(ls[1]);
+            cols[COL_RC_L2][i] = F::new(ls[2]);
+            cols[COL_RC_L3][i] = F::new(ls[3]);
+        }
+        cols
+    }
+
+    #[test]
+    fn build_emits_byte_witness_columns_only() {
+        let n = RangeCheckBuiltin::MIN_TRACE_LEN.next_power_of_two();
+        let mut limbs: Vec<[u64; 4]> = vec![[0, 0, 0, 0]; n];
+        limbs[1] = [0xABCD, 0, 0, 0];
+        let main = mock_main_with_limbs(&limbs);
+        let main_slices = main.iter().map(|c| c.as_slice()).collect::<Vec<&[F]>>();
+
+        let aux = RangeCheckBuiltin.build_aux_columns::<F>(&main_slices, &[]);
+        assert_eq!(aux.len(), RangeCheckBuiltin::AUX_WIDTH);
+        assert_eq!(aux[RC_B0_HI][1], F::new(0xAB));
+        assert_eq!(aux[RC_B0_LO][1], F::new(0xCD));
+        assert!(aux[RC_B1_HI..=RC_B3_LO].iter().all(|c| c[1] == F::ZERO));
+    }
+
+    #[test]
+    fn limb_decomposition_passes_on_correct_bytes() {
+        let n = RangeCheckBuiltin::MIN_TRACE_LEN.next_power_of_two();
+        let mut limbs: Vec<[u64; 4]> = vec![[0, 0, 0, 0]; n];
+        limbs[5] = [0x1234, 0x5678, 0x9ABC, 0xDEF0];
+        let main = mock_main_with_limbs(&limbs);
+        let main_slices = main.iter().map(|c| c.as_slice()).collect::<Vec<&[F]>>();
+
+        let aux = RangeCheckBuiltin.build_aux_columns::<F>(&main_slices, &[]);
+        let aux_curr: Vec<F> = aux.iter().map(|c| c[4]).collect();
+        let aux_next: Vec<F> = aux.iter().map(|c| c[5]).collect();
+        let main_curr: Vec<F> = main.iter().map(|c| c[4]).collect();
+        let main_next: Vec<F> = main.iter().map(|c| c[5]).collect();
+
+        let mut result = vec![F::ZERO; RangeCheckBuiltin::NUM_AUX_CONSTRAINTS];
+        RangeCheckBuiltin.evaluate_aux_transition::<F, F>(
+            &main_curr,
+            &main_next,
+            &aux_curr,
+            &aux_next,
+            0,
+            &[],
+            &mut result,
+        );
+        for (j, &r) in result.iter().enumerate() {
+            assert_eq!(r, F::ZERO, "limb-decomposition constraint {j} violated");
+        }
+    }
+
+    #[test]
+    fn tampered_byte_breaks_decomposition() {
+        let n = RangeCheckBuiltin::MIN_TRACE_LEN.next_power_of_two();
+        let mut limbs: Vec<[u64; 4]> = vec![[0, 0, 0, 0]; n];
+        limbs[5] = [0x1234, 0, 0, 0];
+        let main = mock_main_with_limbs(&limbs);
+        let main_slices = main.iter().map(|c| c.as_slice()).collect::<Vec<&[F]>>();
+
+        let mut aux = RangeCheckBuiltin.build_aux_columns::<F>(&main_slices, &[]);
+        aux[RC_B0_HI][5] += F::ONE;
+
+        let main_curr = main.iter().map(|c| c[4]).collect::<Vec<F>>();
+        let main_next = main.iter().map(|c| c[5]).collect::<Vec<F>>();
+        let aux_curr = aux.iter().map(|c| c[4]).collect::<Vec<F>>();
+        let aux_next = aux.iter().map(|c| c[5]).collect::<Vec<F>>();
+        let mut result = vec![F::ZERO; RangeCheckBuiltin::NUM_AUX_CONSTRAINTS];
+        RangeCheckBuiltin.evaluate_aux_transition::<F, F>(
+            &main_curr,
+            &main_next,
+            &aux_curr,
+            &aux_next,
+            0,
+            &[],
+            &mut result,
+        );
+        assert_ne!(
+            result[0],
+            F::ZERO,
+            "decomposition must fail at tampered row"
+        );
+    }
+
+    #[test]
+    fn aux_widths_match_constants() {
+        assert_eq!(RangeCheckBuiltin::AUX_WIDTH, 8);
+        assert_eq!(RangeCheckBuiltin::NUM_AUX_CONSTRAINTS, 4);
+        assert_eq!(RangeCheckBuiltin::NUM_AUX_ASSERTIONS, 0);
+        assert_eq!(
+            RangeCheckBuiltin::AUX_CONSTRAINT_DEGREES.len(),
+            RangeCheckBuiltin::NUM_AUX_CONSTRAINTS
+        );
     }
 }

@@ -12,11 +12,17 @@ mod aux_segment;
 mod builtin;
 mod public_inputs;
 
-pub use aux_segment::{AUX_WIDTH, NUM_AUX_RANDS, build_aux_columns};
 use aux_segment::{
-    NUM_AUX_ASSERTIONS, NUM_AUX_CONSTRAINTS, aux_assertions, aux_constraint_degrees,
+    aux_assertions, aux_constraint_degrees, num_aux_assertions, num_aux_constraints,
 };
-pub use builtin::{BitwiseBuiltin, Builtin, BuiltinSet, IdentityBuiltin, RangeCheckBuiltin};
+pub use aux_segment::{aux_width, build_aux_columns, num_aux_rands};
+pub use builtin::{
+    BitwiseBuiltin, Builtin, BuiltinSet, CHUNKS_PER_OPERAND, ChunkBitwiseWitness, DILUTED_BITS,
+    IdentityBuiltin, LogUpBuiltin, LogUpColumns, LookupTable, NATIVE_BITS, POOL_SIZE,
+    POOL_TABLE_ID, RangeCheckBuiltin, SPREAD_MASK, STRIDE, TableId, bitwise_identity_residuals,
+    chunk_decompose, chunk_recompose, chunk_weight, chunk_witness, dilute,
+    evaluate_transition_step, is_in_pool, pool_entries, undilute,
+};
 use maat_field::{BaseElement, ExtensionOf, FieldElement};
 use maat_trace::main_segment::{self, CONSTRAINT_DEGREES};
 use maat_trace::table::{COL_OUT, COL_PC, COL_SP};
@@ -56,7 +62,7 @@ impl Air for MaatAir {
             main_degrees,
             aux_degrees,
             NUM_MAIN_ASSERTIONS,
-            NUM_AUX_ASSERTIONS,
+            num_aux_assertions(),
             options,
         );
 
@@ -90,7 +96,7 @@ impl Air for MaatAir {
         F: FieldElement<BaseField = Self::BaseField>,
         E: FieldElement<BaseField = Self::BaseField> + ExtensionOf<F>,
     {
-        debug_assert_eq!(result.len(), NUM_AUX_CONSTRAINTS);
+        debug_assert_eq!(result.len(), num_aux_constraints());
         aux_segment::evaluate(
             main_frame.current(),
             main_frame.next(),
@@ -119,6 +125,8 @@ impl Air for MaatAir {
             aux_rand_elements.rand_elements(),
             self.public_inputs.output_base,
             &self.public_inputs.output_segment,
+            self.public_inputs.program_base,
+            &self.public_inputs.program_segment,
         )
     }
 }
@@ -145,7 +153,13 @@ mod tests {
     }
 
     fn multi_segment_trace_info(trace_length: usize) -> TraceInfo {
-        TraceInfo::new_multi_segment(TRACE_WIDTH, AUX_WIDTH, NUM_AUX_RANDS, trace_length, vec![])
+        TraceInfo::new_multi_segment(
+            TRACE_WIDTH,
+            aux_width(),
+            num_aux_rands(),
+            trace_length,
+            vec![],
+        )
     }
 
     #[test]
@@ -155,10 +169,10 @@ mod tests {
         let air = MaatAir::new(trace_info, pub_inputs, test_options());
 
         assert_eq!(air.context().trace_info().main_trace_width(), TRACE_WIDTH);
-        assert_eq!(air.context().trace_info().aux_segment_width(), AUX_WIDTH);
+        assert_eq!(air.context().trace_info().aux_segment_width(), aux_width());
         assert_eq!(
             air.context().num_transition_constraints(),
-            NUM_CONSTRAINTS + NUM_AUX_CONSTRAINTS
+            NUM_CONSTRAINTS + num_aux_constraints()
         );
     }
 
@@ -187,7 +201,7 @@ mod tests {
             BaseElement::new(11),
         ]);
         let assertions = air.get_aux_assertions(&rand_elements);
-        assert_eq!(assertions.len(), aux_segment::NUM_AUX_ASSERTIONS);
+        assert_eq!(assertions.len(), aux_segment::num_aux_assertions());
         // Memory boundary assertions come first.
         assert_eq!(assertions[0].column(), AUX_COL_MEM_ACC);
         assert_eq!(assertions[1].column(), AUX_COL_MEM_ACC);

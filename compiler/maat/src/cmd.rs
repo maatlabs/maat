@@ -9,8 +9,7 @@ use maat_bytecode::Bytecode;
 use maat_field::{BaseElement, FieldElement, from_i64};
 use maat_module::{check_and_compile, resolve_module_graph};
 use maat_prover::{
-    MaatProver, compute_program_hash, compute_program_hash_bytes, deserialize_proof,
-    development_options, production_options, serialize_proof,
+    MaatProver, deserialize_proof, development_options, production_options, serialize_proof,
 };
 use maat_runtime::Value;
 use maat_vm::VM;
@@ -146,8 +145,15 @@ pub fn prove(
     let inputs = load_inputs(input, inputs_file);
     let bytecode = compile_source(path);
 
-    let (trace, result) = match maat_trace::run(bytecode.clone()) {
-        Ok(pair) => pair,
+    let maat_trace::TraceArtifacts {
+        trace,
+        result,
+        output_base,
+        output_segment,
+        program_base,
+        program_segment,
+    } = match maat_trace::run_with_output(bytecode) {
+        Ok(a) => a,
         Err(e) => {
             eprintln!("error: trace generation failed: {e}");
             process::exit(1);
@@ -174,22 +180,14 @@ pub fn prove(
         .map(|v| v.to_felt())
         .unwrap_or(BaseElement::ZERO);
 
-    let program_hash = match compute_program_hash(&bytecode) {
-        Ok(h) => h,
-        Err(e) => {
-            eprintln!("error: failed to compute program hash: {e}");
-            process::exit(1);
-        }
-    };
-    let program_hash_bytes = match compute_program_hash_bytes(&bytecode) {
-        Ok(h) => h,
-        Err(e) => {
-            eprintln!("error: failed to compute program hash bytes: {e}");
-            process::exit(1);
-        }
-    };
-
-    let public_inputs = MaatPublicInputs::new(program_hash, inputs.clone(), output);
+    let public_inputs = MaatPublicInputs::with_segments(
+        inputs.clone(),
+        output,
+        output_base,
+        output_segment.clone(),
+        program_base,
+        program_segment.clone(),
+    );
     let options = if production {
         production_options()
     } else {
@@ -207,7 +205,15 @@ pub fn prove(
     };
     let elapsed = start.elapsed();
 
-    let proof_bytes = serialize_proof(&proof, &program_hash_bytes, output, &inputs);
+    let proof_bytes = serialize_proof(
+        &proof,
+        output,
+        &inputs,
+        output_base,
+        &output_segment,
+        program_base,
+        &program_segment,
+    );
     let default_output = path.with_extension("proof.bin");
     let out = output_path.unwrap_or(&default_output);
     if let Err(e) = std::fs::write(out, &proof_bytes) {

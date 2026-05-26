@@ -48,25 +48,3 @@ pub enum SerializationError {
         limit: usize,
     },
 }
-
-#[derive(Debug, Error)]
-pub enum ProverError {
-    #[error("trace generation failed: {0}")]
-    Trace(String),
-
-    #[error("proof generation failed: {0}")]
-    ProvingFailed(String),
-
-    #[error("bytecode serialization failed: {0}")]
-    Serialization(#[from] SerializationError),
-}
-
-/// Errors arising during proof verification.
-#[derive(Debug, Error)]
-pub enum VerificationError {
-    #[error("proof verification failed: {0}")]
-    Rejected(String),
-
-    #[error("proof deserialization failed: {0}")]
-    Deserialization(#[from] SerializationError),
-}

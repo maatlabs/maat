@@ -17,8 +17,8 @@ use maat_errors::{Result, VmError};
 use maat_field::{Felt, FieldElement, from_i64, try_inv};
 use maat_runtime::{
     BUILTINS, BuiltinArg, BuiltinFn, BuiltinReturn, Closure, CompiledFn, EnumVariantVal, FALSE,
-    Hashable, Integer, Map, MaybeRelocatable, MemorySegmentManager, Relocatable, Set, StructVal,
-    TRUE, TypeDef, UNIT, Value, WideInt,
+    Hashable, Integer, Map, MaybeRelocatable, MemorySegmentManager, Relocatable, SEG_PROGRAM, Set,
+    StructVal, TRUE, TypeDef, UNIT, Value, WideInt,
 };
 use maat_span::{SourceMap, Span};
 
@@ -106,6 +106,20 @@ impl VM {
         &self.segments
     }
 
+    pub fn pin_program(&mut self, program_bytes: &[u8]) -> Result<()> {
+        for (off, &byte) in program_bytes.iter().enumerate() {
+            let off_u32 = u32::try_from(off)
+                .map_err(|_| VmError::new("program segment longer than u32::MAX bytes"))?;
+            self.segments
+                .write(
+                    Relocatable::new(SEG_PROGRAM, off_u32),
+                    MaybeRelocatable::Felt(Felt::new(u64::from(byte))),
+                )
+                .map_err(|e| VmError::new(format!("program-segment write failed: {e}")))?;
+        }
+        Ok(())
+    }
+
     pub fn last_popped_stack_elem(&self) -> Option<&Value> {
         if self.sp < self.stack.len() {
             Some(&self.stack[self.sp])
@@ -114,9 +128,6 @@ impl VM {
         }
     }
 
-    /// Reads the elements of a segment-backed `Value::Vector { base, len }`
-    /// out of the heap and returns them as a `Vec<Value>`. Returns `None`
-    /// for non-Vector values.
     pub fn inspect_vector(&self, value: &Value) -> Result<Option<Vec<Value>>> {
         match value {
             Value::Vector { base, len } => self.read_vector_cells(*base, *len).map(Some),
@@ -220,7 +231,13 @@ impl VM {
             | Opcode::Shl
             | Opcode::Shr => {
                 self.execute_binary_operation(op)?;
-                recorder.record_out(self.peek_top_maybe_reloc());
+                let result = self.peek_top_maybe_reloc();
+                let result_felt = result.as_felt().unwrap_or(Felt::ZERO);
+                recorder.record_out(result);
+                if matches!(op, Opcode::Shl | Opcode::Shr) {
+                    let shift = s0_pre.as_int() as u32;
+                    recorder.record_shift_witness(op, s1_pre, shift, result_felt);
+                }
             }
             Opcode::Div | Opcode::Mod => {
                 self.execute_binary_operation(op)?;

@@ -19,15 +19,15 @@ pub struct IdentityBuiltin;
 impl IdentityBuiltin {
     pub const NAME: &'static str = "identity";
 
-    pub const AUX_WIDTH: usize = 1;
+    const AUX_WIDTH: usize = 1;
 
-    pub const NUM_AUX_RANDS: usize = 0;
+    const NUM_AUX_RANDS: usize = 0;
 
-    pub const NUM_AUX_CONSTRAINTS: usize = 1;
+    const NUM_AUX_CONSTRAINTS: usize = 1;
 
-    pub const NUM_AUX_ASSERTIONS: usize = 2;
+    const NUM_AUX_ASSERTIONS: usize = 2;
 
-    pub const AUX_CONSTRAINT_DEGREES: &'static [usize] = &[1];
+    const AUX_CONSTRAINT_DEGREES: &'static [usize] = &[1];
 
     pub const RESERVED_ADDRESS_RANGE: (u64, u64) = (1u64 << 34, (1u64 << 35) - 1);
 }
@@ -45,16 +45,20 @@ impl Builtin for IdentityBuiltin {
         Self::NUM_AUX_RANDS
     }
 
-    fn aux_constraint_degrees(&self) -> &'static [usize] {
-        Self::AUX_CONSTRAINT_DEGREES
-    }
-
-    fn reserved_address_range(&self) -> (u64, u64) {
-        Self::RESERVED_ADDRESS_RANGE
+    fn num_aux_constraints(&self) -> usize {
+        Self::NUM_AUX_CONSTRAINTS
     }
 
     fn num_aux_assertions(&self) -> usize {
         Self::NUM_AUX_ASSERTIONS
+    }
+
+    fn aux_constraint_degrees(&self) -> Vec<usize> {
+        Self::AUX_CONSTRAINT_DEGREES.to_vec()
+    }
+
+    fn reserved_address_range(&self) -> (u64, u64) {
+        Self::RESERVED_ADDRESS_RANGE
     }
 
     fn evaluate_aux_transition<F, E>(
@@ -63,16 +67,18 @@ impl Builtin for IdentityBuiltin {
         _main_next: &[F],
         aux_curr: &[E],
         aux_next: &[E],
+        base_offset: usize,
         _rand_elements: &[E],
         result: &mut [E],
     ) where
         F: FieldElement<BaseField = BaseElement>,
         E: FieldElement<BaseField = BaseElement> + ExtensionOf<F>,
     {
-        debug_assert_eq!(aux_curr.len(), Self::AUX_WIDTH);
-        debug_assert_eq!(aux_next.len(), Self::AUX_WIDTH);
+        let local_curr = &aux_curr[base_offset..base_offset + Self::AUX_WIDTH];
+        let local_next = &aux_next[base_offset..base_offset + Self::AUX_WIDTH];
+
         debug_assert_eq!(result.len(), Self::NUM_AUX_CONSTRAINTS);
-        result[0] = aux_next[IDENTITY_COL] - aux_curr[IDENTITY_COL];
+        result[0] = local_next[IDENTITY_COL] - local_curr[IDENTITY_COL];
     }
 
     fn build_aux_columns<E: FieldElement<BaseField = BaseElement>>(

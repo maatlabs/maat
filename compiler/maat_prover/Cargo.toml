@@ -14,10 +14,8 @@ readme = "README.md"
 winter-prover = "0.13"
 winter-verifier = "0.13"
 winter-crypto = "0.13"
-blake3 = "1"
 
 maat_errors.workspace = true
 maat_field.workspace = true
-maat_bytecode.workspace = true
 maat_trace.workspace = true
 maat_air.workspace = true
