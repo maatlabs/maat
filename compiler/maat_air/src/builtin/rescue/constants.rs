@@ -7,11 +7,7 @@
 
 use maat_field::BaseElement;
 
-/// Sponge state width, in field elements (96 bytes total).
-pub const STATE_WIDTH: usize = 12;
-
-/// Number of permutation rounds.
-pub const NUM_ROUNDS: usize = 7;
+use super::{NUM_ROUNDS, STATE_WIDTH};
 
 /// Rescue MDS matrix. Polygon-Zero construction (small-coefficient entries
 /// admitting a fast frequency-domain matrix-vector multiply); any MDS matrix

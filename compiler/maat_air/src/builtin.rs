@@ -31,6 +31,7 @@ pub mod diluted;
 pub mod identity;
 pub mod logup;
 pub mod range_check;
+pub mod rescue;
 
 pub use bitwise::BitwiseBuiltin;
 pub use diluted::{
