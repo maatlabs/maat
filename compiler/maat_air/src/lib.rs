@@ -16,6 +16,7 @@ use aux_segment::{
     aux_assertions, aux_constraint_degrees, num_aux_assertions, num_aux_constraints,
 };
 pub use aux_segment::{aux_width, build_aux_columns, num_aux_rands};
+use builtin::BUILTIN_SET;
 pub use builtin::{
     BitwiseBuiltin, Builtin, BuiltinSet, CHUNKS_PER_OPERAND, ChunkBitwiseWitness, DILUTED_BITS,
     IdentityBuiltin, LogUpBuiltin, LogUpColumns, LookupTable, NATIVE_BITS, POOL_SIZE,
@@ -107,6 +108,10 @@ impl Air for MaatAir {
         );
     }
 
+    fn get_periodic_column_values(&self) -> Vec<Vec<Self::BaseField>> {
+        BUILTIN_SET.periodic_columns()
+    }
+
     fn get_assertions(&self) -> Vec<Assertion<Self::BaseField>> {
         let last_step = self.trace_length() - 1;
         vec![
@@ -187,6 +192,20 @@ mod tests {
         assert_eq!(assertions[0].column(), COL_PC);
         assert_eq!(assertions[1].column(), COL_SP);
         assert_eq!(assertions[2].column(), COL_OUT);
+    }
+
+    #[test]
+    fn air_periodic_column_values_delegate_to_builtin_set() {
+        let trace_info = multi_segment_trace_info(8);
+        let pub_inputs = MaatPublicInputs::with_output(BaseElement::new(7));
+        let air = MaatAir::new(trace_info, pub_inputs, test_options());
+
+        let from_air = air.get_periodic_column_values();
+        let from_set = BUILTIN_SET.periodic_columns();
+        assert_eq!(from_air.len(), from_set.len());
+        for (a, b) in from_air.iter().zip(from_set.iter()) {
+            assert_eq!(a, b);
+        }
     }
 
     #[test]

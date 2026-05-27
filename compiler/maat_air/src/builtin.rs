@@ -209,6 +209,10 @@ pub trait Builtin {
         column_base: usize,
         last_step: usize,
     ) -> Vec<Assertion<E>>;
+
+    fn periodic_columns(&self) -> Vec<Vec<BaseElement>> {
+        Vec::new()
+    }
 }
 
 /// Memoized aux-column / randomness layout for a [`BuiltinSet`].
@@ -462,6 +466,18 @@ impl BuiltinSet {
         cols
     }
 
+    pub fn periodic_columns(&self) -> Vec<Vec<BaseElement>> {
+        [
+            self.range_check.periodic_columns(),
+            self.bitwise.periodic_columns(),
+            self.identity.periodic_columns(),
+            self.logup.periodic_columns(),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
+    }
+
     pub fn aux_assertions<E: FieldElement<BaseField = BaseElement>>(
         &self,
         last_step: usize,
@@ -590,6 +606,98 @@ mod tests {
                 + set.bitwise.num_aux_rands()
                 + set.identity.num_aux_rands()
         );
+    }
+
+    #[test]
+    fn registered_builtins_contribute_no_periodic_columns() {
+        let set = BuiltinSet::new();
+        assert!(set.range_check.periodic_columns().is_empty());
+        assert!(set.bitwise.periodic_columns().is_empty());
+        assert!(set.identity.periodic_columns().is_empty());
+        assert!(set.logup.periodic_columns().is_empty());
+        assert!(set.periodic_columns().is_empty());
+    }
+
+    #[test]
+    fn periodic_columns_concatenate_in_registration_order() {
+        struct StubBuiltin {
+            cols: Vec<Vec<BaseElement>>,
+        }
+        impl Builtin for StubBuiltin {
+            fn name(&self) -> &'static str {
+                "stub"
+            }
+            fn aux_width(&self) -> usize {
+                0
+            }
+            fn num_aux_rands(&self) -> usize {
+                0
+            }
+            fn num_aux_constraints(&self) -> usize {
+                0
+            }
+            fn num_aux_assertions(&self) -> usize {
+                0
+            }
+            fn aux_constraint_degrees(&self) -> Vec<usize> {
+                Vec::new()
+            }
+            fn reserved_address_range(&self) -> (u64, u64) {
+                (0, 0)
+            }
+            fn evaluate_aux_transition<F, E>(
+                &self,
+                _main_curr: &[F],
+                _main_next: &[F],
+                _aux_curr: &[E],
+                _aux_next: &[E],
+                _base_offset: usize,
+                _rand_elements: &[E],
+                _result: &mut [E],
+            ) where
+                F: FieldElement<BaseField = BaseElement>,
+                E: FieldElement<BaseField = BaseElement> + ExtensionOf<F>,
+            {
+            }
+            fn build_aux_columns<E: FieldElement<BaseField = BaseElement>>(
+                &self,
+                _main_columns: &[&[BaseElement]],
+                _rand_elements: &[E],
+            ) -> Vec<Vec<E>> {
+                Vec::new()
+            }
+            fn aux_assertions<E: FieldElement<BaseField = BaseElement>>(
+                &self,
+                _column_base: usize,
+                _last_step: usize,
+            ) -> Vec<Assertion<E>> {
+                Vec::new()
+            }
+            fn periodic_columns(&self) -> Vec<Vec<BaseElement>> {
+                self.cols.clone()
+            }
+        }
+
+        let stub_a = StubBuiltin {
+            cols: vec![vec![BaseElement::new(1), BaseElement::new(2)]],
+        };
+        let stub_b = StubBuiltin {
+            cols: vec![
+                vec![BaseElement::new(3), BaseElement::new(4)],
+                vec![BaseElement::new(5), BaseElement::new(6)],
+            ],
+        };
+
+        let combined: Vec<Vec<BaseElement>> =
+            [stub_a.periodic_columns(), stub_b.periodic_columns()]
+                .into_iter()
+                .flatten()
+                .collect();
+
+        assert_eq!(combined.len(), 3);
+        assert_eq!(combined[0], vec![BaseElement::new(1), BaseElement::new(2)]);
+        assert_eq!(combined[1], vec![BaseElement::new(3), BaseElement::new(4)]);
+        assert_eq!(combined[2], vec![BaseElement::new(5), BaseElement::new(6)]);
     }
 
     #[test]
