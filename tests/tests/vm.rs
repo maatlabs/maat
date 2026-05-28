@@ -604,6 +604,61 @@ fn builtin_method_chaining() {
 }
 
 #[test]
+fn hash_rescue_opcode_matches_field_primitive() {
+    use maat_bytecode::Constant;
+    use maat_field::rescue::hash;
+    use maat_field::{Felt, FieldElement};
+
+    for &n in &[2usize, 4, 8] {
+        let input = (1..=n as u64)
+            .map(|i| Felt::new(i.wrapping_mul(1_000_003)))
+            .collect::<Vec<Felt>>();
+        let expected_digest = hash(&input);
+        let expected_sum = expected_digest
+            .iter()
+            .copied()
+            .fold(Felt::ZERO, |a, b| a + b);
+
+        let mut instructions = Instructions::new();
+        let mut constants = Vec::with_capacity(n);
+        for (i, f) in input.iter().enumerate() {
+            constants.push(Constant::Felt(f.as_int()));
+            instructions.extend(&Instructions::from(encode(Opcode::Constant, &[i])));
+        }
+        instructions.extend(&Instructions::from(encode(Opcode::HashRescue, &[n])));
+        for _ in 0..3 {
+            instructions.extend(&Instructions::from(encode(Opcode::FeltAdd, &[])));
+        }
+        instructions.extend(&Instructions::from(encode(Opcode::Pop, &[])));
+
+        let bytecode = Bytecode {
+            instructions,
+            constants,
+            source_map: Default::default(),
+            type_registry: vec![],
+        };
+
+        let bytes = bytecode.serialize().expect("serialize failed");
+        let bytecode = Bytecode::deserialize(&bytes).expect("deserialize failed");
+
+        let mut vm = VM::new(bytecode);
+        vm.run()
+            .unwrap_or_else(|err| panic!("vm run failed for n={n}: {err}"));
+
+        match vm.last_popped_stack_elem().expect("no value on stack") {
+            Value::Felt(actual) => {
+                assert_eq!(
+                    actual.as_int(),
+                    expected_sum.as_int(),
+                    "rescue digest sum mismatch at n={n}"
+                );
+            }
+            other => panic!("expected Felt, got {other:?}"),
+        }
+    }
+}
+
+#[test]
 fn stack_underflow() {
     use maat_errors::Error;
 

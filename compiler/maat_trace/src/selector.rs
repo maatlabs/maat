@@ -180,9 +180,12 @@ pub const fn selector_index(op: Opcode) -> usize {
         | Opcode::Index
         | Opcode::Pop => SEL_COLLECTION,
 
-        Opcode::FeltAdd | Opcode::FeltSub | Opcode::FeltMul | Opcode::FeltInv | Opcode::FeltPow => {
-            SEL_FELT
-        }
+        Opcode::FeltAdd
+        | Opcode::FeltSub
+        | Opcode::FeltMul
+        | Opcode::FeltInv
+        | Opcode::FeltPow
+        | Opcode::HashRescue => SEL_FELT,
 
         Opcode::HeapAlloc | Opcode::ArenaNew | Opcode::VectorPush => SEL_HEAP_ALLOC,
         Opcode::HeapRead => SEL_HEAP_READ,

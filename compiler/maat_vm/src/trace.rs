@@ -97,6 +97,10 @@ pub trait Tracer {
     #[inline(always)]
     fn record_shift_witness(&mut self, _op: Opcode, _operand: Felt, _shift: u32, _result: Felt) {}
 
+    /// Records a Rescue-Prime hash dispatch.
+    #[inline(always)]
+    fn record_rescue_call(&mut self, _input: &[Felt], _digest: [Felt; 4]) {}
+
     /// Marks the current row complete; the recorder commits it to its buffer.
     #[inline(always)]
     fn end_row(&mut self) {}

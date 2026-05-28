@@ -590,6 +590,24 @@ impl VM {
                 self.push_stack(Value::Vector { base, len: 0 })?;
                 recorder.record_out(MaybeRelocatable::Relocatable(base));
             }
+            Opcode::HashRescue => {
+                const _: () = assert!(
+                    maat_field::rescue::DIGEST_SIZE == 4,
+                    "Tracer::record_rescue_call digest array pinned at 4"
+                );
+                let n = self.read_u16_operand(ip + 1)?;
+                self.current_frame_mut()?.ip += 2;
+                let mut input = vec![Felt::ZERO; n];
+                for slot in input.iter_mut().rev() {
+                    *slot = self.pop_felt("HashRescue")?;
+                }
+                let digest = maat_field::rescue::hash(&input);
+                for &d in &digest {
+                    self.push_stack(Value::Felt(d))?;
+                }
+                recorder.record_out(MaybeRelocatable::Felt(digest[digest.len() - 1]));
+                recorder.record_rescue_call(&input, digest);
+            }
             Opcode::VectorPush => {
                 let val = self.pop_stack()?;
                 let vec = self.pop_stack()?;
