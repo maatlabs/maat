@@ -6,9 +6,11 @@
 //! Polygon-Zero MDS matrix. The shared parameter set lets Winterfell's
 //! published test vectors cross-check this implementation directly.
 
+mod air;
 mod constants;
 mod permutation;
 
+pub use air::RescueHashBuiltin;
 pub use constants::{ARK1, ARK2, INV_MDS, MDS};
 use maat_field::{BaseElement, FieldElement};
 pub use permutation::rescue_permutation;

@@ -20,9 +20,9 @@ use builtin::BUILTIN_SET;
 pub use builtin::{
     BitwiseBuiltin, Builtin, BuiltinSet, CHUNKS_PER_OPERAND, ChunkBitwiseWitness, DILUTED_BITS,
     IdentityBuiltin, LogUpBuiltin, LogUpColumns, LookupTable, NATIVE_BITS, POOL_SIZE,
-    POOL_TABLE_ID, RangeCheckBuiltin, SPREAD_MASK, STRIDE, TableId, bitwise_identity_residuals,
-    chunk_decompose, chunk_recompose, chunk_weight, chunk_witness, dilute,
-    evaluate_transition_step, is_in_pool, pool_entries, rescue, undilute,
+    POOL_TABLE_ID, RangeCheckBuiltin, RescueHashBuiltin, SPREAD_MASK, STRIDE, TableId,
+    bitwise_identity_residuals, chunk_decompose, chunk_recompose, chunk_weight, chunk_witness,
+    dilute, evaluate_transition_step, is_in_pool, pool_entries, rescue, undilute,
 };
 use maat_field::{BaseElement, ExtensionOf, FieldElement};
 use maat_trace::main_segment::{self, CONSTRAINT_DEGREES};
