@@ -15,10 +15,9 @@
 //! call. A frequency-domain alternative is ~3x faster; the naive form is
 //! retained until callers surface a measurable cost.
 
-use maat_field::{BaseElement, FieldElement};
-
 use super::constants::{ARK1, ARK2, MDS};
 use super::{NUM_ROUNDS, STATE_WIDTH};
+use crate::{BaseElement, FieldElement};
 
 /// Applies the Rescue-Prime permutation in place.
 pub fn rescue_permutation(state: &mut [BaseElement; STATE_WIDTH]) {
@@ -100,11 +99,10 @@ fn exp_acc<const N: usize>(
 
 #[cfg(test)]
 mod tests {
-    use maat_field::StarkField;
-
     use super::super::constants::INV_MDS;
     use super::super::{ALPHA, INV_ALPHA};
     use super::*;
+    use crate::StarkField;
 
     /// Cross-check against the canonical Rescue-Prime test vector from
     /// the Winterfell `rp64_256` suite (computed via the sage reference).

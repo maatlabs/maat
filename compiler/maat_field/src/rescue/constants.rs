@@ -5,9 +5,8 @@
 //! the in-module unit tests cross-check against the
 //! published `sage` reference value, so any data-entry drift fails CI.
 
-use maat_field::BaseElement;
-
 use super::{NUM_ROUNDS, STATE_WIDTH};
+use crate::BaseElement;
 
 /// Rescue MDS matrix. Polygon-Zero construction (small-coefficient entries
 /// admitting a fast frequency-domain matrix-vector multiply); any MDS matrix

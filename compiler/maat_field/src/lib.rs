@@ -47,6 +47,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod rescue;
+
 pub use winter_math::fields::f64::BaseElement;
 pub use winter_math::{ExtensionOf, FieldElement, StarkField, ToElements};
 
