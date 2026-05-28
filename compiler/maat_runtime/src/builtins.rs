@@ -174,6 +174,16 @@ define_builtins! {
     "cmp::min" => cmp_min,
     "cmp::max" => cmp_max,
     "cmp::clamp" => cmp_clamp,
+
+    "hash::rescue_2" | "hash::rescue_4" | "hash::rescue_8" => hash_rescue_first_class_unsupported,
+}
+
+fn hash_rescue_first_class_unsupported(_args: &[BuiltinArg<'_>]) -> Result<BuiltinReturn> {
+    Err(EvalError::Builtin(
+        "hash::rescue_N must be called directly; first-class function-value use is not supported"
+            .into(),
+    )
+    .into())
 }
 
 fn arg_to_value(arg: &BuiltinArg<'_>) -> Value {

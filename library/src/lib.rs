@@ -41,3 +41,10 @@ pub const STD_OPTION: &str = include_str!("../std/option.maat");
 ///
 /// `Result<T, E>` is a compiler-builtin type; this file is not injected as a parsed module.
 pub const STD_RESULT: &str = include_str!("../std/result.maat");
+
+/// Reference documentation for `hash::rescue_N` (Rescue-Prime hash primitive).
+///
+/// `hash::rescue_2` / `rescue_4` / `rescue_8` are implemented natively in the
+/// compiler (call-site codegen intercept lowering to `Opcode::HashRescue`);
+/// this file is not injected as a parsed module.
+pub const STD_HASH: &str = include_str!("../std/hash.maat");

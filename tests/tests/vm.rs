@@ -604,6 +604,60 @@ fn builtin_method_chaining() {
 }
 
 #[test]
+fn hash_rescue_codegen_intercept_lowers_to_opcode() {
+    use maat_field::rescue::hash;
+    use maat_field::{Felt, FieldElement};
+
+    let cases: [(&str, Vec<Felt>); 3] = [
+        (
+            r#"
+                let input: [Felt; 2] = [1_fe, 2_fe];
+                let digest = hash::rescue_2(input);
+                digest[0] + digest[1] + digest[2] + digest[3]
+            "#,
+            vec![Felt::new(1), Felt::new(2)],
+        ),
+        (
+            r#"
+                let input: [Felt; 4] = [10_fe, 20_fe, 30_fe, 40_fe];
+                let digest = hash::rescue_4(input);
+                digest[0] + digest[1] + digest[2] + digest[3]
+            "#,
+            vec![Felt::new(10), Felt::new(20), Felt::new(30), Felt::new(40)],
+        ),
+        (
+            r#"
+                let input: [Felt; 8] = [1_fe, 2_fe, 3_fe, 4_fe, 5_fe, 6_fe, 7_fe, 8_fe];
+                let digest = hash::rescue_8(input);
+                digest[0] + digest[1] + digest[2] + digest[3]
+            "#,
+            (1..=8u64).map(Felt::new).collect(),
+        ),
+    ];
+
+    for (source, input) in cases {
+        let expected_digest = hash(&input);
+        let expected_sum = expected_digest
+            .iter()
+            .copied()
+            .fold(Felt::ZERO, |a, b| a + b);
+
+        let bytecode = maat_tests::compile(source);
+        let mut vm = VM::new(bytecode);
+        vm.run()
+            .unwrap_or_else(|err| panic!("vm run failed for source `{source}`: {err}"));
+
+        match vm.last_popped_stack_elem().expect("no value on stack") {
+            Value::Felt(actual) => assert_eq!(
+                *actual, expected_sum,
+                "rescue digest sum mismatch for source `{source}`"
+            ),
+            other => panic!("expected Felt, got {other:?} for source `{source}`"),
+        }
+    }
+}
+
+#[test]
 fn hash_rescue_opcode_matches_field_primitive() {
     use maat_bytecode::Constant;
     use maat_field::rescue::hash;
