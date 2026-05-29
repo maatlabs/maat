@@ -265,15 +265,15 @@ mod tests {
         for (round, w) in witness.iter().enumerate() {
             // expected[i] = sum_j MDS[i][j] * state_after_sbox[j] + ARK1[round][i]
             let expected: [BaseElement; STATE_WIDTH] = std::array::from_fn(|i| {
-                let mut acc = BaseElement::ZERO;
-                for j in 0..STATE_WIDTH {
-                    acc += MDS[i][j] * w.state_after_sbox[j];
-                }
+                let acc = MDS[i]
+                    .iter()
+                    .zip(w.state_after_sbox.iter())
+                    .fold(BaseElement::ZERO, |acc, (&m, &s)| acc + m * s);
                 acc + ARK1[round][i]
             });
-            for i in 0..STATE_WIDTH {
+            for (i, &cell) in w.state_after_inv_sbox.iter().enumerate() {
                 assert_eq!(
-                    w.state_after_inv_sbox[i].exp(ALPHA),
+                    cell.exp(ALPHA),
                     expected[i],
                     "round {round} cell {i}: inv-sbox cross-mult failed",
                 );
