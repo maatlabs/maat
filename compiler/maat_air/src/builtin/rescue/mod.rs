@@ -8,5 +8,6 @@ mod air;
 pub use air::RescueHashBuiltin;
 pub use maat_field::rescue::{
     ALPHA, ARK1, ARK2, CAPACITY, CAPACITY_RANGE, DIGEST_RANGE, DIGEST_SIZE, INV_ALPHA, INV_MDS,
-    MDS, NUM_ROUNDS, RATE, RATE_RANGE, STATE_WIDTH, hash, rescue_permutation,
+    MDS, NUM_ROUNDS, RATE, RATE_RANGE, RescueRoundWitness, STATE_WIDTH, hash, rescue_permutation,
+    rescue_permutation_with_witness,
 };

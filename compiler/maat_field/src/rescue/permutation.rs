@@ -19,11 +19,31 @@ use super::constants::{ARK1, ARK2, MDS};
 use super::{NUM_ROUNDS, STATE_WIDTH};
 use crate::{BaseElement, FieldElement};
 
+/// Per-round witness captured during a Rescue-Prime permutation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RescueRoundWitness {
+    pub state_in: [BaseElement; STATE_WIDTH],
+    pub state_after_sbox: [BaseElement; STATE_WIDTH],
+    pub state_after_inv_sbox: [BaseElement; STATE_WIDTH],
+}
+
 /// Applies the Rescue-Prime permutation in place.
 pub fn rescue_permutation(state: &mut [BaseElement; STATE_WIDTH]) {
     for round in 0..NUM_ROUNDS {
         apply_round(state, round);
     }
+}
+
+/// Applies the Rescue-Prime permutation in place and returns the per-round
+/// witness vectors the AIR commits to.
+///
+/// Callers that do not need the witness should prefer
+/// [`rescue_permutation`], which avoids three `STATE_WIDTH`-wide copies per
+/// round.
+pub fn rescue_permutation_with_witness(
+    state: &mut [BaseElement; STATE_WIDTH],
+) -> [RescueRoundWitness; NUM_ROUNDS] {
+    std::array::from_fn(|round| apply_round_with_witness(state, round))
 }
 
 #[inline]
@@ -35,6 +55,32 @@ fn apply_round(state: &mut [BaseElement; STATE_WIDTH], round: usize) {
     apply_inv_sbox(state);
     apply_mds(state);
     add_constants(state, &ARK2[round]);
+}
+
+#[inline]
+fn apply_round_with_witness(
+    state: &mut [BaseElement; STATE_WIDTH],
+    round: usize,
+) -> RescueRoundWitness {
+    let state_in = *state;
+
+    apply_sbox(state);
+    let state_after_sbox = *state;
+
+    apply_mds(state);
+    add_constants(state, &ARK1[round]);
+
+    apply_inv_sbox(state);
+    let state_after_inv_sbox = *state;
+
+    apply_mds(state);
+    add_constants(state, &ARK2[round]);
+
+    RescueRoundWitness {
+        state_in,
+        state_after_sbox,
+        state_after_inv_sbox,
+    }
 }
 
 #[inline]
@@ -184,5 +230,54 @@ mod tests {
         let phi = BaseElement::MODULUS - 1;
         let product = (ALPHA as u128) * (INV_ALPHA as u128);
         assert_eq!(product % (phi as u128), 1u128);
+    }
+
+    #[test]
+    fn permutation_with_witness_matches_plain_permutation() {
+        let mut a: [BaseElement; STATE_WIDTH] = std::array::from_fn(|i| BaseElement::new(i as u64));
+        let mut b = a;
+
+        rescue_permutation(&mut a);
+        let witness = rescue_permutation_with_witness(&mut b);
+
+        assert_eq!(a, b, "final states differ between witness/no-witness paths");
+        assert_eq!(witness.len(), NUM_ROUNDS);
+    }
+
+    #[test]
+    fn witness_sbox_equals_state_in_to_the_alpha() {
+        let mut state: [BaseElement; STATE_WIDTH] =
+            std::array::from_fn(|i| BaseElement::new(i as u64 + 100));
+        let witness = rescue_permutation_with_witness(&mut state);
+        for w in witness.iter() {
+            for i in 0..STATE_WIDTH {
+                assert_eq!(w.state_after_sbox[i], w.state_in[i].exp(ALPHA));
+            }
+        }
+    }
+
+    #[test]
+    fn witness_inv_sbox_cross_multiplied_equals_mds_after_sbox_plus_ark1() {
+        use super::super::constants::{ARK1, MDS};
+        let mut state: [BaseElement; STATE_WIDTH] =
+            std::array::from_fn(|i| BaseElement::new(i as u64 + 100));
+        let witness = rescue_permutation_with_witness(&mut state);
+        for (round, w) in witness.iter().enumerate() {
+            // expected[i] = sum_j MDS[i][j] * state_after_sbox[j] + ARK1[round][i]
+            let expected: [BaseElement; STATE_WIDTH] = std::array::from_fn(|i| {
+                let mut acc = BaseElement::ZERO;
+                for j in 0..STATE_WIDTH {
+                    acc += MDS[i][j] * w.state_after_sbox[j];
+                }
+                acc + ARK1[round][i]
+            });
+            for i in 0..STATE_WIDTH {
+                assert_eq!(
+                    w.state_after_inv_sbox[i].exp(ALPHA),
+                    expected[i],
+                    "round {round} cell {i}: inv-sbox cross-mult failed",
+                );
+            }
+        }
     }
 }

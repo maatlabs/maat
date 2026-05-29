@@ -597,16 +597,30 @@ impl VM {
                 );
                 let n = self.read_u16_operand(ip + 1)?;
                 self.current_frame_mut()?.ip += 2;
+                if !matches!(n, 2 | 4 | 8) {
+                    return Err(self.vm_error(format!(
+                        "HashRescue: arity {n} unsupported (must be 2, 4, or 8 -- one sponge \
+                         permutation per dispatch)"
+                    )));
+                }
                 let mut input = vec![Felt::ZERO; n];
                 for slot in input.iter_mut().rev() {
                     *slot = self.pop_felt("HashRescue")?;
                 }
-                let digest = maat_field::rescue::hash(&input);
+                let mut state = [Felt::ZERO; maat_field::rescue::STATE_WIDTH];
+                state[maat_field::rescue::CAPACITY_RANGE.start] = Felt::new(n as u64);
+                for (i, &x) in input.iter().enumerate() {
+                    state[maat_field::rescue::RATE_RANGE.start + i] += x;
+                }
+                let witness = maat_field::rescue::rescue_permutation_with_witness(&mut state);
+                let mut digest = [Felt::ZERO; maat_field::rescue::DIGEST_SIZE];
+                digest.copy_from_slice(&state[maat_field::rescue::DIGEST_RANGE]);
+
                 for &d in &digest {
                     self.push_stack(Value::Felt(d))?;
                 }
                 recorder.record_out(MaybeRelocatable::Felt(digest[digest.len() - 1]));
-                recorder.record_rescue_call(&input, digest);
+                recorder.record_rescue_call(&input, digest, &witness);
             }
             Opcode::VectorPush => {
                 let val = self.pop_stack()?;

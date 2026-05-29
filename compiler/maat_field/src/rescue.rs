@@ -14,7 +14,7 @@ mod constants;
 mod permutation;
 
 pub use constants::{ARK1, ARK2, INV_MDS, MDS};
-pub use permutation::rescue_permutation;
+pub use permutation::{RescueRoundWitness, rescue_permutation, rescue_permutation_with_witness};
 
 use crate::{BaseElement, FieldElement};
 
@@ -89,7 +89,7 @@ mod tests {
 
     #[test]
     fn rate_block_boundary_distinguishes_lengths() {
-        let inputs: Vec<BaseElement> = (1..=10).map(BaseElement::new).collect();
+        let inputs = (1..=10).map(BaseElement::new).collect::<Vec<BaseElement>>();
         let h7 = hash(&inputs[..7]);
         let h8 = hash(&inputs[..8]);
         let h9 = hash(&inputs[..9]);
@@ -99,7 +99,7 @@ mod tests {
 
     #[test]
     fn hash_is_deterministic() {
-        let input: Vec<BaseElement> = (0..17).map(BaseElement::new).collect();
+        let input = (0..17).map(BaseElement::new).collect::<Vec<BaseElement>>();
         let h1 = hash(&input);
         let h2 = hash(&input);
         assert_eq!(h1, h2);
