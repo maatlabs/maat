@@ -1,0 +1,21 @@
+// Multiplicative Fibonacci over the Goldilocks field, mirroring Winterfell's
+// `fibonacci/mulfib2` example. Products grow far faster than sums, so the
+// sequence is only meaningful in a field with modular wraparound. The proven
+// public output is the n-th term.
+
+/// Returns the n-th multiplicative-Fibonacci term in the Goldilocks field,
+/// folding the running pair `(a, b)` into `(b, a * b)` on each step.
+fn mulfib(n: i64) -> Felt {
+    let mut a: Felt = 1_fe;
+    let mut b: Felt = 2_fe;
+    for _step in 0..n {
+        let next = a * b;
+        a = b;
+        b = next;
+    }
+    a
+}
+
+let result = mulfib(32);
+println!("{result}");
+result

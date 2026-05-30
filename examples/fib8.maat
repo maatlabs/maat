@@ -1,0 +1,23 @@
+// Additive Fibonacci over the Goldilocks field at a longer sequence length,
+// mirroring Winterfell's `fibonacci/fib8` example. Winterfell's fib8 packs
+// eight terms per trace row so long sequences stay cheap to prove; the Maat
+// source is the same recurrence run for more steps. Field wraparound keeps the
+// 128th term well-defined where machine integers would have overflowed near
+// the 92nd. The proven public output is the n-th term.
+
+/// Returns the n-th Fibonacci number in the Goldilocks field, folding the
+/// running pair `(a, b)` into `(b, a + b)` on each step.
+fn fib(n: i64) -> Felt {
+    let mut a: Felt = 0_fe;
+    let mut b: Felt = 1_fe;
+    for _step in 0..n {
+        let next = a + b;
+        a = b;
+        b = next;
+    }
+    a
+}
+
+let result = fib(128);
+println!("{result}");
+result

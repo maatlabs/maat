@@ -1,0 +1,22 @@
+// Additive Fibonacci over the Goldilocks field, mirroring Winterfell's
+// `fibonacci/fib2` example. Field arithmetic wraps modulo
+// p = 2^64 - 2^32 + 1, so the sequence stays well-defined past the point
+// where machine integers would overflow. The proven public output is the
+// n-th term.
+
+/// Returns the n-th Fibonacci number in the Goldilocks field, folding the
+/// running pair `(a, b)` into `(b, a + b)` on each step.
+fn fib(n: i64) -> Felt {
+    let mut a: Felt = 0_fe;
+    let mut b: Felt = 1_fe;
+    for _step in 0..n {
+        let next = a + b;
+        a = b;
+        b = next;
+    }
+    a
+}
+
+let result = fib(64);
+println!("{result}");
+result
