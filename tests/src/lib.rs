@@ -234,4 +234,13 @@ fn main() -> i64 {
     for i in 0..500 { s = s + i; }
     s
 }";
+
+    pub const VDF_SOURCE: &str = "\
+fn main() -> Felt {
+    let mut x: Felt = 3_fe;
+    for _step in 0..256 {
+        x = x * x * x + 42_fe;
+    }
+    x
+}";
 }
