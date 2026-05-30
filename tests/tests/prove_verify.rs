@@ -28,6 +28,46 @@ fn prove_and_verify_arithmetic() {
 }
 
 #[test]
+fn prove_and_verify_fn_main_entry() {
+    prove_and_verify(
+        "
+        fn compute() -> Felt {
+            let mut a: Felt = 1_fe;
+            let mut b: Felt = 2_fe;
+            for _step in 0..5 {
+                let next = a + b;
+                a = b;
+                b = next;
+            }
+            a
+        }
+
+        fn main() -> Felt {
+            compute()
+        }
+        ",
+    );
+}
+
+#[test]
+fn fn_main_matches_script_form_output() {
+    let script = compile_and_trace(
+        "
+        fn double(x: Felt) -> Felt { x + x }
+        double(21_fe)
+        ",
+    );
+    let entry = compile_and_trace(
+        "
+        fn double(x: Felt) -> Felt { x + x }
+        fn main() -> Felt { double(21_fe) }
+        ",
+    );
+    assert_eq!(script.output, entry.output);
+    assert_eq!(entry.output, BaseElement::new(42));
+}
+
+#[test]
 fn prove_and_verify_modular_arithmetic() {
     prove_and_verify(
         "

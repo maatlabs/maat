@@ -18,6 +18,9 @@ fn fib(n: i64) -> Felt {
     a
 }
 
-let result = fib(128);
-println!("{result}");
-result
+/// Provable entry point: proves the 128th Goldilocks Fibonacci term.
+fn main() -> Felt {
+    let result = fib(128);
+    println!("{result}");
+    result
+}

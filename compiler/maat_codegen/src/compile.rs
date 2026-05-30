@@ -60,6 +60,15 @@ pub(crate) struct LoopContext {
     pub(crate) continue_jumps: Vec<usize>,
 }
 
+/// Returns the span of a top-level `fn main`, the canonical provable entry
+/// point, if the program declares one.
+fn main_entry_span(program: &Program) -> Option<Span> {
+    program.statements.iter().find_map(|stmt| match stmt {
+        Stmt::FuncDef(fn_item) if fn_item.name == "main" => Some(fn_item.span),
+        _ => None,
+    })
+}
+
 impl Default for Compiler {
     fn default() -> Self {
         Self::new()
@@ -164,6 +173,20 @@ impl Compiler {
                 }
             }
         }
+
+        if let Some(span) = main_entry_span(program) {
+            for stmt in &program.statements {
+                self.compile_statement(stmt)?;
+            }
+            let main_sym = self.resolve_or_error("main", span)?;
+            self.load_symbol(&main_sym, span);
+            self.emit(Opcode::Call, &[0], span);
+            if program.publishes_main_vector {
+                self.publish_vector_on_stack(span)?;
+            }
+            return Ok(());
+        }
+
         let last_idx = program.statements.len().checked_sub(1);
         for (idx, stmt) in program.statements.iter().enumerate() {
             if Some(idx) == last_idx
@@ -179,8 +202,11 @@ impl Compiler {
     }
 
     fn compile_main_vector_publication(&mut self, expr_stmt: &ExprStmt) -> Result<()> {
-        let span = expr_stmt.span;
         self.compile_expression(&expr_stmt.value)?;
+        self.publish_vector_on_stack(expr_stmt.span)
+    }
+
+    fn publish_vector_on_stack(&mut self, span: Span) -> Result<()> {
         let iter_sym = self.define_and_set("__main_publish_iter", false, span)?;
 
         let len_builtin = self.resolve_or_error("Vector::len", span)?;

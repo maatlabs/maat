@@ -7,7 +7,7 @@ use std::time::Instant;
 use maat_air::MaatPublicInputs;
 use maat_bytecode::Bytecode;
 use maat_field::{BaseElement, FieldElement, from_i64};
-use maat_module::{check_and_compile, resolve_module_graph};
+use maat_module::{check_and_compile, has_main_entry, resolve_module_graph};
 use maat_prover::{
     MaatProver, deserialize_proof, development_options, production_options, serialize_proof,
 };
@@ -143,7 +143,7 @@ pub fn prove(
     require_extension(path, "maat", "prove");
 
     let inputs = load_inputs(input, inputs_file);
-    let bytecode = compile_source(path);
+    let bytecode = compile_provable_source(path);
 
     let maat_trace::TraceArtifacts {
         trace,
@@ -302,6 +302,33 @@ fn compile_source(path: &Path) -> Bytecode {
             process::exit(1);
         }
     };
+    match check_and_compile(&mut graph) {
+        Ok(bc) => bc,
+        Err(e) => {
+            diagnostic::report_module_error(&e);
+            process::exit(1);
+        }
+    }
+}
+
+/// Compiles a `.maat` source file for proving, requiring a `fn main` entry
+/// point. Script-form programs (top-level statements) are `run`/`exec`-only.
+fn compile_provable_source(path: &Path) -> Bytecode {
+    let mut graph = match resolve_module_graph(path) {
+        Ok(g) => g,
+        Err(e) => {
+            diagnostic::report_module_error(&e);
+            process::exit(1);
+        }
+    };
+    if !has_main_entry(&graph) {
+        eprintln!(
+            "error: `maat prove` requires a `fn main` entry point, but '{}' is a \
+             script-form program; run it with `maat run` or compile and `maat exec` it",
+            path.display()
+        );
+        process::exit(1);
+    }
     match check_and_compile(&mut graph) {
         Ok(bc) => bc,
         Err(e) => {

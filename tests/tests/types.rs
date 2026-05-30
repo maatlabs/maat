@@ -1367,3 +1367,22 @@ mod bitwise_encoding_rules {
         );
     }
 }
+
+mod entry_point {
+    use maat_tests::{compile, compile_type_errors};
+
+    #[test]
+    fn fn_main_with_params_rejected() {
+        let errs = compile_type_errors("fn main(x: Felt) -> Felt { x }");
+        assert!(
+            errs.iter()
+                .any(|e| e.contains("`fn main` parameters are not yet supported")),
+            "expected entry-point parameter rejection; got: {errs:?}"
+        );
+    }
+
+    #[test]
+    fn zero_arg_fn_main_accepted() {
+        let _ = compile("fn main() -> Felt { 7_fe }");
+    }
+}

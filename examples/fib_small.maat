@@ -19,6 +19,9 @@ fn fib(n: i64) -> i64 {
     a
 }
 
-let result = fib(24);
-println!("{result}");
-result
+/// Provable entry point: proves the 24th Fibonacci term over native `i64`.
+fn main() -> i64 {
+    let result = fib(24);
+    println!("{result}");
+    result
+}

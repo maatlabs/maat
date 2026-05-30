@@ -13,6 +13,9 @@ fn vdf(seed: Felt, steps: i64) -> Felt {
     x
 }
 
-let result = vdf(3_fe, 256);
-println!("{result}");
-result
+/// Provable entry point: proves 256 iterations of the VDF permutation from seed 3.
+fn main() -> Felt {
+    let result = vdf(3_fe, 256);
+    println!("{result}");
+    result
+}

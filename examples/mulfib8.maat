@@ -17,6 +17,9 @@ fn mulfib(n: i64) -> Felt {
     a
 }
 
-let result = mulfib(64);
-println!("{result}");
-result
+/// Provable entry point: proves the 64th Goldilocks multiplicative-Fibonacci term.
+fn main() -> Felt {
+    let result = mulfib(64);
+    println!("{result}");
+    result
+}
