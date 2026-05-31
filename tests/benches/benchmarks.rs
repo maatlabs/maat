@@ -2,7 +2,7 @@ use core::time::Duration;
 use std::hint::black_box;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use maat_air::{MaatPublicInputs, ProofOptions, build_aux_columns, num_aux_rands};
+use maat_air::{MaatPublicInputs, ProofOptions, PublicMemory, build_aux_columns, num_aux_rands};
 use maat_ast::{MaatAst, fold_constants};
 use maat_bytecode::Bytecode;
 use maat_codegen::Compiler;
@@ -270,28 +270,12 @@ fn bench_baseline(c: &mut Criterion) {
 fn prove_bytecode(bytecode: &Bytecode, options: ProofOptions) -> Vec<u8> {
     let artifacts = maat_trace::run_with_output(bytecode.clone()).expect("trace failed");
     let output = artifacts.trace.row(artifacts.trace.num_rows() - 1)[COL_OUT];
-    let public_inputs = MaatPublicInputs::with_segments(
-        vec![],
-        output,
-        artifacts.output_base,
-        artifacts.output_segment.clone(),
-        artifacts.program_base,
-        artifacts.program_segment.clone(),
-    );
+    let public_inputs = MaatPublicInputs::new(output, artifacts.memory.clone());
     let prover = MaatProver::new(options, public_inputs);
     let proof = prover
         .generate_proof(artifacts.trace)
         .expect("prove failed");
-    serialize_proof(
-        &proof,
-        output,
-        &[],
-        artifacts.input_base,
-        artifacts.output_base,
-        &artifacts.output_segment,
-        artifacts.program_base,
-        &artifacts.program_segment,
-    )
+    serialize_proof(&proof, output, &artifacts.memory)
 }
 
 fn bench_prove(c: &mut Criterion) {
@@ -434,12 +418,7 @@ fn bench_aux_columns(c: &mut Criterion) {
                 let result = build_aux_columns(
                     black_box(&slices),
                     black_box(&rands),
-                    0,
-                    black_box(&[]),
-                    0,
-                    black_box(&[]),
-                    0,
-                    black_box(&[]),
+                    black_box(&PublicMemory::default()),
                 );
                 black_box(result);
             });

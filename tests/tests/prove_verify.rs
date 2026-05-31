@@ -4,7 +4,7 @@
 //! produces a STARK proof, and verifies it; exercising the full pipeline
 //! from source code to cryptographic soundness.
 
-use maat_air::MaatPublicInputs;
+use maat_air::{MaatPublicInputs, PublicMemory, PublicSegment};
 use maat_field::{BaseElement, Felt, FieldElement};
 use maat_prover::{
     MaatProver, deserialize_proof, development_options, production_options, serialize_proof,
@@ -98,30 +98,13 @@ fn tampered_public_input_fails_verification() {
         .as_ref()
         .map(|v| v.to_felt())
         .unwrap_or(BaseElement::ZERO);
-    let public_inputs = MaatPublicInputs::with_segments(
-        inputs.clone(),
-        output,
-        artifacts.output_base,
-        artifacts.output_segment.clone(),
-        artifacts.program_base,
-        artifacts.program_segment.clone(),
-    )
-    .with_input_base(artifacts.input_base);
+    let public_inputs = MaatPublicInputs::new(output, artifacts.memory.clone());
     let prover = MaatProver::new(development_options(), public_inputs);
     let proof = prover
         .generate_proof(artifacts.trace)
         .expect("proof generation failed");
 
-    let serialized = serialize_proof(
-        &proof,
-        output,
-        &inputs,
-        artifacts.input_base,
-        artifacts.output_base,
-        &artifacts.output_segment,
-        artifacts.program_base,
-        &artifacts.program_segment,
-    );
+    let serialized = serialize_proof(&proof, output, &artifacts.memory);
     verify(&serialized).expect("honest proof must verify");
 
     // Flip the low byte of the first serialized public input
@@ -602,13 +585,13 @@ fn wrong_output_rejected() {
 
     // Attempt to verify with wrong public inputs (different output).
     let wrong_output = BaseElement::new(999);
-    let wrong_inputs = MaatPublicInputs::with_segments(
-        vec![],
+    let wrong_inputs = MaatPublicInputs::new(
         wrong_output,
-        output_base,
-        output_segment,
-        program_base,
-        program_segment,
+        PublicMemory {
+            output: PublicSegment::new(output_base, output_segment),
+            program: PublicSegment::new(program_base, program_segment),
+            ..PublicMemory::default()
+        },
     );
 
     assert!(
@@ -632,13 +615,13 @@ fn wrong_program_segment_rejected() {
     // Flip a single program-segment byte; the verifier's recomputed
     // public-memory endpoint diverges from the trace-derived accumulator.
     tampered_program[0] = BaseElement::new(tampered_program[0].as_int().wrapping_add(1));
-    let tampered_inputs = MaatPublicInputs::with_segments(
-        vec![],
+    let tampered_inputs = MaatPublicInputs::new(
         output,
-        output_base,
-        output_segment,
-        program_base,
-        tampered_program,
+        PublicMemory {
+            output: PublicSegment::new(output_base, output_segment),
+            program: PublicSegment::new(program_base, tampered_program),
+            ..PublicMemory::default()
+        },
     );
     assert!(
         verify_with_inputs(proof, tampered_inputs).is_err(),
@@ -657,24 +640,17 @@ fn proof_file_round_trip() {
     let program_segment = bundle.program_segment.clone();
     let (proof, _public_inputs) = prove(bundle);
 
-    let serialized = serialize_proof(
-        &proof,
-        output,
-        &[],
-        0,
-        output_base,
-        &output_segment,
-        program_base,
-        &program_segment,
-    );
+    let memory = PublicMemory {
+        output: PublicSegment::new(output_base, output_segment),
+        program: PublicSegment::new(program_base, program_segment),
+        ..PublicMemory::default()
+    };
+    let serialized = serialize_proof(&proof, output, &memory);
     let (decoded_proof, embedded) = deserialize_proof(&serialized).expect("deserialization failed");
 
     assert_eq!(embedded.output, output);
-    assert!(embedded.inputs.is_empty());
-    assert_eq!(embedded.output_base, output_base);
-    assert_eq!(embedded.output_segment, output_segment);
-    assert_eq!(embedded.program_base, program_base);
-    assert_eq!(embedded.program_segment, program_segment);
+    assert!(embedded.memory.input.cells.is_empty());
+    assert_eq!(embedded.memory, memory);
     assert_eq!(decoded_proof.to_bytes(), proof.to_bytes());
 }
 
@@ -689,16 +665,12 @@ fn verify_serialized_proof_end_to_end() {
     let program_segment = bundle.program_segment.clone();
     let (proof, _public_inputs) = prove(bundle);
 
-    let serialized = serialize_proof(
-        &proof,
-        output,
-        &[],
-        0,
-        output_base,
-        &output_segment,
-        program_base,
-        &program_segment,
-    );
+    let memory = PublicMemory {
+        output: PublicSegment::new(output_base, output_segment),
+        program: PublicSegment::new(program_base, program_segment),
+        ..PublicMemory::default()
+    };
+    let serialized = serialize_proof(&proof, output, &memory);
     verify(&serialized).expect("proof file verification failed");
 }
 
@@ -718,22 +690,18 @@ fn proof_file_with_inputs_round_trip() {
         BaseElement::new(2),
         BaseElement::new(3),
     ];
-    let serialized = serialize_proof(
-        &proof,
-        output,
-        &inputs,
-        0,
-        output_base,
-        &output_segment,
-        program_base,
-        &program_segment,
-    );
+    let memory = PublicMemory {
+        input: PublicSegment::new(0, inputs),
+        output: PublicSegment::new(output_base, output_segment),
+        program: PublicSegment::new(program_base, program_segment),
+    };
+    let serialized = serialize_proof(&proof, output, &memory);
     let (_, embedded) = deserialize_proof(&serialized).expect("deserialization failed");
 
-    assert_eq!(embedded.inputs.len(), 3);
-    assert_eq!(embedded.inputs[0], BaseElement::new(1));
-    assert_eq!(embedded.inputs[1], BaseElement::new(2));
-    assert_eq!(embedded.inputs[2], BaseElement::new(3));
+    assert_eq!(embedded.memory.input.cells.len(), 3);
+    assert_eq!(embedded.memory.input.cells[0], BaseElement::new(1));
+    assert_eq!(embedded.memory.input.cells[1], BaseElement::new(2));
+    assert_eq!(embedded.memory.input.cells[2], BaseElement::new(3));
 }
 
 #[test]
@@ -814,13 +782,13 @@ fn wrong_function_output_rejected() {
     let program_segment = bundle.program_segment.clone();
     let (proof, _correct_inputs) = prove(bundle);
 
-    let wrong_inputs = MaatPublicInputs::with_segments(
-        vec![],
+    let wrong_inputs = MaatPublicInputs::new(
         BaseElement::new(80),
-        output_base,
-        output_segment,
-        program_base,
-        program_segment,
+        PublicMemory {
+            output: PublicSegment::new(output_base, output_segment),
+            program: PublicSegment::new(program_base, program_segment),
+            ..PublicMemory::default()
+        },
     );
 
     assert!(
@@ -833,13 +801,13 @@ fn wrong_function_output_rejected() {
 fn prove_and_verify_production_options() {
     let source = "let x: i64 = 42; x";
     let bundle = compile_and_trace(source);
-    let public_inputs = MaatPublicInputs::with_segments(
-        vec![],
+    let public_inputs = MaatPublicInputs::new(
         bundle.output,
-        bundle.output_base,
-        bundle.output_segment.clone(),
-        bundle.program_base,
-        bundle.program_segment.clone(),
+        PublicMemory {
+            output: PublicSegment::new(bundle.output_base, bundle.output_segment.clone()),
+            program: PublicSegment::new(bundle.program_base, bundle.program_segment.clone()),
+            ..PublicMemory::default()
+        },
     );
     let prover = MaatProver::new(production_options(), public_inputs.clone());
     let proof = prover
@@ -945,14 +913,7 @@ fn heap_synthetic_single_value_tampered_rejected() {
     }
     assert!(tampered, "expected at least one heap row carrying value 42");
 
-    let public_inputs = MaatPublicInputs::with_segments(
-        vec![],
-        BaseElement::new(42),
-        artifacts.output_base,
-        artifacts.output_segment,
-        artifacts.program_base,
-        artifacts.program_segment,
-    );
+    let public_inputs = MaatPublicInputs::new(BaseElement::new(42), artifacts.memory);
     let prover = MaatProver::new(development_options(), public_inputs.clone());
 
     let prove_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -975,7 +936,8 @@ fn heap_synthetic_intra_segment_holes_filled() {
     let bytecode = synthetic_sparse_segment_bytecode(17, 42);
     let artifacts =
         maat_trace::run_with_output(bytecode.clone()).expect("sparse heap trace failed");
-    let program_end = u64::from(artifacts.program_base) + artifacts.program_segment.len() as u64;
+    let program_end =
+        u64::from(artifacts.memory.program.base) + artifacts.memory.program.cells.len() as u64;
 
     let mut unique_addrs = std::collections::HashSet::new();
     for i in 0..artifacts.trace.num_rows() {
@@ -1002,7 +964,8 @@ fn heap_synthetic_cross_segment_holes_filled() {
     let bytecode = synthetic_cross_segment_sparse_bytecode(11, 23);
     let artifacts =
         maat_trace::run_with_output(bytecode.clone()).expect("cross-segment trace failed");
-    let program_end = u64::from(artifacts.program_base) + artifacts.program_segment.len() as u64;
+    let program_end =
+        u64::from(artifacts.memory.program.base) + artifacts.memory.program.cells.len() as u64;
     let mut unique_addrs = std::collections::HashSet::new();
     for i in 0..artifacts.trace.num_rows() {
         unique_addrs.insert(artifacts.trace.row(i)[COL_MEM_ADDR].as_int());
@@ -1042,14 +1005,7 @@ fn heap_synthetic_hole_row_removed_rejected() {
     }
     trace = rebuilt;
 
-    let public_inputs = MaatPublicInputs::with_segments(
-        vec![],
-        BaseElement::new(17),
-        artifacts.output_base,
-        artifacts.output_segment,
-        artifacts.program_base,
-        artifacts.program_segment,
-    );
+    let public_inputs = MaatPublicInputs::new(BaseElement::new(17), artifacts.memory);
     let prover = MaatProver::new(development_options(), public_inputs.clone());
 
     let prove_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1082,13 +1038,13 @@ fn physical_address_gap_rejected() {
         }
     }
 
-    let public_inputs = MaatPublicInputs::with_segments(
-        vec![],
+    let public_inputs = MaatPublicInputs::new(
         BaseElement::new(5),
-        bundle.output_base,
-        bundle.output_segment.clone(),
-        bundle.program_base,
-        bundle.program_segment.clone(),
+        PublicMemory {
+            output: PublicSegment::new(bundle.output_base, bundle.output_segment.clone()),
+            program: PublicSegment::new(bundle.program_base, bundle.program_segment.clone()),
+            ..PublicMemory::default()
+        },
     );
     let prover = MaatProver::new(development_options(), public_inputs.clone());
 
@@ -1462,12 +1418,12 @@ fn vector_main_returns_segment_published_to_pubmem() {
     let bytecode = maat_tests::compile(source);
     let artifacts = maat_trace::run_with_output(bytecode.clone()).expect("trace failed");
     assert_eq!(
-        artifacts.output_segment.len(),
+        artifacts.memory.output.cells.len(),
         2,
         "main-return Vector must publish its cells to SEG_PUBLIC_OUTPUT"
     );
-    assert_eq!(artifacts.output_segment[0], Felt::new(7));
-    assert_eq!(artifacts.output_segment[1], Felt::new(13));
+    assert_eq!(artifacts.memory.output.cells[0], Felt::new(7));
+    assert_eq!(artifacts.memory.output.cells[1], Felt::new(13));
     prove_and_verify_pubmem(bytecode);
 }
 
@@ -1482,7 +1438,7 @@ fn vector_main_returns_segment_tampered_cell_rejected() {
     let bytecode = maat_tests::compile(source);
     honest_prover_dishonest_verifier(
         bytecode,
-        |inputs| inputs.output_segment[1] = Felt::new(999),
+        |inputs| inputs.memory.output.cells[1] = Felt::new(999),
         "main-return Vector cell",
     );
 }
@@ -1498,12 +1454,12 @@ fn vector_builtin_cells_in_heap_permutation() {
     let bytecode = maat_tests::compile(source);
     let artifacts = maat_trace::run_with_output(bytecode.clone()).expect("trace failed");
     assert_eq!(
-        artifacts.output_segment.len(),
+        artifacts.memory.output.cells.len(),
         2,
         "builtin-allocated trailing Vector must publish its cells"
     );
-    assert_eq!(artifacts.output_segment[0], Felt::new(13));
-    assert_eq!(artifacts.output_segment[1], Felt::new(7));
+    assert_eq!(artifacts.memory.output.cells[0], Felt::new(13));
+    assert_eq!(artifacts.memory.output.cells[1], Felt::new(7));
     prove_and_verify_pubmem(bytecode);
 }
 
@@ -1622,7 +1578,7 @@ fn vector_builtin_cells_tampered_rejected() {
     let bytecode = maat_tests::compile(source);
     honest_prover_dishonest_verifier(
         bytecode,
-        |inputs| inputs.output_segment[0] = Felt::new(999),
+        |inputs| inputs.memory.output.cells[0] = Felt::new(999),
         "builtin-allocated cell",
     );
 }
@@ -1631,10 +1587,10 @@ fn vector_builtin_cells_tampered_rejected() {
 fn pubmem_three_cell_output_proves_and_verifies() {
     let bytecode = synthetic_output_segment_bytecode(&[10, 20, 30]);
     let artifacts = maat_trace::run_with_output(bytecode.clone()).expect("trace failed");
-    assert_eq!(artifacts.output_segment.len(), 3);
-    assert_eq!(artifacts.output_segment[0], Felt::new(10));
-    assert_eq!(artifacts.output_segment[1], Felt::new(20));
-    assert_eq!(artifacts.output_segment[2], Felt::new(30));
+    assert_eq!(artifacts.memory.output.cells.len(), 3);
+    assert_eq!(artifacts.memory.output.cells[0], Felt::new(10));
+    assert_eq!(artifacts.memory.output.cells[1], Felt::new(20));
+    assert_eq!(artifacts.memory.output.cells[2], Felt::new(30));
     prove_and_verify_pubmem(bytecode);
 }
 
@@ -1649,7 +1605,7 @@ fn pubmem_tampered_output_cell_value_rejected() {
     let bytecode = synthetic_output_segment_bytecode(&[10, 20, 30]);
     honest_prover_dishonest_verifier(
         bytecode,
-        |inputs| inputs.output_segment[1] = Felt::new(999),
+        |inputs| inputs.memory.output.cells[1] = Felt::new(999),
         "output cell value",
     );
 }
@@ -1659,7 +1615,7 @@ fn pubmem_tampered_output_base_rejected() {
     let bytecode = synthetic_output_segment_bytecode(&[10, 20, 30]);
     honest_prover_dishonest_verifier(
         bytecode,
-        |inputs| inputs.output_base = inputs.output_base.wrapping_add(17),
+        |inputs| inputs.memory.output.base = inputs.memory.output.base.wrapping_add(17),
         "output base",
     );
 }
@@ -1670,7 +1626,7 @@ fn pubmem_tampered_segment_length_shorter_rejected() {
     honest_prover_dishonest_verifier(
         bytecode,
         |inputs| {
-            inputs.output_segment.pop();
+            inputs.memory.output.cells.pop();
         },
         "segment length (shorter)",
     );
@@ -1681,7 +1637,7 @@ fn pubmem_tampered_segment_length_longer_rejected() {
     let bytecode = synthetic_output_segment_bytecode(&[10, 20, 30]);
     honest_prover_dishonest_verifier(
         bytecode,
-        |inputs| inputs.output_segment.push(Felt::new(40)),
+        |inputs| inputs.memory.output.cells.push(Felt::new(40)),
         "segment length (longer)",
     );
 }
@@ -1742,14 +1698,7 @@ fn arena_tampered_payload_value_rejected() {
     }
     assert!(tampered, "expected at least one payload-7 write to tamper");
 
-    let public_inputs = MaatPublicInputs::with_segments(
-        vec![],
-        BaseElement::new(7),
-        artifacts.output_base,
-        artifacts.output_segment,
-        artifacts.program_base,
-        artifacts.program_segment,
-    );
+    let public_inputs = MaatPublicInputs::new(BaseElement::new(7), artifacts.memory);
     let prover = MaatProver::new(development_options(), public_inputs.clone());
 
     let prove_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1771,7 +1720,8 @@ fn arena_tampered_payload_value_rejected() {
 fn arena_segments_relocate_into_distinct_flat_ranges() {
     let bytecode = synthetic_arena_alloc_finalize_bytecode(&[100, 200, 300]);
     let artifacts = maat_trace::run_with_output(bytecode).expect("arena trace failed");
-    let program_end = u64::from(artifacts.program_base) + artifacts.program_segment.len() as u64;
+    let program_end =
+        u64::from(artifacts.memory.program.base) + artifacts.memory.program.cells.len() as u64;
 
     let mut unique_addrs = std::collections::HashSet::new();
     for i in 0..artifacts.trace.num_rows() {

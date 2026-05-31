@@ -27,6 +27,7 @@ pub use builtin::{
 use maat_field::{BaseElement, ExtensionOf, FieldElement};
 use maat_trace::main_segment::{self, CONSTRAINT_DEGREES};
 use maat_trace::table::{COL_OUT, COL_PC, COL_SP};
+pub use maat_trace::{PublicMemory, PublicSegment};
 pub use public_inputs::MaatPublicInputs;
 pub use winter_air::proof::Proof;
 use winter_air::{Air, AirContext, Assertion, TransitionConstraintDegree};
@@ -128,12 +129,7 @@ impl Air for MaatAir {
         aux_assertions::<E>(
             self.trace_length() - 1,
             aux_rand_elements.rand_elements(),
-            self.public_inputs.input_base,
-            &self.public_inputs.inputs,
-            self.public_inputs.output_base,
-            &self.public_inputs.output_segment,
-            self.public_inputs.program_base,
-            &self.public_inputs.program_segment,
+            &self.public_inputs.memory,
         )
     }
 }

@@ -47,6 +47,7 @@ use maat_air::{
 use maat_errors::ProverError;
 use maat_field::{BaseElement, FieldElement};
 use maat_trace::table::{TRACE_WIDTH, TraceTable};
+pub use maat_trace::{PublicMemory, PublicSegment};
 pub use verifier::{verify, verify_with_inputs};
 use winter_crypto::hashers::Blake3_256;
 use winter_crypto::{DefaultRandomCoin, MerkleTree};
@@ -213,12 +214,7 @@ impl Prover for MaatProver {
         let aux_columns = maat_air::build_aux_columns(
             &main_columns,
             aux_rand_elements.rand_elements(),
-            self.inputs.input_base,
-            &self.inputs.inputs,
-            self.inputs.output_base,
-            &self.inputs.output_segment,
-            self.inputs.program_base,
-            &self.inputs.program_segment,
+            &self.inputs.memory,
         );
         ColMatrix::new(aux_columns)
     }

@@ -4,7 +4,7 @@ use std::path::Path;
 use std::process;
 use std::time::Instant;
 
-use maat_air::MaatPublicInputs;
+use maat_air::{MaatPublicInputs, PublicMemory, PublicSegment};
 use maat_bytecode::Bytecode;
 use maat_field::{BaseElement, FieldElement, from_i64};
 use maat_module::{MainArity, check_and_compile, main_entry_arity, resolve_module_graph};
@@ -156,14 +156,7 @@ pub fn prove(
     let maat_trace::TraceArtifacts {
         trace,
         result,
-        input_base,
-        // The bound input cells equal the declared public inputs by
-        // construction (the prover seeded them); `inputs` is the canonical list.
-        input_segment: _,
-        output_base,
-        output_segment,
-        program_base,
-        program_segment,
+        memory,
     } = match maat_trace::run_with_io(bytecode, &inputs, &private_inputs) {
         Ok(a) => a,
         Err(e) => {
@@ -192,15 +185,12 @@ pub fn prove(
         .map(|v| v.to_felt())
         .unwrap_or(BaseElement::ZERO);
 
-    let public_inputs = MaatPublicInputs::with_segments(
-        inputs.clone(),
-        output,
-        output_base,
-        output_segment.clone(),
-        program_base,
-        program_segment.clone(),
-    )
-    .with_input_base(input_base);
+    let memory = PublicMemory {
+        input: PublicSegment::new(memory.input.base, inputs),
+        output: memory.output,
+        program: memory.program,
+    };
+    let public_inputs = MaatPublicInputs::new(output, memory.clone());
     let options = if production {
         production_options()
     } else {
@@ -218,16 +208,7 @@ pub fn prove(
     };
     let elapsed = start.elapsed();
 
-    let proof_bytes = serialize_proof(
-        &proof,
-        output,
-        &inputs,
-        input_base,
-        output_base,
-        &output_segment,
-        program_base,
-        &program_segment,
-    );
+    let proof_bytes = serialize_proof(&proof, output, &memory);
     let default_output = path.with_extension("proof.bin");
     let out = output_path.unwrap_or(&default_output);
     if let Err(e) = std::fs::write(out, &proof_bytes) {
@@ -282,7 +263,7 @@ pub fn verify(path: &Path) {
             eprintln!(
                 "VERIFIED (output: {}, inputs: {}, {:.2?})",
                 embedded.output.as_int(),
-                embedded.inputs.len(),
+                embedded.memory.input.cells.len(),
                 elapsed
             );
         }

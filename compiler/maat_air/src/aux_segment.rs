@@ -2,6 +2,7 @@
 //! aux-column slices owned by registered builtinss.
 
 use maat_field::{BaseElement, ExtensionOf, FieldElement};
+use maat_trace::PublicMemory;
 use maat_trace::table::{COL_MEM_ADDR, COL_MEM_VAL};
 use winter_air::Assertion;
 
@@ -91,53 +92,24 @@ pub fn aux_constraint_degrees() -> Vec<usize> {
     out
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn aux_assertions<E: FieldElement<BaseField = BaseElement>>(
     last_step: usize,
     rand_elements: &[E],
-    input_base: u32,
-    input_segment: &[BaseElement],
-    output_base: u32,
-    output_segment: &[BaseElement],
-    program_base: u32,
-    program_segment: &[BaseElement],
+    memory: &PublicMemory,
 ) -> Vec<Assertion<E>> {
     let mut out = Vec::with_capacity(num_aux_assertions());
-    out.extend(memory_aux_assertions::<E>(
-        last_step,
-        rand_elements,
-        input_base,
-        input_segment,
-        output_base,
-        output_segment,
-        program_base,
-        program_segment,
-    ));
+    out.extend(memory_aux_assertions::<E>(last_step, rand_elements, memory));
     out.extend(BUILTIN_SET.aux_assertions::<E>(last_step));
     out
 }
 
-#[allow(clippy::too_many_arguments)]
 fn memory_aux_assertions<E: FieldElement<BaseField = BaseElement>>(
     last_step: usize,
     rand_elements: &[E],
-    input_base: u32,
-    input_segment: &[BaseElement],
-    output_base: u32,
-    output_segment: &[BaseElement],
-    program_base: u32,
-    program_segment: &[BaseElement],
+    memory: &PublicMemory,
 ) -> Vec<Assertion<E>> {
     let memory_rands = &rand_elements[..MEMORY_NUM_AUX_RANDS];
-    let endpoint = public_memory_endpoint::<E>(
-        memory_rands,
-        input_base,
-        input_segment,
-        output_base,
-        output_segment,
-        program_base,
-        program_segment,
-    );
+    let endpoint = public_memory_endpoint::<E>(memory_rands, memory);
     vec![
         Assertion::single(AUX_COL_MEM_ACC, 0, E::ONE),
         Assertion::single(AUX_COL_MEM_ACC, last_step, endpoint),
@@ -146,28 +118,19 @@ fn memory_aux_assertions<E: FieldElement<BaseField = BaseElement>>(
 
 pub fn public_memory_endpoint<E: FieldElement<BaseField = BaseElement>>(
     memory_rands: &[E],
-    input_base: u32,
-    input_segment: &[BaseElement],
-    output_base: u32,
-    output_segment: &[BaseElement],
-    program_base: u32,
-    program_segment: &[BaseElement],
+    memory: &PublicMemory,
 ) -> E {
-    let total_cells = input_segment.len() + output_segment.len() + program_segment.len();
+    let total_cells = memory.total_cells();
     if total_cells == 0 {
         return E::ONE;
     }
     let z = memory_rands[RAND_Z];
     let alpha = memory_rands[RAND_ALPHA];
     let mut prod = E::ONE;
-    for (base, segment) in [
-        (input_base, input_segment),
-        (output_base, output_segment),
-        (program_base, program_segment),
-    ] {
-        for (off, &val) in segment.iter().enumerate() {
+    for seg in memory.segments() {
+        for (off, &val) in seg.cells.iter().enumerate() {
             let off_u32 = u32::try_from(off).expect("public segment longer than u32::MAX");
-            let addr_u64 = u64::from(base) + u64::from(off_u32);
+            let addr_u64 = u64::from(seg.base) + u64::from(off_u32);
             let addr = E::from(BaseElement::new(addr_u64));
             let val_e = E::from(val);
             prod *= z - (addr + alpha * val_e);
@@ -177,30 +140,15 @@ pub fn public_memory_endpoint<E: FieldElement<BaseField = BaseElement>>(
     z_pow_l * prod.inv()
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn build_aux_columns<E: FieldElement<BaseField = BaseElement>>(
     main_columns: &[&[BaseElement]],
     rand_elements: &[E],
-    input_base: u32,
-    input_segment: &[BaseElement],
-    output_base: u32,
-    output_segment: &[BaseElement],
-    program_base: u32,
-    program_segment: &[BaseElement],
+    memory: &PublicMemory,
 ) -> Vec<Vec<E>> {
     let memory_rands = &rand_elements[..MEMORY_NUM_AUX_RANDS];
 
     let mut columns = Vec::with_capacity(aux_width());
-    columns.extend(build_memory_columns(
-        main_columns,
-        memory_rands,
-        input_base,
-        input_segment,
-        output_base,
-        output_segment,
-        program_base,
-        program_segment,
-    ));
+    columns.extend(build_memory_columns(main_columns, memory_rands, memory));
     columns.extend(BUILTIN_SET.build_aux_columns(main_columns, rand_elements));
     columns
 }
@@ -241,22 +189,16 @@ fn evaluate_memory<F, E>(
     result[2] = (z - l2_tuple_next) * mem_acc_next - (z - l1_tuple_next) * mem_acc;
 }
 
-#[allow(clippy::too_many_arguments)]
 fn build_memory_columns<E: FieldElement<BaseField = BaseElement>>(
     main_columns: &[&[BaseElement]],
     rand_elements: &[E],
-    input_base: u32,
-    input_segment: &[BaseElement],
-    output_base: u32,
-    output_segment: &[BaseElement],
-    program_base: u32,
-    program_segment: &[BaseElement],
+    memory: &PublicMemory,
 ) -> Vec<Vec<E>> {
     let n = main_columns[COL_MEM_ADDR].len();
     let z = rand_elements[RAND_Z];
     let alpha = rand_elements[RAND_ALPHA];
 
-    let total_pub_cells = input_segment.len() + output_segment.len() + program_segment.len();
+    let total_pub_cells = memory.total_cells();
     let mut pairs: Vec<(BaseElement, BaseElement)> = Vec::with_capacity(n);
     let mut zeros_to_remove = total_pub_cells;
     for (&addr, &val) in main_columns[COL_MEM_ADDR]
@@ -269,14 +211,10 @@ fn build_memory_columns<E: FieldElement<BaseField = BaseElement>>(
         }
         pairs.push((addr, val));
     }
-    for (base, segment) in [
-        (input_base, input_segment),
-        (output_base, output_segment),
-        (program_base, program_segment),
-    ] {
-        for (off, &val) in segment.iter().enumerate() {
+    for seg in memory.segments() {
+        for (off, &val) in seg.cells.iter().enumerate() {
             let off_u32 = u32::try_from(off).expect("public segment longer than u32::MAX cells");
-            let addr_u64 = u64::from(base) + u64::from(off_u32);
+            let addr_u64 = u64::from(seg.base) + u64::from(off_u32);
             pairs.push((BaseElement::new(addr_u64), val));
         }
     }
@@ -476,12 +414,7 @@ mod tests {
         let aux = build_aux_columns(
             &column_slices(&main),
             &rand_elements,
-            0,
-            &[],
-            0,
-            &[],
-            0,
-            &[],
+            &PublicMemory::default(),
         );
 
         assert_eq!(aux.len(), aux_width());
@@ -506,7 +439,7 @@ mod tests {
         let main = mock_main_trace_with_limbs(&mem, &limbs);
         let rand_elements = rands(F::new(7777), F::new(31), F::new(5555));
         let slices = column_slices(&main);
-        let aux = build_aux_columns(&slices, &rand_elements, 0, &[], 0, &[], 0, &[]);
+        let aux = build_aux_columns(&slices, &rand_elements, &PublicMemory::default());
 
         for i in 0..n - 1 {
             let main_curr = (0..TRACE_WIDTH).map(|c| main[c][i]).collect::<Vec<F>>();

@@ -4,6 +4,7 @@
 
 pub mod main_segment;
 pub mod mem;
+pub mod public_memory;
 pub mod recorder;
 pub mod selector;
 pub mod table;
@@ -17,6 +18,7 @@ use maat_runtime::{
 };
 use maat_vm::VM;
 pub use mem::{Relocator, append_pubmem_dummies, fill_memory_holes, relocate_trace};
+pub use public_memory::{PublicMemory, PublicSegment};
 pub use recorder::TraceRecorder;
 use table::TraceTable;
 
@@ -24,12 +26,7 @@ use table::TraceTable;
 pub struct TraceArtifacts {
     pub trace: TraceTable,
     pub result: Option<Value>,
-    pub input_base: u32,
-    pub input_segment: Vec<Felt>,
-    pub output_base: u32,
-    pub output_segment: Vec<Felt>,
-    pub program_base: u32,
-    pub program_segment: Vec<Felt>,
+    pub memory: PublicMemory,
 }
 
 /// Executes bytecode and returns the padded, relocated execution trace
@@ -101,12 +98,11 @@ pub fn run_with_io(
     Ok(TraceArtifacts {
         trace,
         result,
-        input_base,
-        input_segment,
-        output_base,
-        output_segment,
-        program_base,
-        program_segment,
+        memory: PublicMemory {
+            input: PublicSegment::new(input_base, input_segment),
+            output: PublicSegment::new(output_base, output_segment),
+            program: PublicSegment::new(program_base, program_segment),
+        },
     })
 }
 

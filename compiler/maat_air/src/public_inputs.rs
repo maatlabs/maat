@@ -1,73 +1,43 @@
 //! Public inputs for the STARK constraint system.
 
 use maat_field::{BaseElement, ToElements};
+use maat_trace::PublicMemory;
 
 /// Public inputs shared between prover and verifier.
 #[derive(Debug, Clone)]
 pub struct MaatPublicInputs {
-    pub inputs: Vec<BaseElement>,
-    pub input_base: u32,
+    /// Scalar program output bound at `COL_OUT` of the last trace row.
     pub output: BaseElement,
-    pub output_base: u32,
-    pub output_segment: Vec<BaseElement>,
-    pub program_base: u32,
-    pub program_segment: Vec<BaseElement>,
+    /// The three address-bound public-memory segments (input, output, program).
+    pub memory: PublicMemory,
 }
 
 impl MaatPublicInputs {
-    pub fn new(inputs: Vec<BaseElement>, output: BaseElement) -> Self {
-        Self {
-            inputs,
-            input_base: 0,
-            output,
-            output_base: 0,
-            output_segment: Vec::new(),
-            program_base: 0,
-            program_segment: Vec::new(),
-        }
-    }
-
-    pub fn with_segments(
-        inputs: Vec<BaseElement>,
-        output: BaseElement,
-        output_base: u32,
-        output_segment: Vec<BaseElement>,
-        program_base: u32,
-        program_segment: Vec<BaseElement>,
-    ) -> Self {
-        Self {
-            inputs,
-            input_base: 0,
-            output,
-            output_base,
-            output_segment,
-            program_base,
-            program_segment,
-        }
+    pub fn new(output: BaseElement, memory: PublicMemory) -> Self {
+        Self { output, memory }
     }
 
     pub fn with_output(output: BaseElement) -> Self {
-        Self::new(Vec::new(), output)
-    }
-
-    pub fn with_input_base(mut self, input_base: u32) -> Self {
-        self.input_base = input_base;
-        self
+        Self {
+            output,
+            memory: PublicMemory::default(),
+        }
     }
 }
 
 impl ToElements<BaseElement> for MaatPublicInputs {
     fn to_elements(&self) -> Vec<BaseElement> {
+        let m = &self.memory;
         let mut elements = Vec::with_capacity(
-            self.inputs.len() + 5 + self.output_segment.len() + self.program_segment.len(),
+            m.input.cells.len() + 5 + m.output.cells.len() + m.program.cells.len(),
         );
-        elements.extend_from_slice(&self.inputs);
-        elements.push(BaseElement::new(u64::from(self.input_base)));
+        elements.extend_from_slice(&m.input.cells);
+        elements.push(BaseElement::new(u64::from(m.input.base)));
         elements.push(self.output);
-        elements.push(BaseElement::new(u64::from(self.output_base)));
-        elements.extend_from_slice(&self.output_segment);
-        elements.push(BaseElement::new(u64::from(self.program_base)));
-        elements.extend_from_slice(&self.program_segment);
+        elements.push(BaseElement::new(u64::from(m.output.base)));
+        elements.extend_from_slice(&m.output.cells);
+        elements.push(BaseElement::new(u64::from(m.program.base)));
+        elements.extend_from_slice(&m.program.cells);
         elements
     }
 }
@@ -75,6 +45,7 @@ impl ToElements<BaseElement> for MaatPublicInputs {
 #[cfg(test)]
 mod tests {
     use maat_field::FieldElement;
+    use maat_trace::PublicSegment;
 
     use super::*;
 
@@ -82,7 +53,13 @@ mod tests {
     fn to_elements_includes_inputs_output_and_bases() {
         let inputs = vec![BaseElement::new(10), BaseElement::new(20)];
         let output = BaseElement::new(42);
-        let pi = MaatPublicInputs::new(inputs, output);
+        let pi = MaatPublicInputs::new(
+            output,
+            PublicMemory {
+                input: PublicSegment::new(0, inputs),
+                ..PublicMemory::default()
+            },
+        );
 
         let elements = pi.to_elements();
         // 2 inputs + 1 input_base + 1 output + 1 output_base + 0 output cells
@@ -98,17 +75,23 @@ mod tests {
 
     #[test]
     fn to_elements_includes_output_and_program_segments() {
-        let pi = MaatPublicInputs::with_segments(
-            vec![],
+        let pi = MaatPublicInputs::new(
             BaseElement::new(100),
-            17,
-            vec![
-                BaseElement::new(7),
-                BaseElement::new(13),
-                BaseElement::new(31),
-            ],
-            1,
-            vec![BaseElement::new(0xAA), BaseElement::new(0xBB)],
+            PublicMemory {
+                input: PublicSegment::default(),
+                output: PublicSegment::new(
+                    17,
+                    vec![
+                        BaseElement::new(7),
+                        BaseElement::new(13),
+                        BaseElement::new(31),
+                    ],
+                ),
+                program: PublicSegment::new(
+                    1,
+                    vec![BaseElement::new(0xAA), BaseElement::new(0xBB)],
+                ),
+            },
         );
         let elements = pi.to_elements();
         // 0 inputs + 1 input_base + 1 output + 1 output_base + 3 output cells
@@ -133,7 +116,7 @@ mod tests {
         assert_eq!(elements.len(), 4);
         assert_eq!(elements[0], BaseElement::ZERO); // input_base
         assert_eq!(elements[1], BaseElement::new(99)); // output
-        assert!(pi.output_segment.is_empty());
-        assert!(pi.program_segment.is_empty());
+        assert!(pi.memory.output.cells.is_empty());
+        assert!(pi.memory.program.cells.is_empty());
     }
 }

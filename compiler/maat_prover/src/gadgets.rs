@@ -3,11 +3,11 @@
 pub mod proof_serializer {
     //! Proof serialization and deserialization.
     //!
-    //! Wire format (version 5):
+    //! Wire format (version 6):
     //!
     //! ```text
     //! PROOF_MAGIC:        b"MATP"       (4 bytes)
-    //! PROOF_VERSION:      u16 BE        (2 bytes, currently 5)
+    //! PROOF_VERSION:      u16 BE        (2 bytes, currently 6)
     //! OUTPUT:             u64 LE        (8 bytes, claimed program output)
     //! INPUT_COUNT:        u16 BE        (2 bytes, number of public inputs)
     //! INPUTS:             [u64; N] LE   (8 * N bytes, public input values)
@@ -25,6 +25,7 @@ pub mod proof_serializer {
     use maat_air::Proof;
     use maat_errors::SerializationError;
     use maat_field::BaseElement;
+    use maat_trace::{PublicMemory, PublicSegment};
 
     const PROOF_MAGIC: [u8; 4] = *b"MATP";
     const PROOF_VERSION: u16 = 6;
@@ -38,25 +39,13 @@ pub mod proof_serializer {
     #[derive(Debug, Clone)]
     pub struct ProofPublicInputs {
         pub output: BaseElement,
-        pub inputs: Vec<BaseElement>,
-        pub input_base: u32,
-        pub output_base: u32,
-        pub output_segment: Vec<BaseElement>,
-        pub program_base: u32,
-        pub program_segment: Vec<BaseElement>,
+        pub memory: PublicMemory,
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn serialize_proof(
-        proof: &Proof,
-        output: BaseElement,
-        inputs: &[BaseElement],
-        input_base: u32,
-        output_base: u32,
-        output_segment: &[BaseElement],
-        program_base: u32,
-        program_segment: &[BaseElement],
-    ) -> Vec<u8> {
+    pub fn serialize_proof(proof: &Proof, output: BaseElement, memory: &PublicMemory) -> Vec<u8> {
+        let inputs = &memory.input.cells;
+        let output_segment = &memory.output.cells;
+        let program_segment = &memory.program.cells;
         let payload = proof.to_bytes();
         let input_count = inputs.len() as u16;
         let total_size = MIN_HEADER_SIZE
@@ -73,13 +62,13 @@ pub mod proof_serializer {
         for input in inputs {
             buf.extend_from_slice(&input.as_int().to_le_bytes());
         }
-        buf.extend_from_slice(&input_base.to_be_bytes());
-        buf.extend_from_slice(&output_base.to_be_bytes());
+        buf.extend_from_slice(&memory.input.base.to_be_bytes());
+        buf.extend_from_slice(&memory.output.base.to_be_bytes());
         buf.extend_from_slice(&(output_segment.len() as u32).to_be_bytes());
         for cell in output_segment {
             buf.extend_from_slice(&cell.as_int().to_le_bytes());
         }
-        buf.extend_from_slice(&program_base.to_be_bytes());
+        buf.extend_from_slice(&memory.program.base.to_be_bytes());
         buf.extend_from_slice(&(program_segment.len() as u32).to_be_bytes());
         for cell in program_segment {
             buf.extend_from_slice(&cell.as_int().to_le_bytes());
@@ -140,12 +129,11 @@ pub mod proof_serializer {
 
         let public_inputs = ProofPublicInputs {
             output,
-            inputs,
-            input_base,
-            output_base,
-            output_segment,
-            program_base,
-            program_segment,
+            memory: PublicMemory {
+                input: PublicSegment::new(input_base, inputs),
+                output: PublicSegment::new(output_base, output_segment),
+                program: PublicSegment::new(program_base, program_segment),
+            },
         };
 
         Ok((proof, public_inputs))

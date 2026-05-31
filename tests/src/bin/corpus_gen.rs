@@ -116,29 +116,13 @@ fn compile_and_prove(source: &str) -> Vec<u8> {
     let artifacts = maat_trace::run_with_output(bytecode).expect("seed program failed to trace");
     let output = artifacts.trace.row(artifacts.trace.num_rows() - 1)[COL_OUT];
 
-    let public_inputs = MaatPublicInputs::with_segments(
-        vec![],
-        output,
-        artifacts.output_base,
-        artifacts.output_segment.clone(),
-        artifacts.program_base,
-        artifacts.program_segment.clone(),
-    );
+    let public_inputs = MaatPublicInputs::new(output, artifacts.memory.clone());
     let prover = MaatProver::new(development_options(), public_inputs);
     let proof = prover
         .generate_proof(artifacts.trace)
         .expect("seed program failed to prove");
 
-    serialize_proof(
-        &proof,
-        output,
-        &[],
-        artifacts.input_base,
-        artifacts.output_base,
-        &artifacts.output_segment,
-        artifacts.program_base,
-        &artifacts.program_segment,
-    )
+    serialize_proof(&proof, output, &artifacts.memory)
 }
 
 fn ensure_dir(path: &Path) {
