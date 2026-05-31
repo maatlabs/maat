@@ -56,14 +56,16 @@ pub fn check_and_compile(graph: &mut ModuleGraph) -> ModuleResult<Bytecode> {
     compile_modules(graph, &topo_order, &exports, &cached_imports)
 }
 
-/// Returns `true` if the graph's root module declares a top-level `fn main`.
-pub fn has_main_entry(graph: &ModuleGraph) -> bool {
+pub fn main_entry_arity(graph: &ModuleGraph) -> Option<usize> {
     graph
         .root()
         .program
         .statements
         .iter()
-        .any(|stmt| matches!(stmt, Stmt::FuncDef(fn_item) if fn_item.name == "main"))
+        .find_map(|stmt| match stmt {
+            Stmt::FuncDef(fn_item) if fn_item.name == "main" => Some(fn_item.params.len()),
+            _ => None,
+        })
 }
 
 fn type_check_modules(

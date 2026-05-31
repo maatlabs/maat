@@ -10,6 +10,19 @@ fn expect_single_stmt(program: &Program) -> &Stmt {
 }
 
 #[test]
+fn parse_pub_entry_parameters() {
+    let program = parse("fn main(a: pub Felt, b: Felt) -> Felt { a + b }");
+    let Stmt::FuncDef(func) = expect_single_stmt(&program) else {
+        panic!("expected FuncDef statement");
+    };
+    assert_eq!(func.params.len(), 2);
+    assert!(func.params[0].is_public, "`a` should be a public parameter");
+    assert!(!func.params[1].is_public, "`b` should be private");
+    assert_eq!(func.params[0].to_string(), "a: pub Felt");
+    assert_eq!(func.params[1].to_string(), "b: Felt");
+}
+
+#[test]
 fn parse_let_statements() {
     [
         ("let x = 5;", "x", "5"),

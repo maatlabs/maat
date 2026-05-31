@@ -631,6 +631,7 @@ impl fmt::Display for TypeExpr {
 impl fmt::Display for TypedParam {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.type_expr {
+            Some(ty) if self.is_public => write!(f, "{}: pub {ty}", self.name),
             Some(ty) => write!(f, "{}: {ty}", self.name),
             None => f.write_str(&self.name),
         }

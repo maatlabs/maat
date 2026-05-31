@@ -133,6 +133,7 @@ fn compile_and_prove(source: &str) -> Vec<u8> {
         &proof,
         output,
         &[],
+        artifacts.input_base,
         artifacts.output_base,
         &artifacts.output_segment,
         artifacts.program_base,

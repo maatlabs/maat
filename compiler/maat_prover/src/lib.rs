@@ -213,6 +213,8 @@ impl Prover for MaatProver {
         let aux_columns = maat_air::build_aux_columns(
             &main_columns,
             aux_rand_elements.rand_elements(),
+            self.inputs.input_base,
+            &self.inputs.inputs,
             self.inputs.output_base,
             &self.inputs.output_segment,
             self.inputs.program_base,

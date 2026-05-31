@@ -12,7 +12,8 @@ use maat_bytecode::Bytecode;
 use maat_errors::{Result, VmError};
 use maat_field::{Felt, FieldElement};
 use maat_runtime::{
-    MaybeRelocatable, MemorySegmentManager, Relocatable, SEG_PROGRAM, SEG_PUBLIC_OUTPUT, Value,
+    MaybeRelocatable, MemorySegmentManager, Relocatable, SEG_PROGRAM, SEG_PUBLIC_INPUT,
+    SEG_PUBLIC_OUTPUT, Value,
 };
 use maat_vm::VM;
 pub use mem::{Relocator, append_pubmem_dummies, fill_memory_holes, relocate_trace};
@@ -23,6 +24,8 @@ use table::TraceTable;
 pub struct TraceArtifacts {
     pub trace: TraceTable,
     pub result: Option<Value>,
+    pub input_base: u32,
+    pub input_segment: Vec<Felt>,
     pub output_base: u32,
     pub output_segment: Vec<Felt>,
     pub program_base: u32,
@@ -36,10 +39,16 @@ pub fn run(bytecode: Bytecode) -> Result<(TraceTable, Option<Value>)> {
     Ok((artifacts.trace, artifacts.result))
 }
 
-/// Variant of [`run`] that also extracts the public-output segment cells
-/// from [`SEG_PUBLIC_OUTPUT`] and appends `l = output_segment.len()` `(0, 0)`
-/// dummy rows to the trace for the AIR's public-memory accumulator.
+/// Variant of [`run`] that extracts the public-memory segments and appends one
+/// `(0, 0)` dummy row per public cell for the AIR's public-memory accumulator.
+/// Equivalent to [`run_with_inputs`] with no public inputs.
 pub fn run_with_output(bytecode: Bytecode) -> Result<TraceArtifacts> {
+    run_with_inputs(bytecode, &[])
+}
+
+/// Executes bytecode whose entry point binds `inputs` as `fn main`'s `pub`
+/// parameters.
+pub fn run_with_inputs(bytecode: Bytecode, inputs: &[Felt]) -> Result<TraceArtifacts> {
     let program_bytes = bytecode
         .serialize()
         .map_err(|e| VmError::new(format!("bytecode serialization failed: {e}")))?;
@@ -47,6 +56,7 @@ pub fn run_with_output(bytecode: Bytecode) -> Result<TraceArtifacts> {
     let mut recorder = TraceRecorder::new();
     let mut vm = VM::new(bytecode);
     vm.pin_program(&program_bytes)?;
+    vm.seed_public_inputs(inputs)?;
     vm.run_with_recorder(&mut recorder)?;
     let result = vm.last_popped_stack_elem().cloned();
 
@@ -59,6 +69,7 @@ pub fn run_with_output(bytecode: Bytecode) -> Result<TraceArtifacts> {
         .map_err(|e| VmError::new(format!("relocation table build failed: {e}")))?;
     relocate_trace(&mut trace, &plans, &relocator)?;
 
+    let (input_base, input_segment) = extract_input_segment(vm.segments(), &relocator)?;
     let (output_base, output_segment) = extract_output_segment(vm.segments(), &relocator)?;
     let (program_base, program_segment) = extract_program_segment(vm.segments(), &relocator)?;
 
@@ -71,16 +82,60 @@ pub fn run_with_output(bytecode: Bytecode) -> Result<TraceArtifacts> {
     };
     trace.stamp_output(output_felt);
     fill_memory_holes(&mut trace, vm.segments(), &relocator)?;
-    append_pubmem_dummies(&mut trace, output_segment.len() + program_segment.len())?;
+    append_pubmem_dummies(
+        &mut trace,
+        input_segment.len() + output_segment.len() + program_segment.len(),
+    )?;
     trace.pad_to_power_of_two();
     Ok(TraceArtifacts {
         trace,
         result,
+        input_base,
+        input_segment,
         output_base,
         output_segment,
         program_base,
         program_segment,
     })
+}
+
+fn extract_input_segment(
+    segments: &MemorySegmentManager,
+    relocator: &Relocator,
+) -> Result<(u32, Vec<Felt>)> {
+    let sizes = segments
+        .compute_sizes()
+        .map_err(|e| VmError::new(format!("input segment sizing failed: {e}")))?;
+    let size = usize::try_from(*sizes.get(SEG_PUBLIC_INPUT as usize).unwrap_or(&0))
+        .map_err(|_| VmError::new("input segment size exceeds usize"))?;
+    if size == 0 {
+        return Ok((0, Vec::new()));
+    }
+    let input_base_felt = relocator
+        .flatten(Relocatable::new(SEG_PUBLIC_INPUT, 0))
+        .map_err(|e| VmError::new(format!("input segment relocation failed: {e}")))?;
+    let input_base = u32::try_from(input_base_felt.as_int())
+        .map_err(|_| VmError::new("input segment base exceeds u32"))?;
+
+    let cells = (0..size)
+        .map(|off| {
+            let off_u32 =
+                u32::try_from(off).map_err(|_| VmError::new("input segment offset exceeds u32"))?;
+            let addr = Relocatable::new(SEG_PUBLIC_INPUT, off_u32);
+            let cell = segments
+                .read(addr)
+                .unwrap_or(MaybeRelocatable::Felt(Felt::ZERO));
+            let felt = match cell {
+                MaybeRelocatable::Felt(f) => f,
+                MaybeRelocatable::Relocatable(r) => relocator
+                    .flatten(r)
+                    .map_err(|e| VmError::new(format!("input cell relocation failed: {e}")))?,
+            };
+            Ok::<Felt, maat_errors::Error>(felt)
+        })
+        .collect::<Result<Vec<Felt>>>()?;
+
+    Ok((input_base, cells))
 }
 
 fn extract_output_segment(

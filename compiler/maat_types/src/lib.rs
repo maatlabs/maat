@@ -38,8 +38,14 @@ pub struct TypeChecker {
 
 /// Summary of a program's `fn main` provable entry point.
 struct MainEntry {
-    param_count: usize,
+    params: Vec<MainParam>,
     returns_vector: bool,
+}
+
+/// A single `fn main` parameter.
+struct MainParam {
+    is_public: bool,
+    ty: Option<Type>,
     span: Span,
 }
 
@@ -48,12 +54,19 @@ struct MainEntry {
 fn main_entry(program: &Program) -> Option<MainEntry> {
     program.statements.iter().find_map(|stmt| match stmt {
         Stmt::FuncDef(fn_item) if fn_item.name == "main" => Some(MainEntry {
-            param_count: fn_item.params.len(),
+            params: fn_item
+                .params
+                .iter()
+                .map(|p| MainParam {
+                    is_public: p.is_public,
+                    ty: p.type_expr.as_ref().map(resolve_type_expr),
+                    span: p.span,
+                })
+                .collect(),
             returns_vector: matches!(
                 fn_item.return_type.as_ref().map(resolve_type_expr),
                 Some(Type::Vector(_))
             ),
-            span: fn_item.span,
         }),
         _ => None,
     })
@@ -108,13 +121,24 @@ impl TypeChecker {
             }
         }
         if let Some(main) = main_entry(program) {
-            if main.param_count != 0 {
-                self.errors.push(
-                    TypeErrorKind::Unsupported(
-                        "`fn main` parameters are not yet supported".to_string(),
-                    )
-                    .at(main.span),
-                );
+            for param in &main.params {
+                if !param.is_public {
+                    self.errors.push(
+                        TypeErrorKind::Unsupported(
+                            "private `fn main` currently unsupported; \
+                             mark the parameter `pub` to bind it as a public input"
+                                .to_string(),
+                        )
+                        .at(param.span),
+                    );
+                } else if param.ty != Some(Type::Felt) {
+                    self.errors.push(
+                        TypeErrorKind::Unsupported(
+                            "only `Felt` public parameters are supported by `fn main`".to_string(),
+                        )
+                        .at(param.span),
+                    );
+                }
             }
             for stmt in program.statements.iter_mut() {
                 self.check_statement(stmt);

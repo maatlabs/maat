@@ -286,6 +286,7 @@ fn prove_bytecode(bytecode: &Bytecode, options: ProofOptions) -> Vec<u8> {
         &proof,
         output,
         &[],
+        artifacts.input_base,
         artifacts.output_base,
         &artifacts.output_segment,
         artifacts.program_base,
@@ -433,6 +434,8 @@ fn bench_aux_columns(c: &mut Criterion) {
                 let result = build_aux_columns(
                     black_box(&slices),
                     black_box(&rands),
+                    0,
+                    black_box(&[]),
                     0,
                     black_box(&[]),
                     0,

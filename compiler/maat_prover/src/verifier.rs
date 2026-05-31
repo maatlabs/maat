@@ -22,7 +22,8 @@ pub fn verify(proof_bytes: &[u8]) -> Result<(), VerificationError> {
         embedded.output_segment,
         embedded.program_base,
         embedded.program_segment,
-    );
+    )
+    .with_input_base(embedded.input_base);
     verify_with_inputs(proof, public_inputs)
 }
 

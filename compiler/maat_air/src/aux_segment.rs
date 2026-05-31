@@ -91,9 +91,12 @@ pub fn aux_constraint_degrees() -> Vec<usize> {
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn aux_assertions<E: FieldElement<BaseField = BaseElement>>(
     last_step: usize,
     rand_elements: &[E],
+    input_base: u32,
+    input_segment: &[BaseElement],
     output_base: u32,
     output_segment: &[BaseElement],
     program_base: u32,
@@ -103,6 +106,8 @@ pub fn aux_assertions<E: FieldElement<BaseField = BaseElement>>(
     out.extend(memory_aux_assertions::<E>(
         last_step,
         rand_elements,
+        input_base,
+        input_segment,
         output_base,
         output_segment,
         program_base,
@@ -112,9 +117,12 @@ pub fn aux_assertions<E: FieldElement<BaseField = BaseElement>>(
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 fn memory_aux_assertions<E: FieldElement<BaseField = BaseElement>>(
     last_step: usize,
     rand_elements: &[E],
+    input_base: u32,
+    input_segment: &[BaseElement],
     output_base: u32,
     output_segment: &[BaseElement],
     program_base: u32,
@@ -123,6 +131,8 @@ fn memory_aux_assertions<E: FieldElement<BaseField = BaseElement>>(
     let memory_rands = &rand_elements[..MEMORY_NUM_AUX_RANDS];
     let endpoint = public_memory_endpoint::<E>(
         memory_rands,
+        input_base,
+        input_segment,
         output_base,
         output_segment,
         program_base,
@@ -136,12 +146,14 @@ fn memory_aux_assertions<E: FieldElement<BaseField = BaseElement>>(
 
 pub fn public_memory_endpoint<E: FieldElement<BaseField = BaseElement>>(
     memory_rands: &[E],
+    input_base: u32,
+    input_segment: &[BaseElement],
     output_base: u32,
     output_segment: &[BaseElement],
     program_base: u32,
     program_segment: &[BaseElement],
 ) -> E {
-    let total_cells = output_segment.len() + program_segment.len();
+    let total_cells = input_segment.len() + output_segment.len() + program_segment.len();
     if total_cells == 0 {
         return E::ONE;
     }
@@ -149,6 +161,7 @@ pub fn public_memory_endpoint<E: FieldElement<BaseField = BaseElement>>(
     let alpha = memory_rands[RAND_ALPHA];
     let mut prod = E::ONE;
     for (base, segment) in [
+        (input_base, input_segment),
         (output_base, output_segment),
         (program_base, program_segment),
     ] {
@@ -164,9 +177,12 @@ pub fn public_memory_endpoint<E: FieldElement<BaseField = BaseElement>>(
     z_pow_l * prod.inv()
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_aux_columns<E: FieldElement<BaseField = BaseElement>>(
     main_columns: &[&[BaseElement]],
     rand_elements: &[E],
+    input_base: u32,
+    input_segment: &[BaseElement],
     output_base: u32,
     output_segment: &[BaseElement],
     program_base: u32,
@@ -178,6 +194,8 @@ pub fn build_aux_columns<E: FieldElement<BaseField = BaseElement>>(
     columns.extend(build_memory_columns(
         main_columns,
         memory_rands,
+        input_base,
+        input_segment,
         output_base,
         output_segment,
         program_base,
@@ -223,9 +241,12 @@ fn evaluate_memory<F, E>(
     result[2] = (z - l2_tuple_next) * mem_acc_next - (z - l1_tuple_next) * mem_acc;
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_memory_columns<E: FieldElement<BaseField = BaseElement>>(
     main_columns: &[&[BaseElement]],
     rand_elements: &[E],
+    input_base: u32,
+    input_segment: &[BaseElement],
     output_base: u32,
     output_segment: &[BaseElement],
     program_base: u32,
@@ -235,7 +256,7 @@ fn build_memory_columns<E: FieldElement<BaseField = BaseElement>>(
     let z = rand_elements[RAND_Z];
     let alpha = rand_elements[RAND_ALPHA];
 
-    let total_pub_cells = output_segment.len() + program_segment.len();
+    let total_pub_cells = input_segment.len() + output_segment.len() + program_segment.len();
     let mut pairs: Vec<(BaseElement, BaseElement)> = Vec::with_capacity(n);
     let mut zeros_to_remove = total_pub_cells;
     for (&addr, &val) in main_columns[COL_MEM_ADDR]
@@ -249,6 +270,7 @@ fn build_memory_columns<E: FieldElement<BaseField = BaseElement>>(
         pairs.push((addr, val));
     }
     for (base, segment) in [
+        (input_base, input_segment),
         (output_base, output_segment),
         (program_base, program_segment),
     ] {
@@ -451,7 +473,16 @@ mod tests {
         let n = RangeCheckBuiltin::MIN_TRACE_LEN.next_power_of_two();
         let main = mock_main_trace(&vec![(0, 0); n]);
         let rand_elements = rands(F::new(9999), F::new(13), F::new(7777));
-        let aux = build_aux_columns(&column_slices(&main), &rand_elements, 0, &[], 0, &[]);
+        let aux = build_aux_columns(
+            &column_slices(&main),
+            &rand_elements,
+            0,
+            &[],
+            0,
+            &[],
+            0,
+            &[],
+        );
 
         assert_eq!(aux.len(), aux_width());
         assert_eq!(aux[AUX_COL_MEM_ACC][0], F::ONE);
@@ -475,7 +506,7 @@ mod tests {
         let main = mock_main_trace_with_limbs(&mem, &limbs);
         let rand_elements = rands(F::new(7777), F::new(31), F::new(5555));
         let slices = column_slices(&main);
-        let aux = build_aux_columns(&slices, &rand_elements, 0, &[], 0, &[]);
+        let aux = build_aux_columns(&slices, &rand_elements, 0, &[], 0, &[], 0, &[]);
 
         for i in 0..n - 1 {
             let main_curr = (0..TRACE_WIDTH).map(|c| main[c][i]).collect::<Vec<F>>();

@@ -128,6 +128,8 @@ impl Air for MaatAir {
         aux_assertions::<E>(
             self.trace_length() - 1,
             aux_rand_elements.rand_elements(),
+            self.public_inputs.input_base,
+            &self.public_inputs.inputs,
             self.public_inputs.output_base,
             &self.public_inputs.output_segment,
             self.public_inputs.program_base,

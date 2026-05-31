@@ -27,11 +27,11 @@ pub mod proof_serializer {
     use maat_field::BaseElement;
 
     const PROOF_MAGIC: [u8; 4] = *b"MATP";
-    const PROOF_VERSION: u16 = 5;
+    const PROOF_VERSION: u16 = 6;
     // Minimum header size with zero inputs / output cells / program cells:
-    // 4 (magic) + 2 (version) + 8 (output) + 2 (input count)
+    // 4 (magic) + 2 (version) + 8 (output) + 2 (input count) + 4 (input_base)
     //   + 4 (output_base) + 4 (output_seg_len) + 4 (program_base) + 4 (program_seg_len).
-    const MIN_HEADER_SIZE: usize = 32;
+    const MIN_HEADER_SIZE: usize = 36;
     const MAX_INPUT_COUNT: usize = 1024;
     const MAX_PUBLIC_SEGMENT_CELLS: usize = 1 << 20;
 
@@ -39,16 +39,19 @@ pub mod proof_serializer {
     pub struct ProofPublicInputs {
         pub output: BaseElement,
         pub inputs: Vec<BaseElement>,
+        pub input_base: u32,
         pub output_base: u32,
         pub output_segment: Vec<BaseElement>,
         pub program_base: u32,
         pub program_segment: Vec<BaseElement>,
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn serialize_proof(
         proof: &Proof,
         output: BaseElement,
         inputs: &[BaseElement],
+        input_base: u32,
         output_base: u32,
         output_segment: &[BaseElement],
         program_base: u32,
@@ -70,6 +73,7 @@ pub mod proof_serializer {
         for input in inputs {
             buf.extend_from_slice(&input.as_int().to_le_bytes());
         }
+        buf.extend_from_slice(&input_base.to_be_bytes());
         buf.extend_from_slice(&output_base.to_be_bytes());
         buf.extend_from_slice(&(output_segment.len() as u32).to_be_bytes());
         for cell in output_segment {
@@ -112,6 +116,7 @@ pub mod proof_serializer {
         }
         let inputs = read_felt_vec(bytes, &mut cursor, input_count)?;
 
+        let input_base = read_u32_be(bytes, &mut cursor)?;
         let output_base = read_u32_be(bytes, &mut cursor)?;
         let output_seg_len = read_u32_be(bytes, &mut cursor)? as usize;
         check_segment_limit("output_segment_cells", output_seg_len)?;
@@ -136,6 +141,7 @@ pub mod proof_serializer {
         let public_inputs = ProofPublicInputs {
             output,
             inputs,
+            input_base,
             output_base,
             output_segment,
             program_base,

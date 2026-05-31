@@ -14,7 +14,7 @@ use maat_bytecode::{
     Bytecode, Constant, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, Opcode, encode,
 };
 use maat_errors::{CompileError, CompileErrorKind, Error, Result};
-use maat_runtime::{Integer, Relocatable, SEG_PUBLIC_OUTPUT, TypeDef};
+use maat_runtime::{Integer, Relocatable, SEG_PUBLIC_INPUT, SEG_PUBLIC_OUTPUT, TypeDef};
 use maat_span::{SourceMap, Span};
 
 use crate::registry::{self, VariantEntry};
@@ -60,11 +60,20 @@ pub(crate) struct LoopContext {
     pub(crate) continue_jumps: Vec<usize>,
 }
 
-/// Returns the span of a top-level `fn main`, the canonical provable entry
-/// point, if the program declares one.
-fn main_entry_span(program: &Program) -> Option<Span> {
+/// Top-level `fn main` entry point facts.
+struct MainEntry {
+    span: Span,
+    param_count: usize,
+}
+
+/// Returns the entry-point facts for a top-level `fn main`, if the program
+/// declares one.
+fn main_entry(program: &Program) -> Option<MainEntry> {
     program.statements.iter().find_map(|stmt| match stmt {
-        Stmt::FuncDef(fn_item) if fn_item.name == "main" => Some(fn_item.span),
+        Stmt::FuncDef(fn_item) if fn_item.name == "main" => Some(MainEntry {
+            span: fn_item.span,
+            param_count: fn_item.params.len(),
+        }),
         _ => None,
     })
 }
@@ -174,15 +183,15 @@ impl Compiler {
             }
         }
 
-        if let Some(span) = main_entry_span(program) {
+        if let Some(MainEntry { span, param_count }) = main_entry(program) {
             for stmt in &program.statements {
                 self.compile_statement(stmt)?;
             }
-            let main_sym = self.resolve_or_error("main", span)?;
-            self.load_symbol(&main_sym, span);
-            self.emit(Opcode::Call, &[0], span);
+            self.emit_main_entry_call(param_count, span)?;
             if program.publishes_main_vector {
                 self.publish_vector_on_stack(span)?;
+            } else {
+                self.emit(Opcode::Pop, &[], span);
             }
             return Ok(());
         }
@@ -198,6 +207,38 @@ impl Compiler {
                 self.compile_statement(stmt)?;
             }
         }
+        Ok(())
+    }
+
+    fn emit_main_entry_call(&mut self, param_count: usize, span: Span) -> Result<()> {
+        let main_sym = self.resolve_or_error("main", span)?;
+        self.load_symbol(&main_sym, span);
+        for offset in 0..param_count {
+            let off = u32::try_from(offset).map_err(|_| {
+                Error::from(
+                    CompileErrorKind::UnsupportedExpr {
+                        expr_type: "`fn main` parameter count exceeds the u32 address space"
+                            .to_string(),
+                    }
+                    .at(span),
+                )
+            })?;
+            let addr_idx = self.add_constant(Constant::Relocatable(Relocatable::new(
+                SEG_PUBLIC_INPUT,
+                off,
+            )))?;
+            self.emit(Opcode::Constant, &[addr_idx], span);
+            self.emit(Opcode::HeapRead, &[], span);
+        }
+        let arg_count = u8::try_from(param_count).map_err(|_| {
+            Error::from(
+                CompileErrorKind::UnsupportedExpr {
+                    expr_type: "`fn main` accepts at most 255 public parameters".to_string(),
+                }
+                .at(span),
+            )
+        })?;
+        self.emit(Opcode::Call, &[usize::from(arg_count)], span);
         Ok(())
     }
 

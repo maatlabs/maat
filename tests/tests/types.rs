@@ -84,6 +84,7 @@ fn lambda(params: Vec<(&str, Option<TypeExpr>)>, body: Vec<Stmt>) -> Expr {
             .map(|(name, te)| TypedParam {
                 name: name.to_string(),
                 type_expr: te,
+                is_public: false,
                 span: S,
             })
             .collect(),
@@ -136,6 +137,7 @@ fn func_def(
             .map(|(n, te)| TypedParam {
                 name: n.to_string(),
                 type_expr: te,
+                is_public: false,
                 span: S,
             })
             .collect(),
@@ -278,6 +280,7 @@ fn trait_method(
             .map(|(n, te)| TypedParam {
                 name: n.to_string(),
                 type_expr: te,
+                is_public: false,
                 span: S,
             })
             .collect(),
@@ -312,6 +315,7 @@ fn method_def(
             .map(|(n, te)| TypedParam {
                 name: n.to_string(),
                 type_expr: te,
+                is_public: false,
                 span: S,
             })
             .collect(),
@@ -1372,13 +1376,28 @@ mod entry_point {
     use maat_tests::{compile, compile_type_errors};
 
     #[test]
-    fn fn_main_with_params_rejected() {
+    fn private_fn_main_param_rejected() {
         let errs = compile_type_errors("fn main(x: Felt) -> Felt { x }");
         assert!(
             errs.iter()
-                .any(|e| e.contains("`fn main` parameters are not yet supported")),
-            "expected entry-point parameter rejection; got: {errs:?}"
+                .any(|e| e.contains("private `fn main` currently unsupported")),
+            "expected private-parameter rejection; got: {errs:?}"
         );
+    }
+
+    #[test]
+    fn non_felt_public_fn_main_param_rejected() {
+        let errs = compile_type_errors("fn main(x: pub i64) -> i64 { x }");
+        assert!(
+            errs.iter()
+                .any(|e| e.contains("only `Felt` public parameters are supported")),
+            "expected non-Felt public-parameter rejection; got: {errs:?}"
+        );
+    }
+
+    #[test]
+    fn public_felt_fn_main_param_accepted() {
+        let _ = compile("fn main(x: pub Felt, y: pub Felt) -> Felt { x + y }");
     }
 
     #[test]

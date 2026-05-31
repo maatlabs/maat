@@ -13,9 +13,13 @@ fn vdf(seed: Felt, steps: i64) -> Felt {
     x
 }
 
-/// Provable entry point: proves 256 iterations of the VDF permutation from seed 3.
-fn main() -> Felt {
-    let result = vdf(3_fe, 256);
+/// Provable entry point: proves 256 iterations of the VDF permutation from a
+/// caller-supplied public `seed`. The seed binds to a boundary-constrained
+/// public-memory cell, so the proof attests `output = vdf(seed, 256)` for the
+/// exact seed the verifier sees, the canonical verifiable-delay statement. Supply it with
+/// `maat prove --input 3`; with no `--input` the seed defaults to zero.
+fn main(seed: pub Felt) -> Felt {
+    let result = vdf(seed, 256);
     println!("{result}");
     result
 }

@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use maat_bytecode::{MAX_GLOBALS, Opcode};
 use maat_errors::{Result, VmError};
 use maat_field::{Felt, FieldElement, try_inv};
-use maat_runtime::{MaybeRelocatable, Relocatable};
+use maat_runtime::{MaybeRelocatable, Relocatable, SEG_PUBLIC_INPUT};
 use maat_vm::trace::{CallCtx, DispatchCtx, Tracer};
 
 use crate::selector::{
@@ -143,7 +143,9 @@ impl TraceRecorder {
     }
 
     fn record_heap_read(&mut self, key: (u32, u32), value: MaybeRelocatable) -> Result<()> {
-        if !self.heap_alloc_set.contains(&key) {
+        if key.0 == SEG_PUBLIC_INPUT {
+            self.heap_alloc_set.insert(key);
+        } else if !self.heap_alloc_set.contains(&key) {
             return Err(VmError::new(format!(
                 "memory read of unallocated heap cell {}:{}",
                 key.0, key.1

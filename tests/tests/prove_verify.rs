@@ -10,6 +10,7 @@ use maat_prover::{
     MaatProver, deserialize_proof, development_options, production_options, serialize_proof,
     verify, verify_with_inputs,
 };
+use maat_tests::compile;
 use maat_tests::prover::*;
 use maat_trace::selector::*;
 use maat_trace::table::{COL_MEM_ADDR, COL_MEM_VAL, COL_SUB_SEL_BASE, TraceTable};
@@ -65,6 +66,72 @@ fn fn_main_matches_script_form_output() {
     );
     assert_eq!(script.output, entry.output);
     assert_eq!(entry.output, BaseElement::new(42));
+}
+
+#[test]
+fn prove_and_verify_public_input_binding() {
+    let output = prove_and_verify_with_inputs(
+        "fn main(a: pub Felt, b: pub Felt) -> Felt { 3_fe * a + b }",
+        &[BaseElement::new(5), BaseElement::new(7)],
+    );
+    assert_eq!(output, BaseElement::new(22));
+}
+
+#[test]
+fn public_input_flows_into_output() {
+    let source = "fn main(a: pub Felt, b: pub Felt) -> Felt { 3_fe * a + b }";
+    let first = prove_and_verify_with_inputs(source, &[BaseElement::new(1), BaseElement::new(1)]);
+    let second = prove_and_verify_with_inputs(source, &[BaseElement::new(2), BaseElement::new(2)]);
+    assert_eq!(first, BaseElement::new(4));
+    assert_eq!(second, BaseElement::new(8));
+}
+
+#[test]
+fn tampered_public_input_fails_verification() {
+    // A proof binds its public inputs: substituting a different `inputs` value
+    // at verification time (without re-proving) must be rejected.
+    let bytecode = compile("fn main(a: pub Felt, b: pub Felt) -> Felt { 3_fe * a + b }");
+    let inputs = vec![BaseElement::new(5), BaseElement::new(7)];
+    let artifacts = maat_trace::run_with_inputs(bytecode, &inputs).expect("trace failed");
+    let output = artifacts
+        .result
+        .as_ref()
+        .map(|v| v.to_felt())
+        .unwrap_or(BaseElement::ZERO);
+    let public_inputs = MaatPublicInputs::with_segments(
+        inputs.clone(),
+        output,
+        artifacts.output_base,
+        artifacts.output_segment.clone(),
+        artifacts.program_base,
+        artifacts.program_segment.clone(),
+    )
+    .with_input_base(artifacts.input_base);
+    let prover = MaatProver::new(development_options(), public_inputs);
+    let proof = prover
+        .generate_proof(artifacts.trace)
+        .expect("proof generation failed");
+
+    let serialized = serialize_proof(
+        &proof,
+        output,
+        &inputs,
+        artifacts.input_base,
+        artifacts.output_base,
+        &artifacts.output_segment,
+        artifacts.program_base,
+        &artifacts.program_segment,
+    );
+    verify(&serialized).expect("honest proof must verify");
+
+    // Flip the low byte of the first serialized public input
+    // (magic 4 + version 2 + output 8 + input_count 2 = offset 16).
+    let mut tampered = serialized.clone();
+    tampered[16] ^= 0x01;
+    assert!(
+        verify(&tampered).is_err(),
+        "a public input not matching the committed witness must fail to verify",
+    );
 }
 
 #[test]
@@ -554,6 +621,7 @@ fn proof_file_round_trip() {
         &proof,
         output,
         &[],
+        0,
         output_base,
         &output_segment,
         program_base,
@@ -585,6 +653,7 @@ fn verify_serialized_proof_end_to_end() {
         &proof,
         output,
         &[],
+        0,
         output_base,
         &output_segment,
         program_base,
@@ -613,6 +682,7 @@ fn proof_file_with_inputs_round_trip() {
         &proof,
         output,
         &inputs,
+        0,
         output_base,
         &output_segment,
         program_base,
