@@ -44,7 +44,6 @@ struct MainEntry {
 
 /// A single `fn main` parameter.
 struct MainParam {
-    is_public: bool,
     ty: Option<Type>,
     span: Span,
 }
@@ -58,7 +57,6 @@ fn main_entry(program: &Program) -> Option<MainEntry> {
                 .params
                 .iter()
                 .map(|p| MainParam {
-                    is_public: p.is_public,
                     ty: p.type_expr.as_ref().map(resolve_type_expr),
                     span: p.span,
                 })
@@ -122,19 +120,10 @@ impl TypeChecker {
         }
         if let Some(main) = main_entry(program) {
             for param in &main.params {
-                if !param.is_public {
+                if param.ty != Some(Type::Felt) {
                     self.errors.push(
                         TypeErrorKind::Unsupported(
-                            "private `fn main` currently unsupported; \
-                             mark the parameter `pub` to bind it as a public input"
-                                .to_string(),
-                        )
-                        .at(param.span),
-                    );
-                } else if param.ty != Some(Type::Felt) {
-                    self.errors.push(
-                        TypeErrorKind::Unsupported(
-                            "only `Felt` public parameters are supported by `fn main`".to_string(),
+                            "only `Felt` parameters are supported by `fn main`".to_string(),
                         )
                         .at(param.span),
                     );

@@ -61,6 +61,12 @@ enum Command {
         /// Path to JSON file containing public inputs array (alternative to --input).
         #[arg(long)]
         inputs_file: Option<PathBuf>,
+        /// Comma-separated private (witness) input values; never serialized into the proof.
+        #[arg(short = 'P', long, allow_hyphen_values = true)]
+        private_input: Option<String>,
+        /// Path to JSON file containing private inputs array (alternative to --private-input).
+        #[arg(long)]
+        private_inputs_file: Option<PathBuf>,
         /// Proof output path (default: `<program>.proof.bin`).
         #[arg(short, long)]
         output: Option<PathBuf>,
@@ -108,6 +114,8 @@ fn main() {
             file,
             input,
             inputs_file,
+            private_input,
+            private_inputs_file,
             output,
             trace,
             production,
@@ -116,6 +124,8 @@ fn main() {
                 &file,
                 input.as_deref(),
                 inputs_file.as_deref(),
+                private_input.as_deref(),
+                private_inputs_file.as_deref(),
                 output.as_deref(),
                 trace.as_deref(),
                 production,

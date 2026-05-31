@@ -17,8 +17,8 @@ use maat_errors::{Result, VmError};
 use maat_field::{Felt, FieldElement, from_i64, try_inv};
 use maat_runtime::{
     BUILTINS, BuiltinArg, BuiltinFn, BuiltinReturn, Closure, CompiledFn, EnumVariantVal, FALSE,
-    Hashable, Integer, Map, MaybeRelocatable, MemorySegmentManager, Relocatable, SEG_PROGRAM,
-    SEG_PUBLIC_INPUT, Set, StructVal, TRUE, TypeDef, UNIT, Value, WideInt,
+    Hashable, Integer, Map, MaybeRelocatable, MemorySegmentManager, Relocatable, SEG_PRIVATE_INPUT,
+    SEG_PROGRAM, SEG_PUBLIC_INPUT, Set, StructVal, TRUE, TypeDef, UNIT, Value, WideInt,
 };
 use maat_span::{SourceMap, Span};
 
@@ -121,14 +121,22 @@ impl VM {
     }
 
     pub fn seed_public_inputs(&mut self, values: &[Felt]) -> Result<()> {
+        self.seed_input_segment(SEG_PUBLIC_INPUT, values, "public-input")
+    }
+
+    pub fn seed_private_inputs(&mut self, values: &[Felt]) -> Result<()> {
+        self.seed_input_segment(SEG_PRIVATE_INPUT, values, "private-input")
+    }
+
+    fn seed_input_segment(&mut self, segment: u32, values: &[Felt], label: &str) -> Result<()> {
         for (off, &value) in values.iter().enumerate() {
             let off_u32 = u32::try_from(off)
-                .map_err(|_| VmError::new("public-input segment longer than u32::MAX cells"))?;
-            let addr = Relocatable::new(SEG_PUBLIC_INPUT, off_u32);
+                .map_err(|_| VmError::new(format!("{label} segment longer than u32::MAX cells")))?;
+            let addr = Relocatable::new(segment, off_u32);
             let mr = MaybeRelocatable::Felt(value);
             self.segments
                 .write(addr, mr)
-                .map_err(|e| VmError::new(format!("public-input write failed: {e}")))?;
+                .map_err(|e| VmError::new(format!("{label} write failed: {e}")))?;
             self.heap_values.insert(addr, Value::Felt(value));
         }
         Ok(())
@@ -544,7 +552,9 @@ impl VM {
                 let addr = self.pop_relocatable("HeapRead")?;
                 let value = match self.heap_values.get(&addr).cloned() {
                     Some(v) => v,
-                    None if addr.segment_index == SEG_PUBLIC_INPUT => Value::Felt(Felt::ZERO),
+                    None if matches!(addr.segment_index, SEG_PUBLIC_INPUT | SEG_PRIVATE_INPUT) => {
+                        Value::Felt(Felt::ZERO)
+                    }
                     None => {
                         return Err(
                             self.vm_error(format!("heap read of unallocated address {addr}"))

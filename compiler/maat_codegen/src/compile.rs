@@ -14,7 +14,9 @@ use maat_bytecode::{
     Bytecode, Constant, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, Opcode, encode,
 };
 use maat_errors::{CompileError, CompileErrorKind, Error, Result};
-use maat_runtime::{Integer, Relocatable, SEG_PUBLIC_INPUT, SEG_PUBLIC_OUTPUT, TypeDef};
+use maat_runtime::{
+    Integer, Relocatable, SEG_PRIVATE_INPUT, SEG_PUBLIC_INPUT, SEG_PUBLIC_OUTPUT, TypeDef,
+};
 use maat_span::{SourceMap, Span};
 
 use crate::registry::{self, VariantEntry};
@@ -63,7 +65,9 @@ pub(crate) struct LoopContext {
 /// Top-level `fn main` entry point facts.
 struct MainEntry {
     span: Span,
-    param_count: usize,
+    /// Per-parameter visibility in declaration order: `true` for a `pub`
+    /// (public-input) parameter, `false` for a bare (private-witness) one.
+    param_vis: Vec<bool>,
 }
 
 /// Returns the entry-point facts for a top-level `fn main`, if the program
@@ -72,7 +76,7 @@ fn main_entry(program: &Program) -> Option<MainEntry> {
     program.statements.iter().find_map(|stmt| match stmt {
         Stmt::FuncDef(fn_item) if fn_item.name == "main" => Some(MainEntry {
             span: fn_item.span,
-            param_count: fn_item.params.len(),
+            param_vis: fn_item.params.iter().map(|p| p.is_public).collect(),
         }),
         _ => None,
     })
@@ -183,11 +187,11 @@ impl Compiler {
             }
         }
 
-        if let Some(MainEntry { span, param_count }) = main_entry(program) {
+        if let Some(MainEntry { span, param_vis }) = main_entry(program) {
             for stmt in &program.statements {
                 self.compile_statement(stmt)?;
             }
-            self.emit_main_entry_call(param_count, span)?;
+            self.emit_main_entry_call(&param_vis, span)?;
             if program.publishes_main_vector {
                 self.publish_vector_on_stack(span)?;
             } else {
@@ -210,11 +214,18 @@ impl Compiler {
         Ok(())
     }
 
-    fn emit_main_entry_call(&mut self, param_count: usize, span: Span) -> Result<()> {
+    fn emit_main_entry_call(&mut self, param_vis: &[bool], span: Span) -> Result<()> {
         let main_sym = self.resolve_or_error("main", span)?;
         self.load_symbol(&main_sym, span);
-        for offset in 0..param_count {
-            let off = u32::try_from(offset).map_err(|_| {
+        let (mut public_off, mut private_off) = (0u32, 0u32);
+        for &is_public in param_vis {
+            let (segment, slot) = if is_public {
+                (SEG_PUBLIC_INPUT, &mut public_off)
+            } else {
+                (SEG_PRIVATE_INPUT, &mut private_off)
+            };
+            let off = *slot;
+            *slot = slot.checked_add(1).ok_or_else(|| {
                 Error::from(
                     CompileErrorKind::UnsupportedExpr {
                         expr_type: "`fn main` parameter count exceeds the u32 address space"
@@ -223,17 +234,15 @@ impl Compiler {
                     .at(span),
                 )
             })?;
-            let addr_idx = self.add_constant(Constant::Relocatable(Relocatable::new(
-                SEG_PUBLIC_INPUT,
-                off,
-            )))?;
+            let addr_idx =
+                self.add_constant(Constant::Relocatable(Relocatable::new(segment, off)))?;
             self.emit(Opcode::Constant, &[addr_idx], span);
             self.emit(Opcode::HeapRead, &[], span);
         }
-        let arg_count = u8::try_from(param_count).map_err(|_| {
+        let arg_count = u8::try_from(param_vis.len()).map_err(|_| {
             Error::from(
                 CompileErrorKind::UnsupportedExpr {
-                    expr_type: "`fn main` accepts at most 255 public parameters".to_string(),
+                    expr_type: "`fn main` accepts at most 255 parameters".to_string(),
                 }
                 .at(span),
             )

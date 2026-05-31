@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use maat_bytecode::{MAX_GLOBALS, Opcode};
 use maat_errors::{Result, VmError};
 use maat_field::{Felt, FieldElement, try_inv};
-use maat_runtime::{MaybeRelocatable, Relocatable, SEG_PUBLIC_INPUT};
+use maat_runtime::{MaybeRelocatable, Relocatable, SEG_PRIVATE_INPUT, SEG_PUBLIC_INPUT};
 use maat_vm::trace::{CallCtx, DispatchCtx, Tracer};
 
 use crate::selector::{
@@ -143,7 +143,12 @@ impl TraceRecorder {
     }
 
     fn record_heap_read(&mut self, key: (u32, u32), value: MaybeRelocatable) -> Result<()> {
-        if key.0 == SEG_PUBLIC_INPUT {
+        if key.0 == SEG_PUBLIC_INPUT || key.0 == SEG_PRIVATE_INPUT {
+            // Externally committed (public) or prover-supplied (private) memory:
+            // the first touch is a read with no preceding write. Public cells are
+            // bound through the public-memory accumulator; private cells
+            // self-balance in the permutation (the read appears identically in
+            // both the access-order and address-sorted multisets).
             self.heap_alloc_set.insert(key);
         } else if !self.heap_alloc_set.contains(&key) {
             return Err(VmError::new(format!(

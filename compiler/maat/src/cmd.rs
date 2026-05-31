@@ -7,7 +7,7 @@ use std::time::Instant;
 use maat_air::MaatPublicInputs;
 use maat_bytecode::Bytecode;
 use maat_field::{BaseElement, FieldElement, from_i64};
-use maat_module::{check_and_compile, main_entry_arity, resolve_module_graph};
+use maat_module::{MainArity, check_and_compile, main_entry_arity, resolve_module_graph};
 use maat_prover::{
     MaatProver, deserialize_proof, development_options, production_options, serialize_proof,
 };
@@ -132,10 +132,13 @@ pub fn trace(path: &Path, output_path: Option<&Path>) {
 }
 
 /// STARK proof generation for the `maat prove` command.
+#[allow(clippy::too_many_arguments)]
 pub fn prove(
     path: &Path,
     input: Option<&str>,
     inputs_file: Option<&Path>,
+    private_input: Option<&str>,
+    private_inputs_file: Option<&Path>,
     output_path: Option<&Path>,
     trace_path: Option<&Path>,
     production: bool,
@@ -143,7 +146,12 @@ pub fn prove(
     require_extension(path, "maat", "prove");
 
     let (bytecode, arity) = compile_provable_source(path);
-    let inputs = reconcile_inputs(load_inputs(input, inputs_file), arity);
+    let inputs = reconcile_inputs(load_inputs(input, inputs_file), arity.public, "public");
+    let private_inputs = reconcile_inputs(
+        load_inputs(private_input, private_inputs_file),
+        arity.private,
+        "private",
+    );
 
     let maat_trace::TraceArtifacts {
         trace,
@@ -156,7 +164,7 @@ pub fn prove(
         output_segment,
         program_base,
         program_segment,
-    } = match maat_trace::run_with_inputs(bytecode, &inputs) {
+    } = match maat_trace::run_with_io(bytecode, &inputs, &private_inputs) {
         Ok(a) => a,
         Err(e) => {
             eprintln!("error: trace generation failed: {e}");
@@ -319,8 +327,8 @@ fn compile_source(path: &Path) -> Bytecode {
 
 /// Compiles a `.maat` source file for proving, requiring a `fn main` entry
 /// point. Script-form programs (top-level statements) are `run`/`exec`-only.
-/// Returns the linked bytecode and `fn main`'s public-input arity.
-fn compile_provable_source(path: &Path) -> (Bytecode, usize) {
+/// Returns the linked bytecode and `fn main`'s public/private input arity.
+fn compile_provable_source(path: &Path) -> (Bytecode, MainArity) {
     let mut graph = match resolve_module_graph(path) {
         Ok(g) => g,
         Err(e) => {
@@ -345,13 +353,13 @@ fn compile_provable_source(path: &Path) -> (Bytecode, usize) {
     }
 }
 
-fn reconcile_inputs(supplied: Vec<BaseElement>, arity: usize) -> Vec<BaseElement> {
+fn reconcile_inputs(supplied: Vec<BaseElement>, arity: usize, kind: &str) -> Vec<BaseElement> {
     if supplied.is_empty() {
         return vec![BaseElement::ZERO; arity];
     }
     if supplied.len() != arity {
         eprintln!(
-            "error: `fn main` declares {arity} public input(s), but {} were supplied",
+            "error: `fn main` declares {arity} {kind} input(s), but {} were supplied",
             supplied.len()
         );
         process::exit(1);
@@ -359,7 +367,7 @@ fn reconcile_inputs(supplied: Vec<BaseElement>, arity: usize) -> Vec<BaseElement
     supplied
 }
 
-/// Loads public inputs from either command-line arguments or a JSON file.
+/// Loads inputs from either a command-line argument or a JSON file.
 fn load_inputs(input: Option<&str>, inputs_file: Option<&Path>) -> Vec<BaseElement> {
     match (input, inputs_file) {
         (Some(_), Some(_)) => {

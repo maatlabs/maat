@@ -64,6 +64,46 @@ pub fn prove_and_verify_with_inputs(source: &str, inputs: &[Felt]) -> BaseElemen
     output
 }
 
+/// Proves and verifies a `fn main` program whose `pub` parameters bind to
+/// `public` inputs and whose bare parameters bind to `private` witness inputs,
+/// returning the proven output. Panics if proving or verification fails.
+pub fn prove_and_verify_with_io(source: &str, public: &[Felt], private: &[Felt]) -> BaseElement {
+    let bytecode = crate::compile(source);
+    let artifacts =
+        maat_trace::run_with_io(bytecode, public, private).expect("trace execution failed");
+    let output = artifacts
+        .result
+        .as_ref()
+        .map(|v| v.to_felt())
+        .unwrap_or(BaseElement::ZERO);
+    let public_inputs = MaatPublicInputs::with_segments(
+        public.to_vec(),
+        output,
+        artifacts.output_base,
+        artifacts.output_segment.clone(),
+        artifacts.program_base,
+        artifacts.program_segment.clone(),
+    )
+    .with_input_base(artifacts.input_base);
+    let prover = MaatProver::new(development_options(), public_inputs.clone());
+    let proof = prover
+        .generate_proof(artifacts.trace)
+        .expect("proof generation failed");
+    verify_with_inputs(proof, public_inputs).expect("verification failed");
+    output
+}
+
+/// Attempts to generate a trace for a `fn main` program with the given inputs,
+/// returning the trace-generation error if the program's own constraints (e.g.
+/// an `assert!`) reject the witness. Used to confirm a bad private witness
+/// cannot be proven.
+pub fn trace_with_io_err(source: &str, public: &[Felt], private: &[Felt]) -> Option<String> {
+    let bytecode = crate::compile(source);
+    maat_trace::run_with_io(bytecode, public, private)
+        .err()
+        .map(|e| e.to_string())
+}
+
 /// Trace + output extracted from a source program. Used by the trace-tampering
 /// tests that need to mutate the trace before proving.
 pub struct TraceBundle {

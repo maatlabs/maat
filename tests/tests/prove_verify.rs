@@ -135,6 +135,46 @@ fn tampered_public_input_fails_verification() {
 }
 
 #[test]
+fn prove_and_verify_private_input_knowledge() {
+    // "I know x such that x * x == y" for public y, without revealing x. The
+    // bare `x` binds to a private witness cell carrying no public-memory
+    // commitment; only `y` is reconstructed by the verifier.
+    let output = prove_and_verify_with_io(
+        "fn main(x: Felt, y: pub Felt) -> Felt { assert!(x * x == y); y }",
+        &[BaseElement::new(9)],
+        &[BaseElement::new(3)],
+    );
+    assert_eq!(output, BaseElement::new(9));
+}
+
+#[test]
+fn private_witness_is_existential() {
+    // Any witness satisfying the relation proves the same public statement:
+    // both 3 and (p - 3) are square roots of 9, and both yield an identical
+    // public reconstruction (the verifier cannot tell which was used).
+    let source = "fn main(x: Felt, y: pub Felt) -> Felt { assert!(x * x == y); y }";
+    let neg_three = BaseElement::ZERO - BaseElement::new(3);
+    let a = prove_and_verify_with_io(source, &[BaseElement::new(9)], &[BaseElement::new(3)]);
+    let b = prove_and_verify_with_io(source, &[BaseElement::new(9)], &[neg_three]);
+    assert_eq!(a, b);
+}
+
+#[test]
+fn wrong_private_witness_fails_to_prove() {
+    // A private input violating the program's own `assert!` cannot be traced,
+    // so no proof can be produced for a false knowledge claim.
+    let err = trace_with_io_err(
+        "fn main(x: Felt, y: pub Felt) -> Felt { assert!(x * x == y); y }",
+        &[BaseElement::new(9)],
+        &[BaseElement::new(4)],
+    );
+    assert!(
+        err.is_some_and(|e| e.contains("assertion failed")),
+        "a witness violating the assertion must fail trace generation",
+    );
+}
+
+#[test]
 fn prove_and_verify_modular_arithmetic() {
     prove_and_verify(
         "

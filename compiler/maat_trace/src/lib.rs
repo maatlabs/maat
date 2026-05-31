@@ -41,14 +41,24 @@ pub fn run(bytecode: Bytecode) -> Result<(TraceTable, Option<Value>)> {
 
 /// Variant of [`run`] that extracts the public-memory segments and appends one
 /// `(0, 0)` dummy row per public cell for the AIR's public-memory accumulator.
-/// Equivalent to [`run_with_inputs`] with no public inputs.
+/// Equivalent to [`run_with_io`] with no inputs.
 pub fn run_with_output(bytecode: Bytecode) -> Result<TraceArtifacts> {
-    run_with_inputs(bytecode, &[])
+    run_with_io(bytecode, &[], &[])
 }
 
 /// Executes bytecode whose entry point binds `inputs` as `fn main`'s `pub`
-/// parameters.
+/// parameters. Equivalent to [`run_with_io`] with no private inputs.
 pub fn run_with_inputs(bytecode: Bytecode, inputs: &[Felt]) -> Result<TraceArtifacts> {
+    run_with_io(bytecode, inputs, &[])
+}
+
+/// Executes bytecode whose entry point binds `public_inputs` as `fn main`'s
+/// `pub` parameters and `private_inputs` as its bare (witness) parameters.
+pub fn run_with_io(
+    bytecode: Bytecode,
+    public_inputs: &[Felt],
+    private_inputs: &[Felt],
+) -> Result<TraceArtifacts> {
     let program_bytes = bytecode
         .serialize()
         .map_err(|e| VmError::new(format!("bytecode serialization failed: {e}")))?;
@@ -56,7 +66,8 @@ pub fn run_with_inputs(bytecode: Bytecode, inputs: &[Felt]) -> Result<TraceArtif
     let mut recorder = TraceRecorder::new();
     let mut vm = VM::new(bytecode);
     vm.pin_program(&program_bytes)?;
-    vm.seed_public_inputs(inputs)?;
+    vm.seed_public_inputs(public_inputs)?;
+    vm.seed_private_inputs(private_inputs)?;
     vm.run_with_recorder(&mut recorder)?;
     let result = vm.last_popped_stack_elem().cloned();
 

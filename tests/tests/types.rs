@@ -1376,22 +1376,31 @@ mod entry_point {
     use maat_tests::{compile, compile_type_errors};
 
     #[test]
-    fn private_fn_main_param_rejected() {
-        let errs = compile_type_errors("fn main(x: Felt) -> Felt { x }");
-        assert!(
-            errs.iter()
-                .any(|e| e.contains("private `fn main` currently unsupported")),
-            "expected private-parameter rejection; got: {errs:?}"
-        );
+    fn private_felt_fn_main_param_accepted() {
+        // A bare (non-`pub`) `Felt` parameter binds as a private witness input.
+        let _ = compile("fn main(x: Felt) -> Felt { x }");
+    }
+
+    #[test]
+    fn mixed_public_private_fn_main_accepted() {
+        let _ = compile("fn main(x: Felt, y: pub Felt) -> Felt { assert!(x * x == y); y }");
     }
 
     #[test]
     fn non_felt_public_fn_main_param_rejected() {
         let errs = compile_type_errors("fn main(x: pub i64) -> i64 { x }");
         assert!(
-            errs.iter()
-                .any(|e| e.contains("only `Felt` public parameters are supported")),
+            errs.iter().any(|e| e.contains("only `Felt` parameters")),
             "expected non-Felt public-parameter rejection; got: {errs:?}"
+        );
+    }
+
+    #[test]
+    fn non_felt_private_fn_main_param_rejected() {
+        let errs = compile_type_errors("fn main(x: i64) -> i64 { x }");
+        assert!(
+            errs.iter().any(|e| e.contains("only `Felt` parameters")),
+            "expected non-Felt private-parameter rejection; got: {errs:?}"
         );
     }
 
