@@ -243,4 +243,59 @@ fn main() -> Felt {
     }
     x
 }";
+
+    pub const RESCUE_HASH_CHAIN_SOURCE: &str = "\
+fn main() -> Felt {
+    let mut state: [Felt; 4] = [3_fe, 0_fe, 0_fe, 0_fe];
+    for _step in 0..32 {
+        state = hash::rescue_4(state);
+    }
+    state[0]
+}";
+
+    pub const LAMPORT_AGGREGATE_SOURCE: &str = "\
+fn main() -> Felt {
+    let in0: [Felt; 2] = [1_fe, 7_fe];
+    let d0 = hash::rescue_2(in0);
+    let in1: [Felt; 2] = [2_fe, 7_fe];
+    let d1 = hash::rescue_2(in1);
+    let in2: [Felt; 2] = [3_fe, 7_fe];
+    let d2 = hash::rescue_2(in2);
+    let in3: [Felt; 2] = [4_fe, 7_fe];
+    let d3 = hash::rescue_2(in3);
+    let absorbed: [Felt; 8] = [
+        d0[0], d0[1], d1[0], d1[1],
+        d2[0], d2[1], d3[0], d3[1],
+    ];
+    let pk = hash::rescue_8(absorbed);
+    pk[0]
+}";
+
+    pub const MERKLE_PATH_SOURCE: &str = "\
+fn combine(node: [Felt; 4], sibling: [Felt; 4], is_right: Felt) -> [Felt; 4] {
+    let one_minus = 1_fe - is_right;
+    let pair: [Felt; 8] = [
+        is_right * sibling[0] + one_minus * node[0],
+        is_right * sibling[1] + one_minus * node[1],
+        is_right * sibling[2] + one_minus * node[2],
+        is_right * sibling[3] + one_minus * node[3],
+        is_right * node[0] + one_minus * sibling[0],
+        is_right * node[1] + one_minus * sibling[1],
+        is_right * node[2] + one_minus * sibling[2],
+        is_right * node[3] + one_minus * sibling[3],
+    ];
+    hash::rescue_8(pair)
+}
+fn main() -> Felt {
+    let leaf: [Felt; 4] = [42_fe, 0_fe, 0_fe, 0_fe];
+    let sib0: [Felt; 4] = [1_fe, 0_fe, 0_fe, 0_fe];
+    let sib1: [Felt; 4] = [2_fe, 0_fe, 0_fe, 0_fe];
+    let sib2: [Felt; 4] = [3_fe, 0_fe, 0_fe, 0_fe];
+    let sib3: [Felt; 4] = [4_fe, 0_fe, 0_fe, 0_fe];
+    let n0 = combine(leaf, sib0, 0_fe);
+    let n1 = combine(n0, sib1, 1_fe);
+    let n2 = combine(n1, sib2, 0_fe);
+    let root = combine(n2, sib3, 1_fe);
+    root[0]
+}";
 }

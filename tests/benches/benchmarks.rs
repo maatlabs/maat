@@ -349,17 +349,17 @@ fn bench_verify(c: &mut Criterion) {
     group.finish();
 }
 
-fn bench_vdf(c: &mut Criterion) {
-    let bc = compile(VDF_SOURCE);
+fn bench_example_program(c: &mut Criterion, name: &'static str, source: &str) {
+    let bc = compile(source);
     let dev_proof = prove_bytecode(&bc, development_options());
     let prod_proof = prove_bytecode(&bc, production_options());
     println!(
-        "vdf proof size: dev {} bytes, prod {} bytes",
+        "{name} proof size: dev {} bytes, prod {} bytes",
         dev_proof.len(),
         prod_proof.len()
     );
 
-    let mut group = c.benchmark_group("vdf");
+    let mut group = c.benchmark_group(name);
     group.measurement_time(Duration::from_secs(30));
     group.sample_size(10);
 
@@ -389,6 +389,22 @@ fn bench_vdf(c: &mut Criterion) {
     });
 
     group.finish();
+}
+
+fn bench_vdf(c: &mut Criterion) {
+    bench_example_program(c, "vdf", VDF_SOURCE);
+}
+
+fn bench_rescue(c: &mut Criterion) {
+    bench_example_program(c, "rescue", RESCUE_HASH_CHAIN_SOURCE);
+}
+
+fn bench_lamport(c: &mut Criterion) {
+    bench_example_program(c, "lamport", LAMPORT_AGGREGATE_SOURCE);
+}
+
+fn bench_merkle(c: &mut Criterion) {
+    bench_example_program(c, "merkle", MERKLE_PATH_SOURCE);
 }
 
 fn bench_aux_columns(c: &mut Criterion) {
@@ -456,6 +472,9 @@ criterion_group!(
     bench_prove,
     bench_verify,
     bench_vdf,
+    bench_rescue,
+    bench_lamport,
+    bench_merkle,
     bench_aux_columns,
 );
 criterion_main!(
