@@ -1,0 +1,42 @@
+// Lamport-style one-time-signature commitment, mirroring the Rescue-driven
+// verification recurrence at the heart of Winterfell's `lamport` example. The
+// prover supplies four private signature halves; each is paired with the
+// public challenge and hashed; the four 2-felt digests concatenate into an
+// 8-felt rate block fed through one final `rescue_8`, and the first cell of
+// that aggregate commitment is the proven public output. A verifier that
+// knows the matching public-key aggregate can compare the proven output cell
+// against its expected value, accepting the proof iff the prover knew a
+// signature consistent with the published commitment.
+
+/// Hashes one signature half against the public challenge, returning the
+/// two-cell digest that pairs into the aggregate commitment.
+fn hash_signature_half(half: Felt, challenge: Felt) -> [Felt; 4] {
+    let input: [Felt; 2] = [half, challenge];
+    hash::rescue_2(input)
+}
+
+/// Provable entry point: hashes four private signature halves under one
+/// public challenge through `rescue_2`, concatenates the resulting four
+/// digests into an 8-felt block, and returns the first cell of the final
+/// `rescue_8` aggregate. With no inputs both the secrets and the challenge
+/// default to zero, so the sweep proves a deterministic commitment.
+fn main(
+    sig0: Felt,
+    sig1: Felt,
+    sig2: Felt,
+    sig3: Felt,
+    challenge: pub Felt,
+) -> Felt {
+    let d0 = hash_signature_half(sig0, challenge);
+    let d1 = hash_signature_half(sig1, challenge);
+    let d2 = hash_signature_half(sig2, challenge);
+    let d3 = hash_signature_half(sig3, challenge);
+    let absorbed: [Felt; 8] = [
+        d0[0], d0[1], d1[0], d1[1],
+        d2[0], d2[1], d3[0], d3[1],
+    ];
+    let aggregate = hash::rescue_8(absorbed);
+    let result = aggregate[0];
+    println!("{result}");
+    result
+}
