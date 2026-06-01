@@ -74,15 +74,17 @@ maat --version
 Compile and execute a Maat source file in a single step:
 
 ```bash
-maat run examples/hello_world.maat
+maat run examples/fib.maat
 ```
 
 Or use the build-then-execute workflow for faster repeated execution:
 
 ```bash
-maat build examples/hello_world.maat -o hello_world.mtc
-maat exec hello_world.mtc
+maat build examples/fib.maat -o fib.mtc
+maat exec fib.mtc
 ```
+
+See [`examples/README.md`](./examples/README.md) for the full set of provable example programs and how to run, prove, and verify each one.
 
 ### Multi-Module Projects
 
@@ -152,8 +154,6 @@ Key rules:
 - Items without `pub` are module-private and inaccessible to importers
 - Circular module dependencies are detected and rejected at compile time
 - `pub use foo::bar;` re-exports items through intermediate modules
-
-A working multi-module example is included at `examples/modules/`.
 
 ### Running the REPL
 
@@ -226,35 +226,38 @@ Generate a STARK proof of correct program execution:
 
 ```bash
 # Generate a proof (development mode, ~12 bits security)
-maat prove examples/felt_arithmetic.maat
+maat prove examples/fib.maat
 
 # Generate a proof with production security (~97 bits)
-maat prove examples/felt_arithmetic.maat --production
+maat prove examples/fib.maat --production
 
-# Specify output path and dump execution trace
-maat prove examples/felt_arithmetic.maat -o felt_arithmetic.proof.bin -t trace.csv
+# Dump execution trace alongside the default-named proof
+maat prove examples/fib.maat -t trace.csv
 ```
 
-Verify a proof:
+Verify a proof (the default output path is the source file with its extension swapped to `.proof.bin`):
 
 ```bash
-maat verify examples/felt_arithmetic.proof.bin
+maat verify examples/fib.proof.bin
 ```
 
 The proof file embeds all public inputs (program hash, input values, output), so verification requires only the proof file itself.
 
 > **Note:** `println!` is for debugging only and does not affect the proof. The provable output is the program's return value.
 
-Public inputs can be provided via command line or JSON file:
+Public and private inputs bind to the `fn main` signature: `pub` parameters flow through the boundary-constrained public-memory accumulator, bare parameters bind to a prover-supplied witness cell with no public commitment. Supply them via command line or JSON file:
 
 ```bash
 # Command-line inputs
-maat prove program.maat --input "1,2,3"
+maat prove program.maat --input "1,2,3" --private-input "4,5"
 
 # JSON file inputs
 echo '[1, 2, 3]' > inputs.json
-maat prove program.maat --inputs-file inputs.json
+echo '[4, 5]' > private.json
+maat prove program.maat --inputs-file inputs.json --private-inputs-file private.json
 ```
+
+See [`examples/README.md`](./examples/README.md) for the full set of provable example programs, their `fn main` signatures, and input values for each one.
 
 #### Current Limitations
 
@@ -281,8 +284,8 @@ Maat includes a Criterion-based benchmark suite for the bytecode VM:
 # Run all benchmarks
 cargo bench -p maat_tests --bench benchmarks
 
-# Run specific benchmarks
-cargo bench -p maat_tests --bench benchmarks -- hello_world
+# Run specific benchmarks (e.g. the Rescue hash-chain workload)
+cargo bench -p maat_tests --bench benchmarks -- rescue
 
 # Save a baseline and compare after changes
 cargo bench -p maat_tests --bench benchmarks -- --save-baseline before
