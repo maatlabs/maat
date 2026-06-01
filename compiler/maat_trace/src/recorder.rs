@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 
 use maat_bytecode::{MAX_GLOBALS, Opcode};
 use maat_errors::{Result, VmError};
-use maat_field::rescue::{ARK2, MDS, NUM_ROUNDS, RescueRoundWitness, STATE_WIDTH};
+use maat_field::rescue::{ARK2, DIGEST_SIZE, MDS, NUM_ROUNDS, RescueRoundWitness, STATE_WIDTH};
 use maat_field::{Felt, FieldElement, try_inv};
 use maat_runtime::{MaybeRelocatable, Relocatable, SEG_PRIVATE_INPUT, SEG_PUBLIC_INPUT};
 use maat_vm::trace::{CallCtx, DispatchCtx, Tracer};
@@ -304,6 +304,42 @@ impl TraceRecorder {
             ..RowRelocPlan::default()
         });
     }
+
+    fn emit_rescue_io_bind(
+        &mut self,
+        io_segment: u32,
+        call_base_offset: u32,
+        slot: u32,
+        value: Felt,
+    ) {
+        let offset = call_base_offset
+            .checked_add(slot)
+            .expect("rescue I/O bind offset overflow");
+        let addr_reloc = Relocatable::new(io_segment, offset);
+        self.heap_alloc_set.insert((io_segment, offset));
+
+        let mut row = [Felt::ZERO; TRACE_WIDTH];
+        row[COL_PC] = self.current[COL_PC];
+        row[COL_SP] = self.current[COL_SP];
+        row[COL_FP] = self.current[COL_FP];
+        row[COL_OUT] = self.current[COL_OUT];
+        row[COL_SEL_BASE + SEL_NOP] = Felt::ONE;
+        row[COL_MEM_ADDR] = Felt::ZERO;
+        row[COL_MEM_VAL] = value;
+        row[COL_IS_READ] = Felt::ONE;
+
+        self.last_mem_addr = Felt::ZERO;
+        self.last_mem_val = value;
+        self.last_mem_addr_reloc = Some(addr_reloc);
+        self.last_mem_val_reloc = None;
+
+        self.trace.push_row(row);
+        self.plans.push(RowRelocPlan {
+            mem_addr: Some(addr_reloc),
+            mem_val: None,
+            ..RowRelocPlan::default()
+        });
+    }
 }
 
 impl Default for TraceRecorder {
@@ -430,9 +466,11 @@ impl Tracer for TraceRecorder {
 
     fn record_rescue_call(
         &mut self,
-        _input: &[Felt],
-        _digest: [Felt; 4],
+        input: &[Felt],
+        digest: [Felt; 4],
         witness: &[RescueRoundWitness; NUM_ROUNDS],
+        io_segment: u32,
+        call_base_offset: u32,
     ) {
         let pc = self.current[COL_PC];
         let sp = self.current[COL_SP];
@@ -459,6 +497,16 @@ impl Tracer for TraceRecorder {
             row[col] = final_state[j];
         }
         self.push_rescue_row(row);
+
+        debug_assert_eq!(digest.len(), DIGEST_SIZE);
+        for (i, &v) in input.iter().enumerate() {
+            let slot = u32::try_from(i).expect("rescue I/O input slot overflow");
+            self.emit_rescue_io_bind(io_segment, call_base_offset, slot, v);
+        }
+        for (i, &d) in digest.iter().enumerate() {
+            let slot = u32::try_from(input.len() + i).expect("rescue I/O digest slot overflow");
+            self.emit_rescue_io_bind(io_segment, call_base_offset, slot, d);
+        }
     }
 
     fn record_call_closure(&mut self, ctx: CallCtx<'_>) -> Result<()> {

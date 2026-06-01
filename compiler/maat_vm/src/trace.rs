@@ -98,14 +98,15 @@ pub trait Tracer {
     #[inline(always)]
     fn record_shift_witness(&mut self, _op: Opcode, _operand: Felt, _shift: u32, _result: Felt) {}
 
-    /// Records a Rescue-Prime hash dispatch and the per-round witness the AIR
-    /// commits to.
+    /// Records a Rescue-Prime hash dispatch and the per-round witness the AIR commits to.
     #[inline(always)]
     fn record_rescue_call(
         &mut self,
         _input: &[Felt],
         _digest: [Felt; 4],
         _witness: &[RescueRoundWitness; NUM_ROUNDS],
+        _io_segment: u32,
+        _call_base_offset: u32,
     ) {
     }
 

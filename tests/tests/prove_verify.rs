@@ -13,7 +13,7 @@ use maat_prover::{
 use maat_tests::compile;
 use maat_tests::prover::*;
 use maat_trace::selector::*;
-use maat_trace::table::{COL_MEM_ADDR, COL_MEM_VAL, COL_SUB_SEL_BASE, TraceTable};
+use maat_trace::table::{COL_MEM_ADDR, COL_MEM_VAL, COL_OUT, COL_SUB_SEL_BASE, TraceTable};
 
 #[test]
 fn prove_and_verify_arithmetic() {
@@ -716,6 +716,47 @@ fn prove_and_verify_rescue_hash() {
         output, expected[3],
         "proven digest cell must match the primitive"
     );
+}
+
+#[test]
+fn rescue_io_bind_cell_tamper_rejected() {
+    let bytecode = compile(
+        "fn main() -> Felt { let arr: [Felt; 2] = [11_fe, 22_fe]; let d = hash::rescue_2(arr); d[3] }",
+    );
+    let artifacts = maat_trace::run_with_output(bytecode).expect("rescue trace failed");
+    let mut trace = artifacts.trace;
+
+    let n = trace.num_rows();
+    let mut tampered = false;
+    for i in 0..n {
+        let row = trace.row(i);
+        let is_synthetic_write = row[COL_SUB_SEL_BASE + SUB_SEL_SYNTHETIC_HEAP].as_int() == 1;
+        if is_synthetic_write && row[COL_MEM_VAL].as_int() == 11 {
+            trace.row_mut(i)[COL_MEM_VAL] = Felt::new(999);
+            tampered = true;
+            break;
+        }
+    }
+    assert!(tampered, "expected at least one Rescue I/O write to tamper");
+
+    let last = trace.num_rows() - 1;
+    let output_felt = trace.row(last)[COL_OUT];
+    let public_inputs = MaatPublicInputs::new(output_felt, artifacts.memory);
+    let prover = MaatProver::new(development_options(), public_inputs.clone());
+
+    let prove_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        prover.generate_proof(trace)
+    }));
+    match prove_result {
+        Err(_) => {}
+        Ok(proof) => {
+            let proof = proof.expect("proof generation must succeed for verifier check");
+            assert!(
+                verify_with_inputs(proof, public_inputs).is_err(),
+                "tampered Rescue I/O cell must be rejected by the verifier",
+            );
+        }
+    }
 }
 
 #[test]
