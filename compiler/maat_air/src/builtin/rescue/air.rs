@@ -82,6 +82,10 @@ impl Builtin for RescueHashBuiltin {
     ) -> Vec<Assertion<E>> {
         Vec::new()
     }
+
+    fn periodic_columns(&self) -> Vec<Vec<BaseElement>> {
+        maat_trace::main_segment::rescue_periodic_columns()
+    }
 }
 
 #[cfg(test)]
@@ -97,7 +101,10 @@ mod tests {
         assert_eq!(builtin.num_aux_constraints(), 0);
         assert_eq!(builtin.num_aux_assertions(), 0);
         assert!(builtin.aux_constraint_degrees().is_empty());
-        assert!(builtin.periodic_columns().is_empty());
+
+        let periodic = builtin.periodic_columns();
+        assert_eq!(periodic.len(), 24);
+        assert!(periodic.iter().all(|c| c.len() == 8));
     }
 
     #[test]

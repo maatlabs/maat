@@ -674,14 +674,16 @@ mod tests {
     }
 
     #[test]
-    fn registered_builtins_contribute_no_periodic_columns() {
+    fn only_rescue_contributes_periodic_columns_at_offset_zero() {
         let set = BuiltinSet::new();
         assert!(set.range_check.periodic_columns().is_empty());
         assert!(set.bitwise.periodic_columns().is_empty());
         assert!(set.identity.periodic_columns().is_empty());
         assert!(set.logup.periodic_columns().is_empty());
-        assert!(set.rescue.periodic_columns().is_empty());
-        assert!(set.periodic_columns().is_empty());
+
+        let rescue_cols = set.rescue.periodic_columns();
+        assert_eq!(rescue_cols.len(), 24);
+        assert_eq!(set.periodic_columns(), rescue_cols);
     }
 
     #[test]

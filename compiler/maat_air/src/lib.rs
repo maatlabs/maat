@@ -81,10 +81,10 @@ impl Air for MaatAir {
     fn evaluate_transition<E: FieldElement<BaseField = Self::BaseField>>(
         &self,
         frame: &EvaluationFrame<E>,
-        _periodic_values: &[E],
+        periodic_values: &[E],
         result: &mut [E],
     ) {
-        main_segment::evaluate(frame.current(), frame.next(), result);
+        main_segment::evaluate(frame.current(), frame.next(), periodic_values, result);
     }
 
     fn evaluate_aux_transition<F, E>(

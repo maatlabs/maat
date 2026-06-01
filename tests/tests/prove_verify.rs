@@ -705,6 +705,20 @@ fn proof_file_with_inputs_round_trip() {
 }
 
 #[test]
+fn prove_and_verify_rescue_hash() {
+    let output = maat_tests::prover::prove_and_verify_with_io(
+        "fn main(a: Felt, b: pub Felt) -> Felt { let arr: [Felt; 2] = [a, b]; let d = hash::rescue_2(arr); d[3] }",
+        &[BaseElement::new(7)],
+        &[BaseElement::new(3)],
+    );
+    let expected = maat_field::rescue::hash(&[BaseElement::new(3), BaseElement::new(7)]);
+    assert_eq!(
+        output, expected[3],
+        "proven digest cell must match the primitive"
+    );
+}
+
+#[test]
 fn prove_and_verify_single_param_function() {
     prove_and_verify(
         "

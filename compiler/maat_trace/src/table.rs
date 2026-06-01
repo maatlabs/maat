@@ -72,8 +72,13 @@ pub const COL_CHUNK_AND: usize = COL_CHUNK_B + 1;
 /// 8-bit chunk of `out` (operation result) at this row's chunk position.
 pub const COL_CHUNK_OUT: usize = COL_CHUNK_AND + 1;
 
+pub const COL_RESCUE_S8: usize = COL_CHUNK_OUT + 1;
+pub const COL_RESCUE_S9: usize = COL_RESCUE_S8 + 1;
+pub const COL_RESCUE_S10: usize = COL_RESCUE_S9 + 1;
+pub const COL_RESCUE_S11: usize = COL_RESCUE_S10 + 1;
+
 /// Base column index for the per-opcode sub-selector flags.
-pub const COL_SUB_SEL_BASE: usize = COL_CHUNK_OUT + 1;
+pub const COL_SUB_SEL_BASE: usize = COL_RESCUE_S11 + 1;
 
 /// Total number of columns in the main execution trace.
 pub const TRACE_WIDTH: usize = COL_SUB_SEL_BASE + NUM_SUB_SELECTORS;
@@ -124,6 +129,10 @@ pub const COLUMN_NAMES: [&str; TRACE_WIDTH] = [
     "chunk_b",
     "chunk_and",
     "chunk_out",
+    "rescue_s8",
+    "rescue_s9",
+    "rescue_s10",
+    "rescue_s11",
     "sub_sel_add",
     "sub_sel_sub",
     "sub_sel_div",
@@ -143,6 +152,22 @@ pub const COLUMN_NAMES: [&str; TRACE_WIDTH] = [
     "sub_sel_synthetic_heap",
     "sub_sel_match_tag_jump",
     "sub_sel_chunk_row",
+    "sub_sel_rescue_row",
+];
+
+pub const RESCUE_STATE_COLS: [usize; 12] = [
+    COL_OPERAND_0,
+    COL_S0,
+    COL_S1,
+    COL_S2,
+    COL_OP_WIDTH,
+    COL_CMP_INV,
+    COL_DIV_AUX,
+    COL_NONZERO_INV,
+    COL_RESCUE_S8,
+    COL_RESCUE_S9,
+    COL_RESCUE_S10,
+    COL_RESCUE_S11,
 ];
 
 pub type TraceRow = [Felt; TRACE_WIDTH];
@@ -332,7 +357,7 @@ mod tests {
         let cols = header.split(',').collect::<Vec<_>>();
         assert_eq!(cols.len(), TRACE_WIDTH);
         assert_eq!(cols[0], "pc");
-        assert_eq!(cols[TRACE_WIDTH - 1], "sub_sel_chunk_row");
+        assert_eq!(cols[TRACE_WIDTH - 1], "sub_sel_rescue_row");
     }
 
     #[test]
