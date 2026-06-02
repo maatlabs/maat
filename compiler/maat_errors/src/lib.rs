@@ -14,7 +14,7 @@ pub use compile::{CompileError, CompileErrorKind};
 pub use eval::EvalError;
 pub use module::{ModuleError, ModuleErrorKind};
 pub use parse::ParseError;
-pub use prover::{LogUpError, ProverError, VerificationError};
+pub use prover::{BundleError, LogUpError, ProverError, VerificationError};
 pub use ty::{
     MissingTraitMethodError, TraitMethodSignatureMismatchError, TypeError, TypeErrorKind,
 };

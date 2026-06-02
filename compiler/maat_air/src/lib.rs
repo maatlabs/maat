@@ -28,7 +28,7 @@ use maat_field::{BaseElement, ExtensionOf, FieldElement};
 use maat_trace::main_segment::{self, CONSTRAINT_DEGREES};
 use maat_trace::table::{COL_OUT, COL_PC, COL_SP};
 pub use maat_trace::{PublicMemory, PublicSegment};
-pub use public_inputs::MaatPublicInputs;
+pub use public_inputs::{MaatPublicInputs, program_hash};
 pub use winter_air::proof::Proof;
 use winter_air::{Air, AirContext, Assertion, TransitionConstraintDegree};
 pub use winter_air::{

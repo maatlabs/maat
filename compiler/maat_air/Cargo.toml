@@ -17,3 +17,4 @@ maat_bytecode.workspace = true
 maat_trace.workspace = true
 
 winter-air = "0.13"
+winter-crypto = "0.13"

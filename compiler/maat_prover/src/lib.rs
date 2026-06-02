@@ -37,6 +37,7 @@
 #![forbid(unsafe_code)]
 
 mod gadgets;
+mod public_io;
 mod verifier;
 
 pub use gadgets::proof_serializer::{ProofPublicInputs, deserialize_proof, serialize_proof};
@@ -48,6 +49,9 @@ use maat_errors::ProverError;
 use maat_field::{BaseElement, FieldElement};
 use maat_trace::table::{TRACE_WIDTH, TraceTable};
 pub use maat_trace::{PublicMemory, PublicSegment};
+pub use public_io::{
+    PublicIo, extract_public_io, format_program_hash, parse_felt, parse_program_hash,
+};
 pub use verifier::{verify, verify_with_inputs};
 use winter_crypto::hashers::Blake3_256;
 use winter_crypto::{DefaultRandomCoin, MerkleTree};

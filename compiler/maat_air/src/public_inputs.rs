@@ -1,7 +1,9 @@
 //! Public inputs for the STARK constraint system.
 
 use maat_field::{BaseElement, ToElements};
-use maat_trace::PublicMemory;
+use maat_trace::{PublicMemory, PublicSegment};
+use winter_crypto::hashers::Blake3_256;
+use winter_crypto::{Digest, Hasher};
 
 /// Public inputs shared between prover and verifier.
 #[derive(Debug, Clone)]
@@ -23,6 +25,20 @@ impl MaatPublicInputs {
             memory: PublicMemory::default(),
         }
     }
+
+    pub fn program_hash(&self) -> [u8; 32] {
+        program_hash(&self.memory.program)
+    }
+}
+
+/// Blake3-256 over the little-endian `u64` bytes of `segment.cells`.
+pub fn program_hash(segment: &PublicSegment) -> [u8; 32] {
+    let bytes = segment
+        .cells
+        .iter()
+        .flat_map(|c| c.as_int().to_le_bytes())
+        .collect::<Vec<u8>>();
+    Blake3_256::<BaseElement>::hash(&bytes).as_bytes()
 }
 
 impl ToElements<BaseElement> for MaatPublicInputs {
@@ -118,5 +134,61 @@ mod tests {
         assert_eq!(elements[1], BaseElement::new(99)); // output
         assert!(pi.memory.output.cells.is_empty());
         assert!(pi.memory.program.cells.is_empty());
+    }
+
+    #[test]
+    fn program_hash_is_stable_under_base_shift() {
+        let cells = vec![
+            BaseElement::new(7),
+            BaseElement::new(13),
+            BaseElement::new(31),
+        ];
+        let a = MaatPublicInputs::new(
+            BaseElement::ZERO,
+            PublicMemory {
+                program: PublicSegment::new(0, cells.clone()),
+                ..PublicMemory::default()
+            },
+        );
+        let b = MaatPublicInputs::new(
+            BaseElement::ZERO,
+            PublicMemory {
+                program: PublicSegment::new(0x4000_0000, cells),
+                ..PublicMemory::default()
+            },
+        );
+        assert_eq!(a.program_hash(), b.program_hash());
+    }
+
+    #[test]
+    fn program_hash_distinguishes_different_images() {
+        let a = MaatPublicInputs::new(
+            BaseElement::ZERO,
+            PublicMemory {
+                program: PublicSegment::new(0, vec![BaseElement::new(1), BaseElement::new(2)]),
+                ..PublicMemory::default()
+            },
+        );
+        let b = MaatPublicInputs::new(
+            BaseElement::ZERO,
+            PublicMemory {
+                program: PublicSegment::new(0, vec![BaseElement::new(2), BaseElement::new(1)]),
+                ..PublicMemory::default()
+            },
+        );
+        assert_ne!(a.program_hash(), b.program_hash());
+    }
+
+    #[test]
+    fn program_hash_empty_segment_matches_blake3_iv() {
+        let pi = MaatPublicInputs::with_output(BaseElement::ZERO);
+        let hash = pi.program_hash();
+        // Blake3 hash of the empty byte string.
+        let expected: [u8; 32] = [
+            0xaf, 0x13, 0x49, 0xb9, 0xf5, 0xf9, 0xa1, 0xa6, 0xa0, 0x40, 0x4d, 0xea, 0x36, 0xdc,
+            0xc9, 0x49, 0x9b, 0xcb, 0x25, 0xc9, 0xad, 0xc1, 0x12, 0xb7, 0xcc, 0x9a, 0x93, 0xca,
+            0xe4, 0x1f, 0x32, 0x62,
+        ];
+        assert_eq!(hash, expected);
     }
 }

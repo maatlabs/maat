@@ -25,6 +25,24 @@ pub enum VerificationError {
     Deserialization(#[from] SerializationError),
 }
 
+/// Errors arising while parsing or emitting a public-I/O JSON bundle.
+#[derive(Debug, Error)]
+pub enum BundleError {
+    #[error("invalid public-I/O bundle: {0}")]
+    Parse(String),
+
+    #[error("invalid field element '{value}': {reason}")]
+    InvalidFelt { value: String, reason: String },
+
+    #[error(
+        "invalid program-hash '{value}': expected '0x' followed by 64 hex characters, {reason}"
+    )]
+    InvalidProgramHash { value: String, reason: String },
+
+    #[error("proof bundle extraction failed: {0}")]
+    Extract(#[from] SerializationError),
+}
+
 /// Errors raised by the LogUp lookup-argument primitive during table
 /// registration, lookup recording, or witness-column construction.
 #[derive(Debug, Error)]

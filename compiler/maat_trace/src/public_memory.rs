@@ -2,6 +2,16 @@
 
 use maat_field::Felt;
 
+/// Derive the program-segment cells directly from serialized bytecode
+/// bytes, without executing the VM.
+pub fn program_image_from_bytes(program_bytes: &[u8]) -> PublicSegment {
+    let cells = program_bytes
+        .iter()
+        .map(|&byte| Felt::new(u64::from(byte)))
+        .collect();
+    PublicSegment::new(0, cells)
+}
+
 /// A single public-memory segment.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PublicSegment {

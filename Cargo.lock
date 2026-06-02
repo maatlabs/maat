@@ -732,6 +732,7 @@ dependencies = [
  "maat_vm",
  "rustyline",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -743,6 +744,7 @@ dependencies = [
  "maat_field",
  "maat_trace",
  "winter-air",
+ "winter-crypto",
 ]
 
 [[package]]
@@ -851,6 +853,8 @@ dependencies = [
  "maat_errors",
  "maat_field",
  "maat_trace",
+ "serde",
+ "serde_json",
  "winter-crypto",
  "winter-prover",
  "winter-verifier",

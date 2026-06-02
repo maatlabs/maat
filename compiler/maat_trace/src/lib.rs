@@ -18,7 +18,7 @@ use maat_runtime::{
 };
 use maat_vm::VM;
 pub use mem::{Relocator, append_pubmem_dummies, fill_memory_holes, relocate_trace};
-pub use public_memory::{PublicMemory, PublicSegment};
+pub use public_memory::{PublicMemory, PublicSegment, program_image_from_bytes};
 pub use recorder::TraceRecorder;
 use table::TraceTable;
 
