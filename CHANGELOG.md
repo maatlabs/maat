@@ -4,6 +4,79 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] - 2026-06-02
+
+Three coordinated pillars: (1) **entry-point + I/O model**---`fn main` is mandatory for `maat prove`, public inputs bind to boundary-constrained public-memory cells, private inputs bind to uncommitted witness cells, script-form programs are `run`/`exec`-only; (2) **native ZK hashing**---the Rescue-Prime permutation ships, exposed to user code as `hash::rescue_2` / `rescue_4` / `rescue_8`; (3) **verifier-side public-I/O bundle**---`maat verify` gains an assertion layer (`--public-io`, `--expect-output`, `--expect-program{,-hash}`, `--input`) over the cryptographic verify, with a `PublicIo` JSON bundle that round-trips byte-identically between `maat prove --write-public-io` and `maat verify --public-io`. The release breaks the bytecode wire format (new `Opcode::HashRescue`) and the proof wire format (public-input base added) but does not change the CLI's pre-existing flag surface; all new CLI flags are additive. Ten `fn main` programs in `examples/` prove and verify end-to-end under `development_options`.
+
+### Migrating from v0.16.0
+
+- **Provable programs require `fn main`.** `maat prove path.maat` now rejects script-form programs (top-level statements) with `error: 'maat prove' requires a 'fn main' entry point`. Convert script-form programs to a `fn main(...) -> T` shape; `maat run` and `maat exec` continue to accept script-form. The thirteen retired `examples/scripts/*` demos illustrate the script-form shape and were folded into the integration test suite.
+- **Public / private input binding.** `pub` parameters of `fn main` bind to a boundary-constrained public-memory cell; bare parameters bind to a prover-supplied uncommitted witness cell. Omitted inputs default to zero (matches v0.16.0 `--input` semantics). The arity must match the declaration; mismatched counts exit non-zero with a structured diagnostic.
+- **Bytecode wire bumped to 3.** A new `Opcode::HashRescue` (one-byte) extends the dispatch table. Recompile `.mtc` files; v0.16.0 bytecode is not interchangeable.
+- **Proof wire bumped to 6.** The proof header adds an `INPUT_BASE u32 BE` field between the public-input cells and the output-segment header so the public-input cells flow through the public-memory accumulator alongside the output and program segments. Re-prove from source; v0.16.0 proofs are not verifiable.
+- **`MaatPublicInputs` shape (breaking).** `PublicMemory` gains an `input: PublicSegment` field alongside the existing `output` and `program` segments. `MaatPublicInputs::new(output, memory)` is unchanged; the `to_elements` order is `inputs ++ input_base ++ output ++ output_base ++ output_segment ++ program_base ++ program_segment`.
+- **Verifier surface is additive.** Existing `maat verify <proof.bin>` invocations behave byte-for-byte identically. The new flags (`--public-io`, `--input`, `--expect-output`, `--expect-program`, `--expect-program-hash`) layer assertions on top of the cryptographic verify. Mutually exclusive combinations exit non-zero before any work is done.
+
+### Added
+
+#### Entry-point + I/O model
+
+- **Provable entry point.** `compile_provable_source` requires a top-level `fn main(...) -> T`. Public inputs come from `pub T` parameters; private inputs from bare parameters. The function executes synthetically as the program entry; the trailing top-level statement form is restricted to `run` / `exec`.
+- **Public-input segment.** `PublicMemory.input: PublicSegment` carries the input cells alongside their flat base. The boundary endpoint over the merged public-memory set extends to bind input cells: a verifier disagreeing with the prover on any input value or position derives a different accumulator endpoint and rejects.
+- **Private-input segment.** Bare `fn main` parameters bind to an uncommitted witness segment. Private inputs are never serialized into the proof envelope and never enter the public-memory accumulator.
+- **CLI input plumbing.** `maat prove` accepts `--input <comma-list> | --inputs-file <path.json>` and `--private-input <comma-list> | --private-inputs-file <path.json>`. Arity mismatch errors out before tracing.
+
+#### Native ZK hashing
+
+- **`Opcode::HashRescue` (one-byte dispatch).** Drives the Rescue-Prime sponge over field-element rate blocks. Stdlib entries `hash::rescue_2` / `rescue_4` / `rescue_8` lower to it via a `maat_codegen` intercept; first-class function-value use is intentionally unsupported (the intercept fires only on direct call sites).
+- **Stdlib `library/std/hash.maat`.** New module ships the `rescue_N` signatures and per-function documentation; included in the auto-injected prelude so user programs invoke them via the bare `hash::rescue_N` path.
+- **Inline AIR placement.** Rescue ships in the **main** trace segment, not an auxiliary segment. The shipped layout adds `+5` trace columns (`COL_RESCUE_S8..S11` for state elements `8..12` plus the one-bit sub-selector `SUB_SEL_RESCUE_ROW`); state elements `0..8` reuse eight wide working columns idle on NOP rows.
+- **INV_MDS-collapsed round constraint.** A single per-element transition `(s_next[i] - ARK2[round, i])^7 - sum_j MDS[i][j] * s_curr[j]^7 - ARK1[round, i] = 0` (degree 8 once gated by the row marker) collapses the classical forward-S-box + MDS + ARK1 + inverse-S-box + MDS + ARK2 pair into one constraint per state element. Twelve such constraints per round; the post-S-box intermediate state vector lives in the evaluator's working buffer and never occupies a witness column. Total Rescue constraint count: `RESCUE_NUM_CONSTRAINTS = 2 + STATE_WIDTH = 14` (two structural markers + twelve round transitions).
+- **Periodic columns for ARK1 / ARK2.** `2 * STATE_WIDTH = 24` periodic columns of period `NUM_ROUNDS = 7` supply round constants in lock-step with the row position; no round-counter column is needed. First Winterfell-native consumer of `MaatAir::get_periodic_column_values`.
+- **Period-8 block geometry.** Each `Opcode::HashRescue` dispatch lays down one period-8 contiguous block: one idle prefix row + seven round witness rows. The recorder pads any in-flight row gap up to the next multiple of 8 before emitting the block so the periodic-column phase aligns with the round index.
+- **Memory binding via synthetic heap writes.** Each Rescue dispatch emits `N + DIGEST_SIZE` synthetic-heap-write rows into a lazily-allocated rescue-I/O segment. The synthetic writes flow through the unified memory permutation argument: a tampered input cell or digest cell collides at the matching read row in the sorted L2 list and trips aux constraint 1.
+- **Provable Rescue parameters.** Goldilocks `rp64_256`: `STATE_WIDTH = 12`, `CAPACITY = 4`, `RATE = 8`, `DIGEST_SIZE = 4`, `NUM_ROUNDS = 7`, S-box exponent `ALPHA = 7`, Polygon-Zero MDS matrix, 84 + 84 round constants matching `winter_crypto::hash::rescue::rp64_256::ARK1` / `ARK2` verbatim. The pure-Rust permutation cross-checks against Winterfell's published test vectors; the AIR cross-checks against the Winterfell reference.
+
+#### Four hash-consuming Winterfell ports
+
+- **`examples/rescue.maat`** --- 32-round Rescue hash chain from a public seed (`fn main(seed: pub Felt) -> Felt`). Mirrors Winterfell's `rescue` example.
+- **`examples/rescue_raps.maat`** --- twin 16-round Rescue chains absorbed through a final `rescue_8` (`fn main(seed_a: pub Felt, seed_b: pub Felt) -> Felt`). Single-trace analogue of Winterfell's `rescue_raps`.
+- **`examples/lamport.maat`** --- 4-secret Lamport-style commitment under one public challenge through `rescue_2` + `rescue_8` aggregate.
+- **`examples/merkle.maat`** --- depth-4 Rescue-compressed Merkle authentication path with branch-free bit-controlled swap (`is_right * sibling + (1 - is_right) * node`).
+
+Each port is registered as a bench (`bench_rescue` / `bench_lamport` / `bench_merkle`) via the shared `bench_example_program` helper.
+
+#### Verifier-side public-I/O bundle + improved CLI
+
+- **`maat_prover::PublicIo`** --- `serde`-typed JSON bundle: `{ "inputs": ["<dec>", ...], "private_inputs": ["<dec>", ...], "output": "<dec>", "program_hash": "0x<64-hex>" }`. Decimal-string cells parse cleanly; `private_inputs` `#[skip_serializing_if = "Vec::is_empty"]` so `--write-public-io` emits a verifier-only bundle even when the prover read a superset.
+- **`maat_prover::extract_public_io(&[u8])`** --- library entry that extracts the canonical bundle from a proof byte stream without re-implementing the wire layout. Re-exported so recursive provers, on-chain verifiers, audit harnesses, etc. can read it.
+- **`maat_air::program_hash(&PublicSegment)`** --- Blake3-256 over the little-endian `u64` bytes of the program-segment cells, in cell-emission order. Base-address independent. `MaatPublicInputs::program_hash()` is the convenience method on the public-inputs aggregate.
+- **`maat_trace::program_image_from_bytes(&[u8]) -> PublicSegment`** --- derives the program-segment cells directly from serialized bytecode bytes, without executing the VM. Used by `maat verify --expect-program` so the hash can be computed without side-effecting the verifier with any `println!` calls in the user program.
+- **Prove CLI flags.** `--expect-output <decimal>` (prover-side assertion; rejects on mismatch *before* the expensive proof step, so wrong-witness invocations fail fast), `--public-io <path>` (loads inputs + private inputs + expected output from one bundle), `--write-public-io <path>` (after a successful prove, emit the public bundle for handoff to the verifier; private inputs are never written).
+- **Verify CLI flags.** `--input <comma-list>` / `--inputs-file <path>` (pin embedded public-input cells element-by-element), `--expect-output <decimal>` (pin scalar output), `--public-io <path>` (one-read bundle), `--expect-program <path.maat>` (compile + hash + pin), `--expect-program-hash <hex>` (pin a known image hash without recompilation). Mutually exclusive combinations exit non-zero before the proof is read.
+- **Order of operations in verify.** Cryptographic `winter_verifier::verify` runs first; assertion mismatches are only reported on proofs that are themselves valid. Assertion order on success: program-hash -> public inputs (with cell index in any mismatch diagnostic) -> output. Successful runs print `VERIFIED (...)` + `assertions: K matched`; mismatches print a structured `error: ...` line and exit non-zero.
+
+#### Example surface consolidation
+
+- **Provable corpus is now `fn main`-shaped.** Ten `examples/*.maat` programs ship at v0.17.0: five Fibonacci ports (`fib`, `fib8`, `fib_small`, `mulfib`, `mulfib8`), one verifiable delay (`vdf`), and four hash workloads (`rescue`, `rescue_raps`, `lamport`, `merkle`). Every program proves and verifies end-to-end under `development_options`.
+- **`examples/README.md`** is the authoritative reference for each program's signature, default output, and `--input` / `--private-input` mapping. The "Pinned verification" subsection walks the end-to-end bundle flow on `vdf.maat`.
+- Script-style examples and **`examples/modules/`** are removed. Their construct coverage already lives in the integration test suite.
+
+### Changed
+
+- **`MaatPublicInputs` shape (breaking).** `PublicMemory.input: PublicSegment` added alongside `output` and `program`. `ToElements` emits `inputs ++ input_base ++ output ++ output_base ++ output_segment ++ program_base ++ program_segment`.
+- **Proof wire envelope bumped to v6.** Adds `INPUT_BASE u32 BE` between the public-input cells and the output-segment header so input cells participate in the public-memory accumulator. Minimum header grows from 32 -> 36 bytes; public-input count cap stays at `MAX_INPUT_COUNT = 1024`.
+- **Bytecode wire bumped to v3.** Adds `Opcode::HashRescue` to the dispatch table.
+- **CLI `prove` command.** Acquires `--expect-output`, `--public-io`, `--write-public-io`. Existing flag semantics (`--input`, `--inputs-file`, `--private-input`, `--private-inputs-file`, `--output`, `--trace`, `--production`) are unchanged.
+- **CLI `verify` command.** Acquires `--input`, `--inputs-file`, `--expect-output`, `--public-io`, `--expect-program`, `--expect-program-hash`. With no flags, behaves byte-for-byte identically to v0.16.0.
+
+### Removed
+
+- 13 example files: `arithmetic_and_types`, `collections_and_stdlib`, `control_flow`, `crypto_primitives`, `custom_types`, `error_handling`, `felt_arithmetic`, `fixed_size_arrays`, `functions_and_closures`, `hello_world`, `orderings`, `stress_test`, `vector_basics`.
+- **`examples/modules/`** (3 files: `main`, `geometry`, `math`) --- multi-module demonstrations whose constructs are asserted by `tests/tests/modules.rs`.
+
+---
+
 ## [0.16.0] - 2026-05-26
 
 AIR refactor centered on a shared-pool LogUp argument; the bitwise builtin moves to a multi-row chunked encoding and the bytecode is pinned cell-by-cell into the AIR's public-memory accumulator. The release breaks the proof wire format and the `MaatPublicInputs` shape but does not change the bytecode wire format. All `examples/*.maat` programs prove and verify end-to-end under `development_options`.
@@ -1399,6 +1472,7 @@ When adding entries to this changelog for future releases:
 3. **Audience**: Write for users, not developers (focus on impact, not implementation)
 4. **Links**: Add comparison links at the bottom: `[0.2.0]: https://github.com/maatlabs/maat/compare/v0.1.0...v0.2.0`
 
+[0.17.0]: https://github.com/maatlabs/maat/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/maatlabs/maat/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/maatlabs/maat/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/maatlabs/maat/compare/v0.13.1...v0.14.0
