@@ -259,6 +259,32 @@ maat prove program.maat --inputs-file inputs.json --private-inputs-file private.
 
 See [`examples/README.md`](./examples/README.md) for the full set of provable example programs, their `fn main` signatures, and input values for each one.
 
+#### Verifier-side assertion
+
+By default `maat verify <proof.bin>` reads the public values (inputs, output, program hash) from inside the proof envelope and accepts whatever the prover committed to. The Fiat-Shamir transcript and the boundary-constrained public-memory accumulator make those embedded values cryptographically binding---a prover cannot lie about them---nevertheless, the verifier needs a CLI knob to pin what the proof must say. There's an outer assertion layer for exactly that purpose.
+
+The simplest flow ships the proof and a JSON public-I/O bundle from the prover to the verifier; the verifier then asserts both are consistent with each other and with its own expectation:
+
+```bash
+# Prover side: emit the bundle alongside the proof.
+maat prove examples/vdf.maat --input 3 --write-public-io vdf.pubio.json
+
+# Verifier side: assert the proof commits to exactly these public values.
+maat verify examples/vdf.proof.bin --public-io vdf.pubio.json --expect-program examples/vdf.maat
+```
+
+The bundle is decimal-string typed (Goldilocks `Felt` reaches `2^64 - 2^32 + 1`, beyond what JSON numbers round-trip losslessly) and uses `#[serde(deny_unknown_fields)]` so schema drift surfaces at parse time:
+
+```json
+{
+  "inputs": ["3"],
+  "output": "11509554200763765976",
+  "program_hash": "0x0f9692dbb14bc0020bb23b06c59595626de2d16a8d7ddb94b11ebcb2d4a70c0f"
+}
+```
+
+For finer-grained assertions, the verifier accepts `--input`, `--expect-output`, `--expect-program <path.maat>` (compile + hash), and `--expect-program-hash <hex>` (pin a known image hash without recompilation) individually. The prove side mirrors the symmetry: `--expect-output` runs the prover-side assertion after tracing but before the expensive proof step, and `--public-io <path.json>` loads inputs, private inputs, and an expected output from one bundle. `--write-public-io` deliberately omits `private_inputs`---private witnesses are uncommitted by design. The cryptographic verify runs first so a forged proof fails with the existing diagnostic; assertion mismatches are only reported on proofs that are otherwise valid, with structured `error: ...` lines.
+
 #### Current Limitations
 
 The STARK proof system is functional for **primitive-typed** programs (`i8`..`i64`, `u8`..`u64`, `usize`, `bool`, `Felt`), **fixed-size arrays** `[T; N]` over primitive `T`, **`Vector<T>`** for primitive `T` (segment-backed, with builtin-allocated cells covered by the memory permutation argument), **closures** (segment-backed captures, tamper-detected via aux constraint 1), and user-defined functions over those types--including parameters, return values, nested calls, bounded recursion, `Option<T>` / `Result<T, E>` pattern matching, and `#[bounded(N)]` loops. `<`, `>`, `<=`, `>=` are proven for every integer width up through `u64`/`i64`/`usize`/`isize`. All `examples/*.maat` programs prove and verify end-to-end under `development_options`. The following remain planned for future releases:

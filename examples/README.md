@@ -29,6 +29,17 @@ maat verify examples/<name>.proof.bin
 
 `-p` / `--production` switches from `development_options` (~12 bits security) to `production_options` (~97 bits security); proof size and prover time grow accordingly. `-t <trace.csv>` additionally dumps the execution trace for inspection.
 
+## Pinned verification
+
+`maat verify <proof.bin>` reads the public values (inputs, output, program hash) from inside the proof envelope by default. To pin those values from the verifier side, emit a JSON public-I/O bundle on the prove side and consume it on the verify side. The end-to-end flow on `vdf.maat` is the canonical example:
+
+```bash
+maat prove examples/vdf.maat --input 3 --write-public-io vdf.pubio.json
+maat verify examples/vdf.proof.bin --public-io vdf.pubio.json --expect-program examples/vdf.maat
+```
+
+The first command produces `examples/vdf.proof.bin` plus a `vdf.pubio.json` of the form `{ "inputs": ["3"], "output": "11509554200763765976", "program_hash": "0x<64-hex>" }`. The second command performs the cryptographic verify and then asserts (a) the proof's program hash matches the Blake3-256 of `examples/vdf.maat`'s compiled program segment, (b) the proof's public-input cells equal `[3]` element-by-element, and (c) the proof's scalar output equals the bundle's. A successful run prints `VERIFIED (...)` followed by `assertions: 3 matched`; any mismatch prints a structured `error: ...` line and exits non-zero. For finer-grained control, `--input`, `--expect-output`, `--expect-program <path.maat>`, and `--expect-program-hash <hex>` can each be supplied directly without a bundle. The prove side mirrors the symmetry via `--expect-output` (rejects before the proof step on a mismatch) and `--public-io <path>` for one-read loads; private inputs are never written into the public bundle.
+
 ---
 
 ## Fibonacci ports
