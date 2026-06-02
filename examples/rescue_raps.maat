@@ -1,0 +1,34 @@
+// Twin Rescue-Prime hash chains absorbed through a final wide-block hash,
+// mirroring the shape of Winterfell's `rescue_raps` example. Two independent
+// chains advance one Rescue permutation per step from two public seeds; their
+// endpoints concatenate into an 8-felt rate block fed through one final
+// Rescue-Prime hash. The proven public output is the first cell of that
+// absorbed digest, so the proof attests both endpoints and the absorbed
+// commitment under a single end-to-end statement.
+
+/// Iterates `state <- rescue_4(state)` for `steps` rounds starting from the
+/// rate block `[seed, 0, 0, 0]`, returning the final state.
+fn rescue_chain(seed: Felt, steps: i64) -> [Felt; 4] {
+    let mut state: [Felt; 4] = [seed, 0_fe, 0_fe, 0_fe];
+    for _step in 0..steps {
+        state = hash::rescue_4(state);
+    }
+    state
+}
+
+/// Provable entry point: proves two 16-round Rescue-Prime chains from a pair
+/// of caller-supplied public seeds, then absorbs the two endpoints through one
+/// final `rescue_8` and returns the first cell. Supply both seeds with
+/// `maat prove --input 3,5`; with no `--input` both seeds default to zero.
+fn main(seed_a: pub Felt, seed_b: pub Felt) -> Felt {
+    let end_a = rescue_chain(seed_a, 16);
+    let end_b = rescue_chain(seed_b, 16);
+    let absorbed: [Felt; 8] = [
+        end_a[0], end_a[1], end_a[2], end_a[3],
+        end_b[0], end_b[1], end_b[2], end_b[3],
+    ];
+    let digest = hash::rescue_8(absorbed);
+    let result = digest[0];
+    println!("{result}");
+    result
+}

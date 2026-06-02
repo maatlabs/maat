@@ -65,6 +65,22 @@ impl TypeEnv {
         self.register_numeric_conversions();
         self.register_default_fns();
         self.register_cmp_builtins();
+        self.register_hash_builtins();
+    }
+
+    fn register_hash_builtins(&mut self) {
+        for n in [2usize, 4, 8] {
+            self.define_scheme(
+                &format!("hash::rescue_{n}"),
+                TypeScheme {
+                    forall: vec![],
+                    ty: Type::Function(FnType {
+                        params: vec![Type::Array(Box::new(Type::Felt), n)],
+                        ret: Box::new(Type::Array(Box::new(Type::Felt), 4)),
+                    }),
+                },
+            );
+        }
     }
 
     fn register_builtin_ctors(&mut self) {

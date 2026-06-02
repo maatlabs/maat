@@ -56,6 +56,33 @@ pub fn check_and_compile(graph: &mut ModuleGraph) -> ModuleResult<Bytecode> {
     compile_modules(graph, &topo_order, &exports, &cached_imports)
 }
 
+/// Per-interface arity of a program's `fn main` entry point.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MainArity {
+    /// Number of `pub` parameters (public inputs).
+    pub public: usize,
+    /// Number of bare parameters (private witness inputs).
+    pub private: usize,
+}
+
+pub fn main_entry_arity(graph: &ModuleGraph) -> Option<MainArity> {
+    graph
+        .root()
+        .program
+        .statements
+        .iter()
+        .find_map(|stmt| match stmt {
+            Stmt::FuncDef(fn_item) if fn_item.name == "main" => {
+                let public = fn_item.params.iter().filter(|p| p.is_public).count();
+                Some(MainArity {
+                    public,
+                    private: fn_item.params.len() - public,
+                })
+            }
+            _ => None,
+        })
+}
+
 fn type_check_modules(
     graph: &mut ModuleGraph,
     topo_order: &[ModuleId],

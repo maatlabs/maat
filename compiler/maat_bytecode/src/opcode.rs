@@ -287,6 +287,14 @@ pub enum Opcode {
     /// `Vector::push`.
     /// Operands: none
     VectorPush = 57,
+
+    /// Compute the Rescue-Prime hash of the top `N` field elements on the
+    /// stack and replace them with the four-element digest.
+    ///
+    /// Internal-only opcode; emitted by the codegen intercept for the
+    /// `hash::rescue_N` stdlib entries.
+    /// Operands: `[u16]` - input cell count `N`.
+    HashRescue = 58,
 }
 
 impl Opcode {
@@ -350,6 +358,7 @@ impl Opcode {
             Self::ArenaFinalize => "OpArenaFinalize",
             Self::VectorNew => "OpVectorNew",
             Self::VectorPush => "OpVectorPush",
+            Self::HashRescue => "OpHashRescue",
         }
     }
 
@@ -365,7 +374,8 @@ impl Opcode {
             | Self::Map
             | Self::GetField
             | Self::Tuple
-            | Self::Array => &[2],
+            | Self::Array
+            | Self::HashRescue => &[2],
             Self::Closure | Self::Construct => &[2, 1],
             Self::MatchTag => &[2, 2],
             Self::Call
@@ -477,6 +487,7 @@ impl Opcode {
             55 => Some(Self::ArenaFinalize),
             56 => Some(Self::VectorNew),
             57 => Some(Self::VectorPush),
+            58 => Some(Self::HashRescue),
             _ => None,
         }
     }
@@ -588,10 +599,17 @@ mod tests {
 
     #[test]
     fn opcode_roundtrip() {
-        for byte in 0..=57 {
+        for byte in 0..=58 {
             let opcode = Opcode::from_byte(byte).unwrap();
             assert_eq!(opcode.to_byte(), byte);
         }
+    }
+
+    #[test]
+    fn hash_rescue_opcode_metadata() {
+        assert_eq!(Opcode::HashRescue.name(), "OpHashRescue");
+        assert_eq!(Opcode::HashRescue.operand_widths(), &[2]);
+        assert_eq!(Opcode::HashRescue.to_byte(), 58);
     }
 
     #[test]

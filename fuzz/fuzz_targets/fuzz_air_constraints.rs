@@ -54,14 +54,7 @@ fn seed() -> &'static SeedState {
             maat_trace::run_with_output(bytecode.clone()).expect("seed program must trace");
         let output = artifacts.trace.row(artifacts.trace.num_rows() - 1)[COL_OUT];
 
-        let public_inputs = MaatPublicInputs::with_segments(
-            vec![],
-            output,
-            artifacts.output_base,
-            artifacts.output_segment.clone(),
-            artifacts.program_base,
-            artifacts.program_segment.clone(),
-        );
+        let public_inputs = MaatPublicInputs::new(output, artifacts.memory.clone());
 
         let bytecode_bytes = bytecode.serialize().expect("seed bytecode must serialize");
         SeedState {

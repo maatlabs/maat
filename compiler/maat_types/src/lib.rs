@@ -36,6 +36,40 @@ pub struct TypeChecker {
     bitwise_ops: Vec<BitwiseOp>,
 }
 
+/// Summary of a program's `fn main` provable entry point.
+struct MainEntry {
+    params: Vec<MainParam>,
+    returns_vector: bool,
+}
+
+/// A single `fn main` parameter.
+struct MainParam {
+    ty: Option<Type>,
+    span: Span,
+}
+
+/// Locates a top-level `fn main` and summarizes the entry-point facts the
+/// checker needs.
+fn main_entry(program: &Program) -> Option<MainEntry> {
+    program.statements.iter().find_map(|stmt| match stmt {
+        Stmt::FuncDef(fn_item) if fn_item.name == "main" => Some(MainEntry {
+            params: fn_item
+                .params
+                .iter()
+                .map(|p| MainParam {
+                    ty: p.type_expr.as_ref().map(resolve_type_expr),
+                    span: p.span,
+                })
+                .collect(),
+            returns_vector: matches!(
+                fn_item.return_type.as_ref().map(resolve_type_expr),
+                Some(Type::Vector(_))
+            ),
+        }),
+        _ => None,
+    })
+}
+
 struct BitwiseOp {
     operator: String,
     lhs_ty: Type,
@@ -84,16 +118,33 @@ impl TypeChecker {
                 _ => {}
             }
         }
-        let last_idx = program.statements.len().checked_sub(1);
-        for (idx, stmt) in program.statements.iter_mut().enumerate() {
-            if Some(idx) == last_idx
-                && let Stmt::Expr(expr_stmt) = stmt
-            {
-                let ty = self.infer_expression(&mut expr_stmt.value);
-                let resolved = self.subst.apply(&ty);
-                program.publishes_main_vector = matches!(resolved, Type::Vector(_));
-            } else {
+        if let Some(main) = main_entry(program) {
+            for param in &main.params {
+                if param.ty != Some(Type::Felt) {
+                    self.errors.push(
+                        TypeErrorKind::Unsupported(
+                            "only `Felt` parameters are supported by `fn main`".to_string(),
+                        )
+                        .at(param.span),
+                    );
+                }
+            }
+            for stmt in program.statements.iter_mut() {
                 self.check_statement(stmt);
+            }
+            program.publishes_main_vector = main.returns_vector;
+        } else {
+            let last_idx = program.statements.len().checked_sub(1);
+            for (idx, stmt) in program.statements.iter_mut().enumerate() {
+                if Some(idx) == last_idx
+                    && let Stmt::Expr(expr_stmt) = stmt
+                {
+                    let ty = self.infer_expression(&mut expr_stmt.value);
+                    let resolved = self.subst.apply(&ty);
+                    program.publishes_main_vector = matches!(resolved, Type::Vector(_));
+                } else {
+                    self.check_statement(stmt);
+                }
             }
         }
         self.subst.resolve_inferred_literals(program);

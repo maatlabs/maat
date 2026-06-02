@@ -15,14 +15,7 @@ use crate::{development_options, production_options};
 
 pub fn verify(proof_bytes: &[u8]) -> Result<(), VerificationError> {
     let (proof, embedded) = deserialize_proof(proof_bytes)?;
-    let public_inputs = MaatPublicInputs::with_segments(
-        embedded.inputs,
-        embedded.output,
-        embedded.output_base,
-        embedded.output_segment,
-        embedded.program_base,
-        embedded.program_segment,
-    );
+    let public_inputs = MaatPublicInputs::new(embedded.output, embedded.memory);
     verify_with_inputs(proof, public_inputs)
 }
 

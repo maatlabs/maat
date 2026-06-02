@@ -1,0 +1,25 @@
+// Multiplicative Fibonacci over the Goldilocks field at a longer sequence
+// length, mirroring Winterfell's `fibonacci/mulfib8` example. As with the
+// additive fib8 variant, Winterfell packs eight terms per trace row to keep
+// long sequences cheap to prove; the Maat source is the same `(b, a * b)`
+// recurrence run for more steps. The proven public output is the n-th term.
+
+/// Returns the n-th multiplicative-Fibonacci term in the Goldilocks field,
+/// folding the running pair `(a, b)` into `(b, a * b)` on each step.
+fn mulfib(n: i64) -> Felt {
+    let mut a: Felt = 1_fe;
+    let mut b: Felt = 2_fe;
+    for _step in 0..n {
+        let next = a * b;
+        a = b;
+        b = next;
+    }
+    a
+}
+
+/// Provable entry point: proves the 64th Goldilocks multiplicative-Fibonacci term.
+fn main() -> Felt {
+    let result = mulfib(64);
+    println!("{result}");
+    result
+}

@@ -74,15 +74,17 @@ maat --version
 Compile and execute a Maat source file in a single step:
 
 ```bash
-maat run examples/hello_world.maat
+maat run examples/fib.maat
 ```
 
 Or use the build-then-execute workflow for faster repeated execution:
 
 ```bash
-maat build examples/hello_world.maat -o hello_world.mtc
-maat exec hello_world.mtc
+maat build examples/fib.maat -o fib.mtc
+maat exec fib.mtc
 ```
+
+See [`examples/README.md`](./examples/README.md) for the full set of provable example programs and how to run, prove, and verify each one.
 
 ### Multi-Module Projects
 
@@ -152,8 +154,6 @@ Key rules:
 - Items without `pub` are module-private and inaccessible to importers
 - Circular module dependencies are detected and rejected at compile time
 - `pub use foo::bar;` re-exports items through intermediate modules
-
-A working multi-module example is included at `examples/modules/`.
 
 ### Running the REPL
 
@@ -226,35 +226,64 @@ Generate a STARK proof of correct program execution:
 
 ```bash
 # Generate a proof (development mode, ~12 bits security)
-maat prove examples/felt_arithmetic.maat
+maat prove examples/fib.maat
 
 # Generate a proof with production security (~97 bits)
-maat prove examples/felt_arithmetic.maat --production
+maat prove examples/fib.maat --production
 
-# Specify output path and dump execution trace
-maat prove examples/felt_arithmetic.maat -o felt_arithmetic.proof.bin -t trace.csv
+# Dump execution trace alongside the default-named proof
+maat prove examples/fib.maat -t trace.csv
 ```
 
-Verify a proof:
+Verify a proof (the default output path is the source file with its extension swapped to `.proof.bin`):
 
 ```bash
-maat verify examples/felt_arithmetic.proof.bin
+maat verify examples/fib.proof.bin
 ```
 
 The proof file embeds all public inputs (program hash, input values, output), so verification requires only the proof file itself.
 
 > **Note:** `println!` is for debugging only and does not affect the proof. The provable output is the program's return value.
 
-Public inputs can be provided via command line or JSON file:
+Public and private inputs bind to the `fn main` signature: `pub` parameters flow through the boundary-constrained public-memory accumulator, bare parameters bind to a prover-supplied witness cell with no public commitment. Supply them via command line or JSON file:
 
 ```bash
 # Command-line inputs
-maat prove program.maat --input "1,2,3"
+maat prove program.maat --input "1,2,3" --private-input "4,5"
 
 # JSON file inputs
 echo '[1, 2, 3]' > inputs.json
-maat prove program.maat --inputs-file inputs.json
+echo '[4, 5]' > private.json
+maat prove program.maat --inputs-file inputs.json --private-inputs-file private.json
 ```
+
+See [`examples/README.md`](./examples/README.md) for the full set of provable example programs, their `fn main` signatures, and input values for each one.
+
+#### Verifier-side assertion
+
+By default `maat verify <proof.bin>` reads the public values (inputs, output, program hash) from inside the proof envelope and accepts whatever the prover committed to. The Fiat-Shamir transcript and the boundary-constrained public-memory accumulator make those embedded values cryptographically binding---a prover cannot lie about them---nevertheless, the verifier needs a CLI knob to pin what the proof must say. There's an outer assertion layer for exactly that purpose.
+
+The simplest flow ships the proof and a JSON public-I/O bundle from the prover to the verifier; the verifier then asserts both are consistent with each other and with its own expectation:
+
+```bash
+# Prover side: emit the bundle alongside the proof.
+maat prove examples/vdf.maat --input 3 --write-public-io vdf.pubio.json
+
+# Verifier side: assert the proof commits to exactly these public values.
+maat verify examples/vdf.proof.bin --public-io vdf.pubio.json --expect-program examples/vdf.maat
+```
+
+The bundle is decimal-string typed (Goldilocks `Felt` reaches `2^64 - 2^32 + 1`, beyond what JSON numbers round-trip losslessly) and uses `#[serde(deny_unknown_fields)]` so schema drift surfaces at parse time:
+
+```json
+{
+  "inputs": ["3"],
+  "output": "11509554200763765976",
+  "program_hash": "0x0f9692dbb14bc0020bb23b06c59595626de2d16a8d7ddb94b11ebcb2d4a70c0f"
+}
+```
+
+For finer-grained assertions, the verifier accepts `--input`, `--expect-output`, `--expect-program <path.maat>` (compile + hash), and `--expect-program-hash <hex>` (pin a known image hash without recompilation) individually. The prove side mirrors the symmetry: `--expect-output` runs the prover-side assertion after tracing but before the expensive proof step, and `--public-io <path.json>` loads inputs, private inputs, and an expected output from one bundle. `--write-public-io` deliberately omits `private_inputs`---private witnesses are uncommitted by design. The cryptographic verify runs first so a forged proof fails with the existing diagnostic; assertion mismatches are only reported on proofs that are otherwise valid, with structured `error: ...` lines.
 
 #### Current Limitations
 
@@ -281,8 +310,8 @@ Maat includes a Criterion-based benchmark suite for the bytecode VM:
 # Run all benchmarks
 cargo bench -p maat_tests --bench benchmarks
 
-# Run specific benchmarks
-cargo bench -p maat_tests --bench benchmarks -- hello_world
+# Run specific benchmarks (e.g. the Rescue hash-chain workload)
+cargo bench -p maat_tests --bench benchmarks -- rescue
 
 # Save a baseline and compare after changes
 cargo bench -p maat_tests --bench benchmarks -- --save-baseline before
@@ -432,11 +461,11 @@ Maat's development follows a phased milestone plan.
 
 ## Status
 
-Maat is currently at version `0.16.0`. The compiler frontend, type system, module system, bytecode VM, and CLI toolchain are functional and tested. The ZK backend proves and verifies user-defined function calls with parameters, return values, nested calls, bounded recursion, arithmetic, bitwise operations (AND / OR / XOR / SHL / SHR over a chunked-LogUp argument), ordering comparisons across every integer width up through `u64`/`i64`/`usize`/`isize`, fixed-size arrays `[T; N]` over primitive `T`, segment-backed `Vector<T>`, and segment-backed closure captures. The bytecode is pinned cell-by-cell into the AIR's public-memory accumulator so the proof binds the exact program that produced the trace without a separate hash-outside-the-AIR. All `examples/*.maat` programs prove and verify end-to-end. See the [current limitations](#current-limitations) for gaps deferred to future releases.
+Maat is currently at version `0.17.0`. The compiler frontend, type system, module system, bytecode VM, and CLI toolchain are functional and tested. The ZK backend proves and verifies a top-level `fn main(<params>) -> T` entry point with public (`pub`) parameters bound cell-by-cell into the public-memory accumulator and private (bare) parameters bound to an uncommitted prover-supplied witness, plus user-defined function calls with parameters, return values, nested calls, bounded recursion, arithmetic, bitwise operations (AND / OR / XOR / SHL / SHR over a chunked-LogUp argument), ordering comparisons across every integer width up through `u64`/`i64`/`usize`/`isize`, fixed-size arrays `[T; N]` over primitive `T`, segment-backed `Vector<T>`, segment-backed closure captures, and Rescue-Prime hashing (`hash::rescue_2` / `rescue_4` / `rescue_8`). The verifier-side public-I/O bundle (`maat verify --public-io / --input / --expect-output / --expect-program{,-hash}`) adds an assertion layer over the cryptographic verify. All `examples/*.maat` programs prove and verify end-to-end. See the [current limitations](#current-limitations) for gaps deferred to future releases.
 
 ## Disclaimer
 
-Early adopters should be aware that Maat `0.16.0` is a step toward Maat 1.0, for which a formal audit process is expected. In the meantime, we invite you to explore and experiment with Maat, but we do not recommend using it to build mission-critical systems.
+Early adopters should be aware that Maat `0.17.0` is a step toward Maat 1.0, for which a formal audit process is expected. In the meantime, we invite you to explore and experiment with Maat, but we do not recommend using it to build mission-critical systems.
 
 ## Acknowledgments
 

@@ -1,7 +1,7 @@
 use maat_ast::{unescape_string, *};
 use maat_bytecode::{Constant, Opcode, TypeTag};
 use maat_errors::{CompileErrorKind, Result};
-use maat_runtime::Value;
+use maat_runtime::{Integer, Value};
 use maat_span::Span;
 
 use super::Compiler;
@@ -125,6 +125,14 @@ impl Compiler {
                 {
                     self.emit(Opcode::VectorNew, &[], span);
                     return Ok(());
+                }
+                if call.arguments.len() == 1
+                    && let Expr::PathExpr(path) = call.function.as_ref()
+                    && path.segments.len() == 2
+                    && path.segments[0] == "hash"
+                    && let Some(n) = parse_rescue_arity(&path.segments[1])
+                {
+                    return self.compile_hash_rescue_call(n, &call.arguments[0], span);
                 }
                 self.compile_expression(&call.function)?;
                 for arg in &call.arguments {
@@ -282,4 +290,35 @@ impl Compiler {
         }
         Ok(())
     }
+
+    fn compile_hash_rescue_call(&mut self, n: usize, arg: &Expr, span: Span) -> Result<()> {
+        self.compile_expression(arg)?;
+        let base = self.define_anonymous_local(span)?;
+        for i in 0..n {
+            let i_const = self.add_constant(Constant::Integer(Integer::U64(i as u64)))?;
+            self.load_symbol(&base, span);
+            self.emit(Opcode::Constant, &[i_const], span);
+            self.emit(Opcode::Add, &[], span);
+            self.emit(Opcode::HeapRead, &[], span);
+        }
+        self.emit(Opcode::HashRescue, &[n], span);
+
+        let d3 = self.define_anonymous_local(span)?;
+        let d2 = self.define_anonymous_local(span)?;
+        let d1 = self.define_anonymous_local(span)?;
+        let d0 = self.define_anonymous_local(span)?;
+
+        self.emit(Opcode::SegmentNew, &[], span);
+        for sym in [&d0, &d1, &d2, &d3] {
+            self.load_symbol(sym, span);
+            self.emit(Opcode::HeapAlloc, &[], span);
+            self.emit(Opcode::Pop, &[], span);
+        }
+        Ok(())
+    }
+}
+
+fn parse_rescue_arity(name: &str) -> Option<usize> {
+    let n = name.strip_prefix("rescue_")?.parse::<usize>().ok()?;
+    matches!(n, 2 | 4 | 8).then_some(n)
 }

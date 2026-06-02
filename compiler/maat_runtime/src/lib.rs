@@ -22,7 +22,7 @@ pub use maat_field::{Felt, StarkField, from_i64, try_div, try_inv};
 use maat_span::SourceMap;
 pub use memory::{
     MaybeRelocatable, MemorySegmentManager, RELOCATION_BASE, Relocatable, SEG_EXECUTION,
-    SEG_PROGRAM, SEG_PUBLIC_OUTPUT,
+    SEG_PRIVATE_INPUT, SEG_PROGRAM, SEG_PUBLIC_INPUT, SEG_PUBLIC_OUTPUT,
 };
 pub use num::{Integer, WideInt};
 use serde::{Deserialize, Serialize};

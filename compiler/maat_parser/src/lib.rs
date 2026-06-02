@@ -2035,8 +2035,13 @@ fn parse_typed_param<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<Typed
     let start = tok.span;
     let name = tok.literal.to_string();
 
+    let mut is_public = false;
     let type_expr = if peek(input) == TokenKind::Colon {
         any.parse_next(input)?;
+        if peek(input) == TokenKind::Pub {
+            any.parse_next(input)?;
+            is_public = true;
+        }
         Some(parse_type_expr(input)?)
     } else {
         None
@@ -2046,6 +2051,7 @@ fn parse_typed_param<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<Typed
     Ok(TypedParam {
         name,
         type_expr,
+        is_public,
         span: start.merge(end),
     })
 }
@@ -2094,6 +2100,7 @@ fn parse_method_param<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<Type
     Ok(TypedParam {
         name,
         type_expr,
+        is_public: false,
         span: start.merge(end),
     })
 }

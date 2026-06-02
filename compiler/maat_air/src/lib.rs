@@ -16,17 +16,19 @@ use aux_segment::{
     aux_assertions, aux_constraint_degrees, num_aux_assertions, num_aux_constraints,
 };
 pub use aux_segment::{aux_width, build_aux_columns, num_aux_rands};
+use builtin::BUILTIN_SET;
 pub use builtin::{
     BitwiseBuiltin, Builtin, BuiltinSet, CHUNKS_PER_OPERAND, ChunkBitwiseWitness, DILUTED_BITS,
     IdentityBuiltin, LogUpBuiltin, LogUpColumns, LookupTable, NATIVE_BITS, POOL_SIZE,
-    POOL_TABLE_ID, RangeCheckBuiltin, SPREAD_MASK, STRIDE, TableId, bitwise_identity_residuals,
-    chunk_decompose, chunk_recompose, chunk_weight, chunk_witness, dilute,
-    evaluate_transition_step, is_in_pool, pool_entries, undilute,
+    POOL_TABLE_ID, RangeCheckBuiltin, RescueHashBuiltin, SPREAD_MASK, STRIDE, TableId,
+    bitwise_identity_residuals, chunk_decompose, chunk_recompose, chunk_weight, chunk_witness,
+    dilute, evaluate_transition_step, is_in_pool, pool_entries, rescue, undilute,
 };
 use maat_field::{BaseElement, ExtensionOf, FieldElement};
 use maat_trace::main_segment::{self, CONSTRAINT_DEGREES};
 use maat_trace::table::{COL_OUT, COL_PC, COL_SP};
-pub use public_inputs::MaatPublicInputs;
+pub use maat_trace::{PublicMemory, PublicSegment};
+pub use public_inputs::{MaatPublicInputs, program_hash};
 pub use winter_air::proof::Proof;
 use winter_air::{Air, AirContext, Assertion, TransitionConstraintDegree};
 pub use winter_air::{
@@ -79,10 +81,10 @@ impl Air for MaatAir {
     fn evaluate_transition<E: FieldElement<BaseField = Self::BaseField>>(
         &self,
         frame: &EvaluationFrame<E>,
-        _periodic_values: &[E],
+        periodic_values: &[E],
         result: &mut [E],
     ) {
-        main_segment::evaluate(frame.current(), frame.next(), result);
+        main_segment::evaluate(frame.current(), frame.next(), periodic_values, result);
     }
 
     fn evaluate_aux_transition<F, E>(
@@ -107,6 +109,10 @@ impl Air for MaatAir {
         );
     }
 
+    fn get_periodic_column_values(&self) -> Vec<Vec<Self::BaseField>> {
+        BUILTIN_SET.periodic_columns()
+    }
+
     fn get_assertions(&self) -> Vec<Assertion<Self::BaseField>> {
         let last_step = self.trace_length() - 1;
         vec![
@@ -123,10 +129,7 @@ impl Air for MaatAir {
         aux_assertions::<E>(
             self.trace_length() - 1,
             aux_rand_elements.rand_elements(),
-            self.public_inputs.output_base,
-            &self.public_inputs.output_segment,
-            self.public_inputs.program_base,
-            &self.public_inputs.program_segment,
+            &self.public_inputs.memory,
         )
     }
 }
@@ -187,6 +190,20 @@ mod tests {
         assert_eq!(assertions[0].column(), COL_PC);
         assert_eq!(assertions[1].column(), COL_SP);
         assert_eq!(assertions[2].column(), COL_OUT);
+    }
+
+    #[test]
+    fn air_periodic_column_values_delegate_to_builtin_set() {
+        let trace_info = multi_segment_trace_info(8);
+        let pub_inputs = MaatPublicInputs::with_output(BaseElement::new(7));
+        let air = MaatAir::new(trace_info, pub_inputs, test_options());
+
+        let from_air = air.get_periodic_column_values();
+        let from_set = BUILTIN_SET.periodic_columns();
+        assert_eq!(from_air.len(), from_set.len());
+        for (a, b) in from_air.iter().zip(from_set.iter()) {
+            assert_eq!(a, b);
+        }
     }
 
     #[test]

@@ -4,21 +4,22 @@ Standard library sources for the Maat programming language.
 
 ## Role
 
-`maat_stdlib` ships `.maat` source files that are embedded in the `maat` binary at compile time and injected into every program's module graph before user code is resolved. It provides the foundational modules available under the `std::` namespace, giving Maat programs access to common data structures and algorithms without external dependencies.
+`maat_stdlib` ships `.maat` source files that are embedded in the `maat` binary at compile time and injected into every program's module graph before user code is resolved. It provides the foundational modules available under the `std::` namespace, giving Maat programs access to common data structures, algorithms, and cryptographic primitives without external dependencies.
 
 ## Modules
 
-| Module        | Contents                                     |
-| ------------- | -------------------------------------------- |
-| `std::math`   | Integer power, absolute value, min/max       |
-| `std::vec`    | Vector construction and manipulation helpers |
-| `std::map`    | Ordered map utilities                        |
-| `std::set`    | Ordered set utilities                        |
-| `std::string` | String formatting and conversion helpers     |
-| `std::option` | `Option`-style pattern utilities             |
-| `std::result` | `Result`-style pattern utilities             |
-| `std::cmp`    | Comparison utilities                         |
-| `std::num`    | Numeric trait helpers                        |
+| Module        | Contents                                                                 |
+| ------------- | ------------------------------------------------------------------------ |
+| `std::math`   | Integer power, absolute value, min/max                                   |
+| `std::vec`    | Vector construction and manipulation helpers                             |
+| `std::map`    | Ordered map utilities                                                    |
+| `std::set`    | Ordered set utilities                                                    |
+| `std::string` | String formatting and conversion helpers                                 |
+| `std::option` | `Option`-style pattern utilities                                         |
+| `std::result` | `Result`-style pattern utilities                                         |
+| `std::cmp`    | Comparison utilities                                                     |
+| `std::num`    | Numeric trait helpers                                                    |
+| `std::hash`   | Rescue-Prime STARK-friendly hashing (`rescue_2`, `rescue_4`, `rescue_8`) |
 
 ## Usage
 
@@ -30,6 +31,16 @@ use std::math;
 fn main() {
     let x = math::pow(2, 10); // 1024
     println!("{x}");
+}
+```
+
+The `hash::` qualified path is available without an explicit `use`. Each `hash::rescue_N` call is lowered to a single `Opcode::HashRescue` dispatch via a `maat_codegen` intercept; the function must be invoked directly (first-class function-value use is not supported---the codegen intercept only fires on direct call sites):
+
+```rust
+fn main() -> Felt {
+    let input: [Felt; 2] = [3_fe, 7_fe];
+    let digest = hash::rescue_2(input);
+    digest[0]
 }
 ```
 

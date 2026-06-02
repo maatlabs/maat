@@ -43,14 +43,7 @@ fuzz_target!(|data: &[u8]| {
         return;
     };
     let output = artifacts.trace.row(artifacts.trace.num_rows() - 1)[COL_OUT];
-    let public_inputs = MaatPublicInputs::with_segments(
-        vec![],
-        output,
-        artifacts.output_base,
-        artifacts.output_segment.clone(),
-        artifacts.program_base,
-        artifacts.program_segment.clone(),
-    );
+    let public_inputs = MaatPublicInputs::new(output, artifacts.memory.clone());
     let prover = MaatProver::new(development_options(), public_inputs.clone());
 
     let libfuzzer_hook = std::panic::take_hook();

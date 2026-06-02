@@ -84,6 +84,7 @@ fn lambda(params: Vec<(&str, Option<TypeExpr>)>, body: Vec<Stmt>) -> Expr {
             .map(|(name, te)| TypedParam {
                 name: name.to_string(),
                 type_expr: te,
+                is_public: false,
                 span: S,
             })
             .collect(),
@@ -136,6 +137,7 @@ fn func_def(
             .map(|(n, te)| TypedParam {
                 name: n.to_string(),
                 type_expr: te,
+                is_public: false,
                 span: S,
             })
             .collect(),
@@ -278,6 +280,7 @@ fn trait_method(
             .map(|(n, te)| TypedParam {
                 name: n.to_string(),
                 type_expr: te,
+                is_public: false,
                 span: S,
             })
             .collect(),
@@ -312,6 +315,7 @@ fn method_def(
             .map(|(n, te)| TypedParam {
                 name: n.to_string(),
                 type_expr: te,
+                is_public: false,
                 span: S,
             })
             .collect(),
@@ -1365,5 +1369,48 @@ mod bitwise_encoding_rules {
             errs.iter().all(|e| !e.contains("off-canonical")),
             "off-canonical guard must not fire on i64 literals; got: {errs:?}"
         );
+    }
+}
+
+mod entry_point {
+    use maat_tests::{compile, compile_type_errors};
+
+    #[test]
+    fn private_felt_fn_main_param_accepted() {
+        // A bare (non-`pub`) `Felt` parameter binds as a private witness input.
+        let _ = compile("fn main(x: Felt) -> Felt { x }");
+    }
+
+    #[test]
+    fn mixed_public_private_fn_main_accepted() {
+        let _ = compile("fn main(x: Felt, y: pub Felt) -> Felt { assert!(x * x == y); y }");
+    }
+
+    #[test]
+    fn non_felt_public_fn_main_param_rejected() {
+        let errs = compile_type_errors("fn main(x: pub i64) -> i64 { x }");
+        assert!(
+            errs.iter().any(|e| e.contains("only `Felt` parameters")),
+            "expected non-Felt public-parameter rejection; got: {errs:?}"
+        );
+    }
+
+    #[test]
+    fn non_felt_private_fn_main_param_rejected() {
+        let errs = compile_type_errors("fn main(x: i64) -> i64 { x }");
+        assert!(
+            errs.iter().any(|e| e.contains("only `Felt` parameters")),
+            "expected non-Felt private-parameter rejection; got: {errs:?}"
+        );
+    }
+
+    #[test]
+    fn public_felt_fn_main_param_accepted() {
+        let _ = compile("fn main(x: pub Felt, y: pub Felt) -> Felt { x + y }");
+    }
+
+    #[test]
+    fn zero_arg_fn_main_accepted() {
+        let _ = compile("fn main() -> Felt { 7_fe }");
     }
 }

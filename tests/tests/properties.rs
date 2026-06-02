@@ -130,14 +130,7 @@ fn compile_and_prove(source: &str) -> Option<Vec<u8>> {
     let artifacts = maat_trace::run_with_output(bytecode).ok()?;
     let output = artifacts.trace.row(artifacts.trace.num_rows() - 1)[COL_OUT];
 
-    let public_inputs = MaatPublicInputs::with_segments(
-        vec![],
-        output,
-        artifacts.output_base,
-        artifacts.output_segment.clone(),
-        artifacts.program_base,
-        artifacts.program_segment.clone(),
-    );
+    let public_inputs = MaatPublicInputs::new(output, artifacts.memory.clone());
     let prover = MaatProver::new(development_options(), public_inputs);
 
     // Winterfell fires debug-mode `assert!` on degenerate traces; catch it.
@@ -146,15 +139,7 @@ fn compile_and_prove(source: &str) -> Option<Vec<u8>> {
     }));
     let proof = prove_result.ok()?.ok()?;
 
-    Some(serialize_proof(
-        &proof,
-        output,
-        &[],
-        artifacts.output_base,
-        &artifacts.output_segment,
-        artifacts.program_base,
-        &artifacts.program_segment,
-    ))
+    Some(serialize_proof(&proof, output, &artifacts.memory))
 }
 
 // Property: Lexer never panics on arbitrary UTF-8

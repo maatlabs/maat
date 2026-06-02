@@ -339,6 +339,7 @@ fn function_display() {
                     name: "T".to_string(),
                     span: span(),
                 })),
+                is_public: false,
                 span: span(),
             },
             TypedParam {
@@ -347,6 +348,7 @@ fn function_display() {
                     name: "i64".to_string(),
                     span: span(),
                 })),
+                is_public: false,
                 span: span(),
             },
         ],

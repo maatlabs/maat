@@ -732,6 +732,7 @@ pub struct NamedType {
 pub struct TypedParam {
     pub name: String,
     pub type_expr: Option<TypeExpr>,
+    pub is_public: bool,
     pub span: Span,
 }
 

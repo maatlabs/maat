@@ -14,7 +14,9 @@ use maat_bytecode::{
     Bytecode, Constant, Instruction, Instructions, MAX_CONSTANT_POOL_SIZE, Opcode, encode,
 };
 use maat_errors::{CompileError, CompileErrorKind, Error, Result};
-use maat_runtime::{Integer, Relocatable, SEG_PUBLIC_OUTPUT, TypeDef};
+use maat_runtime::{
+    Integer, Relocatable, SEG_PRIVATE_INPUT, SEG_PUBLIC_INPUT, SEG_PUBLIC_OUTPUT, TypeDef,
+};
 use maat_span::{SourceMap, Span};
 
 use crate::registry::{self, VariantEntry};
@@ -58,6 +60,26 @@ pub(crate) struct LoopContext {
     pub(crate) continue_target: Option<usize>,
     pub(crate) break_jumps: Vec<usize>,
     pub(crate) continue_jumps: Vec<usize>,
+}
+
+/// Top-level `fn main` entry point facts.
+struct MainEntry {
+    span: Span,
+    /// Per-parameter visibility in declaration order: `true` for a `pub`
+    /// (public-input) parameter, `false` for a bare (private-witness) one.
+    param_vis: Vec<bool>,
+}
+
+/// Returns the entry-point facts for a top-level `fn main`, if the program
+/// declares one.
+fn main_entry(program: &Program) -> Option<MainEntry> {
+    program.statements.iter().find_map(|stmt| match stmt {
+        Stmt::FuncDef(fn_item) if fn_item.name == "main" => Some(MainEntry {
+            span: fn_item.span,
+            param_vis: fn_item.params.iter().map(|p| p.is_public).collect(),
+        }),
+        _ => None,
+    })
 }
 
 impl Default for Compiler {
@@ -164,6 +186,20 @@ impl Compiler {
                 }
             }
         }
+
+        if let Some(MainEntry { span, param_vis }) = main_entry(program) {
+            for stmt in &program.statements {
+                self.compile_statement(stmt)?;
+            }
+            self.emit_main_entry_call(&param_vis, span)?;
+            if program.publishes_main_vector {
+                self.publish_vector_on_stack(span)?;
+            } else {
+                self.emit(Opcode::Pop, &[], span);
+            }
+            return Ok(());
+        }
+
         let last_idx = program.statements.len().checked_sub(1);
         for (idx, stmt) in program.statements.iter().enumerate() {
             if Some(idx) == last_idx
@@ -178,9 +214,49 @@ impl Compiler {
         Ok(())
     }
 
+    fn emit_main_entry_call(&mut self, param_vis: &[bool], span: Span) -> Result<()> {
+        let main_sym = self.resolve_or_error("main", span)?;
+        self.load_symbol(&main_sym, span);
+        let (mut public_off, mut private_off) = (0u32, 0u32);
+        for &is_public in param_vis {
+            let (segment, slot) = if is_public {
+                (SEG_PUBLIC_INPUT, &mut public_off)
+            } else {
+                (SEG_PRIVATE_INPUT, &mut private_off)
+            };
+            let off = *slot;
+            *slot = slot.checked_add(1).ok_or_else(|| {
+                Error::from(
+                    CompileErrorKind::UnsupportedExpr {
+                        expr_type: "`fn main` parameter count exceeds the u32 address space"
+                            .to_string(),
+                    }
+                    .at(span),
+                )
+            })?;
+            let addr_idx =
+                self.add_constant(Constant::Relocatable(Relocatable::new(segment, off)))?;
+            self.emit(Opcode::Constant, &[addr_idx], span);
+            self.emit(Opcode::HeapRead, &[], span);
+        }
+        let arg_count = u8::try_from(param_vis.len()).map_err(|_| {
+            Error::from(
+                CompileErrorKind::UnsupportedExpr {
+                    expr_type: "`fn main` accepts at most 255 parameters".to_string(),
+                }
+                .at(span),
+            )
+        })?;
+        self.emit(Opcode::Call, &[usize::from(arg_count)], span);
+        Ok(())
+    }
+
     fn compile_main_vector_publication(&mut self, expr_stmt: &ExprStmt) -> Result<()> {
-        let span = expr_stmt.span;
         self.compile_expression(&expr_stmt.value)?;
+        self.publish_vector_on_stack(expr_stmt.span)
+    }
+
+    fn publish_vector_on_stack(&mut self, span: Span) -> Result<()> {
         let iter_sym = self.define_and_set("__main_publish_iter", false, span)?;
 
         let len_builtin = self.resolve_or_error("Vector::len", span)?;

@@ -710,7 +710,7 @@ dependencies = [
 
 [[package]]
 name = "maat"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "ariadne",
  "clap",
@@ -732,22 +732,24 @@ dependencies = [
  "maat_vm",
  "rustyline",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
 name = "maat_air"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "maat_bytecode",
  "maat_errors",
  "maat_field",
  "maat_trace",
  "winter-air",
+ "winter-crypto",
 ]
 
 [[package]]
 name = "maat_ast"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "maat_errors",
  "maat_span",
@@ -755,7 +757,7 @@ dependencies = [
 
 [[package]]
 name = "maat_bytecode"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "indexmap",
  "maat_errors",
@@ -767,7 +769,7 @@ dependencies = [
 
 [[package]]
 name = "maat_codegen"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "indexmap",
  "maat_ast",
@@ -781,7 +783,7 @@ dependencies = [
 
 [[package]]
 name = "maat_errors"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "maat_span",
  "thiserror",
@@ -789,7 +791,7 @@ dependencies = [
 
 [[package]]
 name = "maat_eval"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "indexmap",
  "maat_ast",
@@ -801,7 +803,7 @@ dependencies = [
 
 [[package]]
 name = "maat_field"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "thiserror",
  "winter-math",
@@ -809,7 +811,7 @@ dependencies = [
 
 [[package]]
 name = "maat_lexer"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "logos",
  "maat_span",
@@ -817,7 +819,7 @@ dependencies = [
 
 [[package]]
 name = "maat_module"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "maat_ast",
  "maat_bytecode",
@@ -834,7 +836,7 @@ dependencies = [
 
 [[package]]
 name = "maat_parser"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "maat_ast",
  "maat_errors",
@@ -845,12 +847,14 @@ dependencies = [
 
 [[package]]
 name = "maat_prover"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "maat_air",
  "maat_errors",
  "maat_field",
  "maat_trace",
+ "serde",
+ "serde_json",
  "winter-crypto",
  "winter-prover",
  "winter-verifier",
@@ -858,7 +862,7 @@ dependencies = [
 
 [[package]]
 name = "maat_runtime"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "indexmap",
  "maat_ast",
@@ -870,18 +874,18 @@ dependencies = [
 
 [[package]]
 name = "maat_span"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "maat_stdlib"
-version = "0.16.0"
+version = "0.17.0"
 
 [[package]]
 name = "maat_tests"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "criterion",
  "maat_air",
@@ -906,7 +910,7 @@ dependencies = [
 
 [[package]]
 name = "maat_trace"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "maat_bytecode",
  "maat_errors",
@@ -917,7 +921,7 @@ dependencies = [
 
 [[package]]
 name = "maat_types"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "indexmap",
  "maat_ast",
@@ -928,7 +932,7 @@ dependencies = [
 
 [[package]]
 name = "maat_vm"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "indexmap",
  "maat_ast",

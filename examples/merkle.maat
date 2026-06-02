@@ -1,0 +1,60 @@
+// Rescue-compressed Merkle authentication path, mirroring Winterfell's
+// `merkle` example. The prover supplies a private leaf and the four private
+// sibling digests of a depth-four authentication path; the verifier supplies
+// the four public path bits selecting left or right at each level. At every
+// level the running node and the level's sibling concatenate (per the bit)
+// into an 8-felt rate block fed through `rescue_8`. The proven public output
+// is the first cell of the computed root, so the proof attests "I know a leaf
+// and four sibling digests that, walked under this bit sequence, compress to
+// this root."
+
+/// Branch-free Rescue-compressed parent node. Selects left/right order under
+/// `is_right` arithmetically -- `lo = is_right ? sibling : node`,
+/// `hi = is_right ? node : sibling` -- so the same circuit shape evaluates
+/// regardless of the bit, then hashes the resulting 8-felt block.
+fn combine(node: [Felt; 4], sibling: [Felt; 4], is_right: Felt) -> [Felt; 4] {
+    let one_minus = 1_fe - is_right;
+    let pair: [Felt; 8] = [
+        is_right * sibling[0] + one_minus * node[0],
+        is_right * sibling[1] + one_minus * node[1],
+        is_right * sibling[2] + one_minus * node[2],
+        is_right * sibling[3] + one_minus * node[3],
+        is_right * node[0] + one_minus * sibling[0],
+        is_right * node[1] + one_minus * sibling[1],
+        is_right * node[2] + one_minus * sibling[2],
+        is_right * node[3] + one_minus * sibling[3],
+    ];
+    hash::rescue_8(pair)
+}
+
+/// Provable entry point: walks a depth-four Merkle authentication path from
+/// the private `leaf_word` against the four private `sib_i_word` siblings
+/// under the public `bit_i` selectors, returning the first cell of the
+/// resulting root digest. With no inputs all words and bits default to zero,
+/// so the sweep proves a deterministic all-zero-path root.
+fn main(
+    leaf_word: Felt,
+    sib0_word: Felt,
+    sib1_word: Felt,
+    sib2_word: Felt,
+    sib3_word: Felt,
+    bit0: pub Felt,
+    bit1: pub Felt,
+    bit2: pub Felt,
+    bit3: pub Felt,
+) -> Felt {
+    let leaf: [Felt; 4] = [leaf_word, 0_fe, 0_fe, 0_fe];
+    let sib0: [Felt; 4] = [sib0_word, 0_fe, 0_fe, 0_fe];
+    let sib1: [Felt; 4] = [sib1_word, 0_fe, 0_fe, 0_fe];
+    let sib2: [Felt; 4] = [sib2_word, 0_fe, 0_fe, 0_fe];
+    let sib3: [Felt; 4] = [sib3_word, 0_fe, 0_fe, 0_fe];
+
+    let n0 = combine(leaf, sib0, bit0);
+    let n1 = combine(n0, sib1, bit1);
+    let n2 = combine(n1, sib2, bit2);
+    let root = combine(n2, sib3, bit3);
+
+    let result = root[0];
+    println!("{result}");
+    result
+}

@@ -1,0 +1,27 @@
+// Additive Fibonacci in a small numeric domain, mirroring Winterfell's
+// `fibonacci/fib_small` example. Winterfell runs the same recurrence over a
+// narrower 62-bit field to compare proving throughput against the full-width
+// instantiation; the Maat analogue uses the native `i64` integer type,
+// exercising the range-checked integer-arithmetic path rather than the field
+// path used by `fib` / `fib8`. The sequence length is kept within `i64` so no
+// value overflows. The proven public output is the n-th term.
+
+/// Returns the n-th Fibonacci number as a native `i64`, folding the running
+/// pair `(a, b)` into `(b, a + b)` on each step.
+fn fib(n: i64) -> i64 {
+    let mut a: i64 = 0;
+    let mut b: i64 = 1;
+    for _step in 0..n {
+        let next = a + b;
+        a = b;
+        b = next;
+    }
+    a
+}
+
+/// Provable entry point: proves the 24th Fibonacci term over native `i64`.
+fn main() -> i64 {
+    let result = fib(24);
+    println!("{result}");
+    result
+}

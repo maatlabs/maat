@@ -14,6 +14,10 @@ pub const SEG_PROGRAM: u32 = 0;
 pub const SEG_EXECUTION: u32 = 1;
 /// Segment ID reserved for the public-output segment.
 pub const SEG_PUBLIC_OUTPUT: u32 = 2;
+/// Segment ID reserved for the public-input segment.
+pub const SEG_PUBLIC_INPUT: u32 = 3;
+/// Segment ID reserved for the private-input (witness) segment.
+pub const SEG_PRIVATE_INPUT: u32 = 4;
 
 /// First flat address used by [`MemorySegmentManager::relocate_segments`].
 pub const RELOCATION_BASE: u32 = 1;
@@ -135,7 +139,13 @@ impl MemorySegmentManager {
     pub fn with_reserved_segments() -> Self {
         let mut mgr = Self::default();
 
-        for expected in [SEG_PROGRAM, SEG_EXECUTION, SEG_PUBLIC_OUTPUT] {
+        for expected in [
+            SEG_PROGRAM,
+            SEG_EXECUTION,
+            SEG_PUBLIC_OUTPUT,
+            SEG_PUBLIC_INPUT,
+            SEG_PRIVATE_INPUT,
+        ] {
             let base = mgr
                 .add()
                 .expect("reserved segment allocation cannot overflow");
@@ -734,28 +744,34 @@ mod tests {
         assert_eq!(SEG_PROGRAM, 0);
         assert_eq!(SEG_EXECUTION, 1);
         assert_eq!(SEG_PUBLIC_OUTPUT, 2);
+        assert_eq!(SEG_PUBLIC_INPUT, 3);
+        assert_eq!(SEG_PRIVATE_INPUT, 4);
         assert_ne!(SEG_PROGRAM, SEG_EXECUTION);
         assert_ne!(SEG_EXECUTION, SEG_PUBLIC_OUTPUT);
+        assert_ne!(SEG_PUBLIC_OUTPUT, SEG_PUBLIC_INPUT);
+        assert_ne!(SEG_PUBLIC_INPUT, SEG_PRIVATE_INPUT);
     }
 
     #[test]
-    fn with_reserved_segments_preallocates_program_execution_and_public_output() {
+    fn with_reserved_segments_preallocates_program_execution_and_public_io() {
         let mgr = MemorySegmentManager::with_reserved_segments();
-        assert_eq!(mgr.num_segments(), 3);
+        assert_eq!(mgr.num_segments(), 5);
         // All reserved segments start empty.
-        assert_eq!(mgr.compute_sizes().unwrap(), vec![0, 0, 0]);
+        assert_eq!(mgr.compute_sizes().unwrap(), vec![0, 0, 0, 0, 0]);
         // Reserved cells are unallocated, not zero-valued.
         assert_eq!(mgr.read(Relocatable::new(SEG_PROGRAM, 0)), None);
         assert_eq!(mgr.read(Relocatable::new(SEG_EXECUTION, 0)), None);
         assert_eq!(mgr.read(Relocatable::new(SEG_PUBLIC_OUTPUT, 0)), None);
+        assert_eq!(mgr.read(Relocatable::new(SEG_PUBLIC_INPUT, 0)), None);
+        assert_eq!(mgr.read(Relocatable::new(SEG_PRIVATE_INPUT, 0)), None);
     }
 
     #[test]
-    fn first_user_segment_after_reserved_init_is_id_three() {
+    fn first_user_segment_after_reserved_init_is_id_five() {
         let mut mgr = MemorySegmentManager::with_reserved_segments();
         let first_user = mgr.add().unwrap();
-        assert_eq!(first_user, Relocatable::new(3, 0));
+        assert_eq!(first_user, Relocatable::new(5, 0));
         let second_user = mgr.add().unwrap();
-        assert_eq!(second_user, Relocatable::new(4, 0));
+        assert_eq!(second_user, Relocatable::new(6, 0));
     }
 }

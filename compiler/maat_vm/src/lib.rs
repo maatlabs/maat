@@ -17,8 +17,8 @@ use maat_errors::{Result, VmError};
 use maat_field::{Felt, FieldElement, from_i64, try_inv};
 use maat_runtime::{
     BUILTINS, BuiltinArg, BuiltinFn, BuiltinReturn, Closure, CompiledFn, EnumVariantVal, FALSE,
-    Hashable, Integer, Map, MaybeRelocatable, MemorySegmentManager, Relocatable, SEG_PROGRAM, Set,
-    StructVal, TRUE, TypeDef, UNIT, Value, WideInt,
+    Hashable, Integer, Map, MaybeRelocatable, MemorySegmentManager, Relocatable, SEG_PRIVATE_INPUT,
+    SEG_PROGRAM, SEG_PUBLIC_INPUT, Set, StructVal, TRUE, TypeDef, UNIT, Value, WideInt,
 };
 use maat_span::{SourceMap, Span};
 
@@ -62,6 +62,8 @@ pub struct VM {
     heap_values: HashMap<Relocatable, Value>,
     current_segment: Option<u32>,
     default_segment: Option<u32>,
+    rescue_io_segment: Option<u32>,
+    rescue_io_cursor: u32,
 }
 
 impl VM {
@@ -95,6 +97,8 @@ impl VM {
             heap_values: HashMap::new(),
             current_segment: None,
             default_segment: None,
+            rescue_io_segment: None,
+            rescue_io_cursor: 0,
         }
     }
 
@@ -116,6 +120,28 @@ impl VM {
                     MaybeRelocatable::Felt(Felt::new(u64::from(byte))),
                 )
                 .map_err(|e| VmError::new(format!("program-segment write failed: {e}")))?;
+        }
+        Ok(())
+    }
+
+    pub fn seed_public_inputs(&mut self, values: &[Felt]) -> Result<()> {
+        self.seed_input_segment(SEG_PUBLIC_INPUT, values, "public-input")
+    }
+
+    pub fn seed_private_inputs(&mut self, values: &[Felt]) -> Result<()> {
+        self.seed_input_segment(SEG_PRIVATE_INPUT, values, "private-input")
+    }
+
+    fn seed_input_segment(&mut self, segment: u32, values: &[Felt], label: &str) -> Result<()> {
+        for (off, &value) in values.iter().enumerate() {
+            let off_u32 = u32::try_from(off)
+                .map_err(|_| VmError::new(format!("{label} segment longer than u32::MAX cells")))?;
+            let addr = Relocatable::new(segment, off_u32);
+            let mr = MaybeRelocatable::Felt(value);
+            self.segments
+                .write(addr, mr)
+                .map_err(|e| VmError::new(format!("{label} write failed: {e}")))?;
+            self.heap_values.insert(addr, Value::Felt(value));
         }
         Ok(())
     }
@@ -528,9 +554,17 @@ impl VM {
             }
             Opcode::HeapRead => {
                 let addr = self.pop_relocatable("HeapRead")?;
-                let value = self.heap_values.get(&addr).cloned().ok_or_else(|| {
-                    self.vm_error(format!("heap read of unallocated address {addr}"))
-                })?;
+                let value = match self.heap_values.get(&addr).cloned() {
+                    Some(v) => v,
+                    None if matches!(addr.segment_index, SEG_PUBLIC_INPUT | SEG_PRIVATE_INPUT) => {
+                        Value::Felt(Felt::ZERO)
+                    }
+                    None => {
+                        return Err(
+                            self.vm_error(format!("heap read of unallocated address {addr}"))
+                        );
+                    }
+                };
                 let value_mr = value.to_maybe_relocatable();
                 recorder.record_out(value_mr);
                 recorder.record_heap_access(addr.segment_index, addr.offset, value_mr, true);
@@ -589,6 +623,87 @@ impl VM {
                 self.current_segment = Some(base.segment_index);
                 self.push_stack(Value::Vector { base, len: 0 })?;
                 recorder.record_out(MaybeRelocatable::Relocatable(base));
+            }
+            Opcode::HashRescue => {
+                const _: () = assert!(
+                    maat_field::rescue::DIGEST_SIZE == 4,
+                    "Tracer::record_rescue_call digest array pinned at 4"
+                );
+                let n = self.read_u16_operand(ip + 1)?;
+                self.current_frame_mut()?.ip += 2;
+                if !matches!(n, 2 | 4 | 8) {
+                    return Err(self.vm_error(format!(
+                        "HashRescue: arity {n} unsupported (must be 2, 4, or 8 -- one sponge \
+                         permutation per dispatch)"
+                    )));
+                }
+                let mut input = vec![Felt::ZERO; n];
+                for slot in input.iter_mut().rev() {
+                    *slot = self.pop_felt("HashRescue")?;
+                }
+                let mut state = [Felt::ZERO; maat_field::rescue::STATE_WIDTH];
+                state[maat_field::rescue::CAPACITY_RANGE.start] = Felt::new(n as u64);
+                for (i, &x) in input.iter().enumerate() {
+                    state[maat_field::rescue::RATE_RANGE.start + i] += x;
+                }
+                let witness = maat_field::rescue::rescue_permutation_with_witness(&mut state);
+                let mut digest = [Felt::ZERO; maat_field::rescue::DIGEST_SIZE];
+                digest.copy_from_slice(&state[maat_field::rescue::DIGEST_RANGE]);
+
+                for &d in &digest {
+                    self.push_stack(Value::Felt(d))?;
+                }
+                recorder.record_out(MaybeRelocatable::Felt(digest[digest.len() - 1]));
+
+                // Commit the input and digest cells to a dedicated Rescue I/O
+                // segment so the unified memory permutation binds them: every
+                // synthetic write here is balanced by a matching read appended
+                // inside `record_rescue_call`, and tampering with either side
+                // breaks the (addr, val) multiset endpoint check. The segment
+                // is allocated lazily on the first dispatch so non-hashing
+                // programs see byte-for-byte identical traces.
+                let io_segment = match self.rescue_io_segment {
+                    Some(id) => id,
+                    None => {
+                        let base = self
+                            .segments
+                            .add()
+                            .map_err(|e| self.vm_error(format!("Rescue I/O segment alloc: {e}")))?;
+                        self.rescue_io_segment = Some(base.segment_index);
+                        base.segment_index
+                    }
+                };
+                let call_base = self.rescue_io_cursor;
+                let io_cells = n
+                    .checked_add(maat_field::rescue::DIGEST_SIZE)
+                    .ok_or_else(|| self.vm_error("HashRescue: I/O cell count overflow"))?;
+                let next_cursor = u32::try_from(io_cells)
+                    .ok()
+                    .and_then(|delta| call_base.checked_add(delta))
+                    .ok_or_else(|| self.vm_error("HashRescue: I/O cursor overflow"))?;
+                let mut commit = |this: &mut Self, slot: usize, value: Felt| -> Result<()> {
+                    let offset = u32::try_from(slot)
+                        .ok()
+                        .and_then(|s| call_base.checked_add(s))
+                        .ok_or_else(|| this.vm_error("HashRescue: I/O offset overflow"))?;
+                    let addr = Relocatable::new(io_segment, offset);
+                    let value_mr = MaybeRelocatable::Felt(value);
+                    this.segments
+                        .write(addr, value_mr)
+                        .map_err(|e| this.vm_error(format!("HashRescue I/O write: {e}")))?;
+                    this.heap_values.insert(addr, Value::Felt(value));
+                    recorder.emit_synthetic_heap_write(io_segment, offset, value_mr);
+                    Ok(())
+                };
+                for (i, &v) in input.iter().enumerate() {
+                    commit(self, i, v)?;
+                }
+                for (i, &d) in digest.iter().enumerate() {
+                    commit(self, n + i, d)?;
+                }
+                self.rescue_io_cursor = next_cursor;
+
+                recorder.record_rescue_call(&input, digest, &witness, io_segment, call_base);
             }
             Opcode::VectorPush => {
                 let val = self.pop_stack()?;

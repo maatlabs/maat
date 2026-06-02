@@ -36,3 +36,6 @@ maat_trace.workspace = true
 maat_air.workspace = true
 maat_prover.workspace = true
 maat_module.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

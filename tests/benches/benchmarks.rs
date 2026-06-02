@@ -2,7 +2,7 @@ use core::time::Duration;
 use std::hint::black_box;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use maat_air::{MaatPublicInputs, ProofOptions, build_aux_columns, num_aux_rands};
+use maat_air::{MaatPublicInputs, ProofOptions, PublicMemory, build_aux_columns, num_aux_rands};
 use maat_ast::{MaatAst, fold_constants};
 use maat_bytecode::Bytecode;
 use maat_codegen::Compiler;
@@ -270,27 +270,12 @@ fn bench_baseline(c: &mut Criterion) {
 fn prove_bytecode(bytecode: &Bytecode, options: ProofOptions) -> Vec<u8> {
     let artifacts = maat_trace::run_with_output(bytecode.clone()).expect("trace failed");
     let output = artifacts.trace.row(artifacts.trace.num_rows() - 1)[COL_OUT];
-    let public_inputs = MaatPublicInputs::with_segments(
-        vec![],
-        output,
-        artifacts.output_base,
-        artifacts.output_segment.clone(),
-        artifacts.program_base,
-        artifacts.program_segment.clone(),
-    );
+    let public_inputs = MaatPublicInputs::new(output, artifacts.memory.clone());
     let prover = MaatProver::new(options, public_inputs);
     let proof = prover
         .generate_proof(artifacts.trace)
         .expect("prove failed");
-    serialize_proof(
-        &proof,
-        output,
-        &[],
-        artifacts.output_base,
-        &artifacts.output_segment,
-        artifacts.program_base,
-        &artifacts.program_segment,
-    )
+    serialize_proof(&proof, output, &artifacts.memory)
 }
 
 fn bench_prove(c: &mut Criterion) {
@@ -364,6 +349,64 @@ fn bench_verify(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_example_program(c: &mut Criterion, name: &'static str, source: &str) {
+    let bc = compile(source);
+    let dev_proof = prove_bytecode(&bc, development_options());
+    let prod_proof = prove_bytecode(&bc, production_options());
+    println!(
+        "{name} proof size: dev {} bytes, prod {} bytes",
+        dev_proof.len(),
+        prod_proof.len()
+    );
+
+    let mut group = c.benchmark_group(name);
+    group.measurement_time(Duration::from_secs(30));
+    group.sample_size(10);
+
+    group.bench_function("prove/dev", |b| {
+        b.iter(|| {
+            let bytes = prove_bytecode(black_box(&bc), development_options());
+            black_box(bytes);
+        });
+    });
+    group.bench_function("prove/prod", |b| {
+        b.iter(|| {
+            let bytes = prove_bytecode(black_box(&bc), production_options());
+            black_box(bytes);
+        });
+    });
+    group.bench_function("verify/dev", |b| {
+        b.iter(|| {
+            let result = verify(black_box(&dev_proof));
+            black_box(result)
+        });
+    });
+    group.bench_function("verify/prod", |b| {
+        b.iter(|| {
+            let result = verify(black_box(&prod_proof));
+            black_box(result)
+        });
+    });
+
+    group.finish();
+}
+
+fn bench_vdf(c: &mut Criterion) {
+    bench_example_program(c, "vdf", VDF_SOURCE);
+}
+
+fn bench_rescue(c: &mut Criterion) {
+    bench_example_program(c, "rescue", RESCUE_HASH_CHAIN_SOURCE);
+}
+
+fn bench_lamport(c: &mut Criterion) {
+    bench_example_program(c, "lamport", LAMPORT_AGGREGATE_SOURCE);
+}
+
+fn bench_merkle(c: &mut Criterion) {
+    bench_example_program(c, "merkle", MERKLE_PATH_SOURCE);
+}
+
 fn bench_aux_columns(c: &mut Criterion) {
     let rands = (0..num_aux_rands())
         .map(|i| BaseElement::new((i as u64).wrapping_add(1)))
@@ -391,10 +434,7 @@ fn bench_aux_columns(c: &mut Criterion) {
                 let result = build_aux_columns(
                     black_box(&slices),
                     black_box(&rands),
-                    0,
-                    black_box(&[]),
-                    0,
-                    black_box(&[]),
+                    black_box(&PublicMemory::default()),
                 );
                 black_box(result);
             });
@@ -431,6 +471,10 @@ criterion_group!(
     proof_system_benches,
     bench_prove,
     bench_verify,
+    bench_vdf,
+    bench_rescue,
+    bench_lamport,
+    bench_merkle,
     bench_aux_columns,
 );
 criterion_main!(

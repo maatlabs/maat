@@ -1,0 +1,32 @@
+// STARK-friendly hashing primitives, available via the `hash::` qualified path.
+//
+// Functions:
+//   hash::rescue_2(input: [Felt; 2]) -> [Felt; 4]   (hash a 2-felt input)
+//   hash::rescue_4(input: [Felt; 4]) -> [Felt; 4]   (hash a 4-felt input)
+//   hash::rescue_8(input: [Felt; 8]) -> [Felt; 4]   (hash an 8-felt rate block)
+//
+// Examples:
+//   // Lamport-style 2-felt secret half:
+//   let digest = hash::rescue_2([sk_lo, sk_hi]);
+//
+//   // Merkle parent of two 4-felt child digests collapsed to a 8-felt block:
+//   let parent = hash::rescue_8([l0, l1, l2, l3, r0, r1, r2, r3]);
+//
+//   // Rescue hash chain (length-N iteration over a 4-felt state):
+//   let state = [Felt::new(0), Felt::new(0), Felt::new(0), Felt::new(0)];
+//   for _ in 0..N {
+//       state = hash::rescue_4(state);
+//   }
+//
+// Specification: Rescue-Prime instantiated at
+// `winter_crypto::hash::rescue::rp64_256`: Goldilocks (`p = 2^64 - 2^32 + 1`),
+// state width 12, capacity 4, rate 8, digest size 4, 7 rounds,
+// S-box `x^7`, inverse S-box `x^INV_ALPHA`, Polygon-Zero MDS matrix.
+//
+// Each call is lowered to a single `Opcode::HashRescue` dispatch via the
+// `maat_codegen` intercept; the function must be invoked directly (first-class
+// function-value use of `hash::rescue_N` is not supported -- the codegen
+// intercept only fires on direct call sites).
+//
+// These entries are implemented natively in the compiler; this file is not
+// injected as a parsed module.

@@ -1,0 +1,25 @@
+// Verifiable delay function over the Goldilocks field, mirroring Winterfell's
+// `vdf` example. The verification recurrence is a fixed permutation applied a
+// large, sequential number of times. Each step depends on the previous one, so
+// the work cannot be parallelised away; this is the defining property of a VDF.
+
+/// Iterates the VDF permutation `x <- x^3 + 42` for `steps` rounds starting
+/// from `seed`, returning the final field element.
+fn vdf(seed: Felt, steps: i64) -> Felt {
+    let mut x: Felt = seed;
+    for _step in 0..steps {
+        x = x * x * x + 42_fe;
+    }
+    x
+}
+
+/// Provable entry point: proves 256 iterations of the VDF permutation from a
+/// caller-supplied public `seed`. The seed binds to a boundary-constrained
+/// public-memory cell, so the proof attests `output = vdf(seed, 256)` for the
+/// exact seed the verifier sees, the canonical verifiable-delay statement. Supply it with
+/// `maat prove --input 3`; with no `--input` the seed defaults to zero.
+fn main(seed: pub Felt) -> Felt {
+    let result = vdf(seed, 256);
+    println!("{result}");
+    result
+}

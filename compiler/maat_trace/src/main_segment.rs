@@ -1,6 +1,7 @@
 //! Main segment transition constraint evaluation for the Maat CPU AIR.
 
-use maat_field::FieldElement;
+use maat_field::rescue::{ARK1, ARK2, INV_MDS, MDS, NUM_ROUNDS, STATE_WIDTH};
+use maat_field::{BaseElement, FieldElement};
 
 use crate::selector::*;
 use crate::table::*;
@@ -28,8 +29,15 @@ pub(crate) const SEL_HEAP_WRITE: usize = 19;
 /// Number of selector columns.
 pub(crate) const NUM_SELECTORS: usize = 20;
 
+const RESCUE_CONSTRAINT_BASE: usize = 89;
+
+pub const RESCUE_NUM_CONSTRAINTS: usize = 2 + STATE_WIDTH;
+
+const RESCUE_ARK1_PERIODIC: usize = 0;
+const RESCUE_ARK2_PERIODIC: usize = STATE_WIDTH;
+
 /// Number of transition constraints enforced by the AIR.
-pub const NUM_CONSTRAINTS: usize = 89;
+pub const NUM_CONSTRAINTS: usize = RESCUE_CONSTRAINT_BASE + RESCUE_NUM_CONSTRAINTS;
 
 /// Degree of each transition constraint, indexed by constraint number.
 pub const CONSTRAINT_DEGREES: [usize; NUM_CONSTRAINTS] = [
@@ -58,15 +66,12 @@ pub const CONSTRAINT_DEGREES: [usize; NUM_CONSTRAINTS] = [
     2, 2, // 73: bitwise sub-selectors sum to sel_bitwise (gated by ¬sub_chunk_row, degree 2)
     2, // 74-75: ordering sub-selector structural (binary + ⊆ sel_cmp)
     2, 2, // 76-77: ordering output correctness via range-checked slack
-    3, 3, // 78: comparison sub-selectors sum to sel_cmp
-    1, // 79: synthetic-heap sub-selector structural (binary + ⊆ sel_heap_alloc)
-    2, // 80: match-tag-jump sub-selector structural (binary + ⊆ sel_construct)
-    2, // 81: sub_chunk_row binary
-    2, // 82: sub_chunk_row ⊆ (sel_bitwise + sel_nop)
-    2, // 83: on chunk rows, exactly one of sub_and/or/xor is set
-    2, // 84: on chunk rows, no shift sub-selector is set
-    2, // 85-88: chunk columns must be zero on non-chunk rows (degree 3)
-    3, 3, 3, 3,
+    3, 3, 1, // comparison output correctness + comparison-sum structural
+    2, 2, // synthetic-heap and match-tag-jump sub-selector structural
+    2, 2, 2, 2, // 81-84: sub_chunk_row structural (binary, ⊆, exactly-one, no-shift)
+    3, 3, 3, 3, // 85-88: chunk columns must be zero on non-chunk rows
+    2, 2, // 89-90: rescue-row marker structural (binary, ⊆ sel_nop)
+    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, // 91-102: inline Rescue round constraints
 ];
 
 /// Reads a selector flag from the current row.
@@ -94,7 +99,12 @@ fn power_of_two_constants<E: FieldElement>() -> (E, E, E) {
     (p16, p32, p48)
 }
 
-pub fn evaluate<E: FieldElement>(current: &[E], next: &[E], result: &mut [E]) {
+pub fn evaluate<E: FieldElement<BaseField = BaseElement>>(
+    current: &[E],
+    next: &[E],
+    periodic: &[E],
+    result: &mut [E],
+) {
     debug_assert_eq!(current.len(), TRACE_WIDTH);
     debug_assert_eq!(next.len(), TRACE_WIDTH);
     debug_assert_eq!(result.len(), NUM_CONSTRAINTS);
@@ -305,6 +315,64 @@ pub fn evaluate<E: FieldElement>(current: &[E], next: &[E], result: &mut [E]) {
     result[86] = chunk_zero_gate * chunk_b;
     result[87] = chunk_zero_gate * chunk_and;
     result[88] = chunk_zero_gate * chunk_out;
+
+    evaluate_rescue(
+        current,
+        next,
+        periodic,
+        &mut result[RESCUE_CONSTRAINT_BASE..],
+    );
+}
+
+fn evaluate_rescue<E: FieldElement<BaseField = BaseElement>>(
+    current: &[E],
+    next: &[E],
+    periodic: &[E],
+    result: &mut [E],
+) {
+    let one = E::ONE;
+    let marker = current[COL_SUB_SEL_BASE + SUB_SEL_RESCUE_ROW];
+    let sel_nop = current[COL_SEL_BASE + SEL_NOP];
+
+    result[0] = marker * (marker - one);
+    result[1] = marker * (marker - sel_nop);
+
+    let sbox: [E; STATE_WIDTH] = std::array::from_fn(|j| {
+        let x = current[RESCUE_STATE_COLS[j]];
+        let x2 = x * x;
+        let x4 = x2 * x2;
+        x4 * x2 * x
+    });
+    let next_minus_ark2: [E; STATE_WIDTH] =
+        std::array::from_fn(|j| next[RESCUE_STATE_COLS[j]] - periodic[RESCUE_ARK2_PERIODIC + j]);
+
+    for i in 0..STATE_WIDTH {
+        let mut v = E::ZERO;
+        let mut rhs = periodic[RESCUE_ARK1_PERIODIC + i];
+        for j in 0..STATE_WIDTH {
+            v += E::from(INV_MDS[i][j]) * next_minus_ark2[j];
+            rhs += E::from(MDS[i][j]) * sbox[j];
+        }
+        let v2 = v * v;
+        let v4 = v2 * v2;
+        let v7 = v4 * v2 * v;
+        result[2 + i] = marker * (v7 - rhs);
+    }
+}
+
+pub fn rescue_periodic_columns() -> Vec<Vec<BaseElement>> {
+    const PERIOD: usize = 8;
+    let column = |round_constants: &[[BaseElement; STATE_WIDTH]; NUM_ROUNDS], cell: usize| {
+        let mut col = vec![BaseElement::ZERO; PERIOD];
+        for (round, slot) in col.iter_mut().enumerate().take(NUM_ROUNDS) {
+            *slot = round_constants[round][cell];
+        }
+        col
+    };
+    (0..STATE_WIDTH)
+        .map(|cell| column(&ARK1, cell))
+        .chain((0..STATE_WIDTH).map(|cell| column(&ARK2, cell)))
+        .collect()
 }
 
 #[cfg(test)]
@@ -325,8 +393,13 @@ mod tests {
     }
 
     fn eval(current: &[F], next: &[F]) -> Vec<F> {
+        let periodic = vec![F::ZERO; 2 * STATE_WIDTH];
+        eval_with_periodic(current, next, &periodic)
+    }
+
+    fn eval_with_periodic(current: &[F], next: &[F], periodic: &[F]) -> Vec<F> {
         let mut result = vec![F::ZERO; NUM_CONSTRAINTS];
-        evaluate(current, next, &mut result);
+        evaluate(current, next, periodic, &mut result);
         result
     }
 
@@ -336,6 +409,62 @@ mod tests {
         let result = eval(&current, &next);
         for (i, &r) in result.iter().enumerate() {
             assert_eq!(r, F::ZERO, "constraint {i} violated on NOP rows");
+        }
+    }
+
+    #[test]
+    fn rescue_round_constraint_accepts_valid_and_rejects_tamper() {
+        use maat_field::rescue::rescue_permutation_with_witness;
+
+        let mut state: [F; STATE_WIDTH] = std::array::from_fn(|i| F::new(i as u64 + 1));
+        let witness = rescue_permutation_with_witness(&mut state);
+
+        // Round-0 periodic constants: ARK1[0][i] then ARK2[0][j].
+        let mut periodic = vec![F::ZERO; 2 * STATE_WIDTH];
+        periodic[RESCUE_ARK1_PERIODIC..RESCUE_ARK1_PERIODIC + STATE_WIDTH]
+            .copy_from_slice(&ARK1[0]);
+        periodic[RESCUE_ARK2_PERIODIC..RESCUE_ARK2_PERIODIC + STATE_WIDTH]
+            .copy_from_slice(&ARK2[0]);
+
+        // Round 0's state_in (current) relates to round 1's state_in (next).
+        let mut current = [F::ZERO; TRACE_WIDTH];
+        let mut next = [F::ZERO; TRACE_WIDTH];
+        current[COL_SEL_BASE + SEL_NOP] = F::ONE;
+        current[COL_SUB_SEL_BASE + SUB_SEL_RESCUE_ROW] = F::ONE;
+        next[COL_SEL_BASE + SEL_NOP] = F::ONE;
+        for j in 0..STATE_WIDTH {
+            current[RESCUE_STATE_COLS[j]] = witness[0].state_in[j];
+            next[RESCUE_STATE_COLS[j]] = witness[1].state_in[j];
+        }
+
+        let result = eval_with_periodic(&current, &next, &periodic);
+        for k in 0..STATE_WIDTH {
+            assert_eq!(
+                result[RESCUE_CONSTRAINT_BASE + 2 + k],
+                F::ZERO,
+                "valid rescue round cell {k} must satisfy its constraint"
+            );
+        }
+
+        // Tamper a single next-row state cell; the affected constraint fires.
+        let mut bad_next = next;
+        bad_next[RESCUE_STATE_COLS[3]] += F::ONE;
+        let result = eval_with_periodic(&current, &bad_next, &periodic);
+        assert!(
+            (0..STATE_WIDTH).any(|k| result[RESCUE_CONSTRAINT_BASE + 2 + k] != F::ZERO),
+            "tampered rescue round must violate at least one constraint"
+        );
+
+        // The marker is required: with it cleared, the round relation is inert.
+        let mut unmarked = current;
+        unmarked[COL_SUB_SEL_BASE + SUB_SEL_RESCUE_ROW] = F::ZERO;
+        let result = eval_with_periodic(&unmarked, &bad_next, &periodic);
+        for k in 0..STATE_WIDTH {
+            assert_eq!(
+                result[RESCUE_CONSTRAINT_BASE + 2 + k],
+                F::ZERO,
+                "round constraint must be gated off when the marker is clear"
+            );
         }
     }
 

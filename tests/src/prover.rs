@@ -1,6 +1,6 @@
 //! Utilities used by the `prove_verify.rs` integration tests
 
-use maat_air::{MaatPublicInputs, Proof};
+use maat_air::{MaatPublicInputs, Proof, PublicMemory, PublicSegment};
 use maat_bytecode::{Bytecode, Constant, Instructions, Opcode, encode};
 use maat_field::{BaseElement, Felt, FieldElement};
 use maat_prover::{MaatProver, development_options, production_options, verify_with_inputs};
@@ -21,19 +21,64 @@ pub fn prove_and_verify(source: &str) {
         .as_ref()
         .map(|v| v.to_felt())
         .unwrap_or(BaseElement::ZERO);
-    let public_inputs = MaatPublicInputs::with_segments(
-        vec![],
-        output,
-        artifacts.output_base,
-        artifacts.output_segment.clone(),
-        artifacts.program_base,
-        artifacts.program_segment.clone(),
-    );
+    let public_inputs = MaatPublicInputs::new(output, artifacts.memory.clone());
     let prover = MaatProver::new(development_options(), public_inputs.clone());
     let proof = prover
         .generate_proof(artifacts.trace)
         .expect("proof generation failed");
     verify_with_inputs(proof, public_inputs).expect("verification failed");
+}
+
+/// Proves and verifies a `fn main` program whose `pub` parameters bind to
+/// `inputs`, returning the proven output. Panics if proving or verification
+/// fails.
+pub fn prove_and_verify_with_inputs(source: &str, inputs: &[Felt]) -> BaseElement {
+    let bytecode = crate::compile(source);
+    let artifacts = maat_trace::run_with_inputs(bytecode, inputs).expect("trace execution failed");
+    let output = artifacts
+        .result
+        .as_ref()
+        .map(|v| v.to_felt())
+        .unwrap_or(BaseElement::ZERO);
+    let public_inputs = MaatPublicInputs::new(output, artifacts.memory.clone());
+    let prover = MaatProver::new(development_options(), public_inputs.clone());
+    let proof = prover
+        .generate_proof(artifacts.trace)
+        .expect("proof generation failed");
+    verify_with_inputs(proof, public_inputs).expect("verification failed");
+    output
+}
+
+/// Proves and verifies a `fn main` program whose `pub` parameters bind to
+/// `public` inputs and whose bare parameters bind to `private` witness inputs,
+/// returning the proven output. Panics if proving or verification fails.
+pub fn prove_and_verify_with_io(source: &str, public: &[Felt], private: &[Felt]) -> BaseElement {
+    let bytecode = crate::compile(source);
+    let artifacts =
+        maat_trace::run_with_io(bytecode, public, private).expect("trace execution failed");
+    let output = artifacts
+        .result
+        .as_ref()
+        .map(|v| v.to_felt())
+        .unwrap_or(BaseElement::ZERO);
+    let public_inputs = MaatPublicInputs::new(output, artifacts.memory.clone());
+    let prover = MaatProver::new(development_options(), public_inputs.clone());
+    let proof = prover
+        .generate_proof(artifacts.trace)
+        .expect("proof generation failed");
+    verify_with_inputs(proof, public_inputs).expect("verification failed");
+    output
+}
+
+/// Attempts to generate a trace for a `fn main` program with the given inputs,
+/// returning the trace-generation error if the program's own constraints (e.g.
+/// an `assert!`) reject the witness. Used to confirm a bad private witness
+/// cannot be proven.
+pub fn trace_with_io_err(source: &str, public: &[Felt], private: &[Felt]) -> Option<String> {
+    let bytecode = crate::compile(source);
+    maat_trace::run_with_io(bytecode, public, private)
+        .err()
+        .map(|e| e.to_string())
 }
 
 /// Trace + output extracted from a source program. Used by the trace-tampering
@@ -60,21 +105,21 @@ pub fn compile_and_trace(source: &str) -> TraceBundle {
         bytecode,
         trace: artifacts.trace,
         output,
-        output_base: artifacts.output_base,
-        output_segment: artifacts.output_segment,
-        program_base: artifacts.program_base,
-        program_segment: artifacts.program_segment,
+        output_base: artifacts.memory.output.base,
+        output_segment: artifacts.memory.output.cells,
+        program_base: artifacts.memory.program.base,
+        program_segment: artifacts.memory.program.cells,
     }
 }
 
 pub fn prove(bundle: TraceBundle) -> (Proof, MaatPublicInputs) {
-    let public_inputs = MaatPublicInputs::with_segments(
-        vec![],
+    let public_inputs = MaatPublicInputs::new(
         bundle.output,
-        bundle.output_base,
-        bundle.output_segment,
-        bundle.program_base,
-        bundle.program_segment,
+        PublicMemory {
+            output: PublicSegment::new(bundle.output_base, bundle.output_segment),
+            program: PublicSegment::new(bundle.program_base, bundle.program_segment),
+            ..PublicMemory::default()
+        },
     );
     let prover = MaatProver::new(development_options(), public_inputs.clone());
     let proof = prover
@@ -105,13 +150,13 @@ pub fn assert_tampered_trace_rejected(bundle: TraceBundle, label: &str) {
         program_segment,
         ..
     } = bundle;
-    let public_inputs = MaatPublicInputs::with_segments(
-        vec![],
+    let public_inputs = MaatPublicInputs::new(
         output,
-        output_base,
-        output_segment,
-        program_base,
-        program_segment,
+        PublicMemory {
+            output: PublicSegment::new(output_base, output_segment),
+            program: PublicSegment::new(program_base, program_segment),
+            ..PublicMemory::default()
+        },
     );
     let prover = MaatProver::new(development_options(), public_inputs.clone());
 
@@ -373,14 +418,7 @@ pub fn synthetic_output_segment_bytecode(cells: &[i64]) -> Bytecode {
 pub fn prove_and_verify_pubmem(bytecode: Bytecode) {
     let artifacts = maat_trace::run_with_output(bytecode).expect("trace with public output failed");
     let output_felt = trace_stamped_output(&artifacts.trace);
-    let public_inputs = MaatPublicInputs::with_segments(
-        vec![],
-        output_felt,
-        artifacts.output_base,
-        artifacts.output_segment.clone(),
-        artifacts.program_base,
-        artifacts.program_segment.clone(),
-    );
+    let public_inputs = MaatPublicInputs::new(output_felt, artifacts.memory.clone());
     let prover = MaatProver::new(development_options(), public_inputs.clone());
     let proof = prover
         .generate_proof(artifacts.trace)
@@ -390,14 +428,7 @@ pub fn prove_and_verify_pubmem(bytecode: Bytecode) {
 
 pub fn prove_synthetic_heap(bytecode: Bytecode, expected_output: BaseElement) {
     let artifacts = maat_trace::run_with_output(bytecode).expect("heap trace failed");
-    let public_inputs = MaatPublicInputs::with_segments(
-        vec![],
-        expected_output,
-        artifacts.output_base,
-        artifacts.output_segment.clone(),
-        artifacts.program_base,
-        artifacts.program_segment.clone(),
-    );
+    let public_inputs = MaatPublicInputs::new(expected_output, artifacts.memory.clone());
     let prover = MaatProver::new(development_options(), public_inputs.clone());
     let proof = prover
         .generate_proof(artifacts.trace)
@@ -407,14 +438,7 @@ pub fn prove_synthetic_heap(bytecode: Bytecode, expected_output: BaseElement) {
 
 pub fn prove_synthetic_heap_production(bytecode: Bytecode, expected_output: BaseElement) {
     let artifacts = maat_trace::run_with_output(bytecode).expect("heap trace failed");
-    let public_inputs = MaatPublicInputs::with_segments(
-        vec![],
-        expected_output,
-        artifacts.output_base,
-        artifacts.output_segment.clone(),
-        artifacts.program_base,
-        artifacts.program_segment.clone(),
-    );
+    let public_inputs = MaatPublicInputs::new(expected_output, artifacts.memory.clone());
     let prover = MaatProver::new(production_options(), public_inputs.clone());
     let proof = prover
         .generate_proof(artifacts.trace)
@@ -483,14 +507,7 @@ pub fn honest_prover_dishonest_verifier(
 ) {
     let artifacts = maat_trace::run_with_output(bytecode).expect("trace failed");
     let output_felt = trace_stamped_output(&artifacts.trace);
-    let honest_inputs = MaatPublicInputs::with_segments(
-        vec![],
-        output_felt,
-        artifacts.output_base,
-        artifacts.output_segment.clone(),
-        artifacts.program_base,
-        artifacts.program_segment.clone(),
-    );
+    let honest_inputs = MaatPublicInputs::new(output_felt, artifacts.memory.clone());
     let prover = MaatProver::new(development_options(), honest_inputs.clone());
     let proof = prover
         .generate_proof(artifacts.trace)

@@ -8,6 +8,7 @@
 
 mod cmd;
 mod diagnostic;
+mod public_io;
 mod repl;
 
 use std::path::PathBuf;
@@ -61,6 +62,21 @@ enum Command {
         /// Path to JSON file containing public inputs array (alternative to --input).
         #[arg(long)]
         inputs_file: Option<PathBuf>,
+        /// Comma-separated private (witness) input values; never serialized into the proof.
+        #[arg(short = 'P', long, allow_hyphen_values = true)]
+        private_input: Option<String>,
+        /// Path to JSON file containing private inputs array (alternative to --private-input).
+        #[arg(long)]
+        private_inputs_file: Option<PathBuf>,
+        /// Prover-side assertion on the scalar output; trace must produce this value.
+        #[arg(long, allow_hyphen_values = true)]
+        expect_output: Option<String>,
+        /// Prover-side bundle (`inputs`, `private_inputs`, `output`).
+        #[arg(long)]
+        public_io: Option<PathBuf>,
+        /// After a successful prove, emit the public bundle (inputs, output, program_hash).
+        #[arg(long)]
+        write_public_io: Option<PathBuf>,
         /// Proof output path (default: `<program>.proof.bin`).
         #[arg(short, long)]
         output: Option<PathBuf>,
@@ -75,6 +91,24 @@ enum Command {
     Verify {
         /// Path to the `.proof.bin` file.
         file: PathBuf,
+        /// Comma-separated expected public input values (pinned cell-by-cell).
+        #[arg(short, long, allow_hyphen_values = true)]
+        input: Option<String>,
+        /// JSON file containing expected public inputs (alternative to --input).
+        #[arg(long)]
+        inputs_file: Option<PathBuf>,
+        /// Expected scalar output (decimal).
+        #[arg(long, allow_hyphen_values = true)]
+        expect_output: Option<String>,
+        /// Verifier-side bundle (`inputs`, `output`, optional `program_hash`).
+        #[arg(long)]
+        public_io: Option<PathBuf>,
+        /// Compile a source file and pin its program hash to the proof.
+        #[arg(long)]
+        expect_program: Option<PathBuf>,
+        /// Pin a `0x`-prefixed program hash directly (no source recompilation).
+        #[arg(long)]
+        expect_program_hash: Option<String>,
     },
 }
 
@@ -108,21 +142,47 @@ fn main() {
             file,
             input,
             inputs_file,
+            private_input,
+            private_inputs_file,
+            expect_output,
+            public_io,
+            write_public_io,
             output,
             trace,
             production,
         }) => {
-            cmd::prove(
-                &file,
-                input.as_deref(),
-                inputs_file.as_deref(),
-                output.as_deref(),
-                trace.as_deref(),
+            cmd::prove(cmd::ProveArgs {
+                source: &file,
+                input: input.as_deref(),
+                inputs_file: inputs_file.as_deref(),
+                private_input: private_input.as_deref(),
+                private_inputs_file: private_inputs_file.as_deref(),
+                expect_output: expect_output.as_deref(),
+                public_io: public_io.as_deref(),
+                write_public_io: write_public_io.as_deref(),
+                output: output.as_deref(),
+                trace: trace.as_deref(),
                 production,
-            );
+            });
         }
-        Some(Command::Verify { file }) => {
-            cmd::verify(&file);
+        Some(Command::Verify {
+            file,
+            input,
+            inputs_file,
+            expect_output,
+            public_io,
+            expect_program,
+            expect_program_hash,
+        }) => {
+            cmd::verify(cmd::VerifyArgs {
+                proof: &file,
+                input: input.as_deref(),
+                inputs_file: inputs_file.as_deref(),
+                expect_output: expect_output.as_deref(),
+                public_io: public_io.as_deref(),
+                expect_program: expect_program.as_deref(),
+                expect_program_hash: expect_program_hash.as_deref(),
+            });
         }
     }
 }

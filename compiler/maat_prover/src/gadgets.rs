@@ -3,11 +3,11 @@
 pub mod proof_serializer {
     //! Proof serialization and deserialization.
     //!
-    //! Wire format (version 5):
+    //! Wire format (version 6):
     //!
     //! ```text
     //! PROOF_MAGIC:        b"MATP"       (4 bytes)
-    //! PROOF_VERSION:      u16 BE        (2 bytes, currently 5)
+    //! PROOF_VERSION:      u16 BE        (2 bytes, currently 6)
     //! OUTPUT:             u64 LE        (8 bytes, claimed program output)
     //! INPUT_COUNT:        u16 BE        (2 bytes, number of public inputs)
     //! INPUTS:             [u64; N] LE   (8 * N bytes, public input values)
@@ -25,35 +25,27 @@ pub mod proof_serializer {
     use maat_air::Proof;
     use maat_errors::SerializationError;
     use maat_field::BaseElement;
+    use maat_trace::{PublicMemory, PublicSegment};
 
     const PROOF_MAGIC: [u8; 4] = *b"MATP";
-    const PROOF_VERSION: u16 = 5;
+    const PROOF_VERSION: u16 = 6;
     // Minimum header size with zero inputs / output cells / program cells:
-    // 4 (magic) + 2 (version) + 8 (output) + 2 (input count)
+    // 4 (magic) + 2 (version) + 8 (output) + 2 (input count) + 4 (input_base)
     //   + 4 (output_base) + 4 (output_seg_len) + 4 (program_base) + 4 (program_seg_len).
-    const MIN_HEADER_SIZE: usize = 32;
+    const MIN_HEADER_SIZE: usize = 36;
     const MAX_INPUT_COUNT: usize = 1024;
     const MAX_PUBLIC_SEGMENT_CELLS: usize = 1 << 20;
 
     #[derive(Debug, Clone)]
     pub struct ProofPublicInputs {
         pub output: BaseElement,
-        pub inputs: Vec<BaseElement>,
-        pub output_base: u32,
-        pub output_segment: Vec<BaseElement>,
-        pub program_base: u32,
-        pub program_segment: Vec<BaseElement>,
+        pub memory: PublicMemory,
     }
 
-    pub fn serialize_proof(
-        proof: &Proof,
-        output: BaseElement,
-        inputs: &[BaseElement],
-        output_base: u32,
-        output_segment: &[BaseElement],
-        program_base: u32,
-        program_segment: &[BaseElement],
-    ) -> Vec<u8> {
+    pub fn serialize_proof(proof: &Proof, output: BaseElement, memory: &PublicMemory) -> Vec<u8> {
+        let inputs = &memory.input.cells;
+        let output_segment = &memory.output.cells;
+        let program_segment = &memory.program.cells;
         let payload = proof.to_bytes();
         let input_count = inputs.len() as u16;
         let total_size = MIN_HEADER_SIZE
@@ -70,12 +62,13 @@ pub mod proof_serializer {
         for input in inputs {
             buf.extend_from_slice(&input.as_int().to_le_bytes());
         }
-        buf.extend_from_slice(&output_base.to_be_bytes());
+        buf.extend_from_slice(&memory.input.base.to_be_bytes());
+        buf.extend_from_slice(&memory.output.base.to_be_bytes());
         buf.extend_from_slice(&(output_segment.len() as u32).to_be_bytes());
         for cell in output_segment {
             buf.extend_from_slice(&cell.as_int().to_le_bytes());
         }
-        buf.extend_from_slice(&program_base.to_be_bytes());
+        buf.extend_from_slice(&memory.program.base.to_be_bytes());
         buf.extend_from_slice(&(program_segment.len() as u32).to_be_bytes());
         for cell in program_segment {
             buf.extend_from_slice(&cell.as_int().to_le_bytes());
@@ -112,6 +105,7 @@ pub mod proof_serializer {
         }
         let inputs = read_felt_vec(bytes, &mut cursor, input_count)?;
 
+        let input_base = read_u32_be(bytes, &mut cursor)?;
         let output_base = read_u32_be(bytes, &mut cursor)?;
         let output_seg_len = read_u32_be(bytes, &mut cursor)? as usize;
         check_segment_limit("output_segment_cells", output_seg_len)?;
@@ -135,11 +129,11 @@ pub mod proof_serializer {
 
         let public_inputs = ProofPublicInputs {
             output,
-            inputs,
-            output_base,
-            output_segment,
-            program_base,
-            program_segment,
+            memory: PublicMemory {
+                input: PublicSegment::new(input_base, inputs),
+                output: PublicSegment::new(output_base, output_segment),
+                program: PublicSegment::new(program_base, program_segment),
+            },
         };
 
         Ok((proof, public_inputs))

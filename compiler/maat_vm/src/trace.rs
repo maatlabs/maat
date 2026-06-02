@@ -3,6 +3,7 @@
 use maat_bytecode::Opcode;
 use maat_errors::Result;
 use maat_field::Felt;
+use maat_field::rescue::{NUM_ROUNDS, RescueRoundWitness};
 use maat_runtime::{MaybeRelocatable, Relocatable};
 
 /// Interface the VM dispatch loop consults at each instrumentation point.
@@ -96,6 +97,18 @@ pub trait Tracer {
     /// Supplies the witness data needed by the bitwise-shift AIR rule.
     #[inline(always)]
     fn record_shift_witness(&mut self, _op: Opcode, _operand: Felt, _shift: u32, _result: Felt) {}
+
+    /// Records a Rescue-Prime hash dispatch and the per-round witness the AIR commits to.
+    #[inline(always)]
+    fn record_rescue_call(
+        &mut self,
+        _input: &[Felt],
+        _digest: [Felt; 4],
+        _witness: &[RescueRoundWitness; NUM_ROUNDS],
+        _io_segment: u32,
+        _call_base_offset: u32,
+    ) {
+    }
 
     /// Marks the current row complete; the recorder commits it to its buffer.
     #[inline(always)]

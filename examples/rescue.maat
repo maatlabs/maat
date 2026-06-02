@@ -1,0 +1,26 @@
+// Rescue-Prime hash chain, mirroring Winterfell's `rescue` example. The
+// recurrence `state <- rescue_4(state)` is iterated a fixed number of times
+// from a caller-supplied public seed; each step is the full Rescue-Prime
+// permutation over the rate, so the chain cannot be parallelised away. The
+// proven public output is the first cell of the final state.
+
+/// Iterates `state <- rescue_4(state)` for `steps` rounds starting from the
+/// rate block `[seed, 0, 0, 0]`, returning the first cell of the final state.
+fn rescue_chain(seed: Felt, steps: i64) -> Felt {
+    let mut state: [Felt; 4] = [seed, 0_fe, 0_fe, 0_fe];
+    for _step in 0..steps {
+        state = hash::rescue_4(state);
+    }
+    state[0]
+}
+
+/// Provable entry point: proves a 32-round Rescue-Prime hash chain from a
+/// caller-supplied public `seed`. The seed binds to a boundary-constrained
+/// public-memory cell, so the proof attests `output = rescue_chain(seed, 32)`
+/// for the exact seed the verifier sees. Supply it with `maat prove --input 3`;
+/// with no `--input` the seed defaults to zero.
+fn main(seed: pub Felt) -> Felt {
+    let result = rescue_chain(seed, 32);
+    println!("{result}");
+    result
+}

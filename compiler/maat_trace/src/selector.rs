@@ -60,7 +60,7 @@ pub const SEL_HEAP_READ: usize = 18;
 pub const SEL_HEAP_WRITE: usize = 19;
 
 /// Number of per-opcode sub-selector flags.
-pub const NUM_SUB_SELECTORS: usize = 19;
+pub const NUM_SUB_SELECTORS: usize = 20;
 
 /// Sub-selector index: `Add` (parent [`SEL_ARITH`]).
 pub const SUB_SEL_ADD: usize = 0;
@@ -103,6 +103,9 @@ pub const SUB_SEL_MATCH_TAG_JUMP: usize = 17;
 /// Sub-selector index: a chunk-decomposition continuation row emitted by the
 /// trace recorder after each `BitAnd`/`BitOr`/`BitXor` opcode.
 pub const SUB_SEL_CHUNK_ROW: usize = 18;
+/// Sub-selector index: a Rescue-Prime round continuation row emitted by the
+/// trace recorder for each `HashRescue` opcode (parent [`SEL_NOP`]).
+pub const SUB_SEL_RESCUE_ROW: usize = 19;
 
 #[derive(Debug, Clone, Copy)]
 pub struct OpcodeMeta {
@@ -168,6 +171,8 @@ pub const fn selector_index(op: Opcode) -> usize {
         Opcode::ReturnValue | Opcode::Return => SEL_RETURN,
 
         Opcode::Construct | Opcode::GetField | Opcode::MatchTag | Opcode::Closure => SEL_CONSTRUCT,
+
+        Opcode::HashRescue => SEL_CONSTRUCT,
 
         Opcode::Convert => SEL_CONVERT,
 
