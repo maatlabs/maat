@@ -13,7 +13,7 @@
 use maat_bytecode::Opcode;
 
 /// Number of selector columns reserved by the trace.
-pub const NUM_SELECTORS: usize = 20;
+pub const NUM_SELECTORS: usize = 21;
 
 /// Padding / no-operation rows.
 pub const SEL_NOP: usize = 0;
@@ -58,6 +58,9 @@ pub const SEL_HEAP_ALLOC: usize = 17;
 pub const SEL_HEAP_READ: usize = 18;
 /// Heap write: `HeapWrite`.
 pub const SEL_HEAP_WRITE: usize = 19;
+/// Arena finalization: `ArenaFinalize`. Split from [`SEL_HEAP_WRITE`] so the AIR
+/// can pin `mem_val == s0` on true heap-write rows.
+pub const SEL_ARENA_FINALIZE: usize = 20;
 
 /// Number of per-opcode sub-selector flags.
 pub const NUM_SUB_SELECTORS: usize = 20;
@@ -191,7 +194,8 @@ pub const fn selector_index(op: Opcode) -> usize {
 
         Opcode::HeapAlloc | Opcode::ArenaNew | Opcode::VectorPush => SEL_HEAP_ALLOC,
         Opcode::HeapRead => SEL_HEAP_READ,
-        Opcode::HeapWrite | Opcode::ArenaFinalize => SEL_HEAP_WRITE,
+        Opcode::HeapWrite => SEL_HEAP_WRITE,
+        Opcode::ArenaFinalize => SEL_ARENA_FINALIZE,
     }
 }
 
@@ -238,9 +242,9 @@ mod tests {
     }
 
     #[test]
-    fn arena_opcodes_share_heap_selector_classes() {
+    fn arena_opcodes_map_to_heap_selector_classes() {
         assert_eq!(selector_index(Opcode::ArenaNew), SEL_HEAP_ALLOC);
-        assert_eq!(selector_index(Opcode::ArenaFinalize), SEL_HEAP_WRITE);
+        assert_eq!(selector_index(Opcode::ArenaFinalize), SEL_ARENA_FINALIZE);
     }
 
     #[test]

@@ -25,9 +25,10 @@ pub(crate) const SEL_DIV_MOD: usize = 16;
 pub(crate) const SEL_HEAP_ALLOC: usize = 17;
 pub(crate) const SEL_HEAP_READ: usize = 18;
 pub(crate) const SEL_HEAP_WRITE: usize = 19;
+pub(crate) const SEL_ARENA_FINALIZE: usize = 20;
 
 /// Number of selector columns.
-pub(crate) const NUM_SELECTORS: usize = 20;
+pub(crate) const NUM_SELECTORS: usize = 21;
 
 const RESCUE_CONSTRAINT_BASE: usize = 89;
 
@@ -36,8 +37,12 @@ pub const RESCUE_NUM_CONSTRAINTS: usize = 2 + STATE_WIDTH;
 const RESCUE_ARK1_PERIODIC: usize = 0;
 const RESCUE_ARK2_PERIODIC: usize = STATE_WIDTH;
 
+const ARENA_FINALIZE_BINARY: usize = RESCUE_CONSTRAINT_BASE + RESCUE_NUM_CONSTRAINTS;
+
+const HEAP_WRITE_VAL_PIN: usize = ARENA_FINALIZE_BINARY + 1;
+
 /// Number of transition constraints enforced by the AIR.
-pub const NUM_CONSTRAINTS: usize = RESCUE_CONSTRAINT_BASE + RESCUE_NUM_CONSTRAINTS;
+pub const NUM_CONSTRAINTS: usize = HEAP_WRITE_VAL_PIN + 1;
 
 /// Degree of each transition constraint, indexed by constraint number.
 pub const CONSTRAINT_DEGREES: [usize; NUM_CONSTRAINTS] = [
@@ -72,6 +77,8 @@ pub const CONSTRAINT_DEGREES: [usize; NUM_CONSTRAINTS] = [
     3, 3, 3, 3, // 85-88: chunk columns must be zero on non-chunk rows
     2, 2, // 89-90: rescue-row marker structural (binary, ⊆ sel_nop)
     8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, // 91-102: inline Rescue round constraints
+    2, // 103: SEL_ARENA_FINALIZE binary validity
+    2, // 104: heap-write value pinning (mem_val == s0)
 ];
 
 /// Reads a selector flag from the current row.
@@ -128,7 +135,7 @@ pub fn evaluate<E: FieldElement<BaseField = BaseElement>>(
     let sp_next = next[COL_SP];
     let fp_next = next[COL_FP];
 
-    for (i, slot) in result[..NUM_SELECTORS].iter_mut().enumerate() {
+    for (i, slot) in result[..SEL_ARENA_FINALIZE].iter_mut().enumerate() {
         let s = sel(current, i);
         *slot = s * (one - s);
     }
@@ -157,6 +164,7 @@ pub fn evaluate<E: FieldElement<BaseField = BaseElement>>(
     let sel_heap_alloc = sel(current, SEL_HEAP_ALLOC);
     let sel_heap_read = sel(current, SEL_HEAP_READ);
     let sel_heap_write = sel(current, SEL_HEAP_WRITE);
+    let sel_arena_finalize = sel(current, SEL_ARENA_FINALIZE);
 
     let sel_binop = sel_arith + sel_bitwise + sel_cmp + sel_div_mod;
     let two = one + one;
@@ -186,7 +194,8 @@ pub fn evaluate<E: FieldElement<BaseField = BaseElement>>(
         + sel_div_mod
         + sel_heap_alloc
         + sel_heap_read
-        + sel_heap_write;
+        + sel_heap_write
+        + sel_arena_finalize;
     result[27] = width_one_gate * (op_width - one);
 
     result[28] = sel_convert * (op_width - two);
@@ -272,7 +281,7 @@ pub fn evaluate<E: FieldElement<BaseField = BaseElement>>(
     result[65] = diff * (sub_eq * out + sub_neq * (one - out));
     result[66] = one_minus_diff_inv * (sub_eq * (one - out) + sub_neq * out);
 
-    result[67] = sel_heap_write * (sp_next - sp + two);
+    result[67] = (sel_heap_write + sel_arena_finalize) * (sp_next - sp + two);
 
     let sub_and = sub(current, SUB_SEL_AND);
     let sub_or = sub(current, SUB_SEL_OR);
@@ -320,8 +329,11 @@ pub fn evaluate<E: FieldElement<BaseField = BaseElement>>(
         current,
         next,
         periodic,
-        &mut result[RESCUE_CONSTRAINT_BASE..],
+        &mut result[RESCUE_CONSTRAINT_BASE..ARENA_FINALIZE_BINARY],
     );
+
+    result[ARENA_FINALIZE_BINARY] = sel_arena_finalize * (one - sel_arena_finalize);
+    result[HEAP_WRITE_VAL_PIN] = sel_heap_write * (mem_val - s0);
 }
 
 fn evaluate_rescue<E: FieldElement<BaseField = BaseElement>>(
@@ -756,6 +768,69 @@ mod tests {
             result[67],
             F::ZERO,
             "heap write SP delta -1 must be rejected"
+        );
+    }
+
+    #[test]
+    fn heap_write_pins_mem_val_to_stack_top() {
+        let mut current = [F::ZERO; TRACE_WIDTH];
+        let mut next = [F::ZERO; TRACE_WIDTH];
+        current[COL_SEL_BASE + SEL_HEAP_WRITE] = F::ONE;
+        current[COL_OP_WIDTH] = F::ONE;
+        current[COL_SP] = F::new(5);
+        next[COL_SP] = F::new(3);
+        next[COL_SEL_BASE + SEL_NOP] = F::ONE;
+
+        // Honest write: the stored value equals the stack top.
+        current[COL_S0] = F::new(42);
+        current[COL_MEM_VAL] = F::new(42);
+        let result = eval(&current, &next);
+        assert_eq!(
+            result[HEAP_WRITE_VAL_PIN],
+            F::ZERO,
+            "honest write (mem_val == s0) must satisfy the pin"
+        );
+
+        // Uniformly tampered value:
+        // mem_val no longer matches the stack top.
+        current[COL_MEM_VAL] = F::new(99);
+        let result = eval(&current, &next);
+        assert_ne!(
+            result[HEAP_WRITE_VAL_PIN],
+            F::ZERO,
+            "mem_val != s0 on a heap-write row must be rejected"
+        );
+    }
+
+    #[test]
+    fn arena_finalize_excluded_from_value_pin() {
+        let mut current = [F::ZERO; TRACE_WIDTH];
+        let mut next = [F::ZERO; TRACE_WIDTH];
+        current[COL_SEL_BASE + SEL_ARENA_FINALIZE] = F::ONE;
+        current[COL_OP_WIDTH] = F::ONE;
+        current[COL_SP] = F::new(5);
+        next[COL_SP] = F::new(3);
+        next[COL_SEL_BASE + SEL_NOP] = F::ONE;
+
+        // ArenaFinalize writes a segment marker unrelated to the stack top.
+        current[COL_S0] = F::new(7);
+        current[COL_MEM_VAL] = F::new(3);
+
+        let result = eval(&current, &next);
+        assert_eq!(
+            result[HEAP_WRITE_VAL_PIN],
+            F::ZERO,
+            "ArenaFinalize must be excluded from the heap-write value pin"
+        );
+        assert_eq!(
+            result[ARENA_FINALIZE_BINARY],
+            F::ZERO,
+            "ArenaFinalize selector must satisfy its binary-validity constraint"
+        );
+        assert_eq!(
+            result[67],
+            F::ZERO,
+            "ArenaFinalize must still drop SP by exactly 2"
         );
     }
 }
