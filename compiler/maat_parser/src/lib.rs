@@ -2106,10 +2106,24 @@ fn parse_method_param<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<Type
 }
 
 fn parse_type_expr<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<TypeExpr> {
+    let mut pending = None;
+    let ty = parse_type_expr_inner(input, &mut pending)?;
+    if pending.is_some() {
+        // A `>>` was split to close an inner generic but its second `>` was
+        // never matched by an enclosing one; the type has an unbalanced `>`.
+        return Err(ErrMode::Backtrack(ContextError::new()));
+    }
+    Ok(ty)
+}
+
+fn parse_type_expr_inner<'src>(
+    input: &mut &'src [Token<'src>],
+    pending: &mut Option<Span>,
+) -> ParseResult<TypeExpr> {
     match peek(input) {
         TokenKind::LBracket => {
             let start = parse(input, TokenKind::LBracket)?.span;
-            let elem = parse_type_expr(input)?;
+            let elem = parse_type_expr_inner(input, pending)?;
             if peek(input) == TokenKind::Semicolon {
                 any.parse_next(input)?;
                 let size_tok = parse(input, TokenKind::Int)?;
@@ -2127,9 +2141,9 @@ fn parse_type_expr<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<TypeExp
         }
         TokenKind::LBrace => {
             let start = parse(input, TokenKind::LBrace)?.span;
-            let key = parse_type_expr(input)?;
+            let key = parse_type_expr_inner(input, pending)?;
             parse(input, TokenKind::Colon)?;
-            let value = parse_type_expr(input)?;
+            let value = parse_type_expr_inner(input, pending)?;
             let end = parse(input, TokenKind::RBrace)?.span;
             Ok(TypeExpr::Map(
                 Box::new(key),
@@ -2142,18 +2156,18 @@ fn parse_type_expr<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<TypeExp
             parse(input, TokenKind::LParen)?;
             let mut param_types = Vec::new();
             if peek(input) != TokenKind::RParen {
-                param_types.push(parse_type_expr(input)?);
+                param_types.push(parse_type_expr_inner(input, pending)?);
                 while peek(input) == TokenKind::Comma {
                     any.parse_next(input)?;
                     if peek(input) == TokenKind::RParen {
                         break;
                     }
-                    param_types.push(parse_type_expr(input)?);
+                    param_types.push(parse_type_expr_inner(input, pending)?);
                 }
             }
             parse(input, TokenKind::RParen)?;
             parse(input, TokenKind::Arrow)?;
-            let ret = parse_type_expr(input)?;
+            let ret = parse_type_expr_inner(input, pending)?;
             let end = ret.span();
             Ok(TypeExpr::Fn(param_types, Box::new(ret), start.merge(end)))
         }
@@ -2164,20 +2178,20 @@ fn parse_type_expr<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<TypeExp
 
             if name == "Set" && peek(input) == TokenKind::Less {
                 any.parse_next(input)?; // consume `<`
-                let elem = parse_type_expr(input)?;
-                let end = parse(input, TokenKind::Greater)?.span;
+                let elem = parse_type_expr_inner(input, pending)?;
+                let end = parse_shr_angle_brackets(input, pending)?;
                 Ok(TypeExpr::Set(Box::new(elem), start.merge(end)))
             } else if peek(input) == TokenKind::Less {
                 any.parse_next(input)?; // consume `<`
-                let mut args = vec![parse_type_expr(input)?];
+                let mut args = vec![parse_type_expr_inner(input, pending)?];
                 while peek(input) == TokenKind::Comma {
                     any.parse_next(input)?;
-                    if peek(input) == TokenKind::Greater {
+                    if peek(input) == TokenKind::Greater || peek(input) == TokenKind::ShiftRight {
                         break;
                     }
-                    args.push(parse_type_expr(input)?);
+                    args.push(parse_type_expr_inner(input, pending)?);
                 }
-                let end = parse(input, TokenKind::Greater)?.span;
+                let end = parse_shr_angle_brackets(input, pending)?;
                 Ok(TypeExpr::Generic(name, args, start.merge(end)))
             } else {
                 Ok(TypeExpr::Named(NamedType { name, span: start }))
@@ -2187,13 +2201,13 @@ fn parse_type_expr<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<TypeExp
             let start = parse(input, TokenKind::LParen)?.span;
             let mut elems = Vec::new();
             if peek(input) != TokenKind::RParen {
-                elems.push(parse_type_expr(input)?);
+                elems.push(parse_type_expr_inner(input, pending)?);
                 while peek(input) == TokenKind::Comma {
                     any.parse_next(input)?;
                     if peek(input) == TokenKind::RParen {
                         break;
                     }
-                    elems.push(parse_type_expr(input)?);
+                    elems.push(parse_type_expr_inner(input, pending)?);
                 }
             }
             let end = parse(input, TokenKind::RParen)?.span;
@@ -2201,6 +2215,21 @@ fn parse_type_expr<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<TypeExp
         }
         _ => Err(ErrMode::Backtrack(ContextError::new())),
     }
+}
+
+fn parse_shr_angle_brackets<'src>(
+    input: &mut &'src [Token<'src>],
+    pending: &mut Option<Span>,
+) -> ParseResult<Span> {
+    if let Some(span) = pending.take() {
+        return Ok(span);
+    }
+    if peek(input) == TokenKind::ShiftRight {
+        let tok = parse(input, TokenKind::ShiftRight)?;
+        *pending = Some(tok.span);
+        return Ok(tok.span);
+    }
+    Ok(parse(input, TokenKind::Greater)?.span)
 }
 
 fn parse_generic_params<'src>(input: &mut &'src [Token<'src>]) -> ParseResult<Vec<GenericParam>> {

@@ -1046,6 +1046,23 @@ fn parse_struct_update_syntax() {
 }
 
 #[test]
+fn parse_nested_generic_types() {
+    for ty in [
+        "Option<Option<i64>>",
+        "Vector<Vector<Felt>>",
+        "Map<K, Option<V>>",
+        "Option<Option<Option<i64>>>",
+    ] {
+        let src = format!("fn f(x: {ty}) -> i64 {{ 0 }}");
+        let program = parse(&src);
+        let Stmt::FuncDef(func) = expect_single_stmt(&program) else {
+            panic!("expected FuncDef for `{ty}`");
+        };
+        assert_eq!(func.params[0].to_string(), format!("x: {ty}"));
+    }
+}
+
+#[test]
 fn doc_comments() {
     // on functions
     let program = parse("/// Adds two numbers\npub fn add(x: i64, y: i64) -> i64 { x + y }");

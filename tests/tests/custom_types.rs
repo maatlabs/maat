@@ -616,15 +616,9 @@ fn option_flatten_some_none() {
 
 #[test]
 fn option_flatten_none() {
-    // Construct a None that the type checker infers as Option<Option<i64>>
-    // by branching: one arm produces Some(Some(v)), the other produces None.
     run_i64(
-        "fn test(flag: bool) -> i64 {
-            let x = if flag { Some(Some(100)) } else { None };
-            match x.flatten() { Some(v) => v, None => -1 }
-         }
-         test(true)",
-        100,
+        "let x: Option<Option<i64>> = None; match x.flatten() { Some(v) => v, None => -1 }",
+        -1,
     );
 }
 
