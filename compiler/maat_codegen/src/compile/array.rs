@@ -9,9 +9,17 @@ use crate::symbol::Symbol;
 
 impl Compiler {
     pub(crate) fn compile_array_literal(&mut self, arr: &ArrayLit, span: Span) -> Result<()> {
+        let elements = arr
+            .elements
+            .iter()
+            .map(|element| {
+                self.compile_expression(element)?;
+                self.define_anonymous_local(span)
+            })
+            .collect::<Result<Vec<_>>>()?;
         self.emit(Opcode::SegmentNew, &[], span);
-        for element in &arr.elements {
-            self.compile_expression(element)?;
+        for sym in &elements {
+            self.load_symbol(sym, span);
             self.emit(Opcode::HeapAlloc, &[], span);
             self.emit(Opcode::Pop, &[], span);
         }

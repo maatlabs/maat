@@ -804,13 +804,19 @@ impl TypeChecker {
             Type::Vector(elem) => elem.as_ref(),
             _ => return false,
         };
-        if let Err(e) = self.subst.unify(elem_ty, vec_elem) {
-            self.report_unify_error(e, span);
-        }
         let actual_len = match value {
             Expr::Vector(v) => v.elements.len(),
             _ => return false,
         };
+        if matches!(elem_ty, Type::Array(..)) {
+            if let Expr::Vector(v) = value {
+                for child in &mut v.elements {
+                    self.try_coerce_vector_to_array(elem_ty, vec_elem, child, span);
+                }
+            }
+        } else if let Err(e) = self.subst.unify(elem_ty, vec_elem) {
+            self.report_unify_error(e, span);
+        }
         if actual_len != n {
             self.errors.push(
                 TypeErrorKind::Mismatch {

@@ -767,3 +767,14 @@ fn fixed_array_literal_call_argument_coercion() {
         "fn f(x: [Felt; 4]) -> Felt { x[0] } fn main() -> Felt { f([1_fe, 2_fe, 3_fe]) }",
     );
 }
+
+#[test]
+fn nested_fixed_array_literal_inference() {
+    assert_no_type_errors(
+        "fn main() -> i64 { let m: [[i64; 2]; 3] = [[1, 2], [3, 4], [5, 6]]; m[0][0] }",
+    );
+    assert_type_error_contains(
+        "[_; 2]",
+        "fn main() -> i64 { let m: [[i64; 2]; 3] = [[1, 2], [3], [5, 6]]; m[0][0] }",
+    );
+}

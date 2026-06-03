@@ -2466,3 +2466,25 @@ fn fixed_array_literal_at_call_boundary() {
         TestValue::Felt(5),
     );
 }
+
+#[test]
+fn nested_fixed_size_arrays() {
+    run_vm_test(
+        "let m: [[i64; 2]; 3] = [[1, 2], [3, 4], [5, 6]]; m[1][0] + m[2][1]",
+        TestValue::I64(9),
+    );
+    run_vm_test(
+        r#"
+        fn main() -> i64 {
+            let m: [[i64; 2]; 3] = [[1, 2], [3, 4], [5, 6]];
+            let mut acc = 0;
+            for i in 0..3 {
+                acc += m[i][0] + m[i][1];
+            }
+            acc
+        }
+        main()
+        "#,
+        TestValue::I64(21),
+    );
+}
