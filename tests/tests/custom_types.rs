@@ -755,3 +755,15 @@ fn result_or_else_err_to_err() {
         103,
     );
 }
+
+#[test]
+fn fixed_array_literal_call_argument_coercion() {
+    assert_no_type_errors(
+        "fn f(x: [Felt; 4]) -> Felt { x[0] } fn main() -> Felt { f([1_fe, 2_fe, 3_fe, 4_fe]) }",
+    );
+    // A length mismatch at the call boundary is rejected, not silently coerced.
+    assert_type_error_contains(
+        "[_; 4]",
+        "fn f(x: [Felt; 4]) -> Felt { x[0] } fn main() -> Felt { f([1_fe, 2_fe, 3_fe]) }",
+    );
+}

@@ -2452,3 +2452,17 @@ fn fixed_size_arrays() {
         TestValue::I64(60),
     );
 }
+
+#[test]
+fn fixed_array_literal_at_call_boundary() {
+    // An inline array literal coerces to a `[T; N]` parameter at the call
+    // boundary, with no intervening named-local annotation.
+    run_vm_test(
+        "fn sum(arr: [i64; 3]) -> i64 { arr[0] + arr[1] + arr[2] } sum([10, 20, 30])",
+        TestValue::I64(60),
+    );
+    run_vm_test(
+        "fn f(x: [Felt; 4]) -> Felt { x[0] + x[3] } f([1_fe, 2_fe, 3_fe, 4_fe])",
+        TestValue::Felt(5),
+    );
+}

@@ -853,10 +853,17 @@ impl TypeChecker {
                         .at(call.span),
                     );
                 } else {
-                    for (param, arg) in fn_ty.params.iter().zip(arg_types.iter()) {
+                    for (i, param) in fn_ty.params.iter().enumerate() {
                         let p = self.subst.apply(param);
-                        let a = self.subst.apply(arg);
-                        if let Err(e) = self.subst.unify(&p, &a) {
+                        let a = self.subst.apply(&arg_types[i]);
+                        if self.try_coerce_vector_to_array(
+                            &p,
+                            &a,
+                            &mut call.arguments[i],
+                            call.span,
+                        ) {
+                            // Inline vector literal coerced to a fixed-size array parameter.
+                        } else if let Err(e) = self.subst.unify(&p, &a) {
                             self.report_unify_error(e, call.span);
                         }
                     }

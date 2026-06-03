@@ -23,11 +23,10 @@ fn rescue_chain(seed: Felt, steps: i64) -> [Felt; 4] {
 fn main(seed_a: pub Felt, seed_b: pub Felt) -> Felt {
     let end_a = rescue_chain(seed_a, 16);
     let end_b = rescue_chain(seed_b, 16);
-    let absorbed: [Felt; 8] = [
+    let digest = hash::rescue_8([
         end_a[0], end_a[1], end_a[2], end_a[3],
         end_b[0], end_b[1], end_b[2], end_b[3],
-    ];
-    let digest = hash::rescue_8(absorbed);
+    ]);
     let result = digest[0];
     println!("{result}");
     result
