@@ -11,6 +11,7 @@ pub mod proof_serializer {
     //! OUTPUT:             u64 LE        (8 bytes, claimed program output)
     //! INPUT_COUNT:        u16 BE        (2 bytes, number of public inputs)
     //! INPUTS:             [u64; N] LE   (8 * N bytes, public input values)
+    //! INPUT_BASE:         u32 BE        (4 bytes, flat base of the input segment)
     //! OUTPUT_BASE:        u32 BE        (4 bytes, flat base of the output segment)
     //! OUTPUT_SEG_LEN:     u32 BE        (4 bytes, number of public-output cells)
     //! OUTPUT_SEG:         [u64; L] LE   (8 * L bytes, public-output cell values)
@@ -20,12 +21,16 @@ pub mod proof_serializer {
     //! PAYLOAD:            Winterfell    (variable, Winterfell's native Proof encoding)
     //! ```
     //!
-    //! Minimum header (zero inputs, zero output cells, zero program cells): 32 bytes.
+    //! Minimum header (zero inputs, zero output cells, zero program cells):
+    //! 36 bytes (4 magic + 2 version + 8 output + 2 input count + 4 input base
+    //! + 4 output base + 4 output seg len + 4 program base + 4 program seg len).
 
     use maat_air::Proof;
     use maat_errors::SerializationError;
     use maat_field::BaseElement;
     use maat_trace::{PublicMemory, PublicSegment};
+
+    type Result<T> = std::result::Result<T, SerializationError>;
 
     const PROOF_MAGIC: [u8; 4] = *b"MATP";
     const PROOF_VERSION: u16 = 6;
@@ -77,9 +82,7 @@ pub mod proof_serializer {
         buf
     }
 
-    pub fn deserialize_proof(
-        bytes: &[u8],
-    ) -> Result<(Proof, ProofPublicInputs), SerializationError> {
+    pub fn deserialize_proof(bytes: &[u8]) -> Result<(Proof, ProofPublicInputs)> {
         let mut cursor = 0usize;
         let magic = read_slice(bytes, &mut cursor, 4)?;
         if magic != PROOF_MAGIC {
@@ -91,8 +94,7 @@ pub mod proof_serializer {
             return Err(SerializationError::UnsupportedVersion(version as u64));
         }
 
-        let output_bytes = read_slice(bytes, &mut cursor, 8)?;
-        let output = BaseElement::new(u64::from_le_bytes(output_bytes.try_into().unwrap()));
+        let output = BaseElement::new(read_u64_le(bytes, &mut cursor)?);
 
         let input_count_bytes = read_slice(bytes, &mut cursor, 2)?;
         let input_count = u16::from_be_bytes([input_count_bytes[0], input_count_bytes[1]]) as usize;
@@ -139,11 +141,7 @@ pub mod proof_serializer {
         Ok((proof, public_inputs))
     }
 
-    fn read_slice<'a>(
-        bytes: &'a [u8],
-        cursor: &mut usize,
-        len: usize,
-    ) -> Result<&'a [u8], SerializationError> {
+    fn read_slice<'a>(bytes: &'a [u8], cursor: &mut usize, len: usize) -> Result<&'a [u8]> {
         if bytes.len() < cursor.saturating_add(len) {
             return Err(SerializationError::UnexpectedEof {
                 offset: *cursor,
@@ -155,27 +153,27 @@ pub mod proof_serializer {
         Ok(slice)
     }
 
-    fn read_u32_be(bytes: &[u8], cursor: &mut usize) -> Result<u32, SerializationError> {
-        let slice = read_slice(bytes, cursor, 4)?;
-        Ok(u32::from_be_bytes(slice.try_into().unwrap()))
+    fn read_u32_be(bytes: &[u8], cursor: &mut usize) -> Result<u32> {
+        let s = read_slice(bytes, cursor, 4)?;
+        Ok(u32::from_be_bytes([s[0], s[1], s[2], s[3]]))
     }
 
-    fn read_felt_vec(
-        bytes: &[u8],
-        cursor: &mut usize,
-        count: usize,
-    ) -> Result<Vec<BaseElement>, SerializationError> {
+    fn read_u64_le(bytes: &[u8], cursor: &mut usize) -> Result<u64> {
+        let s = read_slice(bytes, cursor, 8)?;
+        Ok(u64::from_le_bytes([
+            s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7],
+        ]))
+    }
+
+    fn read_felt_vec(bytes: &[u8], cursor: &mut usize, count: usize) -> Result<Vec<BaseElement>> {
         let mut out = Vec::with_capacity(count);
         for _ in 0..count {
-            let slice = read_slice(bytes, cursor, 8)?;
-            out.push(BaseElement::new(u64::from_le_bytes(
-                slice.try_into().unwrap(),
-            )));
+            out.push(BaseElement::new(read_u64_le(bytes, cursor)?));
         }
         Ok(out)
     }
 
-    fn check_segment_limit(field: &'static str, size: usize) -> Result<(), SerializationError> {
+    fn check_segment_limit(field: &'static str, size: usize) -> Result<()> {
         if size > MAX_PUBLIC_SEGMENT_CELLS {
             return Err(SerializationError::ResourceLimitExceeded {
                 field,
