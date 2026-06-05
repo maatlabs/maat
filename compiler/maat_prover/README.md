@@ -26,7 +26,7 @@ Bytecode --> VM + TraceRecorder --> TraceTable --> MaatProver --> Proof
 
 Both presets require `FieldExtension::Quadratic` because the auxiliary trace segment evaluates constraints over `QuadExtension<BaseElement>`.
 
-## Provability Scope (v0.17.0)
+## Provability Scope (v0.18.0)
 
 End-to-end proving is supported for programs with a top-level `fn main(<params>) -> T` entry point that operate on **primitive types, fixed-size arrays, `Vector<T>`, closures, and Rescue-Prime hashing**: integers (`i8`..`i64`, `u8`..`u64`, `usize`, `isize`), `bool`, `Felt` (Goldilocks field element), `[T; N]` for primitive `T`, `Vector<T>` for primitive `T`, closures, `hash::rescue_2` / `rescue_4` / `rescue_8`, and user-defined functions over those types (parameters, return values, nested calls, bounded recursion). `pub` parameters bind to a boundary-constrained public-memory cell; bare parameters bind to a prover-supplied uncommitted witness cell. All `examples/*.maat` programs prove and verify end-to-end under `development_options`.
 

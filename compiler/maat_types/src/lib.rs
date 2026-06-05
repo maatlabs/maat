@@ -804,13 +804,19 @@ impl TypeChecker {
             Type::Vector(elem) => elem.as_ref(),
             _ => return false,
         };
-        if let Err(e) = self.subst.unify(elem_ty, vec_elem) {
-            self.report_unify_error(e, span);
-        }
         let actual_len = match value {
             Expr::Vector(v) => v.elements.len(),
             _ => return false,
         };
+        if matches!(elem_ty, Type::Array(..)) {
+            if let Expr::Vector(v) = value {
+                for child in &mut v.elements {
+                    self.try_coerce_vector_to_array(elem_ty, vec_elem, child, span);
+                }
+            }
+        } else if let Err(e) = self.subst.unify(elem_ty, vec_elem) {
+            self.report_unify_error(e, span);
+        }
         if actual_len != n {
             self.errors.push(
                 TypeErrorKind::Mismatch {
@@ -853,10 +859,17 @@ impl TypeChecker {
                         .at(call.span),
                     );
                 } else {
-                    for (param, arg) in fn_ty.params.iter().zip(arg_types.iter()) {
+                    for (i, param) in fn_ty.params.iter().enumerate() {
                         let p = self.subst.apply(param);
-                        let a = self.subst.apply(arg);
-                        if let Err(e) = self.subst.unify(&p, &a) {
+                        let a = self.subst.apply(&arg_types[i]);
+                        if self.try_coerce_vector_to_array(
+                            &p,
+                            &a,
+                            &mut call.arguments[i],
+                            call.span,
+                        ) {
+                            // Inline vector literal coerced to a fixed-size array parameter.
+                        } else if let Err(e) = self.subst.unify(&p, &a) {
                             self.report_unify_error(e, call.span);
                         }
                     }

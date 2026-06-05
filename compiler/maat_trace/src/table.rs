@@ -34,7 +34,7 @@ pub const COL_MEM_ADDR: usize = 8;
 pub const COL_MEM_VAL: usize = 9;
 /// `1` if memory read, `0` if memory write.
 pub const COL_IS_READ: usize = 10;
-/// Base column index for the 17 selector flags (`sel_0..sel_16`).
+/// Base column index for the 21 selector flags (`sel_0..sel_20`).
 pub const COL_SEL_BASE: usize = 11;
 
 /// Base index of the range-check columns (immediately after selectors).
@@ -116,6 +116,7 @@ pub const COLUMN_NAMES: [&str; TRACE_WIDTH] = [
     "sel_17",
     "sel_18",
     "sel_19",
+    "sel_20",
     "rc_val",
     "rc_l0",
     "rc_l1",

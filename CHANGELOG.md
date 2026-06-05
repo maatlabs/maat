@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0] - 2026-06-05
+
+Closes soundness gaps. The main change pins every heap-write's published value to the stack top that produced it (`sel_heap_write * (mem_val - s0) = 0`), closing a uniform heap-write forgery vector in which a `main`-returned `Vector` could publish a value it never computed by co-forging the public-output cell so the memory-permutation accumulator still closed. Three parser/type-checker changes: inline fixed-array literals coerce at the call boundary, nested `[[T; N]; M]` literals infer and lower correctly, nested generic types (`Option<Option<T>>`, `Vector<Vector<T>>`, `Map<K, Option<V>>`) parse. The release breaks the AIR (constraint count and trace width change) but does **not** change the proof wire format (`PROOF_VERSION` stays 6), the bytecode wire format, or the CLI surface. All `examples/*.maat` programs prove and verify end-to-end.
+
+### Migrating from v0.17.0
+
+- **Re-prove from source.** The heap-write value pin splits `Opcode::ArenaFinalize` onto its own `SEL_ARENA_FINALIZE` selector and appends two transition constraints, changing the AIR: `NUM_SELECTORS` 20 -> 21, main `NUM_CONSTRAINTS` 103 -> 105, `TRACE_WIDTH` +1. `PROOF_VERSION` stays 6---the break is in the AIR, not the wire header---but v0.17.0 proofs no longer verify. Recompile and re-prove; no source changes are required.
+- **New syntax accepted (backward-compatible).** Inline fixed-array literals now coerce into `[T; N]` parameters at the call boundary; nested `[[T; N]; M]` literals infer and lower; nested generic types `Option<Option<T>>` / `Vector<Vector<T>>` / `Map<K, Option<V>>` now parse. No existing program changes meaning.
+
+### Added
+
+- **Call-boundary fixed-array coercion.** An inline `[a, b, c, d]` argument now coerces into a `[T; N]` parameter without an intervening named-local annotation (e.g. `hash::rescue_8([...])`), with a length mismatch rejected at the call boundary rather than silently coerced. `maat_types` only; mirrors the existing `let`-binding coercion path.
+- **Nested `[[T; N]; M]` literal inference and lowering.** Nested fixed-size array literals infer through every level and lower correctly. The codegen now materialises each array-literal element into an anonymous local before opening the outer segment, fixing a latent runtime fault where a nested literal element's own `SegmentNew` clobbered the segment cursor. `examples/merkle.maat` is rewritten to a single `[[Felt; 4]; 4]` siblings array walked in a loop.
+- **Nested-generic `>>` disambiguation.** The type parser buffers the second `>` of a `>>` token across nested generic-argument closes, so `Option<Option<T>>`, `Vector<Vector<T>>`, `Map<K, Option<V>>`, and deeper nestings parse.
+
+### Changed
+
+- **Heap-write value pinning (soundness).** `Opcode::HeapWrite` previously bound its written value to the trace only existentially, through the memory-permutation argument; a write/read pair tampered uniformly to a single wrong value closed the permutation. The only real `HeapWrite` site is the publish loop that lowers a `main`-returned `Vector` into the public-output segment, so without a value pin a vector-returning program could publish a value it never computed. `ArenaFinalize`---which writes a fabricated segment marker rather than the stack top---is split onto a forced `SEL_ARENA_FINALIZE` selector, after which a now-pure `sel_heap_write` gates the pin `sel_heap_write * (mem_val - s0) = 0`. AIR change; see migration note.
+- **Integration-test suite de-duplicated with coverage conserved (`tests/` only).** The integration suite was reviewed case-by-case and reduced from 442 to 372 `#[test]` functions with **no** loss of distinct asserted behavior. Sibling one-liner cases that assert the same property at the same layer were folded into table-driven tests (the Option/Result combinator surface, the `Felt` operation cluster, and four type-checker rejection families---mixed-integer operands, signed bitwise/shift operators, off-canonical `u64`/`usize` literals, and `fn main` parameter signatures), each original `(source, expected)` pair surviving verbatim as a table row. The hand-written per-feature bytecode-roundtrip tests were folded into the property-based structural roundtrip plus a single closures-and-recursion deserialize-then-run smoke, and three redundant `u32` ordering proof permutations were removed (the identical comparison gadget is covered by the retained cases). Every `#[should_panic]`, every tamper/soundness test, all `proptest!` properties were preserved unchanged. Test-crate only: no compiler, library, AIR, wire-format, or semantic change.
+
+### Fixed
+
+- **Proof-header documentation and unwrap-free deserialization.** The `proof_serializer` module doc gains the previously-missing `INPUT_BASE u32 BE` field and corrects the minimum-header figure to 36 bytes (matching `MIN_HEADER_SIZE`). The three `try_into().unwrap()` fixed-slice conversions in the deserializer are replaced with a checked `read_u64_le` helper mirroring `read_u32_be`, removing the library-code `unwrap`s. No wire-format change.
+
 ## [0.17.0] - 2026-06-02
 
 Three coordinated pillars: (1) **entry-point + I/O model**---`fn main` is mandatory for `maat prove`, public inputs bind to boundary-constrained public-memory cells, private inputs bind to uncommitted witness cells, script-form programs are `run`/`exec`-only; (2) **native ZK hashing**---the Rescue-Prime permutation ships, exposed to user code as `hash::rescue_2` / `rescue_4` / `rescue_8`; (3) **verifier-side public-I/O bundle**---`maat verify` gains an assertion layer (`--public-io`, `--expect-output`, `--expect-program{,-hash}`, `--input`) over the cryptographic verify, with a `PublicIo` JSON bundle that round-trips byte-identically between `maat prove --write-public-io` and `maat verify --public-io`. The release breaks the bytecode wire format (new `Opcode::HashRescue`) and the proof wire format (public-input base added) but does not change the CLI's pre-existing flag surface; all new CLI flags are additive. Ten `fn main` programs in `examples/` prove and verify end-to-end under `development_options`.
@@ -1472,6 +1496,7 @@ When adding entries to this changelog for future releases:
 3. **Audience**: Write for users, not developers (focus on impact, not implementation)
 4. **Links**: Add comparison links at the bottom: `[0.2.0]: https://github.com/maatlabs/maat/compare/v0.1.0...v0.2.0`
 
+[0.18.0]: https://github.com/maatlabs/maat/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/maatlabs/maat/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/maatlabs/maat/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/maatlabs/maat/compare/v0.14.0...v0.15.0

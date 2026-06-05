@@ -44,17 +44,20 @@ fn main(
     bit3: pub Felt,
 ) -> Felt {
     let leaf: [Felt; 4] = [leaf_word, 0_fe, 0_fe, 0_fe];
-    let sib0: [Felt; 4] = [sib0_word, 0_fe, 0_fe, 0_fe];
-    let sib1: [Felt; 4] = [sib1_word, 0_fe, 0_fe, 0_fe];
-    let sib2: [Felt; 4] = [sib2_word, 0_fe, 0_fe, 0_fe];
-    let sib3: [Felt; 4] = [sib3_word, 0_fe, 0_fe, 0_fe];
+    let siblings: [[Felt; 4]; 4] = [
+        [sib0_word, 0_fe, 0_fe, 0_fe],
+        [sib1_word, 0_fe, 0_fe, 0_fe],
+        [sib2_word, 0_fe, 0_fe, 0_fe],
+        [sib3_word, 0_fe, 0_fe, 0_fe],
+    ];
+    let bits: [Felt; 4] = [bit0, bit1, bit2, bit3];
 
-    let n0 = combine(leaf, sib0, bit0);
-    let n1 = combine(n0, sib1, bit1);
-    let n2 = combine(n1, sib2, bit2);
-    let root = combine(n2, sib3, bit3);
+    let mut node: [Felt; 4] = leaf;
+    for i in 0..4 {
+        node = combine(node, siblings[i], bits[i]);
+    }
 
-    let result = root[0];
+    let result = node[0];
     println!("{result}");
     result
 }

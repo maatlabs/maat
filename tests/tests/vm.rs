@@ -2369,63 +2369,48 @@ fn vector_builtin_methods_extended() {
 }
 
 #[test]
-fn felt_literals() {
-    run_vm_test("42_fe", TestValue::Felt(42));
-    run_vm_test("0_fe", TestValue::Felt(0));
-    run_vm_test("1_fe", TestValue::Felt(1));
-}
-
-#[test]
-fn felt_arithmetic() {
-    run_vm_test("10_fe + 20_fe", TestValue::Felt(30));
-    run_vm_test("100_fe - 30_fe", TestValue::Felt(70));
-    run_vm_test("7_fe * 6_fe", TestValue::Felt(42));
-
-    // Subtraction wrapping: 0 - 1 = p - 1
-    run_vm_test("0_fe - 1_fe", TestValue::Felt(18446744069414584320));
-
-    // Multiplication identity
-    run_vm_test("1_fe * 42_fe", TestValue::Felt(42));
-    run_vm_test("0_fe * 999_fe", TestValue::Felt(0));
-}
-
-#[test]
-fn felt_division() {
-    // x / x == 1 for x != 0
-    run_vm_test("42_fe / 42_fe", TestValue::Felt(1));
-    // a / b * b == a
-    run_vm_test("10_fe / 3_fe * 3_fe", TestValue::Felt(10));
-}
-
-#[test]
-fn felt_equality() {
-    run_vm_test("42_fe == 42_fe", TestValue::Bool(true));
-    run_vm_test("42_fe != 42_fe", TestValue::Bool(false));
-    run_vm_test("1_fe == 2_fe", TestValue::Bool(false));
-    run_vm_test("1_fe != 2_fe", TestValue::Bool(true));
-}
-
-#[test]
-fn felt_let_bindings() {
-    // cast i64 as Felt
-    run_vm_test(
-        "let a = 10 as Felt; let b = 20 as Felt; a + b",
-        TestValue::Felt(30),
-    );
-    // infer `Felt` type
-    run_vm_test("let x = 7_fe; let y = 6_fe; x * y", TestValue::Felt(42));
-}
-
-#[test]
-fn felt_in_conditional() {
-    run_vm_test(
-        "let a: Felt = 1_fe; let b: Felt = 1_fe; if a == b { 100_fe } else { 0_fe }",
-        TestValue::Felt(100),
-    );
-    run_vm_test(
-        "let a: Felt = 1_fe; let b: Felt = 2_fe; if a == b { 100_fe } else { 0_fe }",
-        TestValue::Felt(0),
-    );
+fn felt_operations() {
+    let cases = vec![
+        // Literals
+        ("42_fe", TestValue::Felt(42)),
+        ("0_fe", TestValue::Felt(0)),
+        ("1_fe", TestValue::Felt(1)),
+        // Arithmetic
+        ("10_fe + 20_fe", TestValue::Felt(30)),
+        ("100_fe - 30_fe", TestValue::Felt(70)),
+        ("7_fe * 6_fe", TestValue::Felt(42)),
+        // Subtraction wrapping: 0 - 1 = p - 1
+        ("0_fe - 1_fe", TestValue::Felt(18446744069414584320)),
+        // Multiplication identity / annihilator
+        ("1_fe * 42_fe", TestValue::Felt(42)),
+        ("0_fe * 999_fe", TestValue::Felt(0)),
+        // Division: x / x == 1, and a / b * b == a
+        ("42_fe / 42_fe", TestValue::Felt(1)),
+        ("10_fe / 3_fe * 3_fe", TestValue::Felt(10)),
+        // Equality
+        ("42_fe == 42_fe", TestValue::Bool(true)),
+        ("42_fe != 42_fe", TestValue::Bool(false)),
+        ("1_fe == 2_fe", TestValue::Bool(false)),
+        ("1_fe != 2_fe", TestValue::Bool(true)),
+        // Let bindings: `as Felt` cast and `Felt` inference
+        (
+            "let a = 10 as Felt; let b = 20 as Felt; a + b",
+            TestValue::Felt(30),
+        ),
+        ("let x = 7_fe; let y = 6_fe; x * y", TestValue::Felt(42)),
+        // In a conditional
+        (
+            "let a: Felt = 1_fe; let b: Felt = 1_fe; if a == b { 100_fe } else { 0_fe }",
+            TestValue::Felt(100),
+        ),
+        (
+            "let a: Felt = 1_fe; let b: Felt = 2_fe; if a == b { 100_fe } else { 0_fe }",
+            TestValue::Felt(0),
+        ),
+    ];
+    for (input, expected) in cases {
+        run_vm_test(input, expected);
+    }
 }
 
 #[test]
@@ -2450,5 +2435,41 @@ fn fixed_size_arrays() {
     run_vm_test(
         "fn sum(arr: [i64; 3]) -> i64 { arr[0] + arr[1] + arr[2] } let a: [i64; 3] = [10, 20, 30]; sum(a)",
         TestValue::I64(60),
+    );
+}
+
+#[test]
+fn fixed_array_literal_at_call_boundary() {
+    // An inline array literal coerces to a `[T; N]` parameter at the call
+    // boundary, with no intervening named-local annotation.
+    run_vm_test(
+        "fn sum(arr: [i64; 3]) -> i64 { arr[0] + arr[1] + arr[2] } sum([10, 20, 30])",
+        TestValue::I64(60),
+    );
+    run_vm_test(
+        "fn f(x: [Felt; 4]) -> Felt { x[0] + x[3] } f([1_fe, 2_fe, 3_fe, 4_fe])",
+        TestValue::Felt(5),
+    );
+}
+
+#[test]
+fn nested_fixed_size_arrays() {
+    run_vm_test(
+        "let m: [[i64; 2]; 3] = [[1, 2], [3, 4], [5, 6]]; m[1][0] + m[2][1]",
+        TestValue::I64(9),
+    );
+    run_vm_test(
+        r#"
+        fn main() -> i64 {
+            let m: [[i64; 2]; 3] = [[1, 2], [3, 4], [5, 6]];
+            let mut acc = 0;
+            for i in 0..3 {
+                acc += m[i][0] + m[i][1];
+            }
+            acc
+        }
+        main()
+        "#,
+        TestValue::I64(21),
     );
 }

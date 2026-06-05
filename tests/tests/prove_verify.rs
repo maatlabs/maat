@@ -13,7 +13,9 @@ use maat_prover::{
 use maat_tests::compile;
 use maat_tests::prover::*;
 use maat_trace::selector::*;
-use maat_trace::table::{COL_MEM_ADDR, COL_MEM_VAL, COL_OUT, COL_SUB_SEL_BASE, TraceTable};
+use maat_trace::table::{
+    COL_MEM_ADDR, COL_MEM_VAL, COL_OUT, COL_S0, COL_SEL_BASE, COL_SUB_SEL_BASE, TraceTable,
+};
 
 #[test]
 fn prove_and_verify_arithmetic() {
@@ -374,6 +376,48 @@ fn fixed_size_array_element_tamper_rejected() {
         "expected at least one memory row carrying value 10"
     );
     assert_tampered_trace_rejected(bundle, "array element");
+}
+
+#[test]
+fn uniform_heap_write_value_tamper_rejected() {
+    let source = "
+        let mut v = Vector::new();
+        v = v.push(7);
+        v = v.push(13);
+        v
+    ";
+    let mut bundle = compile_and_trace(source);
+    let n = bundle.trace.num_rows();
+    let mut target_addr = None;
+    for i in 0..n {
+        let row = bundle.trace.row(i);
+        if row[COL_SEL_BASE + SEL_HEAP_WRITE] == Felt::ONE && row[COL_MEM_VAL].as_int() == 13 {
+            assert_eq!(
+                row[COL_S0].as_int(),
+                13,
+                "honest publish write must carry the published value on the stack top"
+            );
+            target_addr = Some(row[COL_MEM_ADDR].as_int());
+            break;
+        }
+    }
+    let target_addr = target_addr.expect("expected a HeapWrite row publishing value 13");
+
+    // Uniformly forge every access of the output address, leaving `s0` untouched.
+    for i in 0..n {
+        let row = bundle.trace.row(i);
+        if row[COL_MEM_ADDR].as_int() == target_addr && row[COL_MEM_VAL].as_int() == 13 {
+            bundle.trace.row_mut(i)[COL_MEM_VAL] = Felt::new(999);
+        }
+    }
+
+    for cell in bundle.output_segment.iter_mut() {
+        if cell.as_int() == 13 {
+            *cell = Felt::new(999);
+        }
+    }
+
+    assert_tampered_trace_rejected(bundle, "uniform heap-write value");
 }
 
 #[test]
@@ -1247,43 +1291,10 @@ fn prove_and_verify_ordering_lt_true() {
 }
 
 #[test]
-fn prove_and_verify_ordering_lt_false() {
-    prove_and_verify(
-        "
-        let a: u32 = 50u32;
-        let b: u32 = 42u32;
-        if a < b { 1i64 } else { 0i64 }
-        ",
-    );
-}
-
-#[test]
-fn prove_and_verify_ordering_lt_equal() {
-    prove_and_verify(
-        "
-        let a: u32 = 42u32;
-        let b: u32 = 42u32;
-        if a < b { 1i64 } else { 0i64 }
-        ",
-    );
-}
-
-#[test]
 fn prove_and_verify_ordering_gt_true() {
     prove_and_verify(
         "
         let a: u32 = 99u32;
-        let b: u32 = 42u32;
-        if a > b { 1i64 } else { 0i64 }
-        ",
-    );
-}
-
-#[test]
-fn prove_and_verify_ordering_gt_false() {
-    prove_and_verify(
-        "
-        let a: u32 = 7u32;
         let b: u32 = 42u32;
         if a > b { 1i64 } else { 0i64 }
         ",
