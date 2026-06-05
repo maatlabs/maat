@@ -936,26 +936,31 @@ fn generic_struct_field_type_mismatch() {
 }
 
 #[test]
-fn mixed_integer_types_rejected() {
-    // i8 + i32 is a type mismatch
+fn mixed_integer_operands_rejected() {
+    let cases: &[(NumKind, &str, NumKind)] = &[
+        (NumKind::I8, "+", NumKind::I32),
+        (NumKind::U8, "+", NumKind::I8),
+        (NumKind::U64, "+", NumKind::I128),
+        (NumKind::U8, "<", NumKind::I16),
+    ];
+    for &(lhs, op, rhs) in cases {
+        let errs = check(vec![let_stmt(
+            "x",
+            infix(int_expr(1, lhs), op, int_expr(2, rhs)),
+            None,
+        )]);
+        assert!(
+            !errs.is_empty(),
+            "expected type error for {lhs:?} {op} {rhs:?}"
+        );
+    }
+
     let errs = check(vec![let_stmt(
         "x",
         infix(int_expr(1, NumKind::I8), "+", int_expr(2, NumKind::I32)),
         None,
     )]);
-    assert!(!errs.is_empty());
     assert!(errs.iter().any(|e| e.contains("i8") && e.contains("i32")));
-}
-
-#[test]
-fn mixed_sign_integers_rejected() {
-    // u8 + i8 is a type mismatch
-    let errs = check(vec![let_stmt(
-        "x",
-        infix(int_expr(1, NumKind::U8), "+", int_expr(2, NumKind::I8)),
-        None,
-    )]);
-    assert!(!errs.is_empty());
 }
 
 #[test]
@@ -979,28 +984,6 @@ fn mixed_integer_no_cast_insertion() {
             "should not insert Cast node for mismatched types",
         );
     }
-}
-
-#[test]
-fn mixed_width_u64_i128_rejected() {
-    // u64 + i128 is a type mismatch
-    let errs = check(vec![let_stmt(
-        "x",
-        infix(int_expr(1, NumKind::U64), "+", int_expr(2, NumKind::I128)),
-        None,
-    )]);
-    assert!(!errs.is_empty());
-}
-
-#[test]
-fn mixed_width_comparison_rejected() {
-    // u8 < i16 is a type mismatch
-    let errs = check(vec![let_stmt(
-        "x",
-        infix(int_expr(1, NumKind::U8), "<", int_expr(2, NumKind::I16)),
-        None,
-    )]);
-    assert!(!errs.is_empty());
 }
 
 #[test]
@@ -1248,35 +1231,28 @@ mod bitwise_encoding_rules {
     }
 
     #[test]
-    fn signed_bitwise_or_rejected() {
-        assert_rejected(
-            "let a: i64 = 1; let b: i64 = 2; a | b",
-            "bitwise operator `|` requires an unsigned",
-        );
-    }
-
-    #[test]
-    fn signed_bitwise_xor_rejected() {
-        assert_rejected(
-            "let a: i64 = 5; let b: i64 = 3; a ^ b",
-            "bitwise operator `^` requires an unsigned",
-        );
-    }
-
-    #[test]
-    fn signed_shl_rejected() {
-        assert_rejected(
-            "let a: i64 = 1; let b: i64 = 4; a << b",
-            "bitwise operator `<<` requires an unsigned",
-        );
-    }
-
-    #[test]
-    fn signed_shr_rejected() {
-        assert_rejected(
-            "let a: i64 = 16; let b: i64 = 2; a >> b",
-            "bitwise operator `>>` requires an unsigned",
-        );
+    fn signed_bitwise_operators_rejected() {
+        let cases = [
+            (
+                "let a: i64 = 1; let b: i64 = 2; a | b",
+                "bitwise operator `|` requires an unsigned",
+            ),
+            (
+                "let a: i64 = 5; let b: i64 = 3; a ^ b",
+                "bitwise operator `^` requires an unsigned",
+            ),
+            (
+                "let a: i64 = 1; let b: i64 = 4; a << b",
+                "bitwise operator `<<` requires an unsigned",
+            ),
+            (
+                "let a: i64 = 16; let b: i64 = 2; a >> b",
+                "bitwise operator `>>` requires an unsigned",
+            ),
+        ];
+        for (source, needle) in cases {
+            assert_rejected(source, needle);
+        }
     }
 
     #[test]
@@ -1328,36 +1304,20 @@ mod bitwise_encoding_rules {
     }
 
     #[test]
-    fn u64_literal_at_modulus_rejected() {
-        // p = 0xFFFFFFFF00000001 is the first off-canonical value.
-        assert_rejected("let x: u64 = 0xFFFFFFFF00000001; x", "off-canonical range");
-    }
-
-    #[test]
-    fn u64_literal_at_max_rejected() {
-        assert_rejected("let x: u64 = 0xFFFFFFFFFFFFFFFF; x", "off-canonical range");
-    }
-
-    #[test]
-    fn u64_literal_via_inference_at_modulus_rejected() {
-        // Unsuffixed literal resolved to `u64` through let annotation.
-        assert_rejected(
+    fn off_canonical_literals_rejected() {
+        let cases = [
+            // p itself, the first off-canonical value (hex and decimal forms).
+            "let x: u64 = 0xFFFFFFFF00000001; x",
             "let x: u64 = 18446744069414584321; x",
-            "off-canonical range",
-        );
-    }
-
-    #[test]
-    fn u64_suffixed_literal_in_off_canonical_sliver_rejected() {
-        assert_rejected("let x = 0xFFFFFFFFFFFFFFFFu64; x", "off-canonical range");
-    }
-
-    #[test]
-    fn usize_literal_in_off_canonical_sliver_rejected() {
-        assert_rejected(
+            // u64::MAX, deep in the sliver (annotated and suffixed forms).
+            "let x: u64 = 0xFFFFFFFFFFFFFFFF; x",
+            "let x = 0xFFFFFFFFFFFFFFFFu64; x",
+            // usize::MAX shares the same guard.
             "let x: usize = 18446744073709551615; x",
-            "off-canonical range",
-        );
+        ];
+        for source in cases {
+            assert_rejected(source, "off-canonical range");
+        }
     }
 
     #[test]
@@ -1376,41 +1336,34 @@ mod entry_point {
     use maat_tests::{compile, compile_type_errors};
 
     #[test]
-    fn private_felt_fn_main_param_accepted() {
-        // A bare (non-`pub`) `Felt` parameter binds as a private witness input.
-        let _ = compile("fn main(x: Felt) -> Felt { x }");
+    fn fn_main_param_signatures_accepted() {
+        // Accepted `fn main` signatures: a private `Felt` witness, a public
+        // `Felt`, a mix of the two (with an in-body assertion), and zero args.
+        let cases = [
+            "fn main(x: Felt) -> Felt { x }",
+            "fn main(x: Felt, y: pub Felt) -> Felt { assert!(x * x == y); y }",
+            "fn main(x: pub Felt, y: pub Felt) -> Felt { x + y }",
+            "fn main() -> Felt { 7_fe }",
+        ];
+        for source in cases {
+            // `compile` panics on any type error.
+            let _ = compile(source);
+        }
     }
 
     #[test]
-    fn mixed_public_private_fn_main_accepted() {
-        let _ = compile("fn main(x: Felt, y: pub Felt) -> Felt { assert!(x * x == y); y }");
-    }
-
-    #[test]
-    fn non_felt_public_fn_main_param_rejected() {
-        let errs = compile_type_errors("fn main(x: pub i64) -> i64 { x }");
-        assert!(
-            errs.iter().any(|e| e.contains("only `Felt` parameters")),
-            "expected non-Felt public-parameter rejection; got: {errs:?}"
-        );
-    }
-
-    #[test]
-    fn non_felt_private_fn_main_param_rejected() {
-        let errs = compile_type_errors("fn main(x: i64) -> i64 { x }");
-        assert!(
-            errs.iter().any(|e| e.contains("only `Felt` parameters")),
-            "expected non-Felt private-parameter rejection; got: {errs:?}"
-        );
-    }
-
-    #[test]
-    fn public_felt_fn_main_param_accepted() {
-        let _ = compile("fn main(x: pub Felt, y: pub Felt) -> Felt { x + y }");
-    }
-
-    #[test]
-    fn zero_arg_fn_main_accepted() {
-        let _ = compile("fn main() -> Felt { 7_fe }");
+    fn non_felt_fn_main_param_rejected() {
+        // A non-`Felt` entry-point parameter is rejected, public or private.
+        let cases = [
+            "fn main(x: pub i64) -> i64 { x }",
+            "fn main(x: i64) -> i64 { x }",
+        ];
+        for source in cases {
+            let errs = compile_type_errors(source);
+            assert!(
+                errs.iter().any(|e| e.contains("only `Felt` parameters")),
+                "expected non-Felt parameter rejection for `{source}`; got: {errs:?}"
+            );
+        }
     }
 }

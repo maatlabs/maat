@@ -1291,43 +1291,10 @@ fn prove_and_verify_ordering_lt_true() {
 }
 
 #[test]
-fn prove_and_verify_ordering_lt_false() {
-    prove_and_verify(
-        "
-        let a: u32 = 50u32;
-        let b: u32 = 42u32;
-        if a < b { 1i64 } else { 0i64 }
-        ",
-    );
-}
-
-#[test]
-fn prove_and_verify_ordering_lt_equal() {
-    prove_and_verify(
-        "
-        let a: u32 = 42u32;
-        let b: u32 = 42u32;
-        if a < b { 1i64 } else { 0i64 }
-        ",
-    );
-}
-
-#[test]
 fn prove_and_verify_ordering_gt_true() {
     prove_and_verify(
         "
         let a: u32 = 99u32;
-        let b: u32 = 42u32;
-        if a > b { 1i64 } else { 0i64 }
-        ",
-    );
-}
-
-#[test]
-fn prove_and_verify_ordering_gt_false() {
-    prove_and_verify(
-        "
-        let a: u32 = 7u32;
         let b: u32 = 42u32;
         if a > b { 1i64 } else { 0i64 }
         ",

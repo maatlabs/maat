@@ -428,8 +428,71 @@ fn roundtrip_result() {
 }
 
 #[test]
-fn option_unwrap_some() {
-    run_i64("Some(42).unwrap()", 42);
+fn option_combinators() {
+    let value_cases: &[(&str, i64)] = &[
+        ("Some(42).unwrap()", 42),
+        ("Some(10).unwrap_or(0)", 10),
+        ("let x: Option<i64> = None; x.unwrap_or(99)", 99),
+        (
+            "let x = Some(5); match x.map(fn(v) { v * 2 }) { Some(v) => v, None => 0 }",
+            10,
+        ),
+        (
+            "let x: Option<i64> = None; match x.map(fn(v) { v * 2 }) { Some(v) => v, None => -1 }",
+            -1,
+        ),
+        (
+            "let x = Some(5); match x.and_then(fn(v) { Some(v + 10) }) { Some(v) => v, None => 0 }",
+            15,
+        ),
+        (
+            "let x: Option<i64> = None; match x.and_then(fn(v) { Some(v + 10) }) { Some(v) => v, None => -1 }",
+            -1,
+        ),
+        (
+            "let x = Some(5); match x.and_then(fn(v: i64) -> Option<i64> { None }) { Some(v) => v, None => -1 }",
+            -1,
+        ),
+        ("Some(42).unwrap_or_else(|| 0)", 42),
+        ("let x: Option<i64> = None; x.unwrap_or_else(|| 99)", 99),
+        (
+            "let x = Some(Some(42)); match x.flatten() { Some(v) => v, None => -1 }",
+            42,
+        ),
+        (
+            "let inner: Option<i64> = None; let x = Some(inner); match x.flatten() { Some(v) => v, None => -1 }",
+            -1,
+        ),
+        (
+            "let x: Option<Option<i64>> = None; match x.flatten() { Some(v) => v, None => -1 }",
+            -1,
+        ),
+        (
+            "match Some(1).zip(Some(2)) { Some(pair) => pair.0 + pair.1, None => -1 }",
+            3,
+        ),
+        (
+            "let a: Option<i64> = None; match a.zip(Some(2)) { Some(pair) => pair.0 + pair.1, None => -1 }",
+            -1,
+        ),
+        (
+            "let b: Option<i64> = None; match Some(1).zip(b) { Some(pair) => pair.0 + pair.1, None => -1 }",
+            -1,
+        ),
+    ];
+    for (src, expected) in value_cases {
+        run_i64(src, *expected);
+    }
+
+    let predicate_cases: &[(&str, bool)] = &[
+        ("Some(1).is_some()", true),
+        ("let x: Option<i64> = None; x.is_some()", false),
+        ("Some(1).is_none()", false),
+        ("let x: Option<i64> = None; x.is_none()", true),
+    ];
+    for (src, expected) in predicate_cases {
+        run_bool(src, *expected);
+    }
 }
 
 #[test]
@@ -439,71 +502,74 @@ fn option_unwrap_none() {
 }
 
 #[test]
-fn option_unwrap_or() {
-    run_i64("Some(10).unwrap_or(0)", 10);
-    run_i64("let x: Option<i64> = None; x.unwrap_or(99)", 99);
-}
+fn result_combinators() {
+    let value_cases: &[(&str, i64)] = &[
+        ("Ok(42).unwrap()", 42),
+        ("Ok(10).unwrap_or(0)", 10),
+        ("Err(-1).unwrap_or(99)", 99),
+        (
+            "let r = Ok(5); match r.map(fn(v) { v * 3 }) { Ok(v) => v, Err(e) => 0 }",
+            15,
+        ),
+        (
+            "let r: Result<i64, i64> = Err(-1); match r.map(fn(v) { v * 3 }) { Ok(v) => v, Err(e) => e }",
+            -1,
+        ),
+        (
+            "let r = Ok(5); match r.and_then(fn(v) { Ok(v + 100) }) { Ok(v) => v, Err(e) => 0 }",
+            105,
+        ),
+        (
+            "let r: Result<i64, i64> = Err(-1); match r.and_then(fn(v) { Ok(v + 100) }) { Ok(v) => v, Err(e) => e }",
+            -1,
+        ),
+        (
+            "let r = Ok(5); match r.and_then(fn(v: i64) -> Result<i64, i64> { Err(-99) }) { Ok(v) => v, Err(e) => e }",
+            -99,
+        ),
+        (
+            "let r: Result<i64, i64> = Ok(10); match r.map_err(|e| e * 2) { Ok(v) => v, Err(e) => e }",
+            10,
+        ),
+        (
+            "let r: Result<i64, i64> = Err(5); match r.map_err(|e| e * 2) { Ok(v) => v, Err(e) => e }",
+            10,
+        ),
+        ("let r: Result<i64, i64> = Err(42); r.unwrap_err()", 42),
+        (
+            "let r: Result<i64, i64> = Ok(42); r.unwrap_or_else(|e| e * 10)",
+            42,
+        ),
+        (
+            "let r: Result<i64, i64> = Err(5); r.unwrap_or_else(|e| e * 10)",
+            50,
+        ),
+        (
+            "let r: Result<i64, i64> = Ok(42); match r.or_else(|e| Err(e * 2)) { Ok(v) => v, Err(e) => e }",
+            42,
+        ),
+        (
+            "let r: Result<i64, i64> = Err(5); match r.or_else(|e| Ok(e * 10)) { Ok(v) => v, Err(e) => e }",
+            50,
+        ),
+        (
+            "let r: Result<i64, i64> = Err(3); match r.or_else(|e| Err(e + 100)) { Ok(v) => v, Err(e) => e }",
+            103,
+        ),
+    ];
+    for (src, expected) in value_cases {
+        run_i64(src, *expected);
+    }
 
-#[test]
-fn option_is_some() {
-    run_bool("Some(1).is_some()", true);
-    run_bool("let x: Option<i64> = None; x.is_some()", false);
-}
-
-#[test]
-fn option_is_none() {
-    run_bool("Some(1).is_none()", false);
-    run_bool("let x: Option<i64> = None; x.is_none()", true);
-}
-
-#[test]
-fn option_map_some() {
-    run_i64(
-        "let x = Some(5);
-         match x.map(fn(v) { v * 2 }) { Some(v) => v, None => 0 }",
-        10,
-    );
-}
-
-#[test]
-fn option_map_none() {
-    run_i64(
-        "let x: Option<i64> = None;
-         match x.map(fn(v) { v * 2 }) { Some(v) => v, None => -1 }",
-        -1,
-    );
-}
-
-#[test]
-fn option_and_then_some() {
-    run_i64(
-        "let x = Some(5);
-         match x.and_then(fn(v) { Some(v + 10) }) { Some(v) => v, None => 0 }",
-        15,
-    );
-}
-
-#[test]
-fn option_and_then_none_input() {
-    run_i64(
-        "let x: Option<i64> = None;
-         match x.and_then(fn(v) { Some(v + 10) }) { Some(v) => v, None => -1 }",
-        -1,
-    );
-}
-
-#[test]
-fn option_and_then_returns_none() {
-    run_i64(
-        "let x = Some(5);
-         match x.and_then(fn(v: i64) -> Option<i64> { None }) { Some(v) => v, None => -1 }",
-        -1,
-    );
-}
-
-#[test]
-fn result_unwrap_ok() {
-    run_i64("Ok(42).unwrap()", 42);
+    let predicate_cases: &[(&str, bool)] = &[
+        ("Ok(1).is_ok()", true),
+        ("Err(-1).is_ok()", false),
+        ("Ok(1).is_err()", false),
+        ("Err(-1).is_err()", true),
+    ];
+    for (src, expected) in predicate_cases {
+        run_bool(src, *expected);
+    }
 }
 
 #[test]
@@ -513,241 +579,39 @@ fn result_unwrap_err() {
 }
 
 #[test]
-fn result_unwrap_or() {
-    run_i64("Ok(10).unwrap_or(0)", 10);
-    run_i64("Err(-1).unwrap_or(99)", 99);
-}
-
-#[test]
-fn result_is_ok() {
-    run_bool("Ok(1).is_ok()", true);
-    run_bool("Err(-1).is_ok()", false);
-}
-
-#[test]
-fn result_is_err() {
-    run_bool("Ok(1).is_err()", false);
-    run_bool("Err(-1).is_err()", true);
-}
-
-#[test]
-fn result_map_ok() {
-    run_i64(
-        "let r = Ok(5);
-         match r.map(fn(v) { v * 3 }) { Ok(v) => v, Err(e) => 0 }",
-        15,
-    );
-}
-
-#[test]
-fn result_map_err() {
-    run_i64(
-        "let r: Result<i64, i64> = Err(-1);
-         match r.map(fn(v) { v * 3 }) { Ok(v) => v, Err(e) => e }",
-        -1,
-    );
-}
-
-#[test]
-fn result_and_then_ok() {
-    run_i64(
-        "let r = Ok(5);
-         match r.and_then(fn(v) { Ok(v + 100) }) { Ok(v) => v, Err(e) => 0 }",
-        105,
-    );
-}
-
-#[test]
-fn result_and_then_err_input() {
-    run_i64(
-        "let r: Result<i64, i64> = Err(-1);
-         match r.and_then(fn(v) { Ok(v + 100) }) { Ok(v) => v, Err(e) => e }",
-        -1,
-    );
-}
-
-#[test]
-fn result_and_then_returns_err() {
-    run_i64(
-        "let r = Ok(5);
-         match r.and_then(fn(v: i64) -> Result<i64, i64> { Err(-99) }) { Ok(v) => v, Err(e) => e }",
-        -99,
-    );
-}
-
-#[test]
-fn option_unwrap_or_else_some() {
-    run_i64("Some(42).unwrap_or_else(|| 0)", 42);
-}
-
-#[test]
-fn option_unwrap_or_else_none() {
-    run_i64("let x: Option<i64> = None; x.unwrap_or_else(|| 99)", 99);
-}
-
-#[test]
-fn option_ok_some() {
-    run_i64("match Some(10).ok() { Ok(v) => v, Err(_) => -1 }", 10);
-}
-
-#[test]
-fn option_ok_none() {
-    run_i64(
-        "let x: Option<i64> = None; match x.ok() { Ok(v) => v, Err(_) => -1 }",
-        -1,
-    );
-}
-
-#[test]
-fn option_flatten_some_some() {
-    run_i64(
-        "let x = Some(Some(42)); match x.flatten() { Some(v) => v, None => -1 }",
-        42,
-    );
-}
-
-#[test]
-fn option_flatten_some_none() {
-    run_i64(
-        "let inner: Option<i64> = None; let x = Some(inner); match x.flatten() { Some(v) => v, None => -1 }",
-        -1,
-    );
-}
-
-#[test]
-fn option_flatten_none() {
-    run_i64(
-        "let x: Option<Option<i64>> = None; match x.flatten() { Some(v) => v, None => -1 }",
-        -1,
-    );
-}
-
-#[test]
-fn option_zip_both_some() {
-    run_i64(
-        "match Some(1).zip(Some(2)) { Some(pair) => pair.0 + pair.1, None => -1 }",
-        3,
-    );
-}
-
-#[test]
-fn option_zip_first_none() {
-    run_i64(
-        "let a: Option<i64> = None; match a.zip(Some(2)) { Some(pair) => pair.0 + pair.1, None => -1 }",
-        -1,
-    );
-}
-
-#[test]
-fn option_zip_second_none() {
-    run_i64(
-        "let b: Option<i64> = None; match Some(1).zip(b) { Some(pair) => pair.0 + pair.1, None => -1 }",
-        -1,
-    );
-}
-
-#[test]
-fn result_map_err_ok() {
-    run_i64(
-        "let r: Result<i64, i64> = Ok(10);
-         match r.map_err(|e| e * 2) { Ok(v) => v, Err(e) => e }",
-        10,
-    );
-}
-
-#[test]
-fn result_map_err_err() {
-    run_i64(
-        "let r: Result<i64, i64> = Err(5);
-         match r.map_err(|e| e * 2) { Ok(v) => v, Err(e) => e }",
-        10,
-    );
-}
-
-#[test]
-fn result_unwrap_err_on_err() {
-    run_i64("let r: Result<i64, i64> = Err(42); r.unwrap_err()", 42);
-}
-
-#[test]
 #[should_panic(expected = "vm error")]
 fn result_unwrap_err_on_ok() {
     run("let r: Result<i64, i64> = Ok(1); r.unwrap_err()");
 }
 
 #[test]
-fn result_unwrap_or_else_ok() {
-    run_i64(
-        "let r: Result<i64, i64> = Ok(42); r.unwrap_or_else(|e| e * 10)",
-        42,
-    );
-}
-
-#[test]
-fn result_unwrap_or_else_err() {
-    run_i64(
-        "let r: Result<i64, i64> = Err(5); r.unwrap_or_else(|e| e * 10)",
-        50,
-    );
-}
-
-#[test]
-fn result_ok_on_ok() {
-    run_i64(
-        "let r: Result<i64, i64> = Ok(42); match r.ok() { Some(v) => v, None => -1 }",
-        42,
-    );
-}
-
-#[test]
-fn result_ok_on_err() {
-    run_i64(
-        "let r: Result<i64, i64> = Err(5); match r.ok() { Some(v) => v, None => -1 }",
-        -1,
-    );
-}
-
-#[test]
-fn result_err_on_err() {
-    run_i64(
-        "let r: Result<i64, i64> = Err(42); match r.err() { Some(e) => e, None => -1 }",
-        42,
-    );
-}
-
-#[test]
-fn result_err_on_ok() {
-    run_i64(
-        "let r: Result<i64, i64> = Ok(5); match r.err() { Some(e) => e, None => -1 }",
-        -1,
-    );
-}
-
-#[test]
-fn result_or_else_ok() {
-    run_i64(
-        "let r: Result<i64, i64> = Ok(42);
-         match r.or_else(|e| Err(e * 2)) { Ok(v) => v, Err(e) => e }",
-        42,
-    );
-}
-
-#[test]
-fn result_or_else_err_to_ok() {
-    run_i64(
-        "let r: Result<i64, i64> = Err(5);
-         match r.or_else(|e| Ok(e * 10)) { Ok(v) => v, Err(e) => e }",
-        50,
-    );
-}
-
-#[test]
-fn result_or_else_err_to_err() {
-    run_i64(
-        "let r: Result<i64, i64> = Err(3);
-         match r.or_else(|e| Err(e + 100)) { Ok(v) => v, Err(e) => e }",
-        103,
-    );
+fn option_result_conversions() {
+    let cases: &[(&str, i64)] = &[
+        ("match Some(10).ok() { Ok(v) => v, Err(_) => -1 }", 10),
+        (
+            "let x: Option<i64> = None; match x.ok() { Ok(v) => v, Err(_) => -1 }",
+            -1,
+        ),
+        (
+            "let r: Result<i64, i64> = Ok(42); match r.ok() { Some(v) => v, None => -1 }",
+            42,
+        ),
+        (
+            "let r: Result<i64, i64> = Err(5); match r.ok() { Some(v) => v, None => -1 }",
+            -1,
+        ),
+        (
+            "let r: Result<i64, i64> = Err(42); match r.err() { Some(e) => e, None => -1 }",
+            42,
+        ),
+        (
+            "let r: Result<i64, i64> = Ok(5); match r.err() { Some(e) => e, None => -1 }",
+            -1,
+        ),
+    ];
+    for (src, expected) in cases {
+        run_i64(src, *expected);
+    }
 }
 
 #[test]
