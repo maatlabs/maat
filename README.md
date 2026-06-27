@@ -11,6 +11,7 @@
 [![CI](https://github.com/maatlabs/maat/workflows/CI/badge.svg)](https://github.com/maatlabs/maat/actions)
 [![License](https://img.shields.io/crates/l/maat.svg)](https://github.com/maatlabs/maat#license)
 [![Crates.io](https://img.shields.io/crates/v/maat.svg)](https://crates.io/crates/maat)
+[![MSRV](https://img.shields.io/crates/msrv/maat.svg)](https://crates.io/crates/maat)
 [![Releases](https://img.shields.io/github/v/release/maatlabs/maat)](https://github.com/maatlabs/maat/releases)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-ff69b4.svg?style=flat-square)](https://github.com/maatlabs/maat/blob/main/CONTRIBUTING.md)
 
@@ -28,7 +29,7 @@ Source files written in Maat use the `.maat` extension. Compiled bytecode files 
 
 ### Prerequisites
 
-- [Rust](https://www.rust-lang.org/tools/install) 1.85 or later (with `rustup`)
+- [Rust](https://www.rust-lang.org/tools/install) 1.89 or later (with `rustup`) --- the minimum supported Rust version, declared as `rust-version` in the workspace manifest and enforced in CI
 - Cargo (comes with Rust)
 
 ### Installation
@@ -404,7 +405,7 @@ cargo doc --all-features --no-deps --open
 
 ## Architecture
 
-Maat uses a multi-module compilation pipeline. Source files are parsed into per-module ASTs, organized into a dependency graph by `maat_module`, type-checked independently with cross-module visibility enforcement, compiled to bytecode by a shared `maat_codegen` compiler instance (which implicitly links all modules into a single instruction stream), and executed on the stack-based `maat_vm`. The `maat_eval` crate (the tree-walking evaluator) is reduced to a macro-expansion-only engine (`define_macros`/`expand_macros`). The STARK proof system begins with `maat_trace`, a trace-generating VM that records every instruction step into a 56-column algebraic witness matrix over the Goldilocks field (sub-selector witnesses for 16 opcode sub-classes, comparison and division auxiliaries, and a per-row encoded operand width); heap accesses go through per-instance memory segments via `MemorySegmentManager`, and a relocation pass between trace finalization and proof generation flattens those segments into the single AIR address space, fills sparse-segment holes, and appends the public-memory accumulator's dummy rows. `maat_air` encodes the CPU semantics as 81 main + 20 auxiliary Winterfell transition constraints (output correctness for arithmetic/bitwise/ordering/equality, universal PC advance, unified memory permutation, public-memory accumulator over the multi-cell output segment, range-check sub-AIR, and builtin-segment ABI), with static `pub const` transition-degree arrays (no per-trace FFT detection); `maat_prover` wires the AIR to Winterfell to produce and verify proofs.
+Maat uses a multi-module compilation pipeline. Source files are parsed into per-module ASTs, organized into a dependency graph by `maat_module`, type-checked independently with cross-module visibility enforcement, compiled to bytecode by a shared `maat_codegen` compiler instance (which implicitly links all modules into a single instruction stream), and executed on the stack-based `maat_vm`. The `maat_eval` crate (the tree-walking evaluator) is reduced to a macro-expansion-only engine (`define_macros`/`expand_macros`). The STARK proof system begins with `maat_trace`, a trace-generating VM that records every instruction step into a 69-column algebraic witness matrix over the Goldilocks field (sub-selector witnesses for 20 opcode sub-classes, comparison and division auxiliaries, and a per-row encoded operand width); heap accesses go through per-instance memory segments via `MemorySegmentManager`, and a relocation pass between trace finalization and proof generation flattens those segments into the single AIR address space, fills sparse-segment holes, and appends the public-memory accumulator's dummy rows. `maat_air` encodes the CPU semantics as 105 main + 38 auxiliary Winterfell transition constraints (output correctness for arithmetic/bitwise/ordering/equality, universal PC advance, unified memory permutation, public-memory accumulator over the multi-cell output segment, range-check sub-AIR, and builtin-segment ABI), with static `pub const` transition-degree arrays (no per-trace FFT detection); `maat_prover` wires the AIR to Winterfell to produce and verify proofs.
 
 The type checker infers types for each module using Hindley-Milner inference (Algorithm W), with imported bindings injected from dependency modules' public exports. Type annotations are optional--the inference engine deduces types from usage--but can be provided on `let` bindings, function parameters, and return types for documentation or to constrain polymorphism. Generic functions with parametric polymorphism are supported (`fn identity<T>(x: T) -> T { x }`). Tuples, `char`, `Map<K, V>`, `Set<T>`, `Vector<T>`, and fixed-size arrays `[T; N]` are all first-class types with full inference support. `Felt` (Goldilocks field element) is a first-class numeric type for zero-knowledge arithmetic.
 
@@ -414,26 +415,26 @@ Errors are reported with precise `file:line:col` locations using source maps and
 
 ### Crate Organization
 
-| Crate             | Description                                                                                                        |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------ |
-| [`maat`]          | The CLI for commands such as `build`, `trace`, `repl`, `prove`, and `verify`                                       |
-| [`maat_span`]     | Source location tracking and span management                                                                       |
-| [`maat_errors`]   | Unified error handling with `Result` type alias                                                                    |
-| [`maat_lexer`]    | `logos` compile-time DFA tokenizer                                                                                 |
-| [`maat_ast`]      | Abstract Syntax Tree definitions and transformations                                                               |
-| [`maat_parser`]   | `winnow` combinator-based parser                                                                                   |
-| [`maat_eval`]     | Macro expansion engine (`quote`/`unquote`)                                                                         |
-| [`maat_runtime`]  | Value system, built-in functions, and compiled types                                                               |
-| [`maat_types`]    | Hindley-Milner type inference (Algorithm W)                                                                        |
-| [`maat_field`]    | Goldilocks field element (`Felt`) arithmetic                                                                       |
-| [`maat_bytecode`] | Instruction set encoding/decoding and serialization (50 opcodes)                                                   |
-| [`maat_trace`]    | Trace-generating VM producing a 56-column algebraic execution trace for ZK proving                                 |
-| [`maat_air`]      | CPU constraint system (AIR): 101 polynomial constraints (81 main + 20 aux) with static declared transition degrees |
-| [`maat_prover`]   | STARK prover and verifier: generates and validates cryptographic proofs of execution                               |
-| [`maat_codegen`]  | AST-to-bytecode compiler with scope analysis                                                                       |
-| [`maat_module`]   | Module resolution, dependency graph, and multi-module pipeline                                                     |
-| [`maat_vm`]       | Stack-based virtual machine                                                                                        |
-| [`maat_stdlib`]   | Embedded standard library sources (`std::math`, `std::vec`, …)                                                     |
+| Crate             | Description                                                                                                         |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------- |
+| [`maat`]          | The CLI for commands such as `build`, `trace`, `repl`, `prove`, and `verify`                                        |
+| [`maat_span`]     | Source location tracking and span management                                                                        |
+| [`maat_errors`]   | Unified error handling with `Result` type alias                                                                     |
+| [`maat_lexer`]    | `logos` compile-time DFA tokenizer                                                                                  |
+| [`maat_ast`]      | Abstract Syntax Tree definitions and transformations                                                                |
+| [`maat_parser`]   | `winnow` combinator-based parser                                                                                    |
+| [`maat_eval`]     | Macro expansion engine (`quote`/`unquote`)                                                                          |
+| [`maat_runtime`]  | Value system, built-in functions, and compiled types                                                                |
+| [`maat_types`]    | Hindley-Milner type inference (Algorithm W)                                                                         |
+| [`maat_field`]    | Goldilocks field element (`Felt`) arithmetic                                                                        |
+| [`maat_bytecode`] | Instruction set encoding/decoding and serialization (50 opcodes)                                                    |
+| [`maat_trace`]    | Trace-generating VM producing a 69-column algebraic execution trace for ZK proving                                  |
+| [`maat_air`]      | CPU constraint system (AIR): 143 polynomial constraints (105 main + 38 aux) with static declared transition degrees |
+| [`maat_prover`]   | STARK prover and verifier: generates and validates cryptographic proofs of execution                                |
+| [`maat_codegen`]  | AST-to-bytecode compiler with scope analysis                                                                        |
+| [`maat_module`]   | Module resolution, dependency graph, and multi-module pipeline                                                      |
+| [`maat_vm`]       | Stack-based virtual machine                                                                                         |
+| [`maat_stdlib`]   | Embedded standard library sources (`std::math`, `std::vec`, …)                                                      |
 
 ## Contributing
 
@@ -461,11 +462,11 @@ Maat's development follows a phased milestone plan.
 
 ## Status
 
-Maat is currently at version `0.18.0`. The compiler frontend, type system, module system, bytecode VM, and CLI toolchain are functional and tested. The ZK backend proves and verifies a top-level `fn main(<params>) -> T` entry point with public (`pub`) parameters bound cell-by-cell into the public-memory accumulator and private (bare) parameters bound to an uncommitted prover-supplied witness, plus user-defined function calls with parameters, return values, nested calls, bounded recursion, arithmetic, bitwise operations (AND / OR / XOR / SHL / SHR over a chunked-LogUp argument), ordering comparisons across every integer width up through `u64`/`i64`/`usize`/`isize`, fixed-size arrays `[T; N]` (including nested `[[T; N]; M]`) over primitive `T`, segment-backed `Vector<T>`, segment-backed closure captures, and Rescue-Prime hashing (`hash::rescue_2` / `rescue_4` / `rescue_8`). The verifier-side public-I/O bundle (`maat verify --public-io / --input / --expect-output / --expect-program{,-hash}`) adds an assertion layer over the cryptographic verify. All `examples/*.maat` programs prove and verify end-to-end. See the [current limitations](#current-limitations) for gaps deferred to future releases.
+Maat is currently at version `0.19.0`. The compiler frontend, type system, module system, bytecode VM, and CLI toolchain are functional and tested. The ZK backend proves and verifies a top-level `fn main(<params>) -> T` entry point with public (`pub`) parameters bound cell-by-cell into the public-memory accumulator and private (bare) parameters bound to an uncommitted prover-supplied witness, plus user-defined function calls with parameters, return values, nested calls, bounded recursion, arithmetic, bitwise operations (AND / OR / XOR / SHL / SHR over a chunked-LogUp argument), ordering comparisons across every integer width up through `u64`/`i64`/`usize`/`isize`, fixed-size arrays `[T; N]` (including nested `[[T; N]; M]`) over primitive `T`, segment-backed `Vector<T>`, segment-backed closure captures, and Rescue-Prime hashing (`hash::rescue_2` / `rescue_4` / `rescue_8`). The verifier-side public-I/O bundle (`maat verify --public-io / --input / --expect-output / --expect-program{,-hash}`) adds an assertion layer over the cryptographic verify. All `examples/*.maat` programs prove and verify end-to-end. See the [current limitations](#current-limitations) for gaps deferred to future releases.
 
 ## Disclaimer
 
-Early adopters should be aware that Maat `0.18.0` is a step toward Maat 1.0, for which a formal audit process is expected. In the meantime, we invite you to explore and experiment with Maat, but we do not recommend using it to build mission-critical systems.
+Early adopters should be aware that Maat `0.19.0` is a step toward Maat 1.0, for which a formal audit process is expected. In the meantime, we invite you to explore and experiment with Maat, but we do not recommend using it to build mission-critical systems.
 
 ## Acknowledgments
 
