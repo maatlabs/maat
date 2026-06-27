@@ -10,6 +10,10 @@ repository.workspace = true
 homepage.workspace = true
 readme = "README.md"
 
+[lib]
+name = "maat"
+path = "src/lib.rs"
+
 [[bin]]
 name = "maat"
 path = "src/main.rs"
@@ -36,6 +40,7 @@ maat_trace.workspace = true
 maat_air.workspace = true
 maat_prover.workspace = true
 maat_module.workspace = true
+maat_stdlib.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

@@ -727,6 +727,7 @@ dependencies = [
  "maat_prover",
  "maat_runtime",
  "maat_span",
+ "maat_stdlib",
  "maat_trace",
  "maat_types",
  "maat_vm",
