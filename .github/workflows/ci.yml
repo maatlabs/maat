@@ -6,11 +6,14 @@ on:
     pull_request:
         branches: [master, main]
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
 env:
     RUST_BACKTRACE: 1
     CARGO_TERM_COLOR: always
     CARGO_NET_GIT_FETCH_WITH_CLI: true
-    FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
     build:
@@ -87,3 +90,35 @@ jobs:
             - run: cargo doc --all-features --no-deps --document-private-items --workspace
               env:
                   RUSTDOCFLAGS: -D warnings
+
+    msrv:
+        name: MSRV (1.89)
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: dtolnay/rust-toolchain@master
+              with:
+                  toolchain: "1.89"
+            - uses: Swatinem/rust-cache@v2
+            - run: cargo check --all-features --all-targets --workspace
+
+    examples:
+        name: Examples (run + prove/verify)
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: dtolnay/rust-toolchain@stable
+            - uses: Swatinem/rust-cache@v2
+            - run: cargo build --release --bin maat
+            - name: Run, prove, and verify every example
+              run: |
+                  set -euo pipefail
+                  bin=target/release/maat
+                  for f in examples/*.maat; do
+                      echo "== $f =="
+                      "$bin" run "$f"
+                      proof="$(mktemp).bin"
+                      "$bin" prove -o "$proof" "$f"
+                      "$bin" verify "$proof"
+                      rm -f "$proof"
+                  done

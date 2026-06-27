@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-06-27
+
+### Added
+
+- **`maat` library facade.** The `maat` crate now ships a library target alongside its binary, re-exporting every member crate as a short namespaced module (`maat::field`, `maat::ast`, `maat::parser`, `maat::types`, `maat::codegen`, `maat::vm`, `maat::trace`, `maat::air`, `maat::prover`, `maat::module`, ...) plus a `maat::prelude` carrying the common compile/execute/prove/verify entry points (`Felt`, `Bytecode`, `Value`, `VM`, `resolve_module_graph`, `check_and_compile`, `run_with_output`, `MaatProver`, `verify`, `serialize_proof`, `deserialize_proof`, `PublicIo`, `extract_public_io`, `MaatPublicInputs`, ...). Downstream Rust tooling can now depend on the single `maat` crate instead of the individual `maat_*` crates. Purely additive: no compiler, AIR, wire-format, or CLI change, and the `maat` binary is unaffected.
+- **Declared and enforced minimum supported Rust version (MSRV).** The workspace now pins `rust-version = "1.89"` (inherited by every member crate) and a CI job builds the workspace on exactly 1.89 to catch regressions. A `crates.io/msrv` badge is added to the README. Building on older toolchains was never actually supported---the Winterfell 0.13 stack requires rustc 1.87 and `rustyline`'s history file-locking requires the `file_lock` API stabilised in 1.89---so the manifest now makes the real floor explicit.
+
+### Changed
+
+- **Leaner auxiliary trace: retired the vestigial identity builtin.** A width-1 auxiliary column pinned to the field identity---plus its one transition constraint and two boundary assertions---was carried on every proof solely to exercise the builtin-dispatcher registry path. That path is now exercised by four real builtins (range-check, bitwise, LogUp, Rescue), so the placeholder is removed. Every proof's auxiliary trace is now one full-length column narrower, with one fewer aux transition constraint and two fewer boundary assertions; the auxiliary challenge count is unchanged. AIR-breaking: the auxiliary-segment width and constraint count change, so v0.18.0 proofs no longer verify---recompile and re-prove from source. No bytecode-wire change, no proof-wire-header change (`PROOF_VERSION` stays 6), no CLI change. All `examples/*.maat` programs prove and verify end-to-end.
+- **CI/CD update.** The pipeline now gates the language's own success metric---a job runs, proves, and verifies every `examples/*.maat` program on each push and pull request. Supply-chain coverage gains a `cargo-deny` job (license allow-list, advisory and yanked-crate gating, registry source restriction via `deny.toml`) alongside the existing `cargo-audit`. The README-pinned MSRV is enforced by a dedicated 1.89 build job. `concurrency` groups cancel superseded in-flight runs across all workflows, and a stale non-standard Node-runtime override env var is removed from every workflow.
+
+### Security
+
+- **Threat model reconciled as a living status ledger.** `SECURITY.md` now carries an explicit per-class status (Mitigated / Accepted-risk / Open) for each attacker class, re-checked against the shipped AIR. The inline-composite forgery surface (`Map` / `Set` / `str` / `struct` / `enum` cells not yet covered by the memory-permutation argument) is promoted to an explicit **Open** item; the hash-collision algorithmic-complexity vector is recorded as **Accepted-risk** under the single-user execution model. Documentation drift corrected to match the shipped code: proof-header version `5 -> 6`, minimum header `32 -> 36` bytes, and crate count `17 -> 18` (the `maat` umbrella crate's library target joins its binary under `forbid(unsafe_code)`). No code, AIR, or wire change.
+
 ## [0.18.0] - 2026-06-05
 
 Closes soundness gaps. The main change pins every heap-write's published value to the stack top that produced it (`sel_heap_write * (mem_val - s0) = 0`), closing a uniform heap-write forgery vector in which a `main`-returned `Vector` could publish a value it never computed by co-forging the public-output cell so the memory-permutation accumulator still closed. Three parser/type-checker changes: inline fixed-array literals coerce at the call boundary, nested `[[T; N]; M]` literals infer and lower correctly, nested generic types (`Option<Option<T>>`, `Vector<Vector<T>>`, `Map<K, Option<V>>`) parse. The release breaks the AIR (constraint count and trace width change) but does **not** change the proof wire format (`PROOF_VERSION` stays 6), the bytecode wire format, or the CLI surface. All `examples/*.maat` programs prove and verify end-to-end.
@@ -1496,6 +1512,7 @@ When adding entries to this changelog for future releases:
 3. **Audience**: Write for users, not developers (focus on impact, not implementation)
 4. **Links**: Add comparison links at the bottom: `[0.2.0]: https://github.com/maatlabs/maat/compare/v0.1.0...v0.2.0`
 
+[0.19.0]: https://github.com/maatlabs/maat/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/maatlabs/maat/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/maatlabs/maat/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/maatlabs/maat/compare/v0.15.0...v0.16.0

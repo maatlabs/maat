@@ -6,9 +6,14 @@ categories = ["compilers", "command-line-utilities"]
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
 repository.workspace = true
 homepage.workspace = true
 readme = "README.md"
+
+[lib]
+name = "maat"
+path = "src/lib.rs"
 
 [[bin]]
 name = "maat"
@@ -36,6 +41,7 @@ maat_trace.workspace = true
 maat_air.workspace = true
 maat_prover.workspace = true
 maat_module.workspace = true
+maat_stdlib.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

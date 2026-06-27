@@ -6,6 +6,7 @@ categories = ["compilers", "cryptography"]
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
 repository.workspace = true
 homepage.workspace = true
 readme = "README.md"
