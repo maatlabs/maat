@@ -160,7 +160,7 @@ These are acceptable for the current architecture. `Felt` (field element) arithm
 
 ## Fuzz Testing
 
-Nine fuzz targets cover the full compiler and proof-system pipeline via `cargo-fuzz` (libFuzzer). All are exercised in CI on every pull request (60 s) and nightly (300 s).
+Nine fuzz targets cover the full compiler and proof-system pipeline via `cargo-fuzz` (libFuzzer). The five compiler-pipeline targets run in CI on every pull request (60 s) and nightly (300 s); the four proof-system targets (below) are run locally.
 
 **Compiler pipeline** (no seed corpus required; libFuzzer builds coverage from a single null byte):
 
