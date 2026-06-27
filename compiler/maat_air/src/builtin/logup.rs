@@ -735,7 +735,7 @@ impl Builtin for LogUpBuiltin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::builtin::{BitwiseBuiltin, IdentityBuiltin, RangeCheckBuiltin};
+    use crate::builtin::{BitwiseBuiltin, RangeCheckBuiltin};
 
     type F = BaseElement;
 
@@ -1343,7 +1343,6 @@ mod tests {
         let ranges = [
             RangeCheckBuiltin::RESERVED_ADDRESS_RANGE,
             BitwiseBuiltin::RESERVED_ADDRESS_RANGE,
-            IdentityBuiltin::RESERVED_ADDRESS_RANGE,
             LogUpBuiltin::RESERVED_ADDRESS_RANGE,
         ];
         for &(lo, hi) in &ranges {

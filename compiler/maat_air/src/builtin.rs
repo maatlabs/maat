@@ -28,7 +28,6 @@
 
 pub mod bitwise;
 pub mod diluted;
-pub mod identity;
 pub mod logup;
 pub mod range_check;
 pub mod rescue;
@@ -39,7 +38,6 @@ pub use diluted::{
     SPREAD_MASK, STRIDE, bitwise_identity_residuals, chunk_decompose, chunk_recompose,
     chunk_weight, chunk_witness, dilute, is_in_pool, pool_entries, undilute,
 };
-pub use identity::IdentityBuiltin;
 pub use logup::{
     AirPool, Channel, ChannelSource, LogUpBuiltin, LogUpColumns, LookupTable, TableId, TableSpec,
     evaluate_transition_step,
@@ -221,13 +219,11 @@ pub trait Builtin {
 struct Layout {
     range_check_aux_base: usize,
     bitwise_aux_base: usize,
-    identity_aux_base: usize,
     logup_aux_base: usize,
     rescue_aux_base: usize,
     aux_end: usize,
     range_check_rand_base: usize,
     bitwise_rand_base: usize,
-    identity_rand_base: usize,
     logup_rand_base: usize,
     rescue_rand_base: usize,
     rand_end: usize,
@@ -239,45 +235,38 @@ impl Layout {
     fn compute(
         range_check: &RangeCheckBuiltin,
         bitwise: &BitwiseBuiltin,
-        identity: &IdentityBuiltin,
         logup: &LogUpBuiltin,
         rescue: &RescueHashBuiltin,
     ) -> Self {
         let range_check_aux_base = MEMORY_AUX_WIDTH;
         let bitwise_aux_base = range_check_aux_base + range_check.aux_width();
-        let identity_aux_base = bitwise_aux_base + bitwise.aux_width();
-        let logup_aux_base = identity_aux_base + identity.aux_width();
+        let logup_aux_base = bitwise_aux_base + bitwise.aux_width();
         let rescue_aux_base = logup_aux_base + logup.aux_width();
         let aux_end = rescue_aux_base + rescue.aux_width();
 
         let range_check_rand_base = MEMORY_NUM_AUX_RANDS;
         let bitwise_rand_base = range_check_rand_base + range_check.num_aux_rands();
-        let identity_rand_base = bitwise_rand_base + bitwise.num_aux_rands();
-        let logup_rand_base = identity_rand_base + identity.num_aux_rands();
+        let logup_rand_base = bitwise_rand_base + bitwise.num_aux_rands();
         let rescue_rand_base = logup_rand_base + logup.num_aux_rands();
         let rand_end = rescue_rand_base + rescue.num_aux_rands();
 
         let total_num_aux_constraints = range_check.num_aux_constraints()
             + bitwise.num_aux_constraints()
-            + identity.num_aux_constraints()
             + logup.num_aux_constraints()
             + rescue.num_aux_constraints();
         let total_num_aux_assertions = range_check.num_aux_assertions()
             + bitwise.num_aux_assertions()
-            + identity.num_aux_assertions()
             + logup.num_aux_assertions()
             + rescue.num_aux_assertions();
 
         Self {
             range_check_aux_base,
             bitwise_aux_base,
-            identity_aux_base,
             logup_aux_base,
             rescue_aux_base,
             aux_end,
             range_check_rand_base,
             bitwise_rand_base,
-            identity_rand_base,
             logup_rand_base,
             rescue_rand_base,
             rand_end,
@@ -293,7 +282,6 @@ pub static BUILTIN_SET: std::sync::LazyLock<BuiltinSet> = std::sync::LazyLock::n
 pub struct BuiltinSet {
     pub range_check: RangeCheckBuiltin,
     pub bitwise: BitwiseBuiltin,
-    pub identity: IdentityBuiltin,
     pub logup: LogUpBuiltin,
     pub rescue: RescueHashBuiltin,
     layout: Layout,
@@ -309,16 +297,10 @@ impl BuiltinSet {
     pub fn new() -> Self {
         let range_check = RangeCheckBuiltin;
         let bitwise = BitwiseBuiltin;
-        let identity = IdentityBuiltin;
         let rescue = RescueHashBuiltin;
 
-        let layout_without_logup = Layout::compute(
-            &range_check,
-            &bitwise,
-            &identity,
-            &LogUpBuiltin::default(),
-            &rescue,
-        );
+        let layout_without_logup =
+            Layout::compute(&range_check, &bitwise, &LogUpBuiltin::default(), &rescue);
         let rc_base = layout_without_logup.range_check_aux_base;
 
         let byte_table_pool = build_air_pool_for_range_check(rc_base);
@@ -326,12 +308,11 @@ impl BuiltinSet {
         let diluted_pool = build_air_pool_diluted(layout_without_logup.bitwise_aux_base);
         let logup = LogUpBuiltin::with_pools(vec![byte_table_pool, pow2_pool, diluted_pool]);
 
-        let layout = Layout::compute(&range_check, &bitwise, &identity, &logup, &rescue);
+        let layout = Layout::compute(&range_check, &bitwise, &logup, &rescue);
 
         Self {
             range_check,
             bitwise,
-            identity,
             logup,
             rescue,
             layout,
@@ -344,10 +325,6 @@ impl BuiltinSet {
 
     pub fn bitwise_aux_base(&self) -> usize {
         self.layout.bitwise_aux_base
-    }
-
-    pub fn identity_aux_base(&self) -> usize {
-        self.layout.identity_aux_base
     }
 
     pub fn logup_aux_base(&self) -> usize {
@@ -364,10 +341,6 @@ impl BuiltinSet {
 
     pub fn bitwise_rand_base(&self) -> usize {
         self.layout.bitwise_rand_base
-    }
-
-    pub fn identity_rand_base(&self) -> usize {
-        self.layout.identity_rand_base
     }
 
     pub fn logup_rand_base(&self) -> usize {
@@ -398,7 +371,6 @@ impl BuiltinSet {
         let mut out = Vec::with_capacity(self.total_num_aux_constraints());
         out.extend(self.range_check.aux_constraint_degrees());
         out.extend(self.bitwise.aux_constraint_degrees());
-        out.extend(self.identity.aux_constraint_degrees());
         out.extend(self.logup.aux_constraint_degrees());
         out.extend(self.rescue.aux_constraint_degrees());
         out
@@ -420,7 +392,6 @@ impl BuiltinSet {
 
         let (rc_result, rest) = result.split_at_mut(self.range_check.num_aux_constraints());
         let (bw_result, rest) = rest.split_at_mut(self.bitwise.num_aux_constraints());
-        let (id_result, rest) = rest.split_at_mut(self.identity.num_aux_constraints());
         let (lu_result, re_result) = rest.split_at_mut(self.logup.num_aux_constraints());
 
         let rc_rands =
@@ -436,8 +407,7 @@ impl BuiltinSet {
             rc_result,
         );
 
-        let bw_rands =
-            &rand_elements[self.layout.bitwise_rand_base..self.layout.identity_rand_base];
+        let bw_rands = &rand_elements[self.layout.bitwise_rand_base..self.layout.logup_rand_base];
 
         self.bitwise.evaluate_aux_transition::<F, E>(
             main_curr,
@@ -447,18 +417,6 @@ impl BuiltinSet {
             self.layout.bitwise_aux_base,
             bw_rands,
             bw_result,
-        );
-
-        let id_rands = &rand_elements[self.layout.identity_rand_base..self.layout.logup_rand_base];
-
-        self.identity.evaluate_aux_transition::<F, E>(
-            main_curr,
-            main_next,
-            aux_curr,
-            aux_next,
-            self.layout.identity_aux_base,
-            id_rands,
-            id_result,
         );
 
         let lu_rands = &rand_elements[self.layout.logup_rand_base..self.layout.rescue_rand_base];
@@ -493,16 +451,13 @@ impl BuiltinSet {
     ) -> Vec<Vec<E>> {
         let rc_rands =
             &rand_elements[self.layout.range_check_rand_base..self.layout.bitwise_rand_base];
-        let bw_rands =
-            &rand_elements[self.layout.bitwise_rand_base..self.layout.identity_rand_base];
-        let id_rands = &rand_elements[self.layout.identity_rand_base..self.layout.logup_rand_base];
+        let bw_rands = &rand_elements[self.layout.bitwise_rand_base..self.layout.logup_rand_base];
         let lu_rands = &rand_elements[self.layout.logup_rand_base..self.layout.rescue_rand_base];
         let re_rands = &rand_elements[self.layout.rescue_rand_base..self.layout.rand_end];
 
         let mut cols = Vec::with_capacity(self.total_aux_width());
         cols.extend(self.range_check.build_aux_columns(main_columns, rc_rands));
         cols.extend(self.bitwise.build_aux_columns(main_columns, bw_rands));
-        cols.extend(self.identity.build_aux_columns(main_columns, id_rands));
         cols.extend(self.logup.build_aux_columns(main_columns, lu_rands));
         cols.extend(self.rescue.build_aux_columns(main_columns, re_rands));
         cols
@@ -512,7 +467,6 @@ impl BuiltinSet {
         [
             self.range_check.periodic_columns(),
             self.bitwise.periodic_columns(),
-            self.identity.periodic_columns(),
             self.logup.periodic_columns(),
             self.rescue.periodic_columns(),
         ]
@@ -533,10 +487,6 @@ impl BuiltinSet {
         out.extend(
             self.bitwise
                 .aux_assertions::<E>(self.layout.bitwise_aux_base, last_step),
-        );
-        out.extend(
-            self.identity
-                .aux_assertions::<E>(self.layout.identity_aux_base, last_step),
         );
         out.extend(
             self.logup
@@ -566,7 +516,6 @@ mod tests {
             set.total_aux_width(),
             set.range_check.aux_width()
                 + set.bitwise.aux_width()
-                + set.identity.aux_width()
                 + set.logup.aux_width()
                 + set.rescue.aux_width()
         );
@@ -577,7 +526,6 @@ mod tests {
             set.total_num_aux_constraints(),
             set.range_check.num_aux_constraints()
                 + set.bitwise.num_aux_constraints()
-                + set.identity.num_aux_constraints()
                 + set.logup.num_aux_constraints()
                 + set.rescue.num_aux_constraints()
         );
@@ -629,22 +577,14 @@ mod tests {
             MEMORY_AUX_WIDTH + set.range_check.aux_width()
         );
         assert_eq!(
-            set.identity_aux_base(),
-            MEMORY_AUX_WIDTH + set.range_check.aux_width() + set.bitwise.aux_width()
-        );
-        assert_eq!(
             set.logup_aux_base(),
-            MEMORY_AUX_WIDTH
-                + set.range_check.aux_width()
-                + set.bitwise.aux_width()
-                + set.identity.aux_width()
+            MEMORY_AUX_WIDTH + set.range_check.aux_width() + set.bitwise.aux_width()
         );
         assert_eq!(
             set.rescue_aux_base(),
             MEMORY_AUX_WIDTH
                 + set.range_check.aux_width()
                 + set.bitwise.aux_width()
-                + set.identity.aux_width()
                 + set.logup.aux_width()
         );
         assert_eq!(set.range_check_rand_base(), MEMORY_NUM_AUX_RANDS);
@@ -653,22 +593,14 @@ mod tests {
             MEMORY_NUM_AUX_RANDS + set.range_check.num_aux_rands()
         );
         assert_eq!(
-            set.identity_rand_base(),
-            MEMORY_NUM_AUX_RANDS + set.range_check.num_aux_rands() + set.bitwise.num_aux_rands()
-        );
-        assert_eq!(
             set.logup_rand_base(),
-            MEMORY_NUM_AUX_RANDS
-                + set.range_check.num_aux_rands()
-                + set.bitwise.num_aux_rands()
-                + set.identity.num_aux_rands()
+            MEMORY_NUM_AUX_RANDS + set.range_check.num_aux_rands() + set.bitwise.num_aux_rands()
         );
         assert_eq!(
             set.rescue_rand_base(),
             MEMORY_NUM_AUX_RANDS
                 + set.range_check.num_aux_rands()
                 + set.bitwise.num_aux_rands()
-                + set.identity.num_aux_rands()
                 + set.logup.num_aux_rands()
         );
     }
@@ -678,7 +610,6 @@ mod tests {
         let set = BuiltinSet::new();
         assert!(set.range_check.periodic_columns().is_empty());
         assert!(set.bitwise.periodic_columns().is_empty());
-        assert!(set.identity.periodic_columns().is_empty());
         assert!(set.logup.periodic_columns().is_empty());
 
         let rescue_cols = set.rescue.periodic_columns();
@@ -773,7 +704,6 @@ mod tests {
         let ranges = [
             RangeCheckBuiltin::RESERVED_ADDRESS_RANGE,
             BitwiseBuiltin::RESERVED_ADDRESS_RANGE,
-            IdentityBuiltin::RESERVED_ADDRESS_RANGE,
             LogUpBuiltin::RESERVED_ADDRESS_RANGE,
             RescueHashBuiltin::RESERVED_ADDRESS_RANGE,
         ];

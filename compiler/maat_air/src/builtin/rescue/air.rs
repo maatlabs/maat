@@ -91,7 +91,7 @@ impl Builtin for RescueHashBuiltin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::builtin::{BitwiseBuiltin, IdentityBuiltin, LogUpBuiltin, RangeCheckBuiltin};
+    use crate::builtin::{BitwiseBuiltin, LogUpBuiltin, RangeCheckBuiltin};
 
     #[test]
     fn rescue_builtin_has_zero_footprint() {
@@ -112,7 +112,6 @@ mod tests {
         let other_ranges = [
             RangeCheckBuiltin::RESERVED_ADDRESS_RANGE,
             BitwiseBuiltin::RESERVED_ADDRESS_RANGE,
-            IdentityBuiltin::RESERVED_ADDRESS_RANGE,
             LogUpBuiltin::RESERVED_ADDRESS_RANGE,
         ];
         let (lo, hi) = RescueHashBuiltin::RESERVED_ADDRESS_RANGE;

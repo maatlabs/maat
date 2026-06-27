@@ -253,7 +253,6 @@ mod tests {
     use maat_trace::table::{COL_RC_L0, COL_RC_L1, COL_RC_L2, COL_RC_L3, TRACE_WIDTH};
 
     use super::*;
-    use crate::builtin::Builtin;
     use crate::builtin::range_check::RangeCheckBuiltin;
 
     type F = BaseElement;
@@ -291,12 +290,11 @@ mod tests {
         columns.iter().map(|c| c.as_slice()).collect()
     }
 
-    fn make_aux_row(l2_addr: u64, l2_val: u64, mem_acc: F, identity: F) -> Vec<F> {
+    fn make_aux_row(l2_addr: u64, l2_val: u64, mem_acc: F) -> Vec<F> {
         let mut row = vec![F::ZERO; aux_width()];
         row[AUX_COL_L2_ADDR] = F::new(l2_addr);
         row[AUX_COL_L2_VAL] = F::new(l2_val);
         row[AUX_COL_MEM_ACC] = mem_acc;
-        row[BUILTIN_SET.identity_aux_base()] = identity;
         row
     }
 
@@ -315,17 +313,11 @@ mod tests {
         ]
     }
 
-    fn identity_constraint_offset() -> usize {
-        MEMORY_NUM_CONSTRAINTS
-            + BUILTIN_SET.range_check.num_aux_constraints()
-            + BUILTIN_SET.bitwise.num_aux_constraints()
-    }
-
     #[test]
     fn address_continuity_same_addr_passes() {
         let main = vec![F::ZERO; TRACE_WIDTH];
-        let aux_curr = make_aux_row(5, 10, F::ONE, F::ONE);
-        let aux_next = make_aux_row(5, 10, F::ONE, F::ONE);
+        let aux_curr = make_aux_row(5, 10, F::ONE);
+        let aux_next = make_aux_row(5, 10, F::ONE);
         let mut result = vec![F::ZERO; num_aux_constraints()];
         evaluate(
             &main,
@@ -341,8 +333,8 @@ mod tests {
     #[test]
     fn address_continuity_increment_by_two_fails() {
         let main = vec![F::ZERO; TRACE_WIDTH];
-        let aux_curr = make_aux_row(5, 10, F::ONE, F::ONE);
-        let aux_next = make_aux_row(7, 20, F::ONE, F::ONE);
+        let aux_curr = make_aux_row(5, 10, F::ONE);
+        let aux_next = make_aux_row(7, 20, F::ONE);
         let mut result = vec![F::ZERO; num_aux_constraints()];
         evaluate(
             &main,
@@ -358,8 +350,8 @@ mod tests {
     #[test]
     fn single_value_same_addr_different_val_fails() {
         let main = vec![F::ZERO; TRACE_WIDTH];
-        let aux_curr = make_aux_row(5, 42, F::ONE, F::ONE);
-        let aux_next = make_aux_row(5, 99, F::ONE, F::ONE);
+        let aux_curr = make_aux_row(5, 42, F::ONE);
+        let aux_next = make_aux_row(5, 99, F::ONE);
         let mut result = vec![F::ZERO; num_aux_constraints()];
         evaluate(
             &main,
@@ -370,40 +362,6 @@ mod tests {
             &mut result,
         );
         assert_ne!(result[1], F::ZERO);
-    }
-
-    #[test]
-    fn identity_builtin_frozen_passes() {
-        let main = vec![F::ZERO; TRACE_WIDTH];
-        let aux_curr = make_aux_row(0, 0, F::ONE, F::ONE);
-        let aux_next = make_aux_row(0, 0, F::ONE, F::ONE);
-        let mut result = vec![F::ZERO; num_aux_constraints()];
-        evaluate(
-            &main,
-            &main,
-            &aux_curr,
-            &aux_next,
-            &rands(F::new(7), F::new(3), F::new(11)),
-            &mut result,
-        );
-        assert_eq!(result[identity_constraint_offset()], F::ZERO);
-    }
-
-    #[test]
-    fn identity_builtin_drift_fails() {
-        let main = vec![F::ZERO; TRACE_WIDTH];
-        let aux_curr = make_aux_row(0, 0, F::ONE, F::ONE);
-        let aux_next = make_aux_row(0, 0, F::ONE, F::new(2));
-        let mut result = vec![F::ZERO; num_aux_constraints()];
-        evaluate(
-            &main,
-            &main,
-            &aux_curr,
-            &aux_next,
-            &rands(F::new(7), F::new(3), F::new(11)),
-            &mut result,
-        );
-        assert_ne!(result[identity_constraint_offset()], F::ZERO);
     }
 
     #[test]
@@ -420,9 +378,6 @@ mod tests {
         assert_eq!(aux.len(), aux_width());
         assert_eq!(aux[AUX_COL_MEM_ACC][0], F::ONE);
         assert_eq!(aux[AUX_COL_MEM_ACC][n - 1], F::ONE);
-        for v in &aux[BUILTIN_SET.identity_aux_base()] {
-            assert_eq!(*v, F::ONE);
-        }
     }
 
     #[test]
