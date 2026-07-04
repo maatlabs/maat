@@ -1,7 +1,7 @@
 <div align="center">
   <h1>Maat</h1>
-  <h2>Turing-complete programming language for writing zero-knowledge proofs</h2>
   <img src="./assets/maat-lang-transparent-logo.png" alt="Logo" height="200" width="200">
+  <h2>Turing-complete programming language for writing zero-knowledge proofs</h2>
   <br />
 </div>
 
@@ -21,7 +21,9 @@
 
 ## Overview
 
-Proof-Driven Development (PDD) is software development methodology that emphasizes formal verification and mathematical proofs to ensure the correctness and reliability of code. It is an extension of test-driven development (TDD), but instead of relying solely on tests, it uses formal methods to prove properties of the code.
+Maat is a statically typed, Turing-complete programming language for writing zero-knowledge proofs. Its syntax and semantics mirror Rust, but its type system and execution model are constrained to constructs valid within zero-knowledge circuits.
+
+Maat compiles to a custom bytecode executed by a stack-based virtual machine. The same bytecode is consumed by an instrumented trace-generating VM that records execution traces for STARK proof generation via the FRI protocol, implemented on top of Winterfell. The language targets post-quantum security through STARKs---no trusted setup, transparent proofs, hash-based cryptographic assumptions.
 
 Source files written in Maat use the `.maat` extension. Compiled bytecode files use the `.mtc` extension.
 
