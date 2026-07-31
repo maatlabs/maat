@@ -1,6 +1,6 @@
 [package]
 name = "maat"
-description = "The Maat programming language -- Rust-native syntax for writing zero-knowledge proofs"
+description = "The Maat programming language --- Rust-native syntax for writing zero-knowledge proofs"
 keywords = ["compiler", "maat", "zero-knowledge", "zk", "cryptography"]
 categories = ["compilers", "command-line-utilities"]
 version.workspace = true
