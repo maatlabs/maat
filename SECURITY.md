@@ -1,6 +1,6 @@
 # Security Policy & Threat Model
 
-This document describes the trust boundaries, attacker model, and mitigations for the Maat compiler toolchain. It covers the current state as of v0.19.0 and will be updated as subsequent versions introduce new attack surfaces.
+This document describes the trust boundaries, attacker model, and mitigations for the Maat compiler toolchain. It covers the current state as of v0.19.1 and will be updated as subsequent versions introduce new attack surfaces.
 
 ## Trust Boundaries
 
@@ -35,7 +35,7 @@ This ledger is part of the release checklist: every release re-checks each statu
 
 **Goal:** Crash the compiler, exhaust memory/stack, or cause undefined behavior (UB) by submitting crafted source code.
 
-**Status:** Mitigated@v0.19.0. Every vector in the table below has an active check, exercised by the fuzz and property suites.
+**Status:** Mitigated@v0.19.1. Every vector in the table below has an active check, exercised by the fuzz and property suites.
 
 **Mitigations:**
 
@@ -61,7 +61,7 @@ This ledger is part of the release checklist: every release re-checks each statu
 
 **Goal:** Exploit the deserializer to allocate excessive memory, crash the VM, or execute unintended operations via hand-crafted bytecode.
 
-**Status:** Mitigated@v0.19.0. The deserializer validates the header and all size bounds before allocation; the VM validates every operand at execution time.
+**Status:** Mitigated@v0.19.1. The deserializer validates the header and all size bounds before allocation; the VM validates every operand at execution time.
 
 **Mitigations:**
 
@@ -80,7 +80,7 @@ This ledger is part of the release checklist: every release re-checks each statu
 
 **Goal:** Convince the verifier to accept a proof for a program execution that did not actually happen, or for a program/output the verifier did not request.
 
-**Status:** Mitigated@v0.19.0 for the in-scope type system (see *Soundness scope* below); inline-composite cell coverage (`Map` / `Set` / `str` / `struct` / `enum`) is **Open** --- see the inline-composite entry following the table.
+**Status:** Mitigated@v0.19.1 for the in-scope type system (see *Soundness scope* below); inline-composite cell coverage (`Map` / `Set` / `str` / `struct` / `enum`) is **Open** --- see the inline-composite entry following the table.
 
 **Mitigations:**
 
@@ -108,7 +108,7 @@ This ledger is part of the release checklist: every release re-checks each statu
 | Forged Rescue digest                      | `Opcode::HashRescue` emits a period-8 block of round witness rows; the per-element transition `(s_next[i] - ARK2[round, i])^7 - sum_j MDS[i][j] * s_curr[j]^7 - ARK1[round, i] = 0` (degree 8 once gated by `SUB_SEL_RESCUE_ROW`) verifies each round, and the input + digest cells flow through the unified memory permutation via `N + DIGEST_SIZE` synthetic heap writes per dispatch. A tampered round state breaks the degree-8 transition; a tampered input or digest cell collides at the matching read row in the sorted L2 list and trips aux constraint 1. The Rescue parameter set is `rp64_256` (Goldilocks, state width 12, capacity 4, rate 8, 7 rounds); intermediate post-S-box state never occupies a witness column (INV_MDS collapse) | `maat_trace/src/main_segment.rs`, `maat_trace/src/recorder.rs`                        |
 | Verifier accepts mismatched public values | The proof envelope cryptographically binds the embedded public values, but a verifier blindly accepting whatever the proof commits to cannot say "this proof attests to `f(x = 3) = y`". `maat verify --public-io <bundle.json>` / `--input` / `--expect-output` / `--expect-program{,-hash}` add an outer assertion layer: cryptographic verify runs first, then assertions are applied in order (program-hash -> public inputs cell-by-cell -> output) and any mismatch exits non-zero with a structured diagnostic. The `PublicIo` bundle round-trips byte-identically between `prove --write-public-io` and `verify --public-io`                                                                                                                     | `maat/src/cmd.rs`, `maat_prover/src/public_io.rs`                                     |
 
-**Soundness scope (v0.19.0):** the proof binds a program execution over integers (`i8`..`i64`, `u8`..`u64`, `usize`, `isize`), `bool`, `Felt`, fixed-size arrays `[T; N]` over primitive `T`, **segment-backed `Vector<T>`** for primitive `T` (with every cell---including builtin-allocated returns---covered by the memory permutation argument via `SUB_SEL_SYNTHETIC_HEAP`), **segment-backed closures** (captures covered by the same synthetic heap-write primitive), **Rescue-Prime hashing** (`hash::rescue_2` / `rescue_4` / `rescue_8`, with `N + DIGEST_SIZE` input and digest cells per dispatch covered by the memory permutation), and user-defined functions over those types---including a top-level `fn main(<params>) -> T` entry point with public (`pub`) parameters bound cell-by-cell into the public-memory accumulator and private (bare) parameters bound to an uncommitted prover-supplied witness segment, bitwise operators (AND/OR/XOR via the chunked-LogUp diluted-form pool, SHL/SHR via the pow2-lookup pool), ordering comparisons across every integer width up through `u64`/`i64`/`usize`/`isize` (`<`/`>`/`<=`/`>=`), `Option<T>` / `Result<T, E>` pattern matching (`SUB_SEL_MATCH_TAG_JUMP` covers the jumping arm), and `#[bounded(N)]` loops. The bytecode is committed cell-by-cell to the AIR's public-memory accumulator, so the proof additionally binds the exact program that produced the trace. The verifier-side public-I/O bundle (`maat verify --public-io / --input / --expect-output / --expect-program{,-hash}`) adds an assertion layer on top of the cryptographic verify so embedded values can be pinned to verifier-supplied expectations rather than blindly accepted. All `examples/*.maat` programs prove and verify end-to-end under `development_options`.
+**Soundness scope (v0.19.1):** the proof binds a program execution over integers (`i8`..`i64`, `u8`..`u64`, `usize`, `isize`), `bool`, `Felt`, fixed-size arrays `[T; N]` over primitive `T`, **segment-backed `Vector<T>`** for primitive `T` (with every cell---including builtin-allocated returns---covered by the memory permutation argument via `SUB_SEL_SYNTHETIC_HEAP`), **segment-backed closures** (captures covered by the same synthetic heap-write primitive), **Rescue-Prime hashing** (`hash::rescue_2` / `rescue_4` / `rescue_8`, with `N + DIGEST_SIZE` input and digest cells per dispatch covered by the memory permutation), and user-defined functions over those types---including a top-level `fn main(<params>) -> T` entry point with public (`pub`) parameters bound cell-by-cell into the public-memory accumulator and private (bare) parameters bound to an uncommitted prover-supplied witness segment, bitwise operators (AND/OR/XOR via the chunked-LogUp diluted-form pool, SHL/SHR via the pow2-lookup pool), ordering comparisons across every integer width up through `u64`/`i64`/`usize`/`isize` (`<`/`>`/`<=`/`>=`), `Option<T>` / `Result<T, E>` pattern matching (`SUB_SEL_MATCH_TAG_JUMP` covers the jumping arm), and `#[bounded(N)]` loops. The bytecode is committed cell-by-cell to the AIR's public-memory accumulator, so the proof additionally binds the exact program that produced the trace. The verifier-side public-I/O bundle (`maat verify --public-io / --input / --expect-output / --expect-program{,-hash}`) adds an assertion layer on top of the cryptographic verify so embedded values can be pinned to verifier-supplied expectations rather than blindly accepted. All `examples/*.maat` programs prove and verify end-to-end under `development_options`.
 
 **Status --- Open (inline-composite forgery).** `Map<K, V>`, `Set<T>`, `str`, `struct`, and `enum` continue to execute via inline `Value` variants. Their inline forms prove and verify cleanly for current programs (the cells never enter the heap), but those cells are not yet covered by the AIR's memory permutation argument---a malicious prover could substitute their contents without trace-level detection. No currently-shipping example or test exercises this gap; segment-backed migration is gated on a concrete consumer that makes AIR-level cell coverage load-bearing (recursive proofs, STARK-to-SNARK wrapping, in-AIR composite-cell content). This is the one **Open** item in Attacker 3's surface; everything in the table above is Mitigated.
 
@@ -116,7 +116,7 @@ This ledger is part of the release checklist: every release re-checks each statu
 
 **Goal:** Cause the compiler or VM to consume unbounded CPU time or memory.
 
-**Status:** Mitigated@v0.19.0, except the algorithmic-complexity vector under *Not yet mitigated*, which is **Accepted-risk** under the single-user execution model.
+**Status:** Mitigated@v0.19.1, except the algorithmic-complexity vector under *Not yet mitigated*, which is **Accepted-risk** under the single-user execution model.
 
 **Mitigations:**
 
